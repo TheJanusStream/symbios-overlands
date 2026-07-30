@@ -463,6 +463,34 @@ pub(super) fn blob_capsule(
     }
 }
 
+/// Flip a [`blob_group`] element to **carve** instead of add — eye sockets,
+/// nostrils, creases, a slot in a mass. Subtraction is smooth like the union
+/// is, so a carved socket has a soft rim rather than a knife edge.
+pub(super) fn carved(
+    mut element: crate::pds::generator::BlobElement,
+) -> crate::pds::generator::BlobElement {
+    element.subtract = true;
+    element
+}
+
+/// The smallest feature a [`blob_group`] at `resolution` can resolve across
+/// `longest_axis`, in metres.
+///
+/// Surface nets samples a grid and polygonises where the field crosses zero,
+/// so a feature thinner than about two cells is **missed in places** — the
+/// mesh comes out with holes in it rather than merely coarse. The pirate
+/// flag found this the expensive way: a 0.06 m cloth 1.9 m wide at
+/// resolution 30 is 63 mm cells, so the sheet was thinner than one cell and
+/// polygonised as two disconnected slabs with a gap down the middle.
+///
+/// Multiply by two and treat the result as a floor on any thin dimension.
+/// Note that `resolution` is capped at 48 by the sanitiser, so past about
+/// 2 m of span the only way to keep a sheet solid is to make it thicker.
+#[cfg(test)]
+pub(super) fn blob_cell_size(longest_axis: f32, resolution: u32) -> f32 {
+    longest_axis / resolution.max(1) as f32
+}
+
 /// Right-triangular prism — a ramp / awning / roof pitch / buttress. `size`
 /// is the bounding box; the slope rises from the front-bottom (`+Z`, `-Y`) to
 /// the back-top (`-Z`, `+Y`) across the full width (X).
@@ -1961,6 +1989,67 @@ pub(super) fn assert_no_tilted_parents(root: &Generator, slug: &str) {
         }
     }
     walk(root, [0.0; 3], slug);
+}
+
+/// How many disconnected components a [`blob_group`] polygonises into.
+///
+/// One is almost always the intended answer: a group's whole reason to exist
+/// is that its elements blend into a single skin, and a second component
+/// means two of them drifted out of blend range — or, more often, that the
+/// mesh is thinner than the sample grid can resolve and has broken up (see
+/// [`blob_cell_size`]).
+///
+/// Union-find over the welded triangle graph. Coincident vertices are welded
+/// first because the Box UV projection duplicates a vertex per projection
+/// region, and those seam splits are texture topology rather than geometry.
+/// Lifted from the avatar suite's
+/// `humanoid_blob_masses_are_single_connected_skins`, which is where the
+/// technique was worked out, so the catalogue does not roll a second copy.
+#[cfg(test)]
+pub(super) fn blob_components(kind: &GeneratorKind) -> usize {
+    use bevy::mesh::VertexAttributeValues;
+
+    fn find(parent: &mut [usize], mut a: usize) -> usize {
+        while parent[a] != a {
+            parent[a] = parent[parent[a]];
+            a = parent[a];
+        }
+        a
+    }
+    let mesh = crate::world_builder::build_primitive_mesh(kind).mesh;
+    let pos = match mesh.attribute(bevy::prelude::Mesh::ATTRIBUTE_POSITION) {
+        Some(VertexAttributeValues::Float32x3(p)) => p.clone(),
+        _ => return 0,
+    };
+    let Some(indices) = mesh.indices() else {
+        return 0;
+    };
+    let mut weld: std::collections::HashMap<[u32; 3], usize> =
+        std::collections::HashMap::with_capacity(pos.len());
+    let rep: Vec<usize> = pos
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            *weld
+                .entry([p[0].to_bits(), p[1].to_bits(), p[2].to_bits()])
+                .or_insert(i)
+        })
+        .collect();
+    let n = pos.len();
+    let mut parent: Vec<usize> = (0..n).collect();
+    let mut touched = vec![false; n];
+    let idx: Vec<usize> = indices.iter().map(|i| rep[i]).collect();
+    for tri in idx.chunks(3) {
+        for &(a, b) in &[(tri[0], tri[1]), (tri[0], tri[2])] {
+            touched[a] = true;
+            touched[b] = true;
+            let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
+            parent[ra] = rb;
+        }
+    }
+    (0..n)
+        .filter(|&v| touched[v] && find(&mut parent, v) == v)
+        .count()
 }
 
 /// Walk a built tree and report whether any primitive is strongly emissive

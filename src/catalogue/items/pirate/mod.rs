@@ -559,13 +559,39 @@ pub(super) fn lantern(at: [f32; 3], h: f32, seed: u32) -> Generator {
     )
 }
 
-/// Depth of the flag cloth's own skin, half-extent.
-const FLAG_SKIN: f32 = 0.03;
-/// Half-depth of the device relief carried on the flag's front.
+/// Half-thickness of the flag cloth.
+///
+/// **Set by the mesher, not by taste.** A `BlobGroup` is polygonised on a
+/// sample grid, so anything thinner than about two cells is missed in places
+/// and the mesh comes out with holes rather than merely coarse. At
+/// [`FLAG_RES`] across a two-metre flag the cells are ~45 mm, so the cloth
+/// has to be ~120 mm thick to survive — which is heavy for canvas and is the
+/// price of the technique. The first build used 30 mm at resolution 30 and
+/// polygonised as two disconnected slabs with a gap down the middle, which is
+/// exactly what showed in-world.
+const FLAG_SKIN: f32 = 0.06;
+/// Sample resolution for the cloth. Near the sanitiser's 48 ceiling, because
+/// every cell of it buys thinner cloth — see [`FLAG_SKIN`].
+const FLAG_RES: u32 = 44;
+/// Half-thickness of the bone device, and its sample resolution. It spans far
+/// less than the cloth, so the same cell budget goes much further.
 const DEVICE_SKIN: f32 = 0.05;
+const DEVICE_RES: u32 = 30;
 /// How far the device's back edge bites INTO the cloth, so it reads as
-/// painted on rather than hovering in front of it.
-const DEVICE_BITE: f32 = 0.005;
+/// applied to the flag rather than hovering in front of it.
+const DEVICE_BITE: f32 = 0.008;
+/// Amplitude of the cloth's ripple, in metres of Z excursion.
+///
+/// Named because the device's standoff is derived from it: the sheet is not
+/// flat, so anything applied to its face has to clear the deepest lobe, not
+/// just the mid-plane.
+const FLAG_RIPPLE: f32 = 0.05;
+/// How far the cloth's luff laps ONTO the staff it is bent to.
+///
+/// A flag that merely reaches the staff reads as floating beside it; the luff
+/// has to overlap the timber. The first build placed the cloth by its centre
+/// and left a 100 mm gap, which is why the colours looked detached.
+const HOIST_LAP: f32 = 0.07;
 
 /// The black colours — a hanging flag with a skull and crossed bones.
 ///
@@ -573,101 +599,137 @@ const DEVICE_BITE: f32 = 0.005;
 /// the battery flies one over its terreplein and the gate flies one from its
 /// yard, and two files each rolling their own is two files that can drift.
 ///
-/// `w`/`h` are the cloth's extent and `centre` is its middle. The hoist edge
-/// is `-X`, so hang it off the starboard half of a yard.
+/// `hoist` is the point **on the staff** the flag is bent to, not the cloth's
+/// centre. Taking the attachment point is what makes the flag attached: the
+/// luff laps [`HOIST_LAP`] onto the timber by construction, and a caller
+/// cannot leave it hanging in space by getting an offset wrong. The fly runs
+/// to `+X` and the cloth hangs below `hoist`.
 ///
-/// # Why this is two BlobGroups and not six prims
+/// # Three groups, and why
 ///
-/// The first build was a flat cuboid with a sphere and two turned bars laid on
-/// it, and it had the fault that shape can only have: **the skull poked
-/// through the back of the flag**. A sphere big enough to read at 20 m is
-/// 0.34 m across and the cloth is 30 mm thick, so most of the device lived
-/// behind the cloth, showing as a bulge on the reverse.
+/// The cloth is one group, the skull is a second and the crossed bones are a
+/// third. A `BlobGroup` carries one material, so bone-on-black already forces
+/// two — but the skull and the bones are split from each other as well,
+/// because blended into one group they melt together at the jaw and the whole
+/// device reads as a single lumpy figure with arms rather than as a skull
+/// above two bones. Blending is the right default *within* an object and the
+/// wrong one *between* objects that only touch.
 ///
-/// Surface nets fixes that structurally rather than by nudging numbers. The
-/// cloth is one blended group — five slightly staggered boxes, so it hangs
-/// with a ripple in it instead of reading as sheet steel — and the device is a
-/// second group flattened to [`DEVICE_SKIN`] and seated [`DEVICE_BITE`] into
-/// the cloth's front face. It cannot reach the back because it is not deep
-/// enough to, and that is checked rather than eyeballed.
-///
-/// Two groups because a BlobGroup carries one material, and the whole point of
-/// a Jolly Roger is that the device is bone against black.
-pub(super) fn jolly_roger(centre: [f32; 3], w: f32, h: f32) -> Generator {
+/// The device sits proud of the cloth's front face and is far too shallow to
+/// reach its back, which is checked rather than eyeballed.
+pub(super) fn jolly_roger(hoist: [f32; 3], w: f32, h: f32) -> Generator {
     use super::util::{
-        blob_box, blob_capsule, blob_ellipsoid, blob_group, id_quat, nest, prim, quat_z,
+        blob_box, blob_capsule, blob_ellipsoid, blob_group, carved, id_quat, nest, prim, quat_z,
     };
 
-    // --- The cloth: five panels blended into one rippled sheet ------------
-    //
-    // The ripple is in Z and grows toward the fly (`+X`), which is how a flag
-    // actually behaves — the hoist is laced to the staff and cannot move.
-    let panels = 5;
-    let panel_w = w / panels as f32;
-    let cloth: Vec<_> = (0..panels)
-        .map(|i| {
-            let t = (i as f32 + 0.5) / panels as f32;
-            let x = (t - 0.5) * w;
-            // Half a wave across the fly, scaled by how far out it is.
-            let wave = (t * std::f32::consts::PI * 1.5).sin() * 0.045 * t;
-            blob_box(
-                [x, 0.0, wave],
-                [panel_w * 0.62, h * 0.5, FLAG_SKIN],
-                panel_w * 0.5,
-            )
-        })
-        .collect();
+    // Cloth centre, derived from the attachment point so the luff overlaps
+    // the staff whatever width the flag is given.
+    let cx = hoist[0] + w * 0.5 - HOIST_LAP;
+    let c = [cx, hoist[1] - h * 0.5, hoist[2]];
 
-    // --- The device: skull, jaw and crossed bones, as one relief ----------
+    // --- The cloth --------------------------------------------------------
     //
-    // Seated just inside the cloth's front face. Every element is flattened to
-    // `DEVICE_SKIN`, so the group's whole depth is 0.1 m against the cloth's
-    // 0.06 — it physically cannot reach the reverse.
-    let dz = -(FLAG_SKIN + DEVICE_SKIN - DEVICE_BITE);
-    let skull_r = h * 0.17;
-    let bone_len = w * 0.24;
-    let device = vec![
-        // Cranium.
+    // One full-extent slab guarantees a single connected mass, and three
+    // shallow lobes offset in Z give it a ripple. Building the ripple out of
+    // abutting panels instead — as the first version did — makes connectivity
+    // a property of the blend radius, which is exactly the thing that fails
+    // quietly.
+    let ripple = FLAG_RIPPLE;
+    let mut cloth = vec![blob_box(
+        [0.0, 0.0, 0.0],
+        [w * 0.5, h * 0.5, FLAG_SKIN * 0.72],
+        0.04,
+    )];
+    for i in 0..3 {
+        let t = (i as f32 + 1.0) / 4.0;
+        cloth.push(blob_box(
+            // The ripple grows toward the fly: the luff is laced to the staff
+            // and cannot move.
+            [
+                (t - 0.5) * w,
+                0.0,
+                (t * std::f32::consts::PI * 2.0).sin() * ripple * t,
+            ],
+            [w * 0.17, h * 0.5, FLAG_SKIN],
+            w * 0.12,
+        ));
+    }
+
+    // --- The device, seated in the cloth's front face ---------------------
+    //
+    // Stood off by the RIPPLE as well as the skin. The cloth is not flat, so
+    // "in front of the cloth" is not the same as "in front of the cloth's
+    // mid-plane" — a device sunk to the skin alone is proud where it sits and
+    // behind the sheet a third of a metre away, which is worse than either.
+    // Clearing the deepest lobe makes the relief read as applied to the whole
+    // flag from every angle.
+    let dz = -(FLAG_SKIN + FLAG_RIPPLE + DEVICE_SKIN - DEVICE_BITE);
+    let skull_r = h * 0.16;
+    let skull_y = h * 0.13;
+    let skull = vec![
         blob_ellipsoid(
-            [0.0, h * 0.12, dz],
-            [skull_r, skull_r * 1.05, DEVICE_SKIN],
+            [0.0, skull_y, dz],
+            [skull_r, skull_r * 1.02, DEVICE_SKIN],
             0.02,
         ),
-        // Jaw, narrower and below — the pair is what reads as a skull rather
-        // than as a dot at flag distance.
+        // Jaw: narrower and square, which is what separates a skull from a
+        // ball at any distance this is read from.
         blob_box(
-            [0.0, h * 0.12 - skull_r * 1.05, dz],
-            [skull_r * 0.62, skull_r * 0.4, DEVICE_SKIN * 0.9],
+            [0.0, skull_y - skull_r * 0.92, dz],
+            [skull_r * 0.58, skull_r * 0.34, DEVICE_SKIN * 0.85],
             0.03,
         ),
-        // Two crossed bones under it.
+        // Two carved sockets. The single most legible feature on a skull, and
+        // subtraction is the only way to get them without a second material.
+        carved(blob_ellipsoid(
+            [
+                -skull_r * 0.42,
+                skull_y + skull_r * 0.12,
+                dz - DEVICE_SKIN * 0.45,
+            ],
+            [skull_r * 0.27, skull_r * 0.25, DEVICE_SKIN * 0.85],
+            0.012,
+        )),
+        carved(blob_ellipsoid(
+            [
+                skull_r * 0.42,
+                skull_y + skull_r * 0.12,
+                dz - DEVICE_SKIN * 0.45,
+            ],
+            [skull_r * 0.27, skull_r * 0.25, DEVICE_SKIN * 0.85],
+            0.012,
+        )),
+    ];
+
+    let bone_len = w * 0.22;
+    let bone_y = -h * 0.19;
+    let bones = vec![
         blob_capsule(
-            [0.0, -h * 0.2, dz],
-            skull_r * 0.22,
+            [0.0, bone_y, dz],
+            skull_r * 0.2,
             bone_len,
-            quat_z(0.72),
-            0.02,
+            quat_z(0.78),
+            0.015,
         ),
         blob_capsule(
-            [0.0, -h * 0.2, dz],
-            skull_r * 0.22,
+            [0.0, bone_y, dz],
+            skull_r * 0.2,
             bone_len,
-            quat_z(-0.72),
-            0.02,
+            quat_z(-0.78),
+            0.015,
         ),
     ];
 
     nest(
         prim(
-            blob_group(cloth, 30, sailcloth(HULL_TAR, [0.09, 0.09, 0.10])),
-            centre,
+            blob_group(cloth, FLAG_RES, sailcloth(HULL_TAR, [0.09, 0.09, 0.10])),
+            c,
             id_quat(),
         ),
-        vec![prim(
-            blob_group(device, 26, bone(BONE_PALE)),
-            centre,
-            id_quat(),
-        )],
+        vec![
+            prim(blob_group(skull, DEVICE_RES, bone(BONE_PALE)), c, id_quat()),
+            prim(blob_group(bones, DEVICE_RES, bone(BONE_PALE)), c, id_quat()),
+        ],
     )
 }
 
@@ -825,57 +887,118 @@ mod tests {
         );
     }
 
-    /// The device sits ON the flag's front, not through it (#1025).
+    /// The colours are three connected groups, hung on their staff, with the
+    /// device standing on the cloth's front face (#1025, #1026).
     ///
-    /// The fault this replaces was visible from behind: a 0.34 m skull sphere
-    /// laid on a 0.06 m cloth put most of the device out the back, so the
-    /// reverse of the colours carried a white bulge. Stated as the two
-    /// relationships that matter — the relief is proud of the front face, and
-    /// its own back stays short of the cloth's — so no re-sizing of either
-    /// group can quietly reopen it.
+    /// Four claims, each of which was a fault in-world:
     ///
-    /// Measured off the built meshes rather than off the element constants:
-    /// surface nets puts the iso-surface a little outside the analytic shapes,
-    /// and a guard that trusts the inputs would miss exactly that margin.
+    /// * **The cloth is ONE mesh.** A `BlobGroup` is polygonised on a sample
+    ///   grid, so a sheet thinner than ~2 cells is missed in places and comes
+    ///   out with holes. At 30 mm thick and resolution 30 the flag meshed as
+    ///   two disconnected slabs with a gap down the middle. Checked by union-
+    ///   find over the triangle graph, which is the only way to see it — the
+    ///   bounding box of a flag with a hole in it is the same as a whole one.
+    /// * **The device is proud of the front and short of the back.** A 0.34 m
+    ///   skull on a 0.06 m cloth put most of itself out the reverse.
+    /// * **Skull and bones are separate groups.** Blended together they melt
+    ///   at the jaw and read as one lumpy figure with arms.
+    /// * **The luff laps the staff.** Positioned by its centre, the cloth left
+    ///   a 100 mm gap and the colours looked detached from their own pole.
     #[test]
-    fn the_flag_device_is_a_relief_on_the_front_face() {
+    fn the_colours_are_one_cloth_carrying_a_separate_skull_and_bones() {
         use crate::catalogue::items::measure;
-        let flag = jolly_roger([0.0, 0.0, 0.0], 1.6, 1.1);
-        let solids = measure::solids(&flag);
+        use crate::catalogue::items::util::{blob_cell_size, blob_components};
+
+        let hoist = [0.0_f32, 2.0, 0.0];
+        let (w, h) = (1.9_f32, 1.25);
+        let flag = jolly_roger(hoist, w, h);
+
+        // Three groups: cloth, skull, bones.
+        let mut kinds = Vec::new();
+        fn walk(g: &Generator, out: &mut Vec<crate::pds::GeneratorKind>) {
+            if matches!(g.kind, crate::pds::GeneratorKind::BlobGroup { .. }) {
+                out.push(g.kind.clone());
+            }
+            for c in &g.children {
+                walk(c, out);
+            }
+        }
+        walk(&flag, &mut kinds);
         assert_eq!(
-            solids.len(),
-            2,
-            "the colours are a cloth group and a device group, found {}",
-            solids.len()
+            kinds.len(),
+            3,
+            "expected a cloth, a skull and a bones group, found {}",
+            kinds.len()
         );
-        // Hero side is -Z, so the front face is the smaller z.
-        let (cloth, device) = if solids[0].bounds.size().x > solids[1].bounds.size().x {
-            (&solids[0], &solids[1])
-        } else {
-            (&solids[1], &solids[0])
-        };
+        for (i, k) in kinds.iter().enumerate() {
+            assert_eq!(
+                blob_components(k),
+                1,
+                "group {i} polygonised into more than one piece — its elements \
+                 are out of blend range, or it is thinner than the sample grid \
+                 can resolve"
+            );
+        }
+
+        // The cloth is thick enough for its own grid to see it.
+        let cell = blob_cell_size(w, FLAG_RES);
         assert!(
-            device.bounds.min.z < cloth.bounds.min.z,
-            "the device's face is at z = {} and the cloth's at {} — the relief \
-             is not standing proud of the flag",
-            device.bounds.min.z,
-            cloth.bounds.min.z
+            FLAG_SKIN * 2.0 > cell * 2.0,
+            "a {} m cloth on {cell} m cells is under two cells thick and will \
+             polygonise with holes in it",
+            FLAG_SKIN * 2.0
         );
+
+        let solids = measure::solids(&flag);
+        assert_eq!(solids.len(), 3);
+        let cloth = solids
+            .iter()
+            .max_by(|a, b| {
+                a.bounds
+                    .size()
+                    .x
+                    .partial_cmp(&b.bounds.size().x)
+                    .expect("finite extents")
+            })
+            .expect("the cloth is the widest group");
+
+        // The luff laps onto the staff at the hoist.
         assert!(
-            device.bounds.max.z < cloth.bounds.max.z,
-            "the device reaches z = {} and the cloth's back is at {} — the \
-             skull is coming out of the back of the flag",
-            device.bounds.max.z,
-            cloth.bounds.max.z
+            cloth.bounds.min.x <= hoist[0] + 1e-3,
+            "the cloth's luff is at x = {} and the staff at {} — the colours \
+             are hanging beside their own pole",
+            cloth.bounds.min.x,
+            hoist[0]
         );
-        // And it is a device on a flag, not a flag-sized lump.
-        assert!(
-            device.bounds.size().x < cloth.bounds.size().x * 0.8
-                && device.bounds.size().y < cloth.bounds.size().y * 0.8,
-            "the device {:?} is not comfortably inside the cloth {:?}",
-            device.bounds.size(),
-            cloth.bounds.size()
-        );
+
+        // Hero side is -Z, so the front face is the smaller z. Every device
+        // group must stand proud of it and stop short of the back.
+        for part in &solids {
+            if std::ptr::eq(part, cloth) {
+                continue;
+            }
+            assert!(
+                part.bounds.min.z < cloth.bounds.min.z,
+                "a device group's face is at z = {} and the cloth's at {} — \
+                 the relief is not standing proud of the flag",
+                part.bounds.min.z,
+                cloth.bounds.min.z
+            );
+            assert!(
+                part.bounds.max.z < cloth.bounds.max.z,
+                "a device group reaches z = {} and the cloth's back is at {} \
+                 — it is coming out of the back of the flag",
+                part.bounds.max.z,
+                cloth.bounds.max.z
+            );
+            assert!(
+                part.bounds.size().x < cloth.bounds.size().x * 0.8
+                    && part.bounds.size().y < cloth.bounds.size().y * 0.8,
+                "a device group {:?} is not comfortably inside the cloth {:?}",
+                part.bounds.size(),
+                cloth.bounds.size()
+            );
+        }
     }
 
     /// Every surface generator in the kit is sized in metres through

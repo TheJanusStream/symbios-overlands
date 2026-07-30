@@ -103,13 +103,19 @@ const FLAG_DROP: f32 = 0.06;
 const FLAG_CLEAR: f32 = 0.22;
 /// How far the meshed cloth bulges past its authored half-height.
 ///
-/// The colours are a `BlobGroup`, and surface nets places the iso-surface a
-/// little *outside* the analytic elements it is fitting — around 30 mm at this
-/// blend radius. So the built flag is taller than `FLAG_H` says, and a
+/// The colours are a `BlobGroup`, and surface nets places the iso-surface
+/// *outside* the analytic elements it is fitting, by roughly the blend radius.
+/// So the built flag is meaningfully taller than `FLAG_H` says, and a
 /// clearance derived from the authored number alone comes up short by exactly
-/// that margin, which is what the guard caught. Anything positioned against a
-/// blob's edge has to pay this.
-const FLAG_BLOOM: f32 = 0.04;
+/// that margin — which is what the guard caught, twice: once at 30 mm and
+/// again at 70 mm after the cloth was thickened and its blend widened to stop
+/// it polygonising with holes (#1026).
+///
+/// It is a measured allowance rather than a formula because the bloom depends
+/// on blend radius, cell size and how many elements overlap at that point.
+/// The guard is what keeps it honest: anything positioned against a blob's
+/// edge pays this, and if the blob is retuned the guard says so.
+const FLAG_BLOOM: f32 = 0.09;
 
 /// Hero side — the approach the gate is read from. The render tool and the
 /// settlement placer both look down `-Z`.
@@ -319,7 +325,7 @@ fn head() -> Generator {
     // and a bone relief seated in its front face, so the skull cannot poke
     // through the back the way a sphere on a slab did.
     carried.push(jolly_roger(
-        [0.82, yard_y - FLAG_H * 0.5 - FLAG_DROP, FRONT * 0.04],
+        [0.0, yard_y - FLAG_DROP, FRONT * 0.04],
         FLAG_W,
         FLAG_H,
     ));
@@ -551,8 +557,9 @@ mod tests {
         blob_bounds(&g, [0.0; 3], &mut blobs);
         assert_eq!(
             blobs.len(),
-            2,
-            "the colours are a cloth group and a device group, found {}",
+            3,
+            "the colours are a cloth group plus a separate skull and bones, \
+             found {}",
             blobs.len()
         );
         let flag = blobs

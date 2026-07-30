@@ -127,6 +127,22 @@ const CHAMBER_D: f32 = 2.5;
 /// The plane every chamber's rear lining stands on.
 const CHAMBER_BACK: f32 = FACE_Z + CHAMBER_D;
 
+/// How far a chamber's fit-out is held inside the opening it sits in.
+///
+/// Everything loose in a chamber — the floor, the rear lining — is sized to
+/// the CLEAR span less this on each side, so no piece of fit-out ever runs
+/// into the masonry that frames it or shares a plane with it. The first build
+/// sized the floor at `PORT_W + 0.9`, which put 0.45 m of it inside each pier.
+const CHAMBER_INSET: f32 = 0.05;
+
+/// How far a chamber floor is bedded BELOW the sill it lies on.
+///
+/// Laid exactly on the sill its underside is coplanar with the talus top over
+/// its whole footprint, which is a z-fight across the brightest surface inside
+/// the port. Bedded in, there is no shared plane and it reads as a boarded
+/// floor laid over stone, which is what it is.
+const FLOOR_SINK: f32 = 0.03;
+
 /// Guard house opening — clear width, and its head (shared with the ports so
 /// the elevation has one head line).
 const GUARD_W: f32 = 2.60;
@@ -460,9 +476,22 @@ fn casemate(x: f32, seed: u32) -> Generator {
     // stands on, so nesting under it makes the fit-out one sub-assembly a
     // single gizmo drag moves, and gives the footprint guards something to
     // measure against (#972 lessons 3 and 19).
+    // Sized to the CLEAR OPENING and bedded into the sill, not laid on it.
+    //
+    // Both faults were visible in-world as one grey rectangle fighting the
+    // wall beside it. At `PORT_W + 0.9` the platform was 0.45 m wider than
+    // its own hole on each side, so it ran into the piers; and its underside
+    // sat exactly on the talus top, so those two faces were coplanar across
+    // the whole footprint. Narrower than the opening and sunk below the sill
+    // fixes both by construction — there is no shared plane left to fight
+    // over, and nothing of it inside the masonry.
     let floor = prim(
         solid(cuboid_tapered(
-            [PORT_W + 0.9, 0.08, CHAMBER_D],
+            [
+                PORT_W - CHAMBER_INSET * 2.0,
+                0.09,
+                CHAMBER_D - CHAMBER_INSET * 2.0,
+            ],
             0.0,
             // Dim, because an interior has to read darker than the sunlit
             // masonry round its opening — a floor tuned to look good on its
@@ -470,7 +499,11 @@ fn casemate(x: f32, seed: u32) -> Generator {
             // depth the port exists to show.
             lit_interior([0.30, 0.27, 0.24], 0.16),
         )),
-        [x, floor_y + 0.04, FACE_Z + CHAMBER_D * 0.5],
+        [
+            x,
+            floor_y + 0.09 * 0.5 - FLOOR_SINK,
+            FACE_Z + CHAMBER_D * 0.5,
+        ],
         id_quat(),
     );
     let carried = vec![
@@ -479,11 +512,18 @@ fn casemate(x: f32, seed: u32) -> Generator {
         // flat grey box however well they are lit.
         prim(
             solid(cuboid_tapered(
-                [PORT_W + 0.9, PORT_H, 0.1],
+                [PORT_W - CHAMBER_INSET * 2.0, PORT_H, 0.1],
                 0.0,
                 lit_interior([0.42, 0.31, 0.20], 0.3),
             )),
-            [x, (floor_y + ceil_y) * 0.5, CHAMBER_BACK - 0.05],
+            // Held clear of the rear mass's own front face. Flush against it
+            // the two are coplanar over the whole lining, which is the same
+            // fault as the floor's arriving from the other axis.
+            [
+                x,
+                (floor_y + ceil_y) * 0.5,
+                CHAMBER_BACK - 0.05 - CHAMBER_INSET,
+            ],
             id_quat(),
         ),
         // The lantern hangs inside the cone the port admits — see
@@ -515,21 +555,29 @@ fn guard_house() -> Generator {
     // passage.
     let floor = prim(
         solid(cuboid_tapered(
-            [GUARD_W, 0.08, CHAMBER_D],
+            [
+                GUARD_W - CHAMBER_INSET * 2.0,
+                0.09,
+                CHAMBER_D - CHAMBER_INSET * 2.0,
+            ],
             0.0,
             lit_interior([0.32, 0.29, 0.25], 0.18),
         )),
-        [0.0, floor_y + 0.04, FACE_Z + CHAMBER_D * 0.5],
+        [
+            0.0,
+            floor_y + 0.09 * 0.5 - FLOOR_SINK,
+            FACE_Z + CHAMBER_D * 0.5,
+        ],
         id_quat(),
     );
     let mut out = vec![
         prim(
             solid(cuboid_tapered(
-                [GUARD_W, GUARD_HEAD - floor_y, 0.1],
+                [GUARD_W - CHAMBER_INSET * 2.0, GUARD_HEAD - floor_y, 0.1],
                 0.0,
                 lit_interior([0.44, 0.33, 0.21], 0.32),
             )),
-            [0.0, mid_y, CHAMBER_BACK - 0.05],
+            [0.0, mid_y, CHAMBER_BACK - 0.05 - CHAMBER_INSET],
             id_quat(),
         ),
         // Lantern under the head, on the same reasoning as the casemates'.
@@ -673,29 +721,28 @@ fn parapet() -> Vec<Generator> {
     out
 }
 
-/// The sentry box at the head of the gorge steps.
+/// Ready-use powder locker: a boarded chest with a pitched shingle lid.
 ///
-/// A boarded hut with a shingle roof — the one piece of *carpentry* on a
-/// building otherwise made of stone, iron and bronze, which is exactly why it
-/// earns its place: a mass this size needs something at human scale standing
-/// on it or the terreplein reads as an empty table top. It also gives the eye
-/// the height reference that tells you the parapet is chest-high and the guns
-/// are two and a half metres long.
-fn sentry_box() -> Generator {
-    let w = 0.95;
-    let h = 2.05;
-    let x = DECK[0] * 0.5 - 2.4;
-    let z = DECK[2] * 0.5 - 1.6;
-    let body_c = [x, DECK_TOP + h * 0.5, z];
+/// Replaces a sentry box, which was the first thing tried here and did not
+/// work. A sentry box is a hut, and a hut at this scale on a stone platform
+/// reads as an outhouse — the user's word for it in-world was "hut(?)", the
+/// question mark being the whole problem. A **chest** is furniture-scale and
+/// has no other reading: a low boarded body under a pitched lid with iron
+/// straps and a hasp is a chest from any angle and at any distance.
+///
+/// It also earns its place functionally. A gun deck needs powder to hand and
+/// cannot keep it in the magazine two storeys down, so ready-use lockers are
+/// what actually stood between the pieces.
+fn powder_locker(x: f32, z: f32) -> Generator {
+    let body = [1.55, 0.72, 0.82];
+    let body_c = [x, DECK_TOP + body[1] * 0.5, z];
     nest(
         prim(
-            solid(cuboid_tapered_xz(
-                [w, h, w],
-                [0.04, 0.04],
-                // Boarded, and standing UP: a sentry box is battened
-                // vertically, and the quarter turn is free here because an
-                // unstaggered plank has nothing structured along U to break
-                // (#972 lesson 15).
+            solid(cuboid_tapered(
+                body,
+                0.0,
+                // Boarded UP, the way a chest's carcase is built — the quarter
+                // turn is free on unstaggered plank (#972 lesson 15).
                 crate::catalogue::items::util::bonded_boards(
                     board(WHARF_GREY),
                     FaceKey::SideNz,
@@ -706,34 +753,126 @@ fn sentry_box() -> Generator {
             id_quat(),
         ),
         vec![
-            // Shingle cap, pinched to a ridge on one axis alone —
-            // `cuboid_tapered` pinches BOTH and would round the hut's whole
-            // profile away on four sides, which is the fault the barn shipped.
+            // Pitched lid, pinched on ONE axis: `cuboid_tapered` pinches both
+            // and would round the chest's whole profile away (the barn's
+            // shipped fault).
             prim(
                 solid(cuboid_tapered_xz(
-                    [w + 0.22, 0.34, w + 0.22],
-                    [0.0, 0.9],
+                    [body[0] + 0.12, 0.26, body[2] + 0.12],
+                    [0.0, 0.75],
                     shingle(SHINGLE_GREY),
                 )),
-                [x, DECK_TOP + h + 0.17, z],
+                [x, DECK_TOP + body[1] + 0.13, z],
                 id_quat(),
             ),
-            // The opening faces the guns, not the sea: a sentry watches the
-            // battery he is standing on.
+            // Two iron straps over the carcase, and a hasp on the front.
             prim(
                 solid(cuboid_tapered(
-                    [w - 0.22, h - 0.5, 0.06],
+                    [0.07, body[1] + 0.02, body[2] + 0.03],
                     0.0,
-                    lit_interior([0.34, 0.28, 0.22], 0.14),
+                    iron(IRON_BLACK, 0xF1),
                 )),
-                [x, DECK_TOP + h * 0.5 - 0.1, z - w * 0.5 + 0.04],
+                [x - body[0] * 0.28, body_c[1], z],
+                id_quat(),
+            ),
+            prim(
+                solid(cuboid_tapered(
+                    [0.07, body[1] + 0.02, body[2] + 0.03],
+                    0.0,
+                    iron(IRON_BLACK, 0xF2),
+                )),
+                [x + body[0] * 0.28, body_c[1], z],
+                id_quat(),
+            ),
+            prim(
+                solid(cuboid_tapered(
+                    [0.18, 0.22, 0.06],
+                    0.0,
+                    iron(IRON_BLACK, 0xF3),
+                )),
+                [x, DECK_TOP + body[1] * 0.72, z - body[2] * 0.5 - 0.02],
                 id_quat(),
             ),
         ],
     )
 }
 
-/// The colours on their staff, at the gorge end of the deck.
+/// A rack of rammers and sponges standing by the guns.
+///
+/// Replaces a furled tarpaulin, which was the other prop that did not read —
+/// "roll of cloth(?)" — and which also intersected the hut beside it. A rolled
+/// anything is an ambiguous cylinder; a rack of long poles with pale heads on
+/// them is a rack of tools, and on a gun deck it is the one piece of kit that
+/// says what the platform is *for* without needing a caption.
+///
+/// This is also where the kit's [`sailcloth`] lives on this entry: a sponge
+/// head is canvas wound on a stave, which is a use the material is actually
+/// for, rather than the unreadable "gun apron" it was carrying before.
+fn rammer_rack(x: f32, z: f32) -> Generator {
+    let post_h = 1.15;
+    let span = 1.3;
+    let base_c = [x, DECK_TOP + 0.06, z];
+    let mut carried = Vec::new();
+    for sx in [-1.0_f32, 1.0] {
+        carried.push(prim(
+            solid(cuboid_tapered([0.1, post_h, 0.1], 0.0, board(WHARF_GREY))),
+            [x + sx * span * 0.5, DECK_TOP + post_h * 0.5, z],
+            id_quat(),
+        ));
+    }
+    // Cross rail the staves rest in.
+    carried.push(prim(
+        solid(cuboid_tapered(
+            [span + 0.1, 0.09, 0.12],
+            0.0,
+            board(WHARF_GREY),
+        )),
+        [x, DECK_TOP + post_h - 0.12, z],
+        id_quat(),
+    ));
+    // Three staves, each with a canvas-wound head at the top.
+    for (i, dx) in [-0.42_f32, 0.0, 0.42].into_iter().enumerate() {
+        let stave_h = 2.0;
+        carried.push(prim(
+            solid(cylinder_tapered(0.035, stave_h, 8, 0.0, board(HULL_OAK))),
+            [x + dx, DECK_TOP + stave_h * 0.5, z],
+            id_quat(),
+        ));
+        carried.push(prim(
+            solid(cylinder_tapered(
+                0.085,
+                0.3,
+                10,
+                0.06,
+                sailcloth(CANVAS_BONE, CANVAS_SHADE),
+            )),
+            [x + dx, DECK_TOP + stave_h - 0.1, z],
+            id_quat(),
+        ));
+        // A worm on the middle stave, so the three read as different tools.
+        if i == 1 {
+            carried.push(prim(
+                torus(0.02, 0.07, iron(IRON_BLACK, 0xF4)),
+                [x + dx, DECK_TOP + stave_h + 0.14, z],
+                quat_x(FRAC_PI_2),
+            ));
+        }
+    }
+    nest(
+        prim(
+            solid(cuboid_tapered(
+                [span + 0.3, 0.12, 0.42],
+                0.0,
+                board(WHARF_GREY),
+            )),
+            base_c,
+            id_quat(),
+        ),
+        carried,
+    )
+}
+
+/// The colours on their staff, at the gorge end of the deck./// The colours on their staff, at the gorge end of the deck.
 ///
 /// The flag itself is the kit's shared [`jolly_roger`] — two BlobGroups, a
 /// rippled cloth and a bone relief seated in its face — so the skull cannot
@@ -766,8 +905,10 @@ fn colours() -> Generator {
                 [0.0, staff_top + 0.1, cz],
                 id_quat(),
             ),
-            // Hung to one side of the staff, its hoist against it.
-            jolly_roger([1.05, staff_top - 0.95, cz], 1.9, 1.25),
+            // Bent to the staff itself: `jolly_roger` takes the attachment
+            // point and laps the luff onto the timber, so the colours cannot
+            // end up hanging beside their own staff.
+            jolly_roger([0.0, staff_top - 0.32, cz], 1.9, 1.25),
         ],
     );
     // The halyard slatting against the staff. Its own spatial patch rather
@@ -1018,7 +1159,18 @@ fn build_tree() -> Generator {
     flags.uv_offset = face_uv_offset(FaceKey::Top, deck_c);
     let mut on_deck = parapet();
     on_deck.push(colours());
-    on_deck.push(sentry_box());
+    // Two props with unmistakable silhouettes, placed well apart. The pair
+    // they replace — a sentry box and a furled tarpaulin — were unreadable
+    // individually AND intersecting each other, which is the combination that
+    // makes a deck look like a bin rather than a working battery.
+    on_deck.push(powder_locker(
+        DECK[0] * 0.5 - 2.8,
+        DECK[2] * 0.5 - PARAPET_D - 0.9,
+    ));
+    on_deck.push(rammer_rack(
+        -(DECK[0] * 0.5 - 2.8),
+        DECK[2] * 0.5 - PARAPET_D - 0.9,
+    ));
     // Gorge breast wall and the two flank parapets, each a ring segment
     // rather than a face detail, so each takes the deck's own extent.
     //
@@ -1079,38 +1231,6 @@ fn build_tree() -> Generator {
             )),
             c,
             id_quat(),
-        ));
-    }
-    // A furled tarpaulin lashed along the gorge wall. This is where the kit's
-    // canvas lives on this entry: the first build put a tapered box over two
-    // of the muzzles as a "gun apron", which is a real thing and was
-    // completely unreadable as one — at that size it was a beige lump on the
-    // end of a barrel. A rolled tarp on the deck is unmistakably a rolled
-    // tarp, which is the whole test a small prop has to pass.
-    on_deck.push(prim(
-        solid(cylinder_tapered(
-            0.22,
-            3.2,
-            10,
-            0.0,
-            sailcloth(CANVAS_BONE, CANVAS_SHADE),
-        )),
-        [
-            DECK[0] * 0.5 - 3.4,
-            DECK_TOP + 0.22,
-            DECK[2] * 0.5 - PARAPET_D - 0.3,
-        ],
-        quat_z(FRAC_PI_2),
-    ));
-    for dx in [-1.1_f32, 1.1] {
-        on_deck.push(prim(
-            torus(0.035, 0.24, hemp(ROPE_HEMP)),
-            [
-                DECK[0] * 0.5 - 3.4 + dx,
-                DECK_TOP + 0.22,
-                DECK[2] * 0.5 - PARAPET_D - 0.3,
-            ],
-            quat_z(FRAC_PI_2),
         ));
     }
     // A tarred timber platform strip under the gun trucks, so the deck reads
@@ -1507,6 +1627,133 @@ mod tests {
             gap >= FLIGHT_W,
             "the opening in the breast wall is {gap} m for a {FLIGHT_W} m \
              flight — somebody coming up the stair walks into a wall"
+        );
+    }
+
+    /// Nothing inside a chamber touches the masonry that frames it (#1026).
+    ///
+    /// The casemate platform ran 0.45 m into the pier on each side AND sat
+    /// exactly on the talus top, so its underside was coplanar with the sill
+    /// across its whole footprint — one grey rectangle fighting the wall
+    /// beside it, which is what showed in-world. Stated as clearance rather
+    /// than as the numbers that produced it, so re-proportioning a chamber
+    /// cannot reopen either half.
+    #[test]
+    fn a_chambers_fit_out_keeps_clear_of_its_own_masonry() {
+        use crate::pds::SovereignTextureConfig as Tex;
+        // The fit-out is what is lit; the masonry is what is coursed. Two
+        // populations, each defined by its material rather than its size.
+        fn lit_parts(g: &Generator, at: [f32; 3], out: &mut Vec<([f32; 3], [f32; 3])>) {
+            let t = g.transform.translation.0;
+            let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
+            if let crate::pds::GeneratorKind::Cuboid { size, material, .. } = &g.kind
+                && matches!(material.texture, Tex::None)
+                && material.emission_strength.0 > 0.0
+            {
+                out.push((here, [size.0[0] * 0.5, size.0[1] * 0.5, size.0[2] * 0.5]));
+            }
+            for c in &g.children {
+                lit_parts(c, here, out);
+            }
+        }
+        let g = built();
+        let mut fit_out = Vec::new();
+        lit_parts(&g, [0.0; 3], &mut fit_out);
+        // Two casemates and the guard house, each a floor and a lining.
+        let want = port_centres(-1.0).len() * 2 * 2 + 2;
+        assert_eq!(
+            fit_out.len(),
+            want,
+            "expected {want} lit fit-out slabs, found {} — the selector has \
+             stopped seeing the floors or the linings",
+            fit_out.len()
+        );
+        for (c, e) in &fit_out {
+            // Inside the clear width of the opening it belongs to.
+            let is_guard = c[0].abs() < GUARD_W;
+            let clear = if is_guard { GUARD_W } else { PORT_W };
+            let centre = if is_guard {
+                0.0
+            } else {
+                port_centres(c[0].signum())[0]
+            };
+            assert!(
+                (c[0] - centre).abs() + e[0] <= clear * 0.5 - CHAMBER_INSET + 1e-3,
+                "a fit-out slab at {c:?} (half {e:?}) runs into the masonry \
+                 either side of its own {clear} m opening"
+            );
+            // Forward of the rear mass, not flush against it.
+            assert!(
+                c[2] + e[2] <= CHAMBER_BACK - CHAMBER_INSET + 1e-3,
+                "a fit-out slab reaches z = {} and the rear mass begins at \
+                 {CHAMBER_BACK} — the two share a plane",
+                c[2] + e[2]
+            );
+        }
+        // And every chamber floor is bedded BELOW its own sill rather than
+        // laid on it, which is the coplanar half of the same fault.
+        for (c, e) in &fit_out {
+            let is_floor = e[1] < 0.1;
+            if !is_floor {
+                continue;
+            }
+            let sill = if c[0].abs() < GUARD_W {
+                QUAY
+            } else {
+                CASEMATE_SILL
+            };
+            assert!(
+                c[1] - e[1] < sill - 1e-3,
+                "a chamber floor's underside is at {} and its sill at {sill} \
+                 — laid exactly on it, those two faces z-fight across the \
+                 whole floor",
+                c[1] - e[1]
+            );
+        }
+    }
+
+    /// The deck props are readable objects standing apart from each other
+    /// (#1026).
+    ///
+    /// The pair this replaces were unreadable individually — "hut(?)" and
+    /// "roll of cloth(?)" — and intersecting each other as well, which is the
+    /// combination that makes a gun deck look like a bin. Legibility is not
+    /// testable; **separation** is, and it is the half that shipped broken.
+    #[test]
+    fn the_deck_props_do_not_stand_in_each_other() {
+        let g = built();
+        let props: Vec<_> = measure::solids(&g)
+            .into_iter()
+            .filter(|p| {
+                let c = p.bounds.center();
+                // On the deck, behind the guns, and not part of the parapet
+                // ring or the flagstaff.
+                c.y > DECK_TOP && c.y < DECK_TOP + 2.6 && c.z > 2.0 && c.x.abs() > 2.0
+            })
+            .collect();
+        assert!(
+            props.len() >= 8,
+            "only {} deck-prop pieces found — the locker and the rack are not \
+             both there",
+            props.len()
+        );
+        // The two assemblies live on opposite sides; nothing from one may
+        // reach across the axis into the other.
+        let (left, right): (Vec<_>, Vec<_>) = props.iter().partition(|p| p.bounds.center().x < 0.0);
+        assert!(
+            !left.is_empty() && !right.is_empty(),
+            "both deck props must be present, one either side"
+        );
+        let left_edge = left.iter().map(|p| p.bounds.max.x).fold(f32::MIN, f32::max);
+        let right_edge = right
+            .iter()
+            .map(|p| p.bounds.min.x)
+            .fold(f32::MAX, f32::min);
+        assert!(
+            right_edge - left_edge > 1.0,
+            "the two deck props are {} m apart — they were intersecting when \
+             this entry shipped",
+            right_edge - left_edge
         );
     }
 
