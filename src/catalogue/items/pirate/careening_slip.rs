@@ -249,10 +249,18 @@ fn hull() -> Generator {
     // have to be ONE expression. The bilge blocks were correct all along
     // because they call `heeled` directly; only the hull disagreed, which is
     // why a guard comparing blocks to the formula could not see it.
+    // `quat_z(+HEEL)`, positive, and the sign is the whole story (#1030).
+    // `heeled()` maps (x, y) to (x·c − y·s, x·s + y·c) — the standard 2D
+    // rotation by PLUS θ — and the prim's quaternion must be the same turn.
+    // The first build used −HEEL: on the hull, whose section is symmetric
+    // athwartships, a mirrored heel is invisible, which is exactly what let
+    // it ship — but every part placed BY `heeled()` (masthead, shores,
+    // tackle) then lived in the reflection of the frame the geometry was
+    // drawn in, and the mast crossed its own rig touching nothing.
     prim(
         blob_group(elements, HULL_RES, strake(HULL_TAR)),
         heeled(0.0, 0.0, 0.0),
-        quat_z(-HEEL),
+        quat_z(HEEL),
     )
 }
 
@@ -338,23 +346,39 @@ fn masthead_tackle() -> Vec<Generator> {
     let step = heeled(0.0, HULL_DEPTH * 0.35, 1.2);
     let mast_len = 8.4_f32;
     let head = heeled(0.0, HULL_DEPTH * 0.35 + mast_len, 1.2);
-    let mid = [
-        (step[0] + head[0]) * 0.5,
-        (step[1] + head[1]) * 0.5,
-        (step[2] + head[2]) * 0.5,
+    // Both the mast and its cap are STRUTS along the step→head run — the
+    // same one conversion everything else on this beach now uses. The first
+    // build gave each a hand-applied `quat_z(-HEEL)`, which is the mirror of
+    // the turn `heeled()` actually performs: the chord ran port-up, the prim
+    // axis starboard-up, and the built timber was the intended mast
+    // REFLECTED about the vertical through its own midpoint — crossing the
+    // rig diagonally with both ends in the air, while the falls converged on
+    // a masthead with no mast under it. That floating junction is precisely
+    // what was reported (#1030). A strut cannot disagree with its own
+    // endpoints, which is the property that retires this fault class.
+    let run = [
+        (head[0] - step[0]) / mast_len,
+        (head[1] - step[1]) / mast_len,
+        (head[2] - step[2]) / mast_len,
     ];
     let mut out = vec![
-        // The mast itself: a leaf prim carrying the heel, like the hull.
-        prim(
-            solid(cylinder_tapered(0.22, mast_len, 10, 0.3, board(HULL_OAK))),
-            mid,
-            quat_z(-HEEL),
-        ),
-        // Masthead cap and the strop the purchase is hooked to.
-        prim(
-            solid(cylinder_tapered(0.3, 0.22, 10, 0.0, iron(IRON_BLACK, 0xA1))),
-            head,
-            quat_z(-HEEL),
+        strut(step, head, 0.22, 10, board(HULL_OAK)),
+        // Masthead cap: a short, fatter collar on the same run, straddling
+        // the head so the falls visibly hook onto something.
+        strut(
+            [
+                head[0] - run[0] * 0.14,
+                head[1] - run[1] * 0.14,
+                head[2] - run[2] * 0.14,
+            ],
+            [
+                head[0] + run[0] * 0.14,
+                head[1] + run[1] * 0.14,
+                head[2] + run[2] * 0.14,
+            ],
+            0.3,
+            10,
+            iron(IRON_BLACK, 0xA1),
         ),
     ];
 
@@ -833,6 +857,126 @@ mod tests {
                 head[1]
             );
         }
+    }
+
+    /// The tackle hangs from the top of a mast that is stepped in the hull —
+    /// the three connections that make the rig make sense (#1030).
+    ///
+    /// What shipped was a rig whose every part was individually plausible:
+    /// two falls converging on a point, a cap at the point, a mast-length
+    /// timber crossing nearby. The missing property was CONNECTION — the
+    /// falls' junction had no mast under it, because the mast prim carried
+    /// the mirror of the turn `heeled()` performs and was reflected about
+    /// its own midpoint. A symmetric hull hid the same mirror on itself.
+    ///
+    /// So the guard states the connections, all read from the BUILT tree via
+    /// [`rotate_by`] (#972 lesson 21): both falls' high ends meet the mast's
+    /// high end, and the mast's low end is inside the meshed hull — not near
+    /// it, IN it, checked against the polygonised surface's own slice.
+    #[test]
+    fn the_tackle_hangs_from_a_mast_stepped_in_the_hull() {
+        use crate::catalogue::items::util::rotate_by;
+        use crate::pds::GeneratorKind as K;
+        use crate::world_builder::build_primitive_mesh;
+        use bevy::mesh::VertexAttributeValues;
+
+        let g = built();
+
+        // Every cylinder's two world-space ends, by radius class.
+        fn ends_of(g: &Generator, at: [f32; 3], out: &mut Vec<(f32, [f32; 3], [f32; 3])>) {
+            let t = g.transform.translation.0;
+            let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
+            if let K::Cylinder { radius, height, .. } = &g.kind {
+                let tip = rotate_by(g.transform.rotation.0, [0.0, height.0 * 0.5, 0.0]);
+                out.push((
+                    radius.0,
+                    [here[0] + tip[0], here[1] + tip[1], here[2] + tip[2]],
+                    [here[0] - tip[0], here[1] - tip[1], here[2] - tip[2]],
+                ));
+            }
+            for c in &g.children {
+                ends_of(c, here, out);
+            }
+        }
+        let mut cyls = Vec::new();
+        ends_of(&g, [0.0; 3], &mut cyls);
+
+        // The mast: the one long oak stick (the shores are 0.16, the falls
+        // 0.05, the posts are cuboids). Selected by radius — what defines it.
+        let (_, a, b) = cyls
+            .iter()
+            .find(|(r, _, _)| (r - 0.22).abs() < 0.01)
+            .copied()
+            .expect("the mast is in the tree");
+        let (mast_head, mast_foot) = if a[1] > b[1] { (a, b) } else { (b, a) };
+
+        // Both falls' high ends land on the masthead.
+        let falls: Vec<_> = cyls
+            .iter()
+            .filter(|(r, _, _)| (r - 0.05).abs() < 0.005)
+            .collect();
+        assert_eq!(falls.len(), 2, "expected two falls, found {}", falls.len());
+        for (_, fa, fb) in &falls {
+            let hi = if fa[1] > fb[1] { fa } else { fb };
+            let d = ((hi[0] - mast_head[0]).powi(2)
+                + (hi[1] - mast_head[1]).powi(2)
+                + (hi[2] - mast_head[2]).powi(2))
+            .sqrt();
+            assert!(
+                d < 0.4,
+                "a fall's high end at {hi:?} is {d} m from the masthead at \
+                 {mast_head:?} — the tackle is hooked to thin air"
+            );
+        }
+
+        // The mast's foot is INSIDE the meshed hull at its own station.
+        fn hull_verts(g: &Generator, at: [f32; 3], out: &mut Vec<[f32; 3]>) {
+            let t = g.transform.translation.0;
+            let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
+            if matches!(g.kind, K::BlobGroup { .. }) {
+                let mesh = build_primitive_mesh(&g.kind).mesh;
+                if let Some(VertexAttributeValues::Float32x3(pos)) =
+                    mesh.attribute(bevy::prelude::Mesh::ATTRIBUTE_POSITION)
+                {
+                    let q = g.transform.rotation.0;
+                    out.extend(pos.iter().map(|p| {
+                        let r = rotate_by(q, *p);
+                        [here[0] + r[0], here[1] + r[1], here[2] + r[2]]
+                    }));
+                }
+            }
+            for c in &g.children {
+                hull_verts(c, here, out);
+            }
+        }
+        let mut verts = Vec::new();
+        hull_verts(&g, [0.0; 3], &mut verts);
+        let slice: Vec<_> = verts
+            .iter()
+            .filter(|v| (v[2] - mast_foot[2]).abs() < 0.4)
+            .collect();
+        assert!(!slice.is_empty(), "no hull at the mast's own station");
+        let (mut min_x, mut max_x, mut max_y) = (f32::MAX, f32::MIN, f32::MIN);
+        for v in slice {
+            min_x = min_x.min(v[0]);
+            max_x = max_x.max(v[0]);
+            max_y = max_y.max(v[1]);
+        }
+        assert!(
+            mast_foot[0] > min_x && mast_foot[0] < max_x && mast_foot[1] < max_y,
+            "the mast's foot at {mast_foot:?} is outside the hull (x {min_x}..\
+             {max_x}, deck {max_y}) — the mast is not stepped in the ship, \
+             and the rig hangs from nothing"
+        );
+        // And the head is well above the foot on the DOWN side — the mast
+        // rakes the way she is hove, which is what the mirror got wrong.
+        assert!(
+            mast_head[0] < mast_foot[0],
+            "the masthead at x {} is upslope of its own foot at x {} — the \
+             mast rakes against the heel",
+            mast_head[0],
+            mast_foot[0]
+        );
     }
 
     /// The purchase actually spans masthead to post.
