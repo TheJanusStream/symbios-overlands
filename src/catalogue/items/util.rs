@@ -879,6 +879,70 @@ pub(super) fn tiles_per_metre(tile_m: f32) -> Fp {
     Fp(1.0 / tile_m.max(1e-4))
 }
 
+/// Correct a material's tiling for a sub-assembly authored **oversized** and
+/// instanced through its root's `Transform.scale`.
+///
+/// # The oversized-sub-assembly technique
+///
+/// A detail-heavy piece — a device on a flag, a carving on a transom, a coat of
+/// arms — is far easier to get right drawn at ten times the size it is used at,
+/// where its features are read in whole metres instead of centimetres. Author it
+/// once at a canonical size with the *carrier* as the root and the details as
+/// children, then instance it into any context by setting one uniform scale on
+/// that root: the hierarchy carries the children along, so every proportion is
+/// preserved by construction and cannot drift between call sites.
+///
+/// Two properties of this codebase make it work cleanly, and both are worth
+/// knowing before reaching for it:
+///
+/// * **`BlobGroup` fidelity is scale-invariant.** Surface nets samples
+///   `resolution` cells across the prim's *local* extent and the scale is
+///   applied to the finished mesh (see the frame note in
+///   `world_builder::prim::uv`), so relative detail — and the
+///   two-cells-minimum rule that `blob_cell_size` exists for — is identical at
+///   every instanced size. Solve it once at the canonical size.
+/// * **The sanitiser's floors are local too** (blob radii ≥ 0.01, torus minor
+///   ≥ 0.011, cuboid min dimension 0.01). Authoring at 10× lets a genuine 1 mm
+///   world feature exist as a 10 mm authored one instead of being clamped away,
+///   which is how the oversized draft buys detail a direct one cannot have.
+///
+/// And three things bite:
+///
+/// 1. **UVs do not scale — hence this function.** Projections emit UVs in
+///    prim-*local* metres, so `uv_scale` is tiles per local metre and a cloth
+///    drawn at 10× keeps ten times the tile repeats when it is scaled back down;
+///    its weave comes out ten times too fine. Pass every *textured* material
+///    through here with the same factor the root carries. Untextured materials
+///    are unaffected (their `uv_scale` is inert), so applying it uniformly is
+///    safe and is the habit to keep.
+/// 2. **Uniform scale only.** The [`TransformData`] sanitiser clamps each component
+///    independently, so a non-uniform scale survives — and a non-uniform parent
+///    scale shears any *rotated* child, because a transform composes as `T·R·S`
+///    per node. If a context wants a different aspect ratio, change the authored
+///    geometry, not the scale. In practice this means the instancing function
+///    should take ONE dimension and derive the rest.
+/// 3. **[`nest`] and [`attach`] do not divide by scale.** They rebase
+///    translation only, as their own docs say, so a sub-assembly must be authored
+///    with its children already in the root's local frame — not built in the
+///    prop's ground frame and handed to `nest`. In practice the children sit at
+///    the root's origin with every offset inside their own geometry, which is the
+///    simplest thing that can work and the easiest to check.
+///
+/// Guards on the sub-assembly's internals should be written as **ratios**, since
+/// an absolute "stands proud by 8 mm" claim is a statement about the authored
+/// size and says nothing about the instanced one.
+///
+/// Worth being clear about what this does *not* buy: generator trees are
+/// expanded rather than referenced, so N instances still cost N subtrees in the
+/// record. This is an authoring and consistency win, not a payload one.
+pub(super) fn uv_for_scale(
+    mut m: SovereignMaterialSettings,
+    scale: f32,
+) -> SovereignMaterialSettings {
+    m.uv_scale = Fp(m.uv_scale.0 * scale.max(1e-4));
+    m
+}
+
 /// Shared ageing recipes.
 ///
 /// Weathering is one of the few material decisions that is genuinely

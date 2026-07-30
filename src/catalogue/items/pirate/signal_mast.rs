@@ -66,6 +66,20 @@ const SHROUD_UP: f32 = 0.62;
 const YARD_UP: f32 = 0.58;
 const YARD_HALF: f32 = 2.4;
 
+/// Which side the gaff rakes to, and how far out its peak reaches.
+///
+/// `+X` is forced by the flag bent to it — see [`masthead`]. The signal hoist
+/// takes the other flank.
+const GAFF_SIDE: f32 = 1.0;
+const GAFF_OUT: f32 = 1.5;
+
+/// Hoist of the colours flown at the gaff.
+///
+/// Taller than the signal flags by a wide margin, because they are different
+/// things: the hoist is four code flags saying something today, the colours are
+/// whose harbour this is.
+const COLOURS_H: f32 = 1.15;
+
 /// Fife rail at the foot — where the falls are belayed.
 const RAIL_H: f32 = 1.05;
 const RAIL_R: f32 = 1.1;
@@ -226,7 +240,9 @@ fn yard_and_hoist() -> Vec<Generator> {
                 0.06,
                 sailcloth(warp, weft),
             )),
-            [0.36, y, hal_z],
+            // Opposite flank to the gaff, so the two things flying off this mast
+            // are one each side rather than both crowding the same one.
+            [-GAFF_SIDE * 0.36, y, hal_z],
             id_quat(),
         ));
     }
@@ -234,10 +250,23 @@ fn yard_and_hoist() -> Vec<Generator> {
 }
 
 /// The masthead: truck, gaff, and the black colours flying from it.
+///
+/// # Which side the gaff rakes to is not a free choice
+///
+/// It rakes to `+X`, and it has to. [`jolly_roger`] runs its fly to `+X` and
+/// hangs the cloth below its hoist, and a flag cannot be mirrored to fix that:
+/// the transform sanitiser clamps every scale component positive, so there is no
+/// negative-scale reflection available. With the gaff raking `-X` — which is what
+/// this built first, from a `FRONT` constant that means `-Z` and was being applied
+/// to the wrong axis — the colours flew back over the mast they were bent to and
+/// swallowed the truck and the finial whole.
+///
+/// So the spar goes out on the side the cloth will stream toward, and the signal
+/// hoist goes on the other. That also balances the rig, which is the incidental
+/// benefit: two things aloft, one each side, instead of both crowding one flank.
 fn masthead() -> Vec<Generator> {
-    let gaff_out = 1.5_f32;
     let gaff_up = 1.05_f32;
-    let peak = [FRONT * gaff_out, HEAD - 0.2 + gaff_up, 0.0];
+    let peak = [GAFF_SIDE * GAFF_OUT, HEAD - 0.2 + gaff_up, 0.0];
     vec![
         // Truck at the very head, with a gilt finial.
         prim(
@@ -261,9 +290,16 @@ fn masthead() -> Vec<Generator> {
             6,
             hemp(ROPE_HEMP),
         ),
-        // The colours, bent to the gaff — the kit's shared assembly, taking
-        // the attachment point so the luff laps the spar by construction.
-        jolly_roger([peak[0] * 0.55, peak[1] - 0.22, peak[2]], 1.5, 1.0),
+        // The colours, bent to the gaff's PEAK — the kit's shared assembly,
+        // taking the attachment point so the luff laps the spar's tip by
+        // construction and the cloth streams outboard from it.
+        //
+        // Bent to a point partway ALONG the spar instead, which is what this did
+        // first, the flag hangs with a level head while the gaff rakes up through
+        // it: the spar enters the cloth at one edge and leaves at the peak, and
+        // the flag is impaled on its own rigging. A flag hoisted to a spar's tip
+        // hangs from that tip, and every other point on it is clear of everything.
+        jolly_roger(peak, COLOURS_H),
     ]
 }
 
@@ -586,6 +622,86 @@ mod tests {
                 blob_components(k),
                 1,
                 "group {i} polygonised into more than one piece"
+            );
+        }
+    }
+
+    /// The colours fly CLEAR of the mast they are bent to, and lap the gaff's
+    /// peak.
+    ///
+    /// The fault this exists for: bent to a point partway along a gaff that raked
+    /// the wrong way, the flag flew back across its own masthead and contained the
+    /// truck and the finial entirely — a flag impaled on the pole it hangs from,
+    /// which no view of the prop could have made look right.
+    ///
+    /// Two claims, and they pull in opposite directions, which is why both are
+    /// stated. The cloth must be wholly outboard of the mast, and it must still
+    /// touch the spar's tip — a flag that clears its rigging by flying away from
+    /// it entirely is not bent to anything.
+    #[test]
+    fn the_colours_fly_clear_of_the_masthead() {
+        let g = built();
+        let solids = measure::solids(&g);
+        let cloth = solids
+            .iter()
+            .filter(|p| p.kind_tag == "BlobGroup")
+            .max_by(|a, b| {
+                a.bounds
+                    .size()
+                    .x
+                    .partial_cmp(&b.bounds.size().x)
+                    .expect("finite")
+            })
+            .expect("the colours are in the tree");
+
+        // Wholly outboard of the mast's own stock, so nothing at the masthead can
+        // be inside it.
+        assert!(
+            cloth.bounds.min.x > MAST_R,
+            "the colours reach in to x = {} against a mast of stock {MAST_R} — \
+             the flag is flying across its own masthead",
+            cloth.bounds.min.x
+        );
+        // Explicitly: the truck and the finial sit at the mast's head, and the
+        // cloth's box must not contain them.
+        for (what, y) in [("truck", HEAD + 0.07), ("finial", HEAD + 0.22)] {
+            let inside = cloth
+                .bounds
+                .contains(bevy::prelude::Vec3::new(0.0, y, 0.0), 0.0);
+            assert!(!inside, "the {what} at y = {y} is inside the colours");
+        }
+
+        // ...and the luff still laps the gaff's peak, or the flag is bent to
+        // nothing.
+        let peak_x = GAFF_SIDE * GAFF_OUT;
+        assert!(
+            cloth.bounds.min.x < peak_x,
+            "the cloth's luff is at x = {} and the gaff's peak at {peak_x} — the \
+             colours are flying beside the spar rather than bent to it",
+            cloth.bounds.min.x
+        );
+        let peak_y = HEAD - 0.2 + 1.05;
+        assert!(
+            (cloth.bounds.max.y - peak_y).abs() < COLOURS_H * 0.2,
+            "the cloth's head is at y = {} and the gaff's peak at {peak_y} — the \
+             flag is not hanging from the tip it is bent to",
+            cloth.bounds.max.y
+        );
+        // The signal hoist takes the other flank, so the rig is not lopsided.
+        let signal = solids
+            .iter()
+            .filter(|p| p.kind_tag == "Cuboid")
+            .filter(|p| (p.bounds.size().x - 0.62).abs() < 0.05)
+            .count();
+        assert_eq!(signal, 4, "expected four signal flags, found {signal}");
+        for p in solids
+            .iter()
+            .filter(|p| p.kind_tag == "Cuboid" && (p.bounds.size().x - 0.62).abs() < 0.05)
+        {
+            assert!(
+                p.bounds.center().x * GAFF_SIDE < 0.0,
+                "a signal flag is on the same flank as the gaff — both things \
+                 aloft crowd one side and the mast reads lopsided"
             );
         }
     }

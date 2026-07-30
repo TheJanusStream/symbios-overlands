@@ -908,7 +908,7 @@ fn colours() -> Generator {
             // Bent to the staff itself: `jolly_roger` takes the attachment
             // point and laps the luff onto the timber, so the colours cannot
             // end up hanging beside their own staff.
-            jolly_roger([0.0, staff_top - 0.32, cz], 1.9, 1.25),
+            jolly_roger([0.0, staff_top - 0.32, cz], 1.25),
         ],
     );
     // The halyard slatting against the staff. Its own spatial patch rather

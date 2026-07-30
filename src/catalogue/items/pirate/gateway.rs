@@ -94,7 +94,6 @@ const BOARD: [f32; 3] = [3.40, 0.85, 0.26];
 
 /// The colours: cloth size, how far the head hangs below the yard, and the
 /// clearance kept between the flag's foot and the name-board under it.
-const FLAG_W: f32 = 1.55;
 const FLAG_H: f32 = 1.05;
 const FLAG_DROP: f32 = 0.06;
 /// Deliberately generous. A flag is the one part of this gate that a viewer
@@ -324,11 +323,7 @@ fn head() -> Generator {
     // `jolly_roger` (#972 lesson 5), which is two BlobGroups: a rippled cloth
     // and a bone relief seated in its front face, so the skull cannot poke
     // through the back the way a sphere on a slab did.
-    carried.push(jolly_roger(
-        [0.0, yard_y - FLAG_DROP, FRONT * 0.04],
-        FLAG_W,
-        FLAG_H,
-    ));
+    carried.push(jolly_roger([0.0, yard_y - FLAG_DROP, FRONT * 0.04], FLAG_H));
 
     nest(prim(lintel, lintel_c, id_quat()), carried)
 }
@@ -533,28 +528,25 @@ mod tests {
     fn the_colours_fly_clear_of_the_name_board() {
         let g = built();
         let solids = measure::solids(&g);
-        // The flag is the gate's only BlobGroup pair, and the board its only
-        // oak slab of that plan. Both selected by what defines them rather
-        // than by a nominal size: the cloth is meshed by surface nets, so its
-        // built bounds are deliberately NOT its authored width and a guard
-        // that matched on that number would find nothing (#972 lesson 24).
-        fn blob_bounds(g: &Generator, at: [f32; 3], out: &mut Vec<measure::Bounds>) {
-            let t = g.transform.translation.0;
-            let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
-            if matches!(g.kind, GeneratorKind::BlobGroup { .. })
-                && let Some(b) = measure::mesh_bounds(
-                    &g.kind,
-                    &bevy::prelude::Transform::from_xyz(here[0], here[1], here[2]),
-                )
-            {
-                out.push(b);
-            }
-            for c in &g.children {
-                blob_bounds(c, here, out);
-            }
-        }
-        let mut blobs = Vec::new();
-        blob_bounds(&g, [0.0; 3], &mut blobs);
+        // The flag is the gate's only BlobGroup pair, and the board its only oak
+        // slab of that plan. Both selected by what defines them rather than by a
+        // nominal size: the cloth is meshed by surface nets, so its built bounds
+        // are deliberately NOT its authored width and a guard that matched on
+        // that number would find nothing (#972 lesson 24).
+        //
+        // Read through `measure::solids`, which composes the FULL transform of
+        // every node. This guard used to walk the tree itself accumulating
+        // translations into a `Transform::from_xyz`, and the moment the colours
+        // became an oversized draft instanced through its root's scale (#1031)
+        // that walker measured the ten-metre canonical cloth and reported the
+        // flag's foot four metres below the gate. Hand-rolled transform
+        // composition is only ever correct until something upstream starts using
+        // the components it drops.
+        let blobs: Vec<_> = solids
+            .iter()
+            .filter(|p| p.kind_tag == "BlobGroup")
+            .map(|p| p.bounds)
+            .collect();
         assert_eq!(
             blobs.len(),
             3,

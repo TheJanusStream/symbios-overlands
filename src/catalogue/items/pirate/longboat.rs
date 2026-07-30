@@ -32,14 +32,22 @@
 //!
 //! # The bloom is measured, not assumed
 //!
-//! A blended iso-surface *can* stand proud of its authored elements, and the
-//! first build allowed for that by drawing every element [`BLEND`] inside the
-//! envelope and expecting it to swell back out. It does not: with these blends
-//! the mesh lands within about 25 mm of the authored surface, so she came out
-//! 240 mm narrow and floating 95 mm over her own chocks. The elements are
-//! authored **on** the envelope, and `the_meshed_hull_lands_on_its_own_stations`
-//! reads the built mesh's own bounds and says so if that ever stops being true —
-//! which is the only way to hold a number like this honestly.
+//! A blended iso-surface stands proud of its authored elements by roughly the
+//! **blend radius**, and the first build allowed for a full [`BLEND`] of it by
+//! drawing every element that far inside the envelope. At these blends it is
+//! nothing like that much: 120 mm of blend on a five-metre hull moves the mesh
+//! about 25 mm, so she came out 240 mm narrow and floating 95 mm over her own
+//! chocks. The elements are authored **on** the envelope, and
+//! `the_meshed_hull_lands_on_its_own_stations` reads the built mesh's own bounds
+//! and says so if that ever stops being true — which is the only way to hold a
+//! number like this honestly.
+//!
+//! Do not read that as "the bloom is zero". It scales with the blend, and a
+//! blend set as a fraction of the object's *span* rather than of its own
+//! thickness gets large fast: the kit's flag carried a blend a tenth of its width
+//! and meshed 12 % oversize, which #1031 found by asking a scaled instance to be
+//! the height it was asked for. Small blends bloom negligibly; generous ones
+//! bloom about as much as they measure.
 
 use std::f32::consts::FRAC_PI_2;
 

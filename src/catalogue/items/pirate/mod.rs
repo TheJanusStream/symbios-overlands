@@ -622,178 +622,407 @@ pub(super) fn lantern(at: [f32; 3], h: f32, seed: u32) -> Generator {
     )
 }
 
-/// Half-thickness of the flag cloth.
+// ---------------------------------------------------------------------------
+// The colours
+// ---------------------------------------------------------------------------
+//
+// Drawn once at CANON_H and instanced at whatever size a context flies them at,
+// through one uniform scale on the cloth's root. See
+// [`util::uv_for_scale`](super::util::uv_for_scale) for the technique and its
+// three traps; what follows is this flag's application of it.
+//
+// The reason it is worth doing here rather than parameterising by width and
+// height, which is what this helper used to do: every one of the constants below
+// was an ABSOLUTE metre value while the callers asked for three different sizes
+// (1.9 x 1.25 over the battery, 1.55 x 1.05 on the gate, 1.5 x 1.0 at the signal
+// mast). So the signal mast's flag carried a relatively 27 % thicker skin, a
+// 27 % deeper bite and a finer sample grid than the battery's — three flags that
+// were supposed to be the same flag. As ratios of one canonical draft they are
+// the same flag by construction.
+
+/// The size the colours are DRAWN at, and the aspect they are drawn to.
 ///
-/// **Set by the mesher, not by taste.** A `BlobGroup` is polygonised on a
-/// sample grid, so anything thinner than about two cells is missed in places
-/// and the mesh comes out with holes rather than merely coarse. At
-/// [`FLAG_RES`] across a two-metre flag the cells are ~45 mm, so the cloth
-/// has to be ~120 mm thick to survive — which is heavy for canvas and is the
-/// price of the technique. The first build used 30 mm at resolution 30 and
-/// polygonised as two disconnected slabs with a gap down the middle, which is
-/// exactly what showed in-world.
-const FLAG_SKIN: f32 = 0.06;
+/// Ten times the size they are flown at, which buys two things and not a third.
+/// It buys legible numbers — a 320 mm eye socket rather than a 32 mm one — and it
+/// buys headroom over the sanitiser's local-space floors, so the teeth and the
+/// knuckle ends below can exist at all. It does **not** buy mesh detail: blob
+/// fidelity is a function of the local extent, so an oversized draft polygonises
+/// exactly as finely as a direct one would.
+const CANON_H: f32 = 10.0;
+/// 3:2, which is what all three call sites were already asking for to within
+/// 3 % (1.520, 1.476, 1.500). One aspect means one uniform scale, which is the
+/// only kind that is safe — a non-uniform one shears rotated children.
+const CANON_ASPECT: f32 = 1.5;
+const CANON_W: f32 = CANON_H * CANON_ASPECT;
+
+/// Half-thickness of the flag cloth, at canonical size.
+///
+/// **Set by the mesher, not by taste**, and the constraint is a *ratio* rather
+/// than a length: a `BlobGroup` is polygonised on a sample grid, so anything
+/// thinner than about two cells is missed in places and the mesh comes out with
+/// holes rather than merely coarse. Cells are `CANON_W / FLAG_RES`, so what has
+/// to hold is `2·skin / CANON_W > 2 / FLAG_RES` — scale-invariant, and therefore
+/// true at every size the flag is flown at once it is true here. The first build
+/// used 30 mm at resolution 30 on a 1.9 m flag and polygonised as two
+/// disconnected slabs with a gap down the middle (#1026).
+const CANON_SKIN: f32 = 0.48;
 /// Sample resolution for the cloth. Near the sanitiser's 48 ceiling, because
-/// every cell of it buys thinner cloth — see [`FLAG_SKIN`].
+/// every cell of it buys thinner cloth — see [`CANON_SKIN`].
 const FLAG_RES: u32 = 44;
 /// Half-thickness of the bone device, and its sample resolution. It spans far
 /// less than the cloth, so the same cell budget goes much further.
-const DEVICE_SKIN: f32 = 0.05;
+const DEVICE_SKIN: f32 = 0.4;
 const DEVICE_RES: u32 = 30;
-/// How far the device's back edge bites INTO the cloth, so it reads as
-/// applied to the flag rather than hovering in front of it.
-const DEVICE_BITE: f32 = 0.008;
-/// Amplitude of the cloth's ripple, in metres of Z excursion.
+/// How deep the device beds INTO the cloth, as a fraction of its own thickness.
+///
+/// Half. A device that merely touches the sheet reads as floating in front of
+/// it — which is what an 8 mm bite gave — where a device *sunk into* it reads as
+/// something painted or sewn on, which is what a flag's device is. Half is also
+/// what makes the carved holes work: with the bone bedded to its mid-plane, an
+/// eye socket cut clean through it has black cloth behind it rather than sky, so
+/// the flag shows through the skull's own sockets.
+const DEVICE_BED: f32 = 0.5;
+
+/// Clear air between the skull's jaw and the crossbones' upper knuckles.
+///
+/// The device is two things, and a viewer only reads it as two if there is a gap.
+/// Drawn with the bones crossing at the chin — which is where a naive layout puts
+/// them — the skull, the jaw and the arms of the X merge into one pale mass.
+const DEVICE_GAP: f32 = CANON_H * 0.02;
+
+/// How far a carved hole reaches, as a multiple of the device's half-thickness.
+///
+/// Over 1.0 on purpose: at 1.0 the cut would stop exactly on the bone's back
+/// face and leave a film behind, so the sockets read as recesses. Punching past
+/// it is what turns a recess into a hole — and a hole is the only thing the
+/// cloth can show through.
+const HOLE_REACH: f32 = 1.6;
+/// Amplitude of the cloth's ripple, in canonical metres of Z excursion.
 ///
 /// Named because the device's standoff is derived from it: the sheet is not
-/// flat, so anything applied to its face has to clear the deepest lobe, not
-/// just the mid-plane.
-const FLAG_RIPPLE: f32 = 0.05;
+/// flat, so anything applied to its face has to clear the deepest lobe, not just
+/// the mid-plane.
+const CANON_RIPPLE: f32 = 0.4;
 /// How far the cloth's luff laps ONTO the staff it is bent to.
 ///
-/// A flag that merely reaches the staff reads as floating beside it; the luff
-/// has to overlap the timber. The first build placed the cloth by its centre
-/// and left a 100 mm gap, which is why the colours looked detached.
-const HOIST_LAP: f32 = 0.07;
+/// A flag that merely reaches the staff reads as floating beside it; the luff has
+/// to overlap the timber. An early build placed the cloth by its centre and left
+/// a 100 mm gap, which is why the colours looked detached (#1025).
+const CANON_LAP: f32 = 0.55;
 
-/// The black colours — a hanging flag with a skull and crossed bones.
+const _: () = assert!(
+    CANON_SKIN * 2.0 * FLAG_RES as f32 > CANON_W * 2.0,
+    "the cloth is under two sample cells thick and will polygonise with holes — \
+     and being a ratio, it will do so at every size the flag is flown at"
+);
+const _: () = assert!(
+    HOLE_REACH > 1.0,
+    "a carved hole stops on the bone's own back face and leaves a film across it \
+     — the sockets will read as recesses and nothing will show through them"
+);
+const _: () = assert!(
+    DEVICE_SKIN > CANON_RIPPLE * (1.0 - CLOTH_FRONT_FRAC),
+    "bedded this deep the device sinks behind the cloth's deepest lobe — it \
+     would disappear into the sheet wherever the ripple runs toward the viewer"
+);
+/// Which point on the rippling sheet counts as "the cloth's front" for the
+/// purpose of bedding the device into it.
 ///
-/// Lives here rather than in whichever file needed it first (#972 lesson 5):
-/// the battery flies one over its terreplein and the gate flies one from its
-/// yard, and two files each rolling their own is two files that can drift.
+/// The sheet is not flat, so there is no single front face: under the device it
+/// runs from the bare slab at `CANON_SKIN` out to a lobe at
+/// `CANON_SKIN + CANON_RIPPLE`. Bedding to a fraction of the way out means the
+/// device is buried more where the cloth swells toward the viewer and less where
+/// it falls away, which is what an appliqué on moving cloth actually does.
+const CLOTH_FRONT_FRAC: f32 = 0.45;
+
+/// The canonical colours, drawn at [`CANON_H`] with the cloth at the origin.
 ///
-/// `hoist` is the point **on the staff** the flag is bent to, not the cloth's
-/// centre. Taking the attachment point is what makes the flag attached: the
-/// luff laps [`HOIST_LAP`] onto the timber by construction, and a caller
-/// cannot leave it hanging in space by getting an offset wrong. The fly runs
-/// to `+X` and the cloth hangs below `hoist`.
+/// Separate from [`jolly_roger`] so the draft can be inspected and guarded at
+/// the size it was authored at, which is the only size its absolute numbers mean
+/// anything at. Everything is in the cloth's own local frame: the cloth's root
+/// sits at the origin and both device groups sit at the origin too, with every
+/// offset living inside their own blob elements. That is what makes the instanced
+/// scale trivially correct — [`nest`](super::util::nest) rebases translation and
+/// does *not* divide by scale, so children authored in a prop's ground frame
+/// would land wrong the moment the root carried one.
 ///
 /// # Three groups, and why
 ///
 /// The cloth is one group, the skull is a second and the crossed bones are a
 /// third. A `BlobGroup` carries one material, so bone-on-black already forces
-/// two — but the skull and the bones are split from each other as well,
-/// because blended into one group they melt together at the jaw and the whole
-/// device reads as a single lumpy figure with arms rather than as a skull
-/// above two bones. Blending is the right default *within* an object and the
-/// wrong one *between* objects that only touch.
+/// two — but the skull and the bones are split from each other as well, because
+/// blended into one group they melt together at the jaw and the whole device
+/// reads as a single lumpy figure with arms rather than as a skull above two
+/// bones. Blending is the right default *within* an object and the wrong one
+/// *between* objects that only touch.
 ///
-/// The device sits proud of the cloth's front face and is far too shallow to
-/// reach its back, which is checked rather than eyeballed.
-pub(super) fn jolly_roger(hoist: [f32; 3], w: f32, h: f32) -> Generator {
+/// `scale` is passed in only so the cloth's weave can be corrected for it — see
+/// [`uv_for_scale`](super::util::uv_for_scale), trap 1. Nothing else here depends
+/// on it, which is the point.
+fn colours_canonical(scale: f32) -> Generator {
     use super::util::{
-        blob_box, blob_capsule, blob_ellipsoid, blob_group, carved, id_quat, nest, prim, quat_z,
+        blob_box, blob_capsule, blob_ellipsoid, blob_group, carved, id_quat, prim, quat_z,
+        uv_for_scale,
     };
-
-    // Cloth centre, derived from the attachment point so the luff overlaps
-    // the staff whatever width the flag is given.
-    let cx = hoist[0] + w * 0.5 - HOIST_LAP;
-    let c = [cx, hoist[1] - h * 0.5, hoist[2]];
 
     // --- The cloth --------------------------------------------------------
     //
-    // One full-extent slab guarantees a single connected mass, and three
-    // shallow lobes offset in Z give it a ripple. Building the ripple out of
-    // abutting panels instead — as the first version did — makes connectivity
-    // a property of the blend radius, which is exactly the thing that fails
-    // quietly.
-    let ripple = FLAG_RIPPLE;
+    // One full-extent slab guarantees a single connected mass, and shallow lobes
+    // offset in Z give it a ripple. Building the ripple out of abutting panels
+    // instead — as the first version did — makes connectivity a property of the
+    // blend radius, which is exactly the thing that fails quietly (#1026).
+    //
+    // The blends are held near the cloth's own THICKNESS rather than scaled off
+    // its width, and that is a correction the oversized draft made visible. A
+    // blend is a bloom: the iso-surface stands proud of the authored elements by
+    // roughly its radius, so a blend set to a tenth of the flag's width — which
+    // is what this used to be — meshes a flag 12 % bigger than the size it was
+    // asked for. That was true before and simply went unnoticed, because a
+    // 1.9 m flag asked for by width has no promise to break; a flag asked for by
+    // height and instanced by scale does.
     let mut cloth = vec![blob_box(
         [0.0, 0.0, 0.0],
-        [w * 0.5, h * 0.5, FLAG_SKIN * 0.72],
-        0.04,
+        [CANON_W * 0.5, CANON_H * 0.5, CANON_SKIN * 0.72],
+        CANON_SKIN * 0.4,
     )];
-    for i in 0..3 {
-        let t = (i as f32 + 1.0) / 4.0;
+    // Four lobes rather than three, which the oversized draft can afford: the
+    // extra half-period is the difference between cloth that is bent and cloth
+    // that is waving.
+    for i in 0..4 {
+        let t = (i as f32 + 1.0) / 5.0;
         cloth.push(blob_box(
             // The ripple grows toward the fly: the luff is laced to the staff
             // and cannot move.
             [
-                (t - 0.5) * w,
+                (t - 0.5) * CANON_W,
                 0.0,
-                (t * std::f32::consts::PI * 2.0).sin() * ripple * t,
+                (t * std::f32::consts::PI * 2.4).sin() * CANON_RIPPLE * t,
             ],
-            [w * 0.17, h * 0.5, FLAG_SKIN],
-            w * 0.12,
+            // Held INSIDE the slab's own depth, so the slab alone governs the
+            // top and bottom edges. Drawn to the full half-height the two
+            // iso-surfaces met along those edges and scalloped them — a row of
+            // shallow bites the oversized draft showed at once and a flown one
+            // never would.
+            [CANON_W * 0.14, CANON_H * 0.46, CANON_SKIN],
+            CANON_SKIN * 0.8,
         ));
     }
 
-    // --- The device, seated in the cloth's front face ---------------------
+    // --- The device, bedded INTO the cloth's front face -------------------
     //
-    // Stood off by the RIPPLE as well as the skin. The cloth is not flat, so
-    // "in front of the cloth" is not the same as "in front of the cloth's
-    // mid-plane" — a device sunk to the skin alone is proud where it sits and
-    // behind the sheet a third of a metre away, which is worse than either.
-    // Clearing the deepest lobe makes the relief read as applied to the whole
-    // flag from every angle.
-    let dz = -(FLAG_SKIN + FLAG_RIPPLE + DEVICE_SKIN - DEVICE_BITE);
-    let skull_r = h * 0.16;
-    let skull_y = h * 0.13;
+    // Sunk to [`DEVICE_BED`] of its own thickness, not stood off in front of the
+    // sheet. The first version cleared the deepest lobe entirely and bit 8 mm
+    // into it, which kept it proud from every angle and read as a plaque hovering
+    // a hand's breadth off the canvas.
+    //
+    // The cloth is not flat, so "the cloth's front" is a choice —
+    // [`CLOTH_FRONT_FRAC`] of the way out to the deepest lobe — and the
+    // consequence is that the bone is buried more where the sheet swells toward
+    // the viewer and less where it falls away. That is what an appliqué on moving
+    // cloth does, and it is the whole reason to bed it rather than stand it off.
+    let cloth_front = -(CANON_SKIN + CANON_RIPPLE * CLOTH_FRONT_FRAC);
+    let dz = cloth_front + DEVICE_SKIN * (2.0 * DEVICE_BED - 1.0);
+    // The device fills the field. A Jolly Roger whose skull is a sixth of the
+    // hoist reads as a badge on a flag rather than as the flag's own device, and
+    // the first oversized draft was exactly that — legible, correct, and too
+    // polite.
+    let skull_r = CANON_H * 0.19;
+    // Set high enough that the jaw clears the crossing of the bones. At 0.15 the
+    // chin sat on the crossing point and the three pieces read as one mass; the
+    // device wants daylight between the skull and the bones, because that gap is
+    // what says there are two things rather than one.
+    let skull_y = CANON_H * 0.19;
     let skull = vec![
         blob_ellipsoid(
             [0.0, skull_y, dz],
             [skull_r, skull_r * 1.02, DEVICE_SKIN],
-            0.02,
+            skull_r * 0.12,
         ),
-        // Jaw: narrower and square, which is what separates a skull from a
-        // ball at any distance this is read from.
+        // Brow ridge — the detail the direct draft could not have. At the size
+        // this is flown at it is a 25 mm swell, which the sanitiser's blob floor
+        // would have clamped; at canonical it is 250 mm and simply exists.
+        blob_box(
+            [0.0, skull_y + skull_r * 0.34, dz - DEVICE_SKIN * 0.18],
+            [skull_r * 0.86, skull_r * 0.16, DEVICE_SKIN * 0.6],
+            skull_r * 0.14,
+        ),
+        // Jaw: narrower and square, which is what separates a skull from a ball
+        // at any distance this is read from.
         blob_box(
             [0.0, skull_y - skull_r * 0.92, dz],
             [skull_r * 0.58, skull_r * 0.34, DEVICE_SKIN * 0.85],
-            0.03,
+            skull_r * 0.18,
         ),
         // Two carved sockets. The single most legible feature on a skull, and
         // subtraction is the only way to get them without a second material.
+        // Two carved sockets, cut CLEAN THROUGH the bone. The single most
+        // legible feature on a skull, and now also the place the flag shows
+        // through itself: centred on the bone's own mid-plane and reaching
+        // [`HOLE_REACH`] times its half-thickness, so there is no film left
+        // across the back and what fills the socket is black cloth.
         carved(blob_ellipsoid(
-            [
-                -skull_r * 0.42,
-                skull_y + skull_r * 0.12,
-                dz - DEVICE_SKIN * 0.45,
-            ],
-            [skull_r * 0.27, skull_r * 0.25, DEVICE_SKIN * 0.85],
-            0.012,
+            [-skull_r * 0.44, skull_y + skull_r * 0.06, dz],
+            [skull_r * 0.35, skull_r * 0.31, DEVICE_SKIN * HOLE_REACH],
+            skull_r * 0.07,
         )),
         carved(blob_ellipsoid(
+            [skull_r * 0.44, skull_y + skull_r * 0.06, dz],
+            [skull_r * 0.35, skull_r * 0.31, DEVICE_SKIN * HOLE_REACH],
+            skull_r * 0.07,
+        )),
+        // The nasal aperture, and two tooth slots cut through the jaw. Three more
+        // features the oversized draft affords, and between them they are most of
+        // what makes this read as a skull rather than as a face.
+        // Wider than it is tall, which is what a nasal aperture is. Drawn the
+        // other way up it came out as a vertical slot and merged with the tooth
+        // line into one bar down the face.
+        carved(blob_ellipsoid(
+            [0.0, skull_y - skull_r * 0.46, dz],
+            [skull_r * 0.19, skull_r * 0.13, DEVICE_SKIN * HOLE_REACH],
+            skull_r * 0.05,
+        )),
+        carved(blob_box(
             [
-                skull_r * 0.42,
-                skull_y + skull_r * 0.12,
-                dz - DEVICE_SKIN * 0.45,
+                -skull_r * 0.2,
+                skull_y - skull_r * 0.95,
+                dz - DEVICE_SKIN * 0.5,
             ],
-            [skull_r * 0.27, skull_r * 0.25, DEVICE_SKIN * 0.85],
-            0.012,
+            [skull_r * 0.055, skull_r * 0.3, DEVICE_SKIN * 0.8],
+            skull_r * 0.03,
+        )),
+        carved(blob_box(
+            [
+                skull_r * 0.2,
+                skull_y - skull_r * 0.95,
+                dz - DEVICE_SKIN * 0.5,
+            ],
+            [skull_r * 0.055, skull_r * 0.3, DEVICE_SKIN * 0.8],
+            skull_r * 0.03,
         )),
     ];
 
-    let bone_len = w * 0.22;
-    let bone_y = -h * 0.19;
-    let bones = vec![
-        blob_capsule(
+    // --- The crossed bones ------------------------------------------------
+    //
+    // Two capsules crossed, and then the piece that actually matters: a pair of
+    // knuckles at each of the four ends. A bare capsule is a stick, and two
+    // crossed sticks are an X; the bifurcated ends are what make them bones. Four
+    // ends times two knuckles is eight elements, which only fits under the
+    // sixteen-element cap because the draft is one object rather than a whole
+    // prop.
+    // Longer than the skull is wide, which is what the device wants: bones that
+    // span only as far as the cranium read as an afterthought under it instead of
+    // as the other half of the design.
+    let bone_len = CANON_W * 0.24;
+    let bone_r = skull_r * 0.2;
+    // Flatter than 45°, which is what buys the separation. A steeper X reaches so
+    // far up that its arms flank the jaw however far the skull is raised — and
+    // dropping the crossing far enough to fix that instead hangs the lower arms
+    // off the bottom of the cloth. Laying the bones over reduces their vertical
+    // reach without shortening them, so they stay wider than the cranium.
+    let bone_lean = 1.05_f32;
+    // Where the crossing sits is DERIVED from the jaw it has to clear, not chosen:
+    // the jaw's underside, less a stated gap, less the bones' own reach including
+    // their knuckles. Raising or resizing the skull therefore moves the bones
+    // with it and cannot close the gap again (#972 lesson 18).
+    let jaw_bottom = skull_y - skull_r * 1.26;
+    let bone_reach = bone_len * bone_lean.cos() + bone_r * 0.72;
+    let bone_y = jaw_bottom - DEVICE_GAP - bone_reach;
+    let mut bones = Vec::new();
+    for lean in [bone_lean, -bone_lean] {
+        bones.push(blob_capsule(
             [0.0, bone_y, dz],
-            skull_r * 0.2,
+            bone_r,
             bone_len,
-            quat_z(0.78),
-            0.015,
-        ),
-        blob_capsule(
-            [0.0, bone_y, dz],
-            skull_r * 0.2,
-            bone_len,
-            quat_z(-0.78),
-            0.015,
-        ),
-    ];
+            quat_z(lean),
+            bone_r * 0.4,
+        ));
+        // The knuckles sit ON the capsule's own axis, derived from its lean and
+        // half-length rather than placed by eye — so a retuned bone cannot leave
+        // its own ends behind. `quat_z(lean)` carries local `+Y` to
+        // `(-sin, cos, 0)`, which is the axis the capsule runs along.
+        let (s_l, c_l) = lean.sin_cos();
+        let axis = [-s_l, c_l];
+        for end in [1.0_f32, -1.0] {
+            for side in [1.0_f32, -1.0] {
+                bones.push(blob_ellipsoid(
+                    [
+                        axis[0] * bone_len * end + axis[1] * bone_r * 0.85 * side,
+                        bone_y + axis[1] * bone_len * end - axis[0] * bone_r * 0.85 * side,
+                        dz,
+                    ],
+                    [bone_r * 0.72, bone_r * 0.72, DEVICE_SKIN * 0.9],
+                    bone_r * 0.3,
+                ));
+            }
+        }
+    }
 
-    nest(
+    // The cloth's weave is the one material here that tiles, so it is the one
+    // that has to be told what scale it will be instanced at. Passing the bone
+    // through as well costs nothing (its `uv_scale` is inert) and keeps the habit
+    // from having exceptions.
+    let mut colours = prim(
+        blob_group(
+            cloth,
+            FLAG_RES,
+            uv_for_scale(sailcloth(HULL_TAR, [0.09, 0.09, 0.10]), scale),
+        ),
+        [0.0; 3],
+        id_quat(),
+    );
+    colours.children = vec![
         prim(
-            blob_group(cloth, FLAG_RES, sailcloth(HULL_TAR, [0.09, 0.09, 0.10])),
-            c,
+            blob_group(skull, DEVICE_RES, uv_for_scale(bone(BONE_PALE), scale)),
+            [0.0; 3],
             id_quat(),
         ),
-        vec![
-            prim(blob_group(skull, DEVICE_RES, bone(BONE_PALE)), c, id_quat()),
-            prim(blob_group(bones, DEVICE_RES, bone(BONE_PALE)), c, id_quat()),
-        ],
-    )
+        prim(
+            blob_group(bones, DEVICE_RES, uv_for_scale(bone(BONE_PALE), scale)),
+            [0.0; 3],
+            id_quat(),
+        ),
+    ];
+    colours
+}
+
+/// The black colours — a hanging flag with a skull and crossed bones, flown at
+/// `height`.
+///
+/// Lives here rather than in whichever file needed it first (#972 lesson 5): the
+/// battery flies one over its terreplein, the gate flies one from its yard and
+/// the signal mast hoists one at its gaff, and three files each rolling their own
+/// is three files that can drift.
+///
+/// `hoist` is the point **on the staff** the flag is bent to, not the cloth's
+/// centre. Taking the attachment point is what makes the flag attached: the luff
+/// laps [`CANON_LAP`]'s worth onto the timber by construction, and a caller
+/// cannot leave it hanging in space by getting an offset wrong. The fly runs to
+/// `+X` and the cloth hangs below `hoist`.
+///
+/// # One dimension, not two
+///
+/// Only the height is taken, because only a **uniform** scale is safe — a
+/// non-uniform one shears rotated children, and the bones are rotated. The width
+/// follows from [`CANON_ASPECT`]. That is a real restriction on callers and it is
+/// the right one: the previous signature took `w` and `h` independently and so
+/// let a caller ask for an aspect ratio the device had never been drawn for,
+/// while every absolute constant in the draft stayed put.
+pub(super) fn jolly_roger(hoist: [f32; 3], height: f32) -> Generator {
+    use super::util::{id_quat, prim_scaled};
+
+    let scale = height / CANON_H;
+    let width = height * CANON_ASPECT;
+    // Cloth centre, derived from the attachment point so the luff overlaps the
+    // staff at whatever size the flag is flown.
+    let c = [
+        hoist[0] + width * 0.5 - CANON_LAP * scale,
+        hoist[1] - height * 0.5,
+        hoist[2],
+    ];
+    let drawn = colours_canonical(scale);
+    let mut flown = prim_scaled(drawn.kind, c, id_quat(), [scale; 3]);
+    flown.children = drawn.children;
+    flown
 }
 
 /// A capstan: the barrel, its whelps, the iron pawl rim and six bars.
@@ -1121,14 +1350,17 @@ mod tests {
     ///   at the jaw and read as one lumpy figure with arms.
     /// * **The luff laps the staff.** Positioned by its centre, the cloth left
     ///   a 100 mm gap and the colours looked detached from their own pole.
+    ///
+    /// Run at the size the battery flies it at, since that is what a viewer sees
+    /// — but every claim here is a ratio, so it holds at all three sites.
     #[test]
     fn the_colours_are_one_cloth_carrying_a_separate_skull_and_bones() {
         use crate::catalogue::items::measure;
         use crate::catalogue::items::util::{blob_cell_size, blob_components};
 
         let hoist = [0.0_f32, 2.0, 0.0];
-        let (w, h) = (1.9_f32, 1.25);
-        let flag = jolly_roger(hoist, w, h);
+        let h = 1.25_f32;
+        let flag = jolly_roger(hoist, h);
 
         // Three groups: cloth, skull, bones.
         let mut kinds = Vec::new();
@@ -1157,13 +1389,16 @@ mod tests {
             );
         }
 
-        // The cloth is thick enough for its own grid to see it.
-        let cell = blob_cell_size(w, FLAG_RES);
+        // The cloth is thick enough for its own grid to see it — checked in
+        // CANONICAL units, because that is the frame the sampling happens in.
+        // Scale is applied to the finished mesh, so this is the one claim here
+        // that would be meaningless measured in the world.
+        let cell = blob_cell_size(CANON_W, FLAG_RES);
         assert!(
-            FLAG_SKIN * 2.0 > cell * 2.0,
+            CANON_SKIN * 2.0 > cell * 2.0,
             "a {} m cloth on {cell} m cells is under two cells thick and will \
              polygonise with holes in it",
-            FLAG_SKIN * 2.0
+            CANON_SKIN * 2.0
         );
 
         let solids = measure::solids(&flag);
@@ -1178,6 +1413,14 @@ mod tests {
                     .expect("finite extents")
             })
             .expect("the cloth is the widest group");
+
+        // It is flown at the size it was asked for, not the size it was drawn at.
+        assert!(
+            (cloth.bounds.size().y - h).abs() < h * 0.06,
+            "asked for a {h} m flag and got one {} m deep — the instancing scale \
+             is not doing what the signature promises",
+            cloth.bounds.size().y
+        );
 
         // The luff laps onto the staff at the hoist.
         assert!(
@@ -1208,12 +1451,181 @@ mod tests {
                 part.bounds.max.z,
                 cloth.bounds.max.z
             );
+            // ...and it is BEDDED IN, not standing off. The device's back has to
+            // be behind the cloth's front face, or it is a plaque hovering in
+            // front of the canvas — which is what it was, and which is also what
+            // stops the carved sockets working: a hole cut through bone that has
+            // sky behind it is a hole onto sky, and the whole point is that the
+            // flag shows through its own skull.
+            assert!(
+                part.bounds.max.z > cloth.bounds.min.z,
+                "a device group's back is at z = {} and the cloth's front at {} \
+                 — it is floating clear of the sheet instead of sunk into it",
+                part.bounds.max.z,
+                cloth.bounds.min.z
+            );
             assert!(
                 part.bounds.size().x < cloth.bounds.size().x * 0.8
                     && part.bounds.size().y < cloth.bounds.size().y * 0.8,
                 "a device group {:?} is not comfortably inside the cloth {:?}",
                 part.bounds.size(),
                 cloth.bounds.size()
+            );
+        }
+
+        // The device reads as TWO things: the skull's jaw clears the crossbones'
+        // upper knuckles with cloth showing between them. Drawn with the bones
+        // crossing at the chin — where a naive layout puts them — the skull, the
+        // jaw and the arms of the X merge into one pale mass, which is what the
+        // first oversized draft did. The bones are the wider group; the skull is
+        // the taller-placed one.
+        let device: Vec<_> = solids.iter().filter(|p| !std::ptr::eq(*p, cloth)).collect();
+        assert_eq!(device.len(), 2, "the device is a skull and a bones group");
+        let (bones, skull) = if device[0].bounds.size().x > device[1].bounds.size().x {
+            (device[0], device[1])
+        } else {
+            (device[1], device[0])
+        };
+        assert!(
+            bones.bounds.max.y < skull.bounds.min.y,
+            "the bones reach up to y = {} and the skull begins at {} — they \
+             overlap, so the device reads as one mass rather than as a skull \
+             above two bones",
+            bones.bounds.max.y,
+            skull.bounds.min.y
+        );
+        // ...and the bones are the wider of the two, which is what stops them
+        // reading as an afterthought tucked under the cranium.
+        assert!(
+            bones.bounds.size().x > skull.bounds.size().x * 1.2,
+            "the bones span {} against a skull {} wide — the crossbones are the \
+             other half of the device, not a detail beneath it",
+            bones.bounds.size().x,
+            skull.bounds.size().x
+        );
+    }
+
+    /// Every size the colours are flown at is the SAME flag.
+    ///
+    /// This is the invariant the oversized-sub-assembly technique exists to buy,
+    /// and it is the one the previous build did not have. `jolly_roger` used to
+    /// take `w` and `h` while `FLAG_SKIN`, `DEVICE_SKIN`, `DEVICE_BITE`,
+    /// `FLAG_RIPPLE` and `HOIST_LAP` were all absolute metre values — so the
+    /// signal mast's 1.0 m flag carried a relatively 27 % thicker cloth, a 27 %
+    /// deeper bite and a finer sample grid than the battery's 1.25 m one. Three
+    /// flags that were supposed to be one flag.
+    ///
+    /// Checked as *similarity*: build at two sizes and compare every group's
+    /// bounds as a fraction of its own cloth. If those ratios agree, the two are
+    /// the same object at two sizes; if any absolute constant creeps back into
+    /// the draft, they stop agreeing and this says which.
+    #[test]
+    fn the_colours_are_geometrically_similar_at_every_size_flown() {
+        use crate::catalogue::items::measure;
+
+        let profile = |h: f32| -> Vec<[f32; 3]> {
+            let flag = jolly_roger([0.0, 4.0, 0.0], h);
+            let solids = measure::solids(&flag);
+            let cloth_y = solids
+                .iter()
+                .map(|p| p.bounds.size().y)
+                .fold(f32::MIN, f32::max);
+            // Each group's extent as a fraction of the cloth's own depth, which
+            // makes the whole profile dimensionless.
+            let mut out: Vec<[f32; 3]> = solids
+                .iter()
+                .map(|p| {
+                    let s = p.bounds.size();
+                    [s.x / cloth_y, s.y / cloth_y, s.z / cloth_y]
+                })
+                .collect();
+            out.sort_by(|a, b| a[0].partial_cmp(&b[0]).expect("finite"));
+            out
+        };
+
+        let small = profile(1.0);
+        let large = profile(1.25);
+        assert_eq!(small.len(), 3, "expected three groups at every size");
+        assert_eq!(small.len(), large.len());
+        for (a, b) in small.iter().zip(large.iter()) {
+            for axis in 0..3 {
+                assert!(
+                    (a[axis] - b[axis]).abs() < 0.03,
+                    "a group measures {a:?} of its cloth at one size and {b:?} at \
+                     another — the draft still carries an absolute dimension \
+                     somewhere, so these are not the same flag"
+                );
+            }
+        }
+    }
+
+    /// The cloth's weave is the same size in the WORLD at every size flown.
+    ///
+    /// The one trap of the oversized technique that geometry alone cannot catch:
+    /// UVs are emitted in prim-*local* metres, so `uv_scale` is tiles per local
+    /// metre and a draft drawn at ten times its flown size keeps ten times the
+    /// tile repeats. Left uncorrected the canvas weave comes out ten times too
+    /// fine — invisible in a bounding box, obvious in-world, and exactly the
+    /// class of fault the kit's brick convention was built to stop.
+    ///
+    /// [`uv_for_scale`](super::super::util::uv_for_scale) is the correction; this
+    /// checks it by asking what one tile measures in world metres, which must be
+    /// the sailcloth's authored tile whatever size the flag is.
+    #[test]
+    fn the_weave_is_the_same_size_in_the_world_at_every_scale() {
+        fn cloth_tile_metres(h: f32) -> f32 {
+            let flag = jolly_roger([0.0, 4.0, 0.0], h);
+            let scale = flag.transform.scale.0[0];
+            let uv = flag
+                .kind
+                .material()
+                .expect("the cloth carries a material")
+                .uv_scale
+                .0;
+            // uv_scale is tiles per LOCAL metre; a local metre is `scale` world
+            // metres, so one tile spans `1 / uv_scale * scale` in the world.
+            scale / uv
+        }
+        let want = 1.0 / sailcloth(HULL_TAR, [0.09, 0.09, 0.10]).uv_scale.0;
+        for h in [1.0_f32, 1.05, 1.25] {
+            let got = cloth_tile_metres(h);
+            assert!(
+                (got - want).abs() < want * 0.02,
+                "a {h} m flag's weave tiles every {got} m in the world where the \
+                 sailcloth is authored at {want} m — the uv correction for the \
+                 instancing scale is missing or has the wrong sign"
+            );
+        }
+    }
+
+    /// Only a uniform scale is instanced, because a non-uniform one shears any
+    /// rotated child — and the crossed bones are rotated.
+    #[test]
+    fn the_colours_are_instanced_with_one_uniform_scale() {
+        let flag = jolly_roger([0.0, 4.0, 0.0], 1.25);
+        let s = flag.transform.scale.0;
+        assert!(
+            (s[0] - s[1]).abs() < 1e-6 && (s[1] - s[2]).abs() < 1e-6,
+            "the colours are instanced at {s:?} — a non-uniform scale shears the \
+             rotated bones, and the transform sanitiser clamps each component \
+             independently so nothing downstream will catch it"
+        );
+        // ...and the children ride on it rather than carrying their own, which is
+        // the whole mechanism.
+        for c in &flag.children {
+            assert_eq!(
+                c.transform.scale.0,
+                [1.0, 1.0, 1.0],
+                "a device group carries its own scale — it should be inheriting \
+                 the cloth's, or the two can drift apart"
+            );
+            assert_eq!(
+                c.transform.translation.0,
+                [0.0, 0.0, 0.0],
+                "a device group sits at {:?} in the cloth's local frame; the draft \
+                 authors every offset inside the geometry precisely so `nest`'s \
+                 not dividing by scale cannot bite",
+                c.transform.translation.0
             );
         }
     }
