@@ -142,6 +142,13 @@ const WORKING: &[ThemeArchetype] = &[
 ];
 /// Funereal / temple / old-world craft — a hanging stern lantern's home.
 const SEPULCHRAL: &[ThemeArchetype] = &[GothicHorror, FeudalJapan, Medieval];
+/// Buccaneer craft — the black colours, a carved billet-head, a pierced gun
+/// deck. A group of one, and deliberately: these are period dress rather than
+/// a mood, and a jolly roger on a Nordic longship is a costume error. Pirate
+/// also sits in MARTIAL / HISTORIC / WORKING, where the parts genuinely are
+/// shared, so this narrows rather than replaces.
+const BUCCANEER: &[ThemeArchetype] = &[Pirate];
+
 /// Agrarian / roadside / ordinary-ground craft — the wooden buckboard read
 /// (the #793 issue's "RUSTIC", folded into GRUBBY in #792 but kept as a narrow
 /// audience here so the buckboard doesn't land on a cyberpunk skiff).
@@ -173,14 +180,17 @@ fn deck_dims(ctx: &PartCtx) -> (f32, f32) {
 pub(super) static ENTRIES: &[&dyn super::BodyPart] = &[
     &BOW_RAM,
     &BOW_FIGUREHEAD,
+    &BOW_SKULL_HEAD,
     &BOW_BOWSPRIT,
     &SMOKESTACK,
     &STACK_THRUSTERS,
     &STACK_VENT,
     &MAST_SQUARE_RIG,
+    &MAST_BLACK_COLOURS,
     &MAST_ANTENNA,
     &MAST_DERRICK,
     &DECK_CARGO,
+    &DECK_GUNPORTS,
     &DECK_BENCH,
     &TEARDROP_ENVELOPE,
     &POD_DUCTED,
@@ -293,6 +303,76 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A buccaneer's craft draws its own rig, prow and deck, and nobody
+    /// else's craft draws them (#1019).
+    ///
+    /// The exclusivity is the substance. A jolly roger at the masthead of a
+    /// Nordic longship or a rural launch is a costume error, not a stylistic
+    /// choice, and the broad mood groups cannot express that — Pirate is in
+    /// MARTIAL, HISTORIC and WORKING precisely because a battering ram, a
+    /// square rig and a coil of rope genuinely are shared. These three are
+    /// not.
+    #[test]
+    fn the_buccaneer_boat_kit_is_pirate_only() {
+        use crate::seeded_defaults::ThemeArchetype as T;
+        let kit = [
+            ("boat_mast_black_colours", PartSlot::Mast),
+            ("boat_bow_skull_head", PartSlot::Bow),
+            ("boat_deck_gunports", PartSlot::Deck),
+        ];
+        for (slug, slot) in kit {
+            let part = ENTRIES
+                .iter()
+                .find(|p| p.slug() == slug)
+                .unwrap_or_else(|| panic!("{slug} is registered"));
+            assert_eq!(part.slot(), slot, "{slug} is on the wrong slot");
+            assert_eq!(
+                part.styles(),
+                BUCCANEER,
+                "{slug} has leaked out of the group"
+            );
+            // Reachable by a pirate on the slot it claims...
+            let pirate: Vec<&str> = parts_for(ChassisFamily::Boat, slot, T::Pirate)
+                .map(|p| p.slug())
+                .collect();
+            assert!(
+                pirate.contains(&slug),
+                "a pirate cannot draw {slug}; the {slot:?} pool is {pirate:?}"
+            );
+            // ...and reachable by nobody else.
+            for theme in T::ALL {
+                if theme == T::Pirate {
+                    continue;
+                }
+                let others: Vec<&str> = parts_for(ChassisFamily::Boat, slot, theme)
+                    .map(|p| p.slug())
+                    .collect();
+                assert!(!others.contains(&slug), "{theme:?} is drawing {slug}");
+            }
+        }
+    }
+
+    /// The pirate still has an ordinary square-rigger to roll as well.
+    ///
+    /// Worth pinning: the bespoke rig is a *variant*, not a replacement. Not
+    /// every hull in a buccaneer harbour has hoisted the black, and a pool of
+    /// one would make every pirate boat identical at the masthead.
+    #[test]
+    fn a_pirate_rolls_either_rig() {
+        let masts: Vec<&str> = parts_for(
+            ChassisFamily::Boat,
+            PartSlot::Mast,
+            crate::seeded_defaults::ThemeArchetype::Pirate,
+        )
+        .map(|p| p.slug())
+        .collect();
+        assert!(
+            masts.contains(&"boat_mast_square_rig") && masts.contains(&"boat_mast_black_colours"),
+            "a pirate should be able to roll a plain square rig or the black \
+             colours; got {masts:?}"
+        );
     }
 
     #[test]

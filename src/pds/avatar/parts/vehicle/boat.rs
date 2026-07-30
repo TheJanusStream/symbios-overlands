@@ -5,8 +5,8 @@
 use std::f32::consts::FRAC_PI_2;
 
 use crate::pds::avatar::default_visuals::common::{
-    cone, cuboid, cylinder, id_quat, lathe, prim, quat_x, quat_xyzw, quat_z, sphere, torus,
-    with_cut, with_shape,
+    blob_box, blob_capsule, blob_carve, blob_ellipsoid, blob_group, cone, cuboid, cylinder,
+    id_quat, lathe, prim, quat_x, quat_xyzw, quat_z, sphere, torus, with_cut, with_shape,
 };
 use crate::pds::avatar::parts::defaults::common::{darken, shade};
 use crate::pds::generator::Generator;
@@ -14,8 +14,8 @@ use crate::seeded_defaults::{OrnatenessBand, WearBand};
 
 use super::super::{PartCtx, PartDef, PartSlot};
 use super::{
-    BOAT, FANCY, GRUBBY, HISTORIC, MARTIAL, NEON, REGAL, STEAM, UNIVERSAL, WORN_PLUS, deck_dims,
-    mast_height,
+    BOAT, BUCCANEER, FANCY, GRUBBY, HISTORIC, MARTIAL, NEON, REGAL, STEAM, UNIVERSAL, WORN_PLUS,
+    deck_dims, mast_height,
 };
 
 fn bow_ram(ctx: &PartCtx) -> Generator {
@@ -232,6 +232,132 @@ fn mast_square_rig(ctx: &PartCtx) -> Generator {
     root
 }
 
+fn mast_black_colours(ctx: &PartCtx) -> Generator {
+    // A pirate's rig: the square sail of [`mast_square_rig`], plus the one
+    // thing that turns a square-rigger into a pirate — the black colours at
+    // the masthead, with a skull and crossed bones on them.
+    //
+    // A bespoke mast rather than a bespoke Ornament because the flag belongs
+    // at the head of the mast, and the Ornament slot mounts on the hull. It
+    // sits alongside the HISTORIC square rig in the pirate pool, so a
+    // buccaneer rolls either an ordinary square-rigger or one flying the
+    // black — which is the correct distribution: not every hull in a pirate
+    // harbour has hoisted them.
+    let spar = ctx.materials.metal(ctx.palette.secondary_accent);
+    let canvas = ctx.materials.cloth(ctx.palette.primary_accent);
+    let h = mast_height(ctx);
+
+    let mut root = prim(
+        cylinder(0.017, h, 8, spar.clone()),
+        [0.0, h * 0.5, 0.0],
+        quat_xyzw(quat_x(-0.03)),
+    );
+    // Yard athwartships, and the square sail hung under it.
+    let yard = h * 0.66;
+    root.children.push(prim(
+        cylinder(0.012, yard, 6, spar.clone()),
+        [0.0, h * 0.28, 0.0],
+        quat_xyzw(quat_z(FRAC_PI_2)),
+    ));
+    let sail_w = yard * 0.9;
+    let sail_h = h * 0.52;
+    root.children.push(prim(
+        with_shape(
+            cuboid([sail_w, sail_h, 0.012], canvas),
+            [0.08, 0.0],
+            [0.0, 0.0, 0.05],
+            [0.0, 0.0],
+        ),
+        [0.0, h * 0.28 - sail_h * 0.5, 0.0],
+        id_quat(),
+    ));
+    // The colours, close-hauled to the masthead.
+    //
+    // Sized generously against the mast, because an avatar's flag is only a
+    // few centimetres across and every blob radius has a 0.01 m floor in the
+    // sanitiser — under it the element is silently clamped and the part
+    // re-serialises differently from what its owner published. `stock` is
+    // that floor applied at the point of authoring, so the device scales down
+    // with a small mast until it stops scaling and simply stays legible.
+    //
+    // For the same reason the device here is a skull and two bones and NOT
+    // the catalogue flag's carved eye sockets: a socket at this scale would
+    // be three millimetres, i.e. clamped away to nothing.
+    let stock = |v: f32| v.max(0.012);
+    let cloth = ctx.materials.cloth([0.07, 0.07, 0.08]);
+    let bone = ctx.materials.trim([0.86, 0.84, 0.76]);
+    let fw = h * 0.30;
+    let fh = h * 0.19;
+    let skin = stock(fh * 0.13);
+    let fy = h * 0.42;
+    let fz = -0.005;
+    root.children.push(prim(
+        blob_group(
+            vec![
+                blob_box(
+                    [0.0, 0.0, 0.0],
+                    [fw * 0.5, fh * 0.5, skin],
+                    id_quat(),
+                    skin * 0.6,
+                ),
+                // A luff-side lobe, so the flag reads as hanging rather than
+                // as a plate.
+                blob_box(
+                    [-fw * 0.28, 0.0, skin * 0.6],
+                    [stock(fw * 0.2), fh * 0.5, skin],
+                    id_quat(),
+                    stock(fw * 0.14),
+                ),
+            ],
+            22,
+            cloth,
+        ),
+        [fw * 0.5, fy, fz],
+        id_quat(),
+    ));
+    // Skull and crossed bones, standing proud of the cloth's front face and
+    // far too shallow to reach its back.
+    let dz = -(skin * 2.4);
+    let r = stock(fh * 0.26);
+    root.children.push(prim(
+        blob_group(
+            vec![
+                blob_ellipsoid(
+                    [0.0, r * 0.8, dz],
+                    [r, r * 1.02, skin],
+                    id_quat(),
+                    skin * 0.3,
+                ),
+                blob_box(
+                    [0.0, -r * 0.35, dz],
+                    [stock(r * 0.56), stock(r * 0.34), skin],
+                    id_quat(),
+                    skin * 0.4,
+                ),
+                blob_capsule(
+                    [0.0, -r * 1.15, dz],
+                    stock(r * 0.2),
+                    stock(r * 1.5),
+                    quat_xyzw(quat_z(0.78)),
+                    skin * 0.25,
+                ),
+                blob_capsule(
+                    [0.0, -r * 1.15, dz],
+                    stock(r * 0.2),
+                    stock(r * 1.5),
+                    quat_xyzw(quat_z(-0.78)),
+                    skin * 0.25,
+                ),
+            ],
+            20,
+            bone,
+        ),
+        [fw * 0.5, fy, fz],
+        id_quat(),
+    ));
+    root
+}
+
 fn mast_antenna(ctx: &PartCtx) -> Generator {
     // A comms mast for tech moods: a pole bristling with whip antennas, a
     // canted dish, and a beacon — no sail, so it reads as a sensor cluster
@@ -370,6 +496,170 @@ fn deck_cargo(ctx: &PartCtx) -> Generator {
     deck
 }
 
+fn bow_skull_head(ctx: &PartCtx) -> Generator {
+    // A carved skull-and-bones at the stem.
+    //
+    // The first build here was a *billet-head* — the scrolled volute a vessel
+    // of the period actually carried — as four blended masses on a shrinking
+    // spiral. It rendered as a black lump, and the reason is scale rather
+    // than execution: the whole carving is about a hundred millimetres on an
+    // avatar's boat, and a spiral needs several turns to read as a spiral. At
+    // that size the turns merge into one mass and the mass has no subject.
+    //
+    // A skull is the opposite kind of shape — one silhouette with two holes
+    // in it — and it survives being small, which is exactly why it is the
+    // device flags have used for three centuries. So the carving keeps the
+    // scroll only as a collar behind the head, where it has a job (it seats
+    // the carving on the stem) rather than a story to tell.
+    //
+    // Worked in bone against the dark hull, not in oak: a carving the colour
+    // of the timber it is bolted to is a silhouette, and the silhouette was
+    // the problem.
+    let stock = |v: f32| v.max(0.012);
+    let bone = ctx.materials.trim([0.85, 0.83, 0.75]);
+    let oak = ctx.materials.trim(shade(ctx.palette.tertiary_accent, 0.5));
+
+    let r = 0.075_f32;
+    let mut root = prim(
+        blob_group(
+            vec![
+                // Cranium, slightly flattened fore-and-aft so it reads as a
+                // carving in relief rather than a ball on a stick.
+                blob_ellipsoid(
+                    [0.0, 0.0, 0.0],
+                    [stock(r * 0.82), r, stock(r * 0.78)],
+                    id_quat(),
+                    0.01,
+                ),
+                // Jaw.
+                blob_box(
+                    [0.0, -r * 0.92, r * 0.06],
+                    [stock(r * 0.52), stock(r * 0.3), stock(r * 0.6)],
+                    id_quat(),
+                    0.012,
+                ),
+                // Brow ridge, which is what stops the sockets reading as two
+                // random dents.
+                blob_box(
+                    [0.0, r * 0.42, -r * 0.5],
+                    [stock(r * 0.72), stock(r * 0.16), stock(r * 0.3)],
+                    id_quat(),
+                    0.014,
+                ),
+                blob_carve(blob_ellipsoid(
+                    [-r * 0.38, r * 0.14, -r * 0.52],
+                    [stock(r * 0.26), stock(r * 0.24), stock(r * 0.45)],
+                    id_quat(),
+                    0.006,
+                )),
+                blob_carve(blob_ellipsoid(
+                    [r * 0.38, r * 0.14, -r * 0.52],
+                    [stock(r * 0.26), stock(r * 0.24), stock(r * 0.45)],
+                    id_quat(),
+                    0.006,
+                )),
+            ],
+            26,
+            bone.clone(),
+        ),
+        [0.0, 0.055, 0.14],
+        id_quat(),
+    );
+    // Crossed bones under the skull, laid on the stem.
+    for sx in [-1.0_f32, 1.0] {
+        root.children.push(prim(
+            cylinder(0.014, r * 1.9, 6, bone.clone()),
+            [0.0, -r * 1.5, -r * 0.15],
+            quat_xyzw(quat_z(sx * 0.85)),
+        ));
+    }
+    // Scroll collar seating the carving on the stem — the billet-head's one
+    // surviving job.
+    root.children.push(prim(
+        torus(0.016, r * 0.72, oak),
+        [0.0, -r * 0.35, -r * 0.55],
+        quat_xyzw(quat_x(FRAC_PI_2)),
+    ));
+    root
+}
+
+fn deck_gunports(ctx: &PartCtx) -> Generator {
+    // A gun deck: bulwarks pierced by ports with the pieces run out through
+    // them, a hatch grating amidships and a pair of shot garlands.
+    //
+    // The ports are what carry it, and they are REAL — squares cut between
+    // sections of bulwark rather than painted on a continuous rail — because a
+    // gun port with no hole behind it is the flat-panel fault the catalogue
+    // side of this theme spent a whole entry avoiding. Each muzzle projects
+    // through its own gap, which is only possible if the gap exists.
+    let sole = ctx.materials.body(shade(ctx.palette.primary_accent, 0.62));
+    let bulwark = ctx.materials.body(shade(ctx.palette.primary_accent, 0.44));
+    let gun = ctx
+        .materials
+        .metal(shade(ctx.palette.tertiary_accent, 0.75));
+    let iron = ctx.materials.metal(darken(ctx.palette.tertiary_accent));
+    let (dw, dl) = deck_dims(ctx);
+
+    let mut deck = prim(
+        cuboid([0.35 * dw, 0.045, 0.64 * dl], sole.clone()),
+        [0.0, 0.0, 0.0],
+        id_quat(),
+    );
+    // Hatch grating amidships.
+    deck.children.push(prim(
+        cuboid([0.2 * dw, 0.03, 0.14 * dl], iron.clone()),
+        [0.0, 0.038, 0.06 * dl],
+        id_quat(),
+    ));
+
+    // Two ports a side. The bulwark runs in three sections with the ports
+    // between them, so the gaps are structural.
+    let ports = [0.19_f32, -0.09];
+    let port_w = 0.1 * dl;
+    let bul_h = 0.085;
+    for s in [-1.0_f32, 1.0] {
+        let x = s * 0.17 * dw;
+        // Bulwark sections: the run less the two ports.
+        let mut edges = vec![-0.29 * dl, 0.29 * dl];
+        for z in ports {
+            edges.push(z * dl - port_w * 0.5);
+            edges.push(z * dl + port_w * 0.5);
+        }
+        edges.sort_by(|a, b| a.partial_cmp(b).expect("finite"));
+        for pair in edges.chunks(2) {
+            let run = pair[1] - pair[0];
+            if run < 0.01 {
+                continue;
+            }
+            deck.children.push(prim(
+                cuboid([0.022, bul_h, run], bulwark.clone()),
+                [x, bul_h * 0.5, (pair[0] + pair[1]) * 0.5],
+                id_quat(),
+            ));
+        }
+        // A piece run out through each port, laid athwartships.
+        for z in ports {
+            deck.children.push(prim(
+                with_cut(
+                    cone(0.019, 0.11, 8, gun.clone()),
+                    [0.0, 1.0],
+                    [0.0, 1.0],
+                    0.4,
+                ),
+                [x + s * 0.035, bul_h * 0.52, z * dl],
+                quat_xyzw(quat_z(-s * FRAC_PI_2)),
+            ));
+            // Shot garland behind the piece.
+            deck.children.push(prim(
+                sphere(0.02, 2, iron.clone()),
+                [x - s * 0.045, 0.055, z * dl],
+                id_quat(),
+            ));
+        }
+    }
+    deck
+}
+
 fn deck_bench(ctx: &PartCtx) -> Generator {
     // An open leisure deck (regal / genteel moods): a low sole with a cushioned
     // lounge bench and a small helm console, no cabin trunk.
@@ -491,6 +781,37 @@ pub(super) static MAST_SQUARE_RIG: PartDef = PartDef {
     wear: WearBand::ANY,
     build: mast_square_rig,
 };
+pub(super) static MAST_BLACK_COLOURS: PartDef = PartDef {
+    slug: "boat_mast_black_colours",
+    slot: PartSlot::Mast,
+    chassis: BOAT,
+    styles: BUCCANEER,
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
+    build: mast_black_colours,
+};
+
+pub(super) static BOW_SKULL_HEAD: PartDef = PartDef {
+    slug: "boat_bow_skull_head",
+    slot: PartSlot::Bow,
+    chassis: BOAT,
+    styles: BUCCANEER,
+    // A carving is finery, like the figurehead it sits beside.
+    ornateness: FANCY,
+    wear: WearBand::ANY,
+    build: bow_skull_head,
+};
+
+pub(super) static DECK_GUNPORTS: PartDef = PartDef {
+    slug: "boat_deck_gunports",
+    slot: PartSlot::Deck,
+    chassis: BOAT,
+    styles: BUCCANEER,
+    ornateness: OrnatenessBand::ANY,
+    wear: WearBand::ANY,
+    build: deck_gunports,
+};
+
 pub(super) static MAST_ANTENNA: PartDef = PartDef {
     slug: "boat_mast_antenna",
     slot: PartSlot::Mast,

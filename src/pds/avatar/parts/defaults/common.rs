@@ -28,7 +28,7 @@ pub(in crate::pds::avatar::parts) fn darken(c: [f32; 3]) -> [f32; 3] {
 // low-contrast seed still keeps readable part boundaries.
 
 /// Perceptual-ish sRGB luma for value-contrast bookkeeping.
-pub(super) fn luma(c: [f32; 3]) -> f32 {
+pub(in crate::pds::avatar::parts) fn luma(c: [f32; 3]) -> f32 {
     0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
 }
 
@@ -76,9 +76,18 @@ pub(super) fn floor_value(c: [f32; 3], min_l: f32) -> [f32; 3] {
 
 /// Push `c`'s value away from `ref_l` until they differ by at least
 /// `min_delta` (staying on whichever side `c` already sits) — keeps two
-/// adjacent vehicle surfaces (hull/deck, body/glass) from merging into one
-/// mass on a low-contrast seed.
-pub(super) fn ensure_delta(c: [f32; 3], ref_l: f32, min_delta: f32) -> [f32; 3] {
+/// adjacent surfaces (hull/deck, body/glass, coat/facing) from merging into
+/// one mass on a low-contrast seed.
+///
+/// Widened past the vehicle families for the styled humanoid kit: a
+/// justaucorps' turned-back lapels are the garment's signature and they are
+/// cut from the *secondary* accent, which on plenty of seeds sits within a
+/// few percent of the primary the coat is made of. Same failure, same fix.
+pub(in crate::pds::avatar::parts) fn ensure_delta(
+    c: [f32; 3],
+    ref_l: f32,
+    min_delta: f32,
+) -> [f32; 3] {
     let l = luma(c);
     if (l - ref_l).abs() >= min_delta {
         return c;
