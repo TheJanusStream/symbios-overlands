@@ -64,6 +64,40 @@ pub(super) fn powder_smoke(pos: [f32; 3], seed: u64) -> Generator {
     .at(pos, seed)
 }
 
+/// Wood smoke leaving a chimney — the tavern's hearth, seen from the lane.
+///
+/// Slower, thinner and warmer than [`powder_smoke`]: a hearth draws steadily
+/// where a gun discharges, so this rises rather than drifting off sideways,
+/// and it carries a faint brown rather than the powder's grey. Small enough
+/// to be a signature; a chimney that pumps like a factory reads as one.
+pub(super) fn hearth_smoke(pos: [f32; 3], seed: u64) -> Generator {
+    Emitter {
+        shape: EmitterShape::Cone {
+            half_angle: Fp(0.22),
+            height: Fp(0.2),
+        },
+        rate: 5.0,
+        burst: 0,
+        max: 44,
+        life: (2.8, 5.0),
+        speed: (0.5, 1.0),
+        gravity: -0.12,
+        accel: [0.16, 0.3, -0.1],
+        drag: 0.72,
+        size: (0.22, 1.3),
+        start_color: [0.62, 0.58, 0.52, 0.36],
+        end_color: [0.58, 0.56, 0.54, 0.0],
+        blend: ParticleBlendMode::Alpha,
+        sprite: SovereignTextureConfig::Puff(SovereignPuffConfig {
+            seed: (seed ^ 0x0EA7_1100) as u32,
+            color_base: Fp3([0.66, 0.62, 0.56]),
+            color_shadow: Fp3([0.36, 0.33, 0.30]),
+            ..Default::default()
+        }),
+    }
+    .at(pos, seed)
+}
+
 // ---------------------------------------------------------------------------
 // Spatial audio patches
 // ---------------------------------------------------------------------------

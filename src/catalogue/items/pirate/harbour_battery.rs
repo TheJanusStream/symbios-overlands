@@ -1308,12 +1308,18 @@ mod tests {
     /// (now seven pinched superellipsoids), and every nested weathering block
     /// on a metal fitting.
     ///
-    /// The ceiling is deliberately a little above the current figure so the
-    /// entry can be detailed further, and well under the doubling that would
-    /// make it an outlier again. It was raised once, from 85 to 95 KB, when
-    /// the guns gained their bores, trunnions and stepped cheeks (#1025) —
-    /// detail the user asked for after seeing them in-world, on the prop that
-    /// is the whole point of the building.
+    /// The ceiling is a little above the current figure so the entry can be
+    /// detailed further, and well under the doubling that would make it an
+    /// outlier again. It was raised once, from 85 to 95 KB, when the guns
+    /// gained their bores, trunnions and stepped cheeks (#1025) — detail the
+    /// user asked for after seeing them in-world, on the prop that is the
+    /// whole point of the building.
+    ///
+    /// There is no room for a second such raise. Since #1027 the record
+    /// budget is measured against the largest record a publish actually
+    /// writes, and across all twenty-four themes that record is **this one**,
+    /// at 91 % of the 100 KiB soft budget. The next entry to grow past the
+    /// battery inherits the constraint; the battery itself has spent it.
     #[test]
     fn the_entry_stays_within_the_landmark_record_band() {
         fn count(g: &Generator) -> usize {
@@ -1327,8 +1333,9 @@ mod tests {
         assert!(
             bytes < 95_000,
             "the battery serialises to {bytes} B over {nodes} nodes; the next \
-             heaviest landmark in the catalogue is ~55 KB, and a whole seeded \
-             room's soft budget is 200 KiB"
+             heaviest landmark in the catalogue is ~55 KB, and this entry IS \
+             the largest published record in any seeded room — it sits at 91 % \
+             of the 100 KiB soft budget, so there is no slack above it"
         );
         assert!(
             nodes < 215,

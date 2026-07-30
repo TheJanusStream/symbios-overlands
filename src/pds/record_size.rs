@@ -21,33 +21,27 @@
 
 use serde::Serialize;
 
-/// Design target every record should stay under (200 KiB). Crossing it only
+/// Design target every record should stay under (100 KiB). Crossing it only
 /// warns — the publish still proceeds — but it is the signal to start the
 /// later stages of the split plan (default-elision, record sharding).
 ///
-/// # Why 200 and not the original 100
+/// # It was briefly 200, and that was a measurement error
 ///
-/// Raised deliberately, after measurement, rather than to make a failing test
-/// pass (#1024). The canary below measures **one** hardcoded DID, so which
-/// theme it lands on is a lottery — and it had been landing on a small one.
-/// Measuring every `ThemeArchetype` instead showed that at 100 KiB *fifteen of
-/// the twenty-four* seeded themes were already over budget, from FeudalJapan
-/// at 101.7 KiB to GothicHorror at 348.6 KiB. A budget the majority of the
-/// content breaches is not a design target, it is a stale number that happens
-/// not to be looked at.
+/// The canary was comparing this against the **assembled** `RoomRecord`,
+/// which since #697 is an in-memory model that never goes on the wire as one
+/// record — a room publishes as a manifest plus a child per generator. On
+/// that wrong yardstick fifteen of the twenty-four themes looked over budget
+/// (GothicHorror at 348.6 KiB), which prompted a raise to 200 KiB.
 ///
-/// 200 KiB is where the distribution actually sits: it holds twenty of the
-/// twenty-four with headroom and leaves the genuine outliers — the ones worth
-/// investigating — over the line. It remains far under
-/// [`HARD_RECORD_CEILING_BYTES`], which is the limit that protects the network
-/// call and is unchanged.
+/// Measured against what a publish actually writes, **every theme is inside
+/// 100 KiB**: GothicHorror's largest record is 53.9 KiB and the worst in the
+/// catalogue is the Pirate harbour battery at 90.8 KiB. So the original
+/// number was right all along and is restored (#1027).
 ///
-/// The outliers above this line are tracked on #1024, along with the cheapest
-/// lever found so far: a nested `SovereignWeatheringConfig` is per-*prim*
-/// record payload, and on small metal fittings it buys sub-pixel detail at the
-/// highest price a kit can pay — it was 23 % of the pirate landmark before it
-/// was cut back to the masonry that can actually show it.
-pub const SOFT_RECORD_BUDGET_BYTES: usize = 200 * 1024;
+/// It is also a *useful* number at 100, which 200 was not: the heaviest entry
+/// in the catalogue sits at 91 % of it, so the budget genuinely constrains
+/// the next big building instead of waving everything through.
+pub const SOFT_RECORD_BUDGET_BYTES: usize = 100 * 1024;
 
 /// Absolute pre-flight ceiling (900 KiB): past this the publish is refused
 /// without touching the network. Leaves margin under the ~1 MiB ATProto
@@ -329,30 +323,118 @@ mod tests {
         assert_eq!(serde_json::to_string(&absent).unwrap(), "{}");
     }
 
-    /// Canary: the DID-seeded default records must sit comfortably under the
-    /// soft budget. If a seeded-defaults change trips this, the budget is
-    /// being spent before the owner has authored anything — revisit either
-    /// the default build or the budget before shipping.
+    /// Canary: the largest record a seeded default would **publish** must sit
+    /// under the soft budget. If a seeded-defaults change trips this, the
+    /// budget is being spent before the owner has authored anything — revisit
+    /// either the default build or the budget before shipping.
+    ///
+    /// # It measures the biggest RECORD, not the assembled room
+    ///
+    /// This is the correction that makes the canary mean what it says. Since
+    /// #697 a room publishes as a slim **manifest** plus one
+    /// content-addressed **child record per generator**, so the assembled
+    /// `RoomRecord` is an in-memory model that is never written anywhere as a
+    /// single record. Measuring its serialized length was measuring a
+    /// quantity the PDS never sees, and it drifted further from the truth
+    /// with every generator a theme added.
+    ///
+    /// The difference is not marginal. Under the old reading fifteen of the
+    /// twenty-four themes appeared to be over a 100 KiB budget, with
+    /// GothicHorror at 348.6 KiB — and that drove a decision to raise the
+    /// budget to 200 KiB (#1024). Measured per record, GothicHorror's largest
+    /// is **53.9 KiB** and *every* theme is inside 100 KiB, the worst being
+    /// Pirate's harbour battery at 90.8 KiB. Nothing was ever over; the
+    /// yardstick was wrong.
+    ///
+    /// Same correction for the inventory, which has published one record per
+    /// item since #696. The avatar is genuinely a single record at
+    /// `avatar/self`, so its own size is the right figure there.
+    ///
+    /// The assembled total is still printed, because it is what a visitor
+    /// downloads and holds — but it is a *fetch* cost, not a record size, and
+    /// this budget is about what a publish may write.
     #[test]
     fn seeded_default_records_fit_the_soft_budget() {
         let did = "did:plc:sizebudgetcanary";
         let room = crate::pds::RoomRecord::default_for_did(did);
         let avatar = crate::pds::AvatarRecord::default_for_did(did);
         let inventory = crate::pds::InventoryRecord::default();
-        for (label, bytes) in [
-            ("room", serialized_record_bytes(&room).unwrap()),
-            ("avatar", serialized_record_bytes(&avatar).unwrap()),
-            ("inventory", serialized_record_bytes(&inventory).unwrap()),
-        ] {
-            // Baseline visibility under `--nocapture`.
-            eprintln!("seeded default {label} record: {}", human_bytes(bytes));
+
+        // Context, not an assertion: the in-memory model's size.
+        eprintln!(
+            "seeded default room, assembled in memory: {}",
+            human_bytes(serialized_record_bytes(&room).unwrap())
+        );
+
+        let biggest = [
+            (
+                "room",
+                crate::pds::room::max_publish_record_bytes(&room).expect("a room serialises"),
+            ),
+            (
+                "avatar",
+                serialized_record_bytes(&avatar).expect("an avatar serialises"),
+            ),
+            (
+                "inventory",
+                // An empty default inventory writes no item records at all;
+                // the floor keeps the label in the report either way.
+                crate::pds::inventory::max_item_bytes(&inventory).unwrap_or(0),
+            ),
+        ];
+        for (label, bytes) in biggest {
+            eprintln!(
+                "seeded default {label}: largest published record {}",
+                human_bytes(bytes)
+            );
             assert_eq!(
                 classify(bytes),
                 SizeClass::WithinBudget,
-                "seeded default {label} record is {} — over the {} soft budget",
+                "the largest record a seeded default {label} would publish is \
+                 {} — over the {} soft budget",
                 human_bytes(bytes),
                 human_bytes(SOFT_RECORD_BUDGET_BYTES),
             );
         }
+    }
+
+    /// No theme's largest published record breaches the budget — checked
+    /// across ALL of them, not one lottery DID.
+    ///
+    /// The canary above measures a single hardcoded DID, so which theme it
+    /// lands on is a draw, and it had been passing on a small one for as long
+    /// as it existed. That is how a whole class of size regressions stayed
+    /// invisible: a theme could double and the test would only notice if the
+    /// dice happened to pick it. Iterating the roster costs a couple of
+    /// seconds and turns the canary into a statement about the content rather
+    /// than about the seed.
+    #[test]
+    fn no_theme_publishes_a_record_over_the_budget() {
+        use crate::seeded_defaults::{SceneCharacter, ThemeArchetype, fnv1a_64};
+        let mut worst = (0usize, String::new());
+        for theme in ThemeArchetype::ALL {
+            // First DID that lands on this theme. The scene picks uniformly,
+            // so a few thousand probes always finds one.
+            let did = (0..40_000u64)
+                .map(|i| format!("did:plc:probe{i}"))
+                .find(|d| SceneCharacter::for_seed(fnv1a_64(d)).theme == theme)
+                .unwrap_or_else(|| panic!("{theme:?} unreachable by any probe DID"));
+            let room = crate::pds::RoomRecord::default_for_did(&did);
+            let bytes =
+                crate::pds::room::max_publish_record_bytes(&room).expect("a room serialises");
+            if bytes > worst.0 {
+                worst = (bytes, format!("{theme:?}"));
+            }
+            assert_eq!(
+                classify(bytes),
+                SizeClass::WithinBudget,
+                "{theme:?}'s largest published record is {} — over the {} soft \
+                 budget. The heaviest single catalogue entry that theme places \
+                 is the thing to look at.",
+                human_bytes(bytes),
+                human_bytes(SOFT_RECORD_BUDGET_BYTES),
+            );
+        }
+        eprintln!("worst theme: {} at {}", worst.1, human_bytes(worst.0));
     }
 }

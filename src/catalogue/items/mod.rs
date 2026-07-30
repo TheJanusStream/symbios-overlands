@@ -378,6 +378,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &wild_west::tumbleweed::Tumbleweed,
     // Buildings — Pirate theme (landmark + secondaries + props).
     &pirate::harbour_battery::HarbourBattery,
+    &pirate::harbour_tavern::HarbourTavern,
+    &pirate::prize_warehouse::PrizeWarehouse,
+    &pirate::careening_slip::CareeningSlip,
     // Buildings — cross-theme socio-political props (Prop role, tagged
     // with every theme but gated to a prosperity / escalation tier band;
     // see crate::catalogue::items::civic).

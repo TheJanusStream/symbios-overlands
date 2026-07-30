@@ -1400,6 +1400,61 @@ pub(super) fn quarter_turn(mut mat: SovereignMaterialSettings) -> SovereignMater
     mat
 }
 
+/// A cylinder spanning two world points — the catalogue's ONE conversion
+/// from "this rope/spar/shore runs from A to B" into a rotation.
+///
+/// This exists because the conversion was hand-rolled three times in one file
+/// and every one of them was wrong in a different way (#1028): a fall whose
+/// yaw ignored the fore-and-aft component of its own run, a shore leaning
+/// away from the hull it propped (`quat_z(-lean)` where the handedness wanted
+/// `+`), and a set of capstan bars "laid flat" by snapping to whichever
+/// quarter turn was nearest. Each looked plausible at three of four angles.
+/// #972 lesson 23 named this failure for guards — a hand-rolled rotate is a
+/// coin flip — and the same is true of authoring.
+///
+/// The rotation is the axis-angle turn from the cylinder's own axis (`+Y`)
+/// onto the run: axis = `Ŷ × d̂`, angle = `atan2(|Ŷ × d̂|, Ŷ · d̂)`, packed as
+/// a quaternion via the half-angle. Degenerate runs (straight up, straight
+/// down) fall out naturally: up is the identity, down is a half-turn about X.
+///
+/// Returns a leaf prim centred on the midpoint. A leaf, deliberately — a
+/// strut carries nothing, so its rotation displaces nothing, which keeps
+/// every translation-only guard sound (#972 lesson 22).
+pub(super) fn strut(
+    from: [f32; 3],
+    to: [f32; 3],
+    radius: f32,
+    resolution: u32,
+    material: SovereignMaterialSettings,
+) -> Generator {
+    let v = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(1e-4);
+    let d = [v[0] / len, v[1] / len, v[2] / len];
+    // axis = Y × d = (d.z, 0, -d.x); its length is sin(angle), d.y is cos.
+    let (ax, az) = (d[2], -d[0]);
+    let sin_a = (ax * ax + az * az).sqrt();
+    let rotation = if sin_a < 1e-5 {
+        if d[1] >= 0.0 {
+            id_quat() // straight up: the cylinder's own axis already
+        } else {
+            Fp4([1.0, 0.0, 0.0, 0.0]) // straight down: half-turn about X
+        }
+    } else {
+        let angle = sin_a.atan2(d[1]);
+        let (half_s, half_c) = (angle * 0.5).sin_cos();
+        Fp4([ax / sin_a * half_s, 0.0, az / sin_a * half_s, half_c])
+    };
+    prim(
+        cylinder_tapered(radius, len, resolution, 0.0, material),
+        [
+            (from[0] + to[0]) * 0.5,
+            (from[1] + to[1]) * 0.5,
+            (from[2] + to[2]) * 0.5,
+        ],
+        rotation,
+    )
+}
+
 /// Default clear spacing between balusters, in metres — see [`railing`].
 ///
 /// Real balustrades run a 100 mm gap, which on a twelve-metre boardwalk is
@@ -2234,6 +2289,47 @@ mod tests {
             widest > 5.0 && widest <= 6.0,
             "the handrail spans {widest} of a 6 m run"
         );
+    }
+
+    /// A strut's built cylinder actually lands both endpoints it was given.
+    ///
+    /// Verified through [`rotate_by`] — the guards' one quaternion
+    /// implementation — so the authoring helper and the checking helper agree
+    /// on handedness by construction. Cases cover a genuinely 3D diagonal
+    /// (all three components nonzero, the case every hand-rolled version got
+    /// wrong), a horizontal run, and the two degenerate verticals.
+    #[test]
+    fn strut_spans_exactly_the_two_points_it_is_given() {
+        let mat = SovereignMaterialSettings::default();
+        let cases = [
+            ([0.5, 1.0, -2.0], [3.0, 4.5, 1.5]),
+            ([-1.0, 2.0, 0.0], [1.0, 2.0, 0.0]),
+            ([0.0, 0.0, 0.0], [0.0, 3.0, 0.0]),
+            ([1.0, 5.0, 1.0], [1.0, 1.0, 1.0]),
+        ];
+        for (from, to) in cases {
+            let g = strut(from, to, 0.05, 8, mat.clone());
+            let GeneratorKind::Cylinder { height, .. } = &g.kind else {
+                panic!("a strut is a cylinder");
+            };
+            let half = height.0 * 0.5;
+            let c = g.transform.translation.0;
+            let q = g.transform.rotation.0;
+            let tip = rotate_by(q, [0.0, half, 0.0]);
+            let top = [c[0] + tip[0], c[1] + tip[1], c[2] + tip[2]];
+            let bot = [c[0] - tip[0], c[1] - tip[1], c[2] - tip[2]];
+            // One end lands on `to`, the other on `from` (order depends on
+            // the run's direction; both together is the claim that matters).
+            let close = |a: [f32; 3], b: [f32; 3]| {
+                (a[0] - b[0]).abs() < 1e-4
+                    && (a[1] - b[1]).abs() < 1e-4
+                    && (a[2] - b[2]).abs() < 1e-4
+            };
+            assert!(
+                (close(top, to) && close(bot, from)) || (close(top, from) && close(bot, to)),
+                "strut {from:?} -> {to:?} built ends {bot:?} and {top:?}"
+            );
+        }
     }
 
     /// A kind with no faces at all (here a particle system) passes through

@@ -35,15 +35,19 @@
 //! doors, shutters and crates; dressed [`ashlar`] and [`cobbles`] for the
 //! battery and the quay; [`shingle`] roofs; woven [`sailcloth`] and coarse
 //! [`hemp`]; rusting [`iron`] hardware and verdigris [`bronze`] guns;
-//! [`tinted_glass`] for a lantern's light; matte [`tar`] for pitch and payed
-//! seams; grey [`strand`] shingle underfoot. The leaded-light *card* arrives
-//! with the first entry that has a window to fill (#1020) — the landmark
-//! deliberately has none, since a battery's openings are gun ports. The
-//! battery's guns breathe spent powder over a harbour swell from [`fx`].
+//! small leaded [`glass`] lights re-cut per opening by [`pane_grid`], and
+//! [`tinted_glass`] for the lanterns (glass on a *solid*, which the card can
+//! never be); matte [`tar`] for pitch and payed seams; grey [`strand`]
+//! shingle underfoot. The battery's guns breathe spent powder over a harbour
+//! swell from [`fx`].
 
 pub mod gateway;
 pub mod harbour_battery;
+pub mod harbour_tavern;
 pub mod monument;
+pub mod prize_warehouse;
+
+pub mod careening_slip;
 
 pub mod fx;
 
@@ -55,7 +59,7 @@ use bevy_symbios_texture::metal::MetalStyle;
 use crate::pds::{
     Fp, Fp3, Fp64, SovereignAshlarConfig, SovereignCobblestoneConfig, SovereignFabricConfig,
     SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignSandConfig,
-    SovereignShingleConfig, SovereignTextureConfig,
+    SovereignShingleConfig, SovereignTextureConfig, SovereignWindowConfig,
 };
 use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
@@ -380,18 +384,64 @@ pub(super) fn bronze(color: [f32; 3], seed: u32) -> SovereignMaterialSettings {
 // ---------------------------------------------------------------------------
 // Glazing
 // ---------------------------------------------------------------------------
-//
-// The kit's leaded-light CARD (`glass`) and its per-opening re-cut
-// (`pane_grid`, following coastal_resort's) land with the first entry that has
-// a window to fill — the harbour tavern, #1020. They are absent here rather
-// than sitting unused because a material nothing calls is a decision nothing
-// checks, and the landmark deliberately has no glazing at all: a battery's
-// openings are embrasures and gun ports, which are real holes with guns in
-// them (#972 lesson 24 — ask what the real thing does before reaching for the
-// idiom).
-//
-// `tinted_glass` below is the *other* half of that story and is needed now,
-// because the lanterns are glazed solids.
+
+/// A small leaded light — the tavern's windows and the warehouse office's.
+///
+/// **This is a CARD and it belongs on a flat `Plane` over a real opening**
+/// (#972 lesson 1). The generator masks its panes away and the pipeline draws
+/// every card at `AlphaMode::Mask(0.5)`, so at `glass_opacity` 0.34 the panes
+/// are genuine holes: spanning an opening they show the room behind, and stuck
+/// on a solid they show the wall. `uv_scale` stays 1.0 — cards upload
+/// clamp-to-edge and must span their quad exactly once.
+///
+/// It arrives now rather than with the rest of the kit because the landmark
+/// deliberately has none: a battery's openings are embrasures and gun ports,
+/// which are real holes with guns in them. A material nothing calls is a
+/// decision nothing checks.
+///
+/// The pane grid is small and the joinery is dark oak, because the period's
+/// glass came in pieces a hand could carry; a big clean light would read as
+/// three centuries too late. For glass on a **solid** — a lantern, a bottle,
+/// a stern light — use [`tinted_glass`], never this.
+///
+/// `glow` is normally zero. What lights a window is the room behind it, not
+/// the pane — see [`util::lit_interior`](super::util::lit_interior).
+pub(super) fn glass(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(tint),
+        emission_color: Fp3(tint),
+        emission_strength: Fp(glow),
+        roughness: Fp(0.3),
+        metallic: Fp(0.1),
+        uv_scale: Fp(1.0),
+        texture: SovereignTextureConfig::Window(SovereignWindowConfig {
+            panes_x: 4,
+            panes_y: 4,
+            glass_opacity: Fp64(0.34),
+            grime_level: Fp64(0.3),
+            mullion_thickness: Fp64(0.035),
+            color_frame: Fp3(OAK_JOINERY),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+/// The kit's [`glass`], re-cut to one opening's pane grid (#972).
+///
+/// The kit material already carries the grime, the joinery colour and the
+/// opacity, and those are worth inheriting. What a shared material cannot know
+/// is the *aspect of the hole it is filling* — and pane counts are exactly
+/// what tell a viewer how big an opening is, so they are picked per opening
+/// and everything else comes along.
+pub(super) fn pane_grid(tint: [f32; 3], glow: f32, panes: (u32, u32)) -> SovereignMaterialSettings {
+    let mut m = glass(tint, glow);
+    if let SovereignTextureConfig::Window(cfg) = &mut m.texture {
+        cfg.panes_x = panes.0;
+        cfg.panes_y = panes.1;
+    }
+    m
+}
 
 // ---------------------------------------------------------------------------
 // Plain surfaces
@@ -752,8 +802,9 @@ pub(super) const HULL_OAK: [f32; 3] = [0.33, 0.23, 0.14];
 pub(super) const DECK_HOLY: [f32; 3] = [0.63, 0.56, 0.43];
 /// Weathered grey wharf and staging timber, silvered by salt.
 pub(super) const WHARF_GREY: [f32; 3] = [0.48, 0.46, 0.42];
-// `OAK_JOINERY`, the dark frame colour the leaded lights are glazed into,
-// arrives with them (#1020).
+/// Joinery oak — window frames, door stiles, sign-board mouldings. Dark, as
+/// period joinery was, and the frame colour [`glass`] is glazed into.
+pub(super) const OAK_JOINERY: [f32; 3] = [0.28, 0.19, 0.11];
 
 /// Powder-stained limestone — the battery's dressed face and copings.
 pub(super) const STONE_LIME: [f32; 3] = [0.60, 0.58, 0.52];
