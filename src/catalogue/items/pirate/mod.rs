@@ -44,10 +44,12 @@
 pub mod gateway;
 pub mod harbour_battery;
 pub mod harbour_tavern;
+pub mod longboat;
 pub mod monument;
 pub mod powder_magazine;
 pub mod prize_warehouse;
 pub mod quay_capstan;
+pub mod rum_tuns;
 pub mod signal_mast;
 
 pub mod careening_slip;
