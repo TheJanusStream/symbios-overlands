@@ -381,6 +381,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &pirate::harbour_tavern::HarbourTavern,
     &pirate::prize_warehouse::PrizeWarehouse,
     &pirate::careening_slip::CareeningSlip,
+    &pirate::quay_capstan::QuayCapstan,
+    &pirate::signal_mast::SignalMast,
+    &pirate::powder_magazine::PowderMagazine,
     // Buildings — cross-theme socio-political props (Prop role, tagged
     // with every theme but gated to a prosperity / escalation tier band;
     // see crate::catalogue::items::civic).

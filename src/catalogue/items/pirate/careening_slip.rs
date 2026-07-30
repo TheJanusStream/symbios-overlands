@@ -41,9 +41,9 @@ use crate::pds::generator::FaceKey;
 use crate::seeded_defaults::{ProsperityBand, ThemeArchetype};
 
 use super::{
-    CANVAS_BONE, CANVAS_SHADE, DECK_HOLY, HULL_OAK, HULL_TAR, IRON_BLACK, PORT_BAND, ROPE_HEMP,
-    SIGN_AMBER, STONE_QUAY, STRAND_SHINGLE, WHARF_GREY, board, cobbles, fx, hemp, iron, sailcloth,
-    strake, strand, tar,
+    CANVAS_BONE, CANVAS_SHADE, HULL_OAK, HULL_TAR, IRON_BLACK, PORT_BAND, ROPE_HEMP, SIGN_AMBER,
+    STONE_QUAY, STRAND_SHINGLE, WHARF_GREY, board, cobbles, fx, hemp, iron, sailcloth, strake,
+    strand, tar,
 };
 
 /// The site: shingle foreshore with a cobbled hard at its head.
@@ -411,37 +411,17 @@ fn masthead_tackle() -> Vec<Generator> {
     out
 }
 
-/// The capstan on the hard, with its bars and the hauling part led to it.
-fn capstan() -> Generator {
+/// The capstan on the hard, on its own paved pad.
+///
+/// The barrel, whelps, pawl rim and bars are the kit's shared
+/// [`capstan`](super::capstan) — promoted the moment the standalone quayside
+/// prop needed the same assembly (#972 lesson 5). Only three bars are
+/// shipped: the hands are careening, not heaving, and a capstan with every
+/// socket filled says the opposite.
+fn capstan_on_the_hard() -> Generator {
     let x = 0.0;
     let z = HULL_Z + 6.2;
-    let base = [x, GROUND + 0.18, z];
-    let mut carried = vec![
-        prim(
-            solid(cylinder_tapered(0.52, 1.05, 14, 0.16, board(HULL_OAK))),
-            [x, GROUND + 0.7, z],
-            id_quat(),
-        ),
-        prim(
-            torus(0.05, 0.5, iron(IRON_BLACK, 0xA3)),
-            [x, GROUND + 1.16, z],
-            id_quat(),
-        ),
-    ];
-    // Capstan bars: six struts radiating horizontally from the drum's own
-    // sockets. The first build "laid them flat" by snapping each to whichever
-    // quarter-turn was nearest, which left the off-cardinal four standing at
-    // wrong angles — the in-world "wheel with wrong rotations" (#1028). A
-    // strut from socket to tip is horizontal because its endpoints are, not
-    // because a formula said so.
-    let bar_y = GROUND + 1.02;
-    for i in 0..6 {
-        let a = i as f32 * std::f32::consts::TAU / 6.0;
-        let dir = [a.cos(), 0.0, a.sin()];
-        let socket = [x + 0.42 * dir[0], bar_y, z + 0.42 * dir[2]];
-        let tip = [x + 2.05 * dir[0], bar_y, z + 2.05 * dir[2]];
-        carried.push(strut(socket, tip, 0.065, 6, board(DECK_HOLY)));
-    }
+    let pad = [x, GROUND + 0.18, z];
     nest(
         prim(
             solid(cylinder_tapered(
@@ -451,10 +431,10 @@ fn capstan() -> Generator {
                 0.1,
                 cobbles(STONE_QUAY, 0xA4),
             )),
-            base,
+            pad,
             id_quat(),
         ),
-        carried,
+        vec![super::capstan([x, GROUND + 0.36, z], 3, 0xA3)],
     )
 }
 
@@ -481,7 +461,7 @@ fn build_tree() -> Generator {
     carried.extend(slipway());
     carried.push(hull());
     carried.extend(masthead_tackle());
-    carried.push(capstan());
+    carried.push(capstan_on_the_hard());
 
     // The pitch fire and its kettle, beside her exposed bottom — the part of
     // the job that gives the prop its one warm light, and the reason a

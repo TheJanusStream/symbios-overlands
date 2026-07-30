@@ -45,7 +45,10 @@ pub mod gateway;
 pub mod harbour_battery;
 pub mod harbour_tavern;
 pub mod monument;
+pub mod powder_magazine;
 pub mod prize_warehouse;
+pub mod quay_capstan;
+pub mod signal_mast;
 
 pub mod careening_slip;
 
@@ -780,6 +783,84 @@ pub(super) fn jolly_roger(hoist: [f32; 3], w: f32, h: f32) -> Generator {
             prim(blob_group(skull, DEVICE_RES, bone(BONE_PALE)), c, id_quat()),
             prim(blob_group(bones, DEVICE_RES, bone(BONE_PALE)), c, id_quat()),
         ],
+    )
+}
+
+/// A capstan: the barrel, its whelps, the iron pawl rim and six bars.
+///
+/// Promoted here the moment it had a second caller (#972 lesson 5) — the
+/// careening slip heaves a hull down with one and the standalone quayside
+/// prop is one. It is also the piece that taught this kit the most about
+/// rotations: the bars shipped "laid flat" by snapping each to the nearest
+/// quarter-turn, which left the four off-cardinal ones standing at wrong
+/// angles (#1028). They are [`strut`](super::util::strut)s from socket to
+/// tip now, horizontal because their endpoints are.
+///
+/// `at` is the barrel's foot — the deck or pad it is stepped on. `bars` is
+/// how many are shipped: a working capstan has every socket filled, a resting
+/// one has two or three and the rest stowed, and that difference is most of
+/// what says whether anybody is heaving right now.
+pub(super) fn capstan(at: [f32; 3], bars: usize, seed: u32) -> Generator {
+    use super::util::{cylinder_tapered, id_quat, nest, prim, solid, strut, torus};
+
+    let barrel_h = 1.05;
+    let mut carried = Vec::new();
+
+    // Whelps — the vertical ribs the messenger renders against. Without them
+    // a capstan is a bollard: the ribs are what make the taper read as
+    // something a rope grips.
+    for i in 0..6 {
+        let a = i as f32 * std::f32::consts::TAU / 6.0 + 0.26;
+        carried.push(prim(
+            solid(cylinder_tapered(
+                0.07,
+                barrel_h * 0.74,
+                6,
+                0.1,
+                board(HULL_OAK),
+            )),
+            [
+                at[0] + 0.44 * a.cos(),
+                at[1] + barrel_h * 0.44,
+                at[2] + 0.44 * a.sin(),
+            ],
+            id_quat(),
+        ));
+    }
+    // Pawl rim at the head, and the drumhead over it.
+    carried.push(prim(
+        torus(0.05, 0.5, iron(IRON_BLACK, seed)),
+        [at[0], at[1] + barrel_h * 0.98, at[2]],
+        id_quat(),
+    ));
+    carried.push(prim(
+        solid(cylinder_tapered(0.56, 0.14, 14, 0.06, board(DECK_HOLY))),
+        [at[0], at[1] + barrel_h + 0.07, at[2]],
+        id_quat(),
+    ));
+
+    // The bars, in their sockets. Struts, so a bar is horizontal because its
+    // two ends are at one height — not because a formula said so.
+    let bar_y = at[1] + barrel_h * 0.94;
+    for i in 0..bars.min(6) {
+        let a = i as f32 * std::f32::consts::TAU / 6.0;
+        let dir = [a.cos(), a.sin()];
+        carried.push(strut(
+            [at[0] + 0.42 * dir[0], bar_y, at[2] + 0.42 * dir[1]],
+            [at[0] + 2.05 * dir[0], bar_y, at[2] + 2.05 * dir[1]],
+            0.065,
+            6,
+            board(DECK_HOLY),
+        ));
+    }
+
+    nest(
+        prim(
+            solid(cylinder_tapered(0.52, barrel_h, 14, 0.16, board(HULL_OAK))),
+            [at[0], at[1] + barrel_h * 0.5, at[2]],
+            id_quat(),
+        ),
+        carried,
     )
 }
 
