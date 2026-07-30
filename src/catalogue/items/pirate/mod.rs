@@ -9,10 +9,10 @@
 //! The destitute kit — a rotting hulk, a gibbet cage at the tide line, and
 //! the bones the tide leaves — turns eerie rather than merely poor. That is
 //! the theme's second *read*, not a second identity: the same harbour after
-//! its luck ran out. Which is why it will share this file's timber and iron
-//! rather than take a palette of its own, adding only [`bone`] and a cold
-//! corpse-light green. It lands in a later batch (#1023) along with its
-//! prosperity band; nothing here is declared before something calls it.
+//! its luck ran out. Which is why it shares this file's timber and iron rather
+//! than taking a palette of its own, adding only [`bone`] and one cold
+//! corpse-light green ([`WITCHFIRE`]) that reads as wrong precisely because
+//! every other lit colour here is firelight.
 //!
 //! # Telling this apart from the other maritime theme
 //!
@@ -42,6 +42,7 @@
 //! swell from [`fx`].
 
 pub mod gateway;
+pub mod gibbet_cage;
 pub mod harbour_battery;
 pub mod harbour_tavern;
 pub mod longboat;
@@ -49,8 +50,10 @@ pub mod monument;
 pub mod powder_magazine;
 pub mod prize_warehouse;
 pub mod quay_capstan;
+pub mod rotting_hulk;
 pub mod rum_tuns;
 pub mod signal_mast;
+pub mod tideline_bones;
 
 pub mod careening_slip;
 
@@ -62,7 +65,7 @@ use bevy_symbios_texture::fabric::WeaveKind;
 use bevy_symbios_texture::metal::MetalStyle;
 
 use crate::pds::{
-    Fp, Fp3, Fp64, SovereignAshlarConfig, SovereignCobblestoneConfig, SovereignFabricConfig,
+    Fp, Fp3, Fp4, Fp64, SovereignAshlarConfig, SovereignCobblestoneConfig, SovereignFabricConfig,
     SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignSandConfig,
     SovereignShingleConfig, SovereignTextureConfig, SovereignWindowConfig,
 };
@@ -70,14 +73,19 @@ use crate::seeded_defaults::{ProsperityBand, ProsperityTier};
 
 /// Shared prosperity band for the working harbour — a port with a garrison,
 /// a bonded warehouse and prizes to careen reads as Modest-to-Rich. The poor
-/// end of the theme is the separate cursed kit (#1023), so a
+/// end of the theme is the separate cursed kit ([`PORT_POOR`]), so a
 /// destitute pirate room grows the wreck and the gibbet instead.
 pub(super) const PORT_BAND: ProsperityBand =
     ProsperityBand::range(ProsperityTier::Modest, ProsperityTier::Rich);
 
-// `PORT_POOR` — the `ProsperityBand::only(Poor)` counterpart — lands with the
-// first cursed-register entry (#1023) rather than sitting here unused: a
-// constant nothing reads is a claim nothing checks.
+/// The cursed register — a harbour after its luck ran out.
+///
+/// `Poor` only, and the split is the point. This is not the working port with
+/// less money in it; it is the same timber and iron gone soft, with [`bone`]
+/// and [`WITCHFIRE`] added and nothing else changed. A destitute pirate room
+/// grows a rotting hulk, a gibbet at the tide line and the ribs of a wreck in
+/// the shingle where a Modest one grows a tavern and a warehouse.
+pub(super) const PORT_POOR: ProsperityBand = ProsperityBand::only(ProsperityTier::Poor);
 
 // ---------------------------------------------------------------------------
 // Timber
@@ -867,6 +875,69 @@ pub(super) fn capstan(at: [f32; 3], bars: usize, seed: u32) -> Generator {
 }
 
 // ---------------------------------------------------------------------------
+/// One of a hull's **frames**: a `U` of curved timber that touches the keel on
+/// the centreline and rises to the sheer on both sides, open to the sky.
+///
+/// Lives here rather than in whichever file needed it first (#972 lesson 5),
+/// because both cursed-register entries are built out of these — the
+/// [`rotting_hulk`]'s bare forward half and the ribs standing out of the shingle
+/// in [`tideline_bones`] — and because the shape cost three renders to arrive at.
+/// A frame is the single most recognisable thing about a wreck, so the kit
+/// cannot afford two spellings of it.
+///
+/// `at` is where the frame's **ellipse centre** goes, which is one `height`
+/// above the keel *in the hull's own frame* — so a caller with a tilted hull
+/// passes `their_frame(0.0, height, station)` rather than the keel point itself.
+/// That is the whole subtlety of the contract: the raise has to happen before
+/// the tilt, or a heeled hull's frames lift straight up out of it instead of
+/// standing on it.
+///
+/// `half_beam` and `height` are the frame's real half-width and rise, which are
+/// *different numbers* — so the primitive is a torus drawn to the beam and then
+/// **scaled** to the sheer, rather than a circular arc that splits the difference
+/// and reaches neither. `tilt` is the hull's own rotation, applied on the left of
+/// the quarter turn.
+///
+/// # Why it is built this way
+///
+/// A half-ring stood up by a quarter turn about `X` gives either an `∩` arching
+/// over the centreline (a wagon hoop) or a `∪` hanging beneath the keel,
+/// depending on which half of the sweep `path_cut` keeps. Neither is a frame,
+/// and **no rotation converts one into the other usefully**: a semicircle is
+/// congruent to its own reflection, so flipping the hanging arc simply returns
+/// the hoop. The arc that hangs has exactly the right form and is merely in the
+/// wrong place, so the answer is a **translation** — raise it by its own
+/// semi-height and its trough lands on the keel while its ends reach the sheer.
+///
+/// The negative quarter turn is required because `path_cut` keeps the arc on the
+/// primitive's local `+Z`; a positive one sends it to world `−Y`, which is the
+/// signal mast's vault fault (#1021) reached from the other side.
+pub(super) fn hull_frame(
+    at: [f32; 3],
+    half_beam: f32,
+    height: f32,
+    tilt: Fp4,
+    section: f32,
+    material: SovereignMaterialSettings,
+) -> Generator {
+    use super::util::{prim_scaled, quat_mul, quat_x, with_cut};
+    let beam = half_beam.max(0.05);
+    prim_scaled(
+        with_cut(
+            super::util::torus(section, beam, material),
+            [0.5, 1.0],
+            [0.0, 1.0],
+            0.0,
+        ),
+        at,
+        quat_mul(tilt, quat_x(-std::f32::consts::FRAC_PI_2)),
+        // Drawn to the beam, stretched to the sheer. The tube stretches with it,
+        // which is right: a frame is a sided timber, deeper than it is thick.
+        [1.0, 1.0, height / beam],
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Palette
 // ---------------------------------------------------------------------------
 //
@@ -950,8 +1021,20 @@ pub(super) const LAMP_TALLOW: [f32; 3] = [1.0, 0.82, 0.48];
 /// window-lit gable. Richer than [`LAMP_TALLOW`] precisely so it holds its
 /// hue where the pale gold would go white.
 pub(super) const SIGN_AMBER: [f32; 3] = [0.95, 0.50, 0.12];
-// `WITCHFIRE`, the cursed register's cold corpse-light green, arrives with the
-// entries that burn it (#1023).
+/// The cursed register's corpse-light — a cold green that reads as *wrong*
+/// beside every other lit colour in this kit.
+///
+/// The whole eerie register turns on this one hue, and it works because it is
+/// the only thing here that is not firelight. [`LAMP_TALLOW`], [`GLASS_AMBER`]
+/// and [`SIGN_AMBER`] are all warm, so the working harbour glows amber from
+/// end to end; witchfire is its complement and reads as something burning that
+/// has no business burning. That is a relationship between colours, not a
+/// property of one — the green is only cold because everything else is warm.
+///
+/// Deep-saturated and used at LOW strength on SMALL surfaces, per the standing
+/// gotcha above: a pale mint at strength would bloom to a white blank and lose
+/// the very hue the register depends on.
+pub(super) const WITCHFIRE: [f32; 3] = [0.14, 0.66, 0.36];
 
 #[cfg(test)]
 mod tests {

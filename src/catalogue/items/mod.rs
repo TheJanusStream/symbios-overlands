@@ -386,6 +386,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &pirate::powder_magazine::PowderMagazine,
     &pirate::rum_tuns::RumTuns,
     &pirate::longboat::Longboat,
+    &pirate::rotting_hulk::RottingHulk,
+    &pirate::gibbet_cage::GibbetCage,
+    &pirate::tideline_bones::TidelineBones,
     // Buildings — cross-theme socio-political props (Prop role, tagged
     // with every theme but gated to a prosperity / escalation tier band;
     // see crate::catalogue::items::civic).
