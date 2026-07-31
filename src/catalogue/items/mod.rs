@@ -134,6 +134,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &mesoamerican::step_pyramid::StepPyramid,
     &mesoamerican::ball_court::BallCourt,
     &mesoamerican::shrine::Shrine,
+    &mesoamerican::palace_range::PalaceRange,
     &mesoamerican::stela::Stela,
     &mesoamerican::skull_rack::SkullRack,
     &mesoamerican::idol::Idol,

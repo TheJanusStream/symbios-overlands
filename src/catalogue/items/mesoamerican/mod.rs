@@ -21,6 +21,7 @@ pub mod fire_bowl;
 pub mod gateway;
 pub mod idol;
 pub mod monument;
+pub mod palace_range;
 pub mod shrine;
 pub mod skull_rack;
 pub mod stela;
