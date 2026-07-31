@@ -67,7 +67,10 @@ impl CatalogueEntry for RuinedTemple {
         let mut root = crate::catalogue::items::util::footing(15.0, 25.0, [0.0, 0.0], 14.5);
         let mut temple = Generator::from_kind(build_kind());
         temple.transform.translation = crate::pds::Fp3([-7.0, 0.0, -12.0]);
-        root.children.push(temple);
+        // `attach` (not a bare push): `footing` returns a root whose own
+        // transform is sunk by half the buried plinth, and a plain child
+        // inherits it — which drops the whole building below grade (#1039).
+        crate::catalogue::items::util::attach(&mut root, temple);
         root
     }
 }

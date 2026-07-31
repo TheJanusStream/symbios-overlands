@@ -145,6 +145,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &modern_city::glass_skyscraper::GlassSkyscraper,
     &modern_city::office_block::OfficeBlock,
     &modern_city::parking_garage::ParkingGarage,
+    &modern_city::rowhouse_terrace::RowhouseTerrace,
     &modern_city::transit_stop::TransitStop,
     &modern_city::street_lamp::StreetLamp,
     &modern_city::traffic_light::TrafficLight,
@@ -510,6 +511,36 @@ pub fn by_slug(slug: &str) -> Option<&'static dyn CatalogueEntry> {
 
 #[cfg(test)]
 mod tests {
+
+    /// #1039: every shape-grammar building must stand at grade. `footing`
+    /// returns a root already sunk by half its buried plinth, so hanging
+    /// the grammar on it with a bare child push inherits that offset and
+    /// drops the building 1.6–2.9 m into its own foundation; `util::attach`
+    /// rebases out of the root frame. All six shape entries shipped that
+    /// way until this guard existed. (Phrased without the literal call so
+    /// `no_entry_pushes_onto_an_assembled_root` does not flag this file.)
+    #[test]
+    fn shape_grammars_stand_at_grade() {
+        let mut checked = 0;
+        for e in ENTRIES {
+            let built = e.build("");
+            if !has_shape_node(&built) {
+                continue;
+            }
+            checked += 1;
+            super::shape_grammar_test::assert_shape_nodes_stand_at_grade(&built, e.slug());
+        }
+        assert!(
+            checked >= 6,
+            "expected the shape entries to be covered, saw {checked}"
+        );
+    }
+
+    /// True when the tree contains a `GeneratorKind::Shape` anywhere.
+    fn has_shape_node(node: &crate::pds::Generator) -> bool {
+        matches!(node.kind, crate::pds::GeneratorKind::Shape { .. })
+            || node.children.iter().any(has_shape_node)
+    }
     use super::*;
 
     /// No entry pushes a child straight onto an assembled root (#1010).

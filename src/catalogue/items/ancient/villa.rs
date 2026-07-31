@@ -72,7 +72,10 @@ impl CatalogueEntry for Villa {
         let mut root = crate::catalogue::items::util::footing(21.0, 17.0, [0.0, 0.0], 13.5);
         let mut house = Generator::from_kind(build_kind());
         house.transform.translation = crate::pds::Fp3([-10.0, 0.0, -8.0]);
-        root.children.push(house);
+        // `attach` (not a bare push): `footing` returns a root whose own
+        // transform is sunk by half the buried plinth, and a plain child
+        // inherits it — which drops the whole building below grade (#1039).
+        crate::catalogue::items::util::attach(&mut root, house);
         root
     }
 }

@@ -21,6 +21,7 @@ pub mod monument;
 pub mod office_block;
 pub mod parked_car;
 pub mod parking_garage;
+pub mod rowhouse_terrace;
 pub mod street_lamp;
 pub mod traffic_light;
 pub mod transit_stop;

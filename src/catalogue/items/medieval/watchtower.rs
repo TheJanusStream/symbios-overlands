@@ -51,7 +51,10 @@ impl CatalogueEntry for Watchtower {
         let mut root = crate::catalogue::items::util::footing(13.0, 13.0, [0.0, 0.0], 9.5);
         let mut tower = Generator::from_kind(build_kind());
         tower.transform.translation = crate::pds::Fp3([-6.0, 0.0, -6.0]);
-        root.children.push(tower);
+        // `attach` (not a bare push): `footing` returns a root whose own
+        // transform is sunk by half the buried plinth, and a plain child
+        // inherits it — which drops the whole building below grade (#1039).
+        crate::catalogue::items::util::attach(&mut root, tower);
         root
     }
 }

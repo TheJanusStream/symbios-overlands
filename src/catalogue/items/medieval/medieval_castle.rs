@@ -63,7 +63,10 @@ impl CatalogueEntry for MedievalCastle {
         let mut root = crate::catalogue::items::util::footing(77.0, 77.0, [0.0, 0.0], 54.0);
         let mut castle = Generator::from_kind(build_kind());
         castle.transform.translation = crate::pds::Fp3([-37.5, 0.0, -37.5]);
-        root.children.push(castle);
+        // `attach` (not a bare push): `footing` returns a root whose own
+        // transform is sunk by half the buried plinth, and a plain child
+        // inherits it — which drops the whole building below grade (#1039).
+        crate::catalogue::items::util::attach(&mut root, castle);
         root
     }
 }
@@ -117,14 +120,15 @@ fn build_kind() -> GeneratorKind {
         },
     );
 
-    // Warm candle-lit keep windows — the castle reads inhabited, a little
-    // hearth-light behind the leaded panes against the cold grey stone.
+    // The leaded pane itself: a cool neutral card. A `Window` texture is
+    // one material across frame *and* glass, so tinting it warm to suggest
+    // candlelight lights the leading too and the cames read as glowing wire
+    // rather than dark metal. The hearth-light lives on the separate
+    // `Hearth` surface set behind this card.
     materials.insert(
         "Glass".to_string(),
         SovereignMaterialSettings {
-            base_color: Fp3([1.0, 0.72, 0.36]),
-            emission_color: Fp3([1.0, 0.6, 0.26]),
-            emission_strength: Fp(2.2),
+            base_color: Fp3([0.40, 0.44, 0.48]),
             roughness: Fp(0.3),
             uv_scale: Fp(1.0),
             texture: SovereignTextureConfig::Window(SovereignWindowConfig {
@@ -134,6 +138,20 @@ fn build_kind() -> GeneratorKind {
                 glass_opacity: Fp64(0.35),
                 ..Default::default()
             }),
+            ..Default::default()
+        },
+    );
+
+    // The candle-lit room behind the keep's leaded windows — a plain
+    // emissive surface, no texture, so all the pattern comes from the pane
+    // card in front of it. This is what makes the castle read inhabited.
+    materials.insert(
+        "Hearth".to_string(),
+        SovereignMaterialSettings {
+            base_color: Fp3([1.0, 0.62, 0.26]),
+            emission_color: Fp3([1.0, 0.55, 0.22]),
+            emission_strength: Fp(2.6),
+            roughness: Fp(0.9),
             ..Default::default()
         },
     );
@@ -172,6 +190,8 @@ fn build_kind() -> GeneratorKind {
     // example's `DVec3::new(75.0, 0.0, 75.0)`.
     let grammar_source = [
         // ── 1. Macro layout (concentric wards) ──
+        // Wall thickness, shared by the wall slabs and the window reveals.
+        "const WallD = 0.5",
         "Lot --> Split(X) { 8: LeftWall | ~1: CastleCore | 8: RightWall }",
         "CastleCore --> Split(Z) { 8: FrontWall | ~1: InnerWard | 22: KeepMass }",
         "InnerWard --> Split(X) { 8: WestWing | ~1: Courtyard | 8: EastWing }",
@@ -242,13 +262,18 @@ fn build_kind() -> GeneratorKind {
         "KeepBay --> 50% SolidWall | 30% LargeWindowBay | 20% BalconyBay",
         "LargeWindowBay --> Split(X) { ~1: SolidWall | 2.5: WindowVert | ~1: SolidWall }",
         "WindowVert --> Split(Y) { 1.5: SolidWall | 3.5: GlassWindow | ~1: SolidWall }",
-        "GlassWindow --> Extrude(0.4) Mat(\"Glass\") I(\"Pane\")",
+        // Two surfaces per window: the leaded card on the outer face of a
+        // wall-deep reveal, the candle-lit room behind it.
+        "GlassWindow --> Extrude(WallD) Comp(Faces) { Back: PaneCard | Front: HearthRoom | _: RevealFace }",
+        "PaneCard --> Mat(\"Glass\") I(\"Pane\")",
+        "HearthRoom --> Mat(\"Hearth\") I(\"Room\")",
+        "RevealFace --> Mat(\"Stone\") I(\"Reveal\")",
         "BalconyBay --> Split(Y) { 1.5: BalconySupport | 3.5: BalconyDoor | ~1: SolidWall }",
         "BalconySupport --> Extrude(1.0) Mat(\"Stone\") I(\"Balcony\")",
         "BalconyDoor --> Split(X) { ~1: SolidWall | 1.8: WoodDoor | ~1: SolidWall }",
         "WoodDoor --> Extrude(0.3) Mat(\"Wood\") I(\"Door\")",
         // ── 8. Core terminal geometry ──
-        "SolidWall --> Extrude(0.5) Mat(\"Stone\") I(\"Wall\")",
+        "SolidWall --> Extrude(WallD) Mat(\"Stone\") I(\"Wall\")",
         "ArrowSlitBay --> Split(X) { ~1: SolidWall | 0.4: ArrowSlit | ~1: SolidWall }",
         "ArrowSlit --> Split(Y) { 1.5: SolidWall | 2.5: SlitHole | ~1: SolidWall }",
         "SlitHole --> Extrude(0.1) Mat(\"Dark\") I(\"Hole\")",
@@ -292,7 +317,9 @@ mod tests {
             } => {
                 assert!(!grammar_source.is_empty());
                 assert_eq!(root_rule, "Lot");
-                for slot in ["Stone", "Shingle", "Wood", "Glass", "Dark", "Grass"] {
+                for slot in [
+                    "Stone", "Shingle", "Wood", "Glass", "Hearth", "Dark", "Grass",
+                ] {
                     assert!(
                         materials.contains_key(slot),
                         "missing material slot: {slot}"

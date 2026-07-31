@@ -100,3 +100,36 @@ pub(super) fn assert_grammar_parses_and_derives(kind: GeneratorKind, entry_name:
         "{entry_name} derivation produced zero terminals — footprint is starving the splits"
     );
 }
+
+/// Every `GeneratorKind::Shape` node in the catalogue must sit with its own
+/// origin at the entry's grade (world `y == 0`).
+///
+/// A shape grammar always builds **upward** from its own `y = 0`, so the
+/// node's world Y is the building's floor level. [`util::footing`] returns
+/// a root whose transform is already pushed *down* by half the plinth
+/// (the block is buried, its top left at `FOUNDATION_REVEAL`), so pushing
+/// the grammar on with `root.children.push(..)` makes it inherit that
+/// offset and sink the whole building — leaving the plinth standing proud
+/// around its base. [`util::attach`] rebases out of the root's frame and
+/// is the correct way to hang it.
+#[cfg(test)]
+pub(super) fn assert_shape_nodes_stand_at_grade(built: &crate::pds::Generator, entry_name: &str) {
+    fn walk(node: &crate::pds::Generator, world_y: f32, entry_name: &str, found: &mut usize) {
+        let y = world_y + node.transform.translation.0[1];
+        if matches!(node.kind, GeneratorKind::Shape { .. }) {
+            *found += 1;
+            assert!(
+                y.abs() < 1e-3,
+                "{entry_name}: shape grammar sits at world y = {y:.3}, not grade — \
+                 the building is sunk into (or floating above) its foundation. \
+                 Hang it with util::attach, not root.children.push"
+            );
+        }
+        for child in &node.children {
+            walk(child, y, entry_name, found);
+        }
+    }
+    let mut found = 0;
+    walk(built, 0.0, entry_name, &mut found);
+    assert!(found > 0, "{entry_name}: no Shape node found to check");
+}

@@ -35,10 +35,28 @@ use super::{
     BRICK_DARK, CONCRETE_GREY, INDUSTRIAL_BAND, LAMP_AMBER, PIPE_GREY, STEEL_BLUE, brick, cladding,
     concrete, fx, glass, tank_steel,
 };
+use crate::pds::Fp;
 
-/// Unlit mill glazing — cool, grimy, and dark enough to read as glass
-/// against brick rather than as a pale panel.
-const GLAZING_IDLE: [f32; 3] = [0.26, 0.32, 0.34];
+/// Mill glazing — cool and grimy, so the grille card reads as industrial
+/// glass against brick. Never tinted warm: a `Window` card is one material
+/// across frame *and* glass, so a warm tint lights the glazing bars too and
+/// the frame reads as glowing plastic. The shift light comes from a plain
+/// emissive surface set behind the card instead.
+const GLAZING_GRIME: [f32; 3] = [0.26, 0.32, 0.34];
+/// The shop floor seen through the glass when the mill is idle.
+const SHOP_DARK: [f32; 3] = [0.06, 0.07, 0.08];
+
+/// A plain emissive (or dark) surface — no `Window` texture — set behind
+/// the glazing to be the shop floor beyond it.
+fn shop_interior(tint: [f32; 3], glow: f32) -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3(tint),
+        emission_color: Fp3(tint),
+        emission_strength: Fp(glow),
+        roughness: Fp(0.9),
+        ..Default::default()
+    }
+}
 
 /// Footprint of the grammar plot, in world units.
 const LOT_X: f32 = 24.0;
@@ -92,7 +110,10 @@ impl CatalogueEntry for SawtoothMill {
         let mut root = footing(LOT_X + 1.0, LOT_Z + 1.0, [0.0, 0.0], 10.5);
         let mut mill = Generator::from_kind(build_kind());
         mill.transform.translation = Fp3([-LOT_X / 2.0, 0.0, -LOT_Z / 2.0]);
-        root.children.push(mill);
+        // `attach` (not a bare push): `footing` returns a root whose own
+        // transform is sunk by half the buried plinth, and a plain child
+        // inherits it — which drops the whole building below grade (#1039).
+        crate::catalogue::items::util::attach(&mut root, mill);
 
         // Signature life: the flue smokes over the estate's hum. The stack
         // is centred in the far corner plot the grammar carves for it —
@@ -123,12 +144,11 @@ fn materials() -> HashMap<String, SovereignMaterialSettings> {
     m.insert("Concrete".to_string(), concrete(CONCRETE_GREY));
     m.insert("Metal".to_string(), cladding(STEEL_BLUE));
     m.insert("Steel".to_string(), tank_steel(PIPE_GREY));
-    // Two glazing states the whole mill agrees on — see the `Pick("shift")`
-    // key below. Idle glazing is a cool grimy blue-grey: the kit's warm
-    // `WINDOW_LIT` at zero emission reads as cream board on a surface this
-    // broad, not as glass.
-    m.insert("Glass".to_string(), glass(GLAZING_IDLE, 0.0));
-    m.insert("LitGlass".to_string(), glass(LAMP_AMBER, 2.4));
+    // One neutral glazing card, plus the two interior states the whole mill
+    // agrees on via the `Pick("shift")` key below.
+    m.insert("Glass".to_string(), glass(GLAZING_GRIME, 0.0));
+    m.insert("ShopLit".to_string(), shop_interior(LAMP_AMBER, 2.4));
+    m.insert("ShopDark".to_string(), shop_interior(SHOP_DARK, 0.0));
     m
 }
 
@@ -136,6 +156,8 @@ fn build_kind() -> GeneratorKind {
     let grammar_source = [
         // ── Declarations — the knobs an author (or the editor) can turn ──
         "const PlinthH = 0.7",
+        // Wall thickness, shared by the wall slabs and the window reveals.
+        "const WallD = 0.34",
         "const ToothDepth = 3.4",
         "attr HallHeight = 7.2",
         "attr ToothRise = 1.7",
@@ -170,9 +192,16 @@ fn build_kind() -> GeneratorKind {
         // ── 4. One glazing decision for the whole mill ──
         //    Same key in the northlights and the elevation, so a working
         //    shift lights every opening and an idle one darkens them all.
-        "Glazing --> Pick(\"shift\") { 55% DarkGlass | 45% WorkingGlass }",
-        "DarkGlass --> Extrude(0.1) Mat(\"Glass\") I(\"Pane\")",
-        "WorkingGlass --> Extrude(0.1) Mat(\"LitGlass\") I(\"Pane\")",
+        "Glazing --> Pick(\"shift\") { 55% IdleWindow | 45% WorkingWindow }",
+        // Two surfaces per opening: a neutral grille card on the outer
+        // face, the shop floor behind it. Cutting to the wall's own depth
+        // makes the reveal exactly as deep as the brick it pierces.
+        "IdleWindow --> Extrude(WallD) Comp(Faces) { Back: GrilleCard | Front: DarkShop | _: RevealFace }",
+        "WorkingWindow --> Extrude(WallD) Comp(Faces) { Back: GrilleCard | Front: LitShop | _: RevealFace }",
+        "GrilleCard --> Mat(\"Glass\") I(\"Pane\")",
+        "LitShop --> Mat(\"ShopLit\") I(\"Shop\")",
+        "DarkShop --> Mat(\"ShopDark\") I(\"Shop\")",
+        "RevealFace --> Mat(\"Brick\") I(\"Reveal\")",
         // ── 5. End block: engine house, then the chimney yard ──
         "EndBlock --> Split(Z) { ~1: EngineHouse | 5.2: StackYard }",
         "EngineHouse --> Extrude(5.4) Split(Y) { PlinthH: Plinth | ~1: EngineBody | 1.5: EngineTop }",
@@ -196,7 +225,7 @@ fn build_kind() -> GeneratorKind {
         // ── 7. Shared terminals ──
         "Plinth --> Comp(Faces) { Side: PlinthFace | Top: NIL | Bottom: NIL }",
         "PlinthFace --> Extrude(0.26) Mat(\"Concrete\") I(\"Plinth\")",
-        "BrickWall --> Extrude(0.34) Mat(\"Brick\") I(\"Wall\")",
+        "BrickWall --> Extrude(WallD) Mat(\"Brick\") I(\"Wall\")",
     ]
     .join("\n");
 
@@ -247,7 +276,9 @@ mod tests {
             panic!("mill body must remain Shape after sanitise");
         };
         assert_eq!(root_rule, "Lot");
-        for slot in ["Brick", "Concrete", "Metal", "Steel", "Glass", "LitGlass"] {
+        for slot in [
+            "Brick", "Concrete", "Metal", "Steel", "Glass", "ShopLit", "ShopDark",
+        ] {
             assert!(
                 materials.contains_key(slot),
                 "missing material slot: {slot}"
