@@ -121,6 +121,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &feudal_japan::torii_gate::ToriiGate,
     &feudal_japan::tea_house::TeaHouse,
     &feudal_japan::dojo::Dojo,
+    &feudal_japan::machiya_row::MachiyaRow,
     &feudal_japan::stone_lantern::StoneLantern,
     &feudal_japan::koi_pond::KoiPond,
     &feudal_japan::bamboo_fence::BambooFence,

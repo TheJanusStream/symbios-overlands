@@ -22,6 +22,7 @@ pub mod bonsai;
 pub mod dojo;
 pub mod gateway;
 pub mod koi_pond;
+pub mod machiya_row;
 pub mod monument;
 pub mod pagoda;
 pub mod stone_lantern;
