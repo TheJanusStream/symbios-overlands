@@ -16,6 +16,7 @@
 //! [`crate::seeded_defaults::room::accent`].
 
 pub mod community_center;
+pub mod craftsman_bungalow;
 pub mod detached_garage;
 pub mod gateway;
 pub mod mailbox;

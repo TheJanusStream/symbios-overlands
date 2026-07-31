@@ -161,6 +161,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     // Buildings — Suburban theme (landmark + secondaries + props).
     &suburban::community_center::CommunityCenter,
     &suburban::suburban_house::SuburbanHouse,
+    &suburban::craftsman_bungalow::CraftsmanBungalow,
     &suburban::detached_garage::DetachedGarage,
     &suburban::mini_mart::MiniMart,
     &suburban::picket_fence::PicketFence,
