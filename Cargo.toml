@@ -33,8 +33,8 @@ bevy_symbios_audio = { version = "0.2", features = ["egui"] }
 transform-gizmo-bevy = "0.9"
 symbios = "1.5"
 symbios-turtle-3d = "0.5"
-symbios-shape = "0.2"
-bevy_symbios_shape = "0.5"
+symbios-shape = "0.3"
+bevy_symbios_shape = "0.6"
 symbios-tensor = "0.2"
 gen-jobs = { path = "crates/gen-jobs" }
 avian3d = "0.6"

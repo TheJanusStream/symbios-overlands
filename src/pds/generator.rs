@@ -1234,6 +1234,21 @@ pub enum GeneratorKind {
         /// material.
         #[serde(default)]
         materials: HashMap<String, SovereignMaterialSettings>,
+        /// Terminal mesh ids — the strings emitted by `I("...")` — whose
+        /// terminals render with a **round** cross-section: an elliptical
+        /// prism inscribed in the scope's footprint rather than a box.
+        /// `Rectangle` profiles become cylinders, `Taper(t)` frusta, and
+        /// `Taper(1.0)` cones, which is how columns, silos, chimneys and
+        /// spires are built without leaving the OBB-pure grammar.
+        ///
+        /// Keyed on the *mesh* id, not the material slot: a colonnade's
+        /// shafts and its flat entablature commonly share one stone
+        /// material, and only the shafts should be turned.
+        ///
+        /// Empty (the default) keeps every terminal square, so records
+        /// written before this field round-trip byte-identically.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        round_meshes: Vec<String>,
     },
 
     #[serde(rename = "network.symbios.gen.cuboid")]

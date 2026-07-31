@@ -1,16 +1,19 @@
 //! Shared test harness for shape-grammar catalogue entries.
 //!
-//! Walks every grammar line through the same `parse_rule` /
-//! `add_weighted_rules` path the runtime uses, then derives against
-//! the entry's default footprint. Catches rule typos and ensures every
-//! `Mat("...")` slot referenced in the grammar has a matching entry in
-//! the materials map — otherwise a hand-edit that drops a slot or
-//! breaks a rule only surfaces as a runtime warning the first time
-//! someone drops the entry in a room.
+//! Walks every grammar line through the same `parse_statement` /
+//! `add_statement` path the runtime uses, then derives against the entry's
+//! default footprint. Catches rule typos and ensures every `Mat("...")`
+//! slot referenced in the grammar has a matching entry in the materials map
+//! — otherwise a hand-edit that drops a slot or breaks a rule only surfaces
+//! as a runtime warning the first time someone drops the entry in a room.
+//!
+//! Every shape entry's grammar test should be a one-line call to
+//! [`assert_grammar_parses_and_derives`]; entries used to carry inline
+//! copies of this walk, which drifted from the runtime path.
 
 use std::collections::HashSet;
 
-use symbios_shape::grammar::parse_rule;
+use symbios_shape::grammar::parse_statement;
 use symbios_shape::{Interpreter, Quat as SQuat, Scope, Vec3 as SVec3};
 
 use crate::pds::GeneratorKind;
@@ -22,6 +25,7 @@ pub(super) fn assert_grammar_parses_and_derives(kind: GeneratorKind, entry_name:
         footprint,
         seed,
         materials,
+        round_meshes,
     } = kind
     else {
         panic!("{entry_name}: build_kind must return GeneratorKind::Shape");
@@ -30,14 +34,16 @@ pub(super) fn assert_grammar_parses_and_derives(kind: GeneratorKind, entry_name:
     let mut interp = Interpreter::new();
     interp.seed = seed;
     let mut referenced_mats: HashSet<String> = HashSet::new();
+    let mut emitted_meshes: HashSet<String> = HashSet::new();
 
     for (i, raw) in grammar_source.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() || line.starts_with("//") {
             continue;
         }
-        let rule = parse_rule(line)
-            .unwrap_or_else(|e| panic!("{entry_name} rule line {} failed to parse: {}", i + 1, e));
+        let statement = parse_statement(line).unwrap_or_else(|e| {
+            panic!("{entry_name} grammar line {} failed to parse: {}", i + 1, e)
+        });
         for mat in line
             .split("Mat(\"")
             .skip(1)
@@ -45,9 +51,16 @@ pub(super) fn assert_grammar_parses_and_derives(kind: GeneratorKind, entry_name:
         {
             referenced_mats.insert(mat.to_string());
         }
+        for id in line
+            .split("I(\"")
+            .skip(1)
+            .filter_map(|chunk| chunk.split('"').next())
+        {
+            emitted_meshes.insert(id.to_string());
+        }
         interp
-            .add_weighted_rules(&rule.name, rule.variants)
-            .unwrap_or_else(|e| panic!("{entry_name} rule {} rejected: {}", rule.name, e));
+            .add_statement(statement)
+            .unwrap_or_else(|e| panic!("{entry_name} grammar line {} rejected: {}", i + 1, e));
     }
 
     assert!(
@@ -58,6 +71,15 @@ pub(super) fn assert_grammar_parses_and_derives(kind: GeneratorKind, entry_name:
         assert!(
             materials.contains_key(name),
             "{entry_name} grammar references Mat(\"{name}\") but no material slot is defined"
+        );
+    }
+    // A `round_meshes` entry that matches no emitted terminal is a silent
+    // no-op — exactly the typo that would leave a colonnade square with no
+    // error anywhere.
+    for id in &round_meshes {
+        assert!(
+            emitted_meshes.contains(id),
+            "{entry_name} marks `{id}` as a turned terminal but the grammar never emits I(\"{id}\")"
         );
     }
 

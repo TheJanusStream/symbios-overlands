@@ -7,10 +7,11 @@
 //!
 //! Footprint 14 × 24 — deep and narrow on the Greek long axis, so the
 //! `Roof(Gable)` pediment ridges along Z and the tympanum faces the
-//! front (−Z). Shape-grammar massing only: columns are entasis-tapered
-//! piers (`Extrude` + `Taper`) standing between flat deck patches, not
-//! round fluted shafts, and openings are recessed dark voids, not true
-//! arches — the grammar cannot express those.
+//! front (−Z). The shafts are genuinely round: `round_meshes` marks the
+//! `Column` terminal so its square 0.78 × 0.78 plot bakes as an
+//! entasis-tapered cylinder. Pilasters stay square (an engaged pilaster
+//! is a flat pier by definition), and openings are recessed dark voids
+//! rather than true arches, which the grammar still cannot express.
 
 use std::collections::HashMap;
 
@@ -180,6 +181,9 @@ fn build_kind() -> GeneratorKind {
         // rest collapse to open rubble.
         seed: 7,
         materials,
+        // The peripteral shafts are turned. Pilasters stay square — an
+        // engaged pilaster is a flat pier by definition.
+        round_meshes: vec!["Column".to_string()],
     }
 }
 

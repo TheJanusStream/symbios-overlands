@@ -868,6 +868,7 @@ fn draw_generator_detail(
             footprint,
             seed,
             materials,
+            round_meshes,
         } => draw_shape_forge(
             ui,
             grammar_status,
@@ -876,6 +877,7 @@ fn draw_generator_detail(
             footprint,
             seed,
             materials,
+            round_meshes,
             dirty,
         ),
         GeneratorKind::Portal {

@@ -153,6 +153,7 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
             root_rule,
             footprint,
             materials,
+            round_meshes,
             ..
         } => {
             truncate_on_char_boundary(grammar_source, limits::MAX_SHAPE_SOURCE_BYTES);
@@ -182,6 +183,16 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
             for settings in materials.values_mut() {
                 settings.sanitize();
             }
+            // Round-mesh ids follow the same discipline as material slots:
+            // an id longer than the upstream identifier cap could never
+            // match an emitted `I("...")`, and the list is deduped and
+            // capped so a hostile record cannot blow the budget with
+            // near-duplicate entries.
+            round_meshes
+                .retain(|id| !id.is_empty() && id.len() <= limits::MAX_SHAPE_ROOT_RULE_BYTES);
+            round_meshes.sort();
+            round_meshes.dedup();
+            round_meshes.truncate(limits::MAX_SHAPE_MATERIAL_SLOTS);
         }
         GeneratorKind::Portal {
             target_did,

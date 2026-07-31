@@ -261,6 +261,8 @@ fn build_kind() -> GeneratorKind {
         footprint: Fp3([75.0, 0.0, 75.0]),
         seed: 42,
         materials,
+        // Nothing turned: the castle's masses are all square-plan.
+        round_meshes: Vec::new(),
     }
 }
 
@@ -301,61 +303,15 @@ mod tests {
         }
     }
 
-    /// Parse every grammar line through `parse_rule` and add it to a
-    /// fresh interpreter, then assert the root rule resolves and that
-    /// every `Mat("...")` reference has a backing materials entry.
-    /// Critical for the castle because its rules use weighted
-    /// alternatives (`70% A | 30% B`) the simple villa doesn't —
-    /// regressions there would only surface as runtime warnings.
+    /// Walks every grammar line through the shared harness. Critical for
+    /// the castle because its rules use weighted alternatives (`70% A |
+    /// 30% B`) the simple villa doesn't — regressions there would only
+    /// surface as runtime warnings.
     #[test]
     fn grammar_parses_and_resolves_materials() {
-        use std::collections::HashSet;
-        use symbios_shape::Interpreter;
-        use symbios_shape::grammar::parse_rule;
-
-        let GeneratorKind::Shape {
-            grammar_source,
-            root_rule,
-            seed,
-            materials,
-            ..
-        } = build_kind()
-        else {
-            panic!("build_kind must return GeneratorKind::Shape");
-        };
-
-        let mut interp = Interpreter::new();
-        interp.seed = seed;
-        let mut referenced_mats: HashSet<String> = HashSet::new();
-
-        for (i, raw) in grammar_source.lines().enumerate() {
-            let line = raw.trim();
-            if line.is_empty() || line.starts_with("//") {
-                continue;
-            }
-            let rule = parse_rule(line)
-                .unwrap_or_else(|e| panic!("castle rule line {} failed to parse: {}", i + 1, e));
-            for mat in line
-                .split("Mat(\"")
-                .skip(1)
-                .filter_map(|chunk| chunk.split('"').next())
-            {
-                referenced_mats.insert(mat.to_string());
-            }
-            interp
-                .add_weighted_rules(&rule.name, rule.variants)
-                .unwrap_or_else(|e| panic!("castle rule {} rejected: {}", rule.name, e));
-        }
-
-        assert!(
-            interp.has_rule(&root_rule),
-            "root rule `{root_rule}` missing from castle grammar"
+        crate::catalogue::items::shape_grammar_test::assert_grammar_parses_and_derives(
+            build_kind(),
+            "castle",
         );
-        for name in &referenced_mats {
-            assert!(
-                materials.contains_key(name),
-                "castle grammar references Mat(\"{name}\") but no material slot is defined"
-            );
-        }
     }
 }

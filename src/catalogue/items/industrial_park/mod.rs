@@ -22,6 +22,7 @@ pub mod loading_dock;
 pub mod monument;
 pub mod pallet_stack;
 pub mod pipe_run;
+pub mod sawtooth_mill;
 pub mod shipping_containers;
 pub mod tank_farm;
 // Poor (derelict) variants — the prosperity-Poor end of the theme.

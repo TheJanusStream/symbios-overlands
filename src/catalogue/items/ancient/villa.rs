@@ -10,12 +10,13 @@
 //! place. The widgets' `default_shape_kind` now delegates to this
 //! entry via [`crate::catalogue::by_slug`].
 //!
-//! Shape-grammar massing only: the DSL extrudes boxes and parametric
-//! roofs, so the classical reading is built from entasis-tapered piers
-//! (`Extrude` + `Taper`), shadowed intercolumniations, a `Roof(Gable)`
-//! pediment (oriented front-facing by making the porch scope deeper than
-//! it is wide), and `Roof(Hip)` tile roofs — not round shafts, true
-//! arches or domes, which the grammar cannot express.
+//! The classical reading comes from turned shafts, shadowed
+//! intercolumniations, a `Roof(Gable)` pediment (oriented front-facing by
+//! making the porch scope deeper than it is wide), and `Roof(Hip)` tile
+//! roofs. True arches and domes remain out of reach of the grammar, but
+//! the columns are genuinely round: `round_meshes` marks the `Column`
+//! terminal so it bakes as an entasis-tapered cylinder rather than a
+//! square pier, while the grammar still derives it as an ordinary box.
 
 use std::collections::HashMap;
 
@@ -136,7 +137,9 @@ fn build_kind() -> GeneratorKind {
         "Colonnade --> Comp(Faces) { Side: ColonnadeFace }",
         "ColonnadeFace --> Repeat(X, 1.6) { ColumnBay }",
         "ColumnBay --> Split(X) { 0.5: Column | ~1: Intercolumniation }",
-        "Column --> Extrude(0.3) Taper(0.12) Mat(\"Marble\") I(\"Column\")",
+        // Depth matches the 0.5 bay slot so the turned shaft is circular
+        // in plan rather than an oval; `Taper` then reads as entasis.
+        "Column --> Extrude(0.5) Taper(0.12) Mat(\"Marble\") I(\"Column\")",
         "Intercolumniation --> Extrude(0.05) Mat(\"Shade\") I(\"Bay\")",
         // ── 5. Bases, cornices, tile roofs ──
         "Stylobate --> Mat(\"Sandstone\") I(\"Stylobate\")",
@@ -159,6 +162,9 @@ fn build_kind() -> GeneratorKind {
         footprint: Fp3([20.0, 0.0, 16.0]),
         seed: 99,
         materials,
+        // The colonnade's shafts are turned; the entablature, architrave
+        // and tympanum share the same marble but stay flat.
+        round_meshes: vec!["Column".to_string()],
     }
 }
 
@@ -200,79 +206,15 @@ mod tests {
         }
     }
 
-    /// Walk every grammar line through the same `parse_rule` /
-    /// `add_weighted_rules` path the runtime uses, then derive against
-    /// the default footprint. Catches typos and ensures every
-    /// `Mat("...")` slot referenced in the grammar has a matching
-    /// entry in the materials map — otherwise a hand-edit that drops
-    /// a slot or breaks a rule only surfaces as a runtime warning the
-    /// first time someone drops the entry in a room.
+    /// Walks every grammar line through the shared harness — the same
+    /// `parse_statement` / `add_statement` path the runtime uses — then
+    /// derives against the entry's footprint and checks every `Mat("...")`
+    /// slot resolves.
     #[test]
     fn grammar_parses_and_derives() {
-        use std::collections::HashSet;
-        use symbios_shape::grammar::parse_rule;
-        use symbios_shape::{Interpreter, Quat as SQuat, Scope, Vec3 as SVec3};
-
-        let GeneratorKind::Shape {
-            grammar_source,
-            root_rule,
-            footprint,
-            seed,
-            materials,
-        } = build_kind()
-        else {
-            panic!("build_kind must return GeneratorKind::Shape");
-        };
-
-        let mut interp = Interpreter::new();
-        interp.seed = seed;
-        let mut referenced_mats: HashSet<String> = HashSet::new();
-
-        for (i, raw) in grammar_source.lines().enumerate() {
-            let line = raw.trim();
-            if line.is_empty() || line.starts_with("//") {
-                continue;
-            }
-            let rule = parse_rule(line)
-                .unwrap_or_else(|e| panic!("villa rule line {} failed to parse: {}", i + 1, e));
-            for mat in line
-                .split("Mat(\"")
-                .skip(1)
-                .filter_map(|chunk| chunk.split('"').next())
-            {
-                referenced_mats.insert(mat.to_string());
-            }
-            interp
-                .add_weighted_rules(&rule.name, rule.variants)
-                .unwrap_or_else(|e| panic!("villa rule {} rejected: {}", rule.name, e));
-        }
-
-        assert!(
-            interp.has_rule(&root_rule),
-            "root rule `{root_rule}` missing from villa grammar"
-        );
-        for name in &referenced_mats {
-            assert!(
-                materials.contains_key(name),
-                "villa grammar references Mat(\"{name}\") but no material slot is defined"
-            );
-        }
-
-        let scope = Scope::new(
-            SVec3::ZERO,
-            SQuat::IDENTITY,
-            SVec3::new(
-                footprint.0[0] as f64,
-                footprint.0[1] as f64,
-                footprint.0[2] as f64,
-            ),
-        );
-        let model = interp
-            .derive(scope, &root_rule)
-            .expect("villa grammar must derive against its default footprint");
-        assert!(
-            !model.terminals.is_empty(),
-            "villa derivation produced zero terminals — footprint is starving the splits"
+        crate::catalogue::items::shape_grammar_test::assert_grammar_parses_and_derives(
+            build_kind(),
+            "villa",
         );
     }
 }

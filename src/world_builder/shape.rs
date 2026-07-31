@@ -18,8 +18,8 @@ use bevy::prelude::*;
 use bevy_symbios_shape::cache::{
     MeshCacheKey, ProfileKey, ShapeMeshCache as UpstreamShapeMeshCache,
 };
-use bevy_symbios_shape::{mesh::build_profiled_mesh, transform::scope_to_transform};
-use symbios_shape::grammar::parse_rule;
+use bevy_symbios_shape::{mesh::build_profiled_mesh_with, transform::scope_to_transform};
+use symbios_shape::grammar::{Statement, parse_statement};
 use symbios_shape::{Interpreter, Quat as SQuat, Scope, Vec3 as SVec3};
 
 use crate::pds::{Fp3, GeneratorKind, SovereignMaterialSettings};
@@ -78,7 +78,13 @@ struct ShapeDef<'a> {
     footprint: Fp3,
     seed: u64,
     materials: &'a HashMap<String, SovereignMaterialSettings>,
+    round_meshes: &'a [String],
 }
+
+/// Radial tessellation for round terminals, matching the upstream plugin's
+/// default. Fine enough that a column reads as turned at walking distance
+/// without multiplying the vertex count of a dense colonnade.
+const ROUND_SEGMENTS: u32 = 24;
 
 /// Stable content hash of the geometry-affecting fields of a
 /// `GeneratorKind::Shape`. Material *settings* are deliberately excluded
@@ -110,6 +116,14 @@ fn shape_geometry_fingerprint(def: &ShapeDef<'_>) -> u64 {
     for name in cards {
         h.field(name);
     }
+    // Which terminals are turned is a geometry input too — a round shaft
+    // and a square pier of identical size are different meshes. Sorted so
+    // a re-ordered list reuses the same bake.
+    let mut round: Vec<&str> = def.round_meshes.iter().map(String::as_str).collect();
+    round.sort_unstable();
+    for name in round {
+        h.field(name);
+    }
     h.finish()
 }
 
@@ -126,10 +140,14 @@ fn shape_geometry_fingerprint(def: &ShapeDef<'_>) -> u64 {
 /// the message in the editor (#829); every error is also `warn!`-logged.
 ///
 /// Mirrors the line-based authoring convention used by sibling editors
-/// (`symbios-ground-lab`): one rule per line, blank lines and `// …` lines
-/// ignored. Per-line parse errors are logged and the whole rebuild aborts
-/// — partial rule tables produce confusing terminal layouts that look like
-/// silent bugs in the grammar.
+/// (`symbios-ground-lab`): one *statement* per line, blank lines and `// …`
+/// lines ignored. Per-line parse errors are logged and the whole rebuild
+/// aborts — partial rule tables produce confusing terminal layouts that look
+/// like silent bugs in the grammar.
+///
+/// Since symbios-shape 0.3 a line may also be an `attr` / `const` / `style`
+/// declaration, so a room's grammar can expose its own knobs and prosperity
+/// registers rather than hard-coding every dimension.
 fn build_shape_geometry(
     def: &ShapeDef<'_>,
     generator_ref: &str,
@@ -145,14 +163,19 @@ fn build_shape_geometry(
         if line.is_empty() || line.starts_with("//") {
             continue;
         }
-        match parse_rule(line) {
-            Ok(rule) => {
-                if let Err(e) = interpreter.add_weighted_rules(&rule.name, rule.variants) {
-                    let msg = format!("rule `{}` rejected: {}", rule.name, e);
+        match parse_statement(line) {
+            Ok(statement) => {
+                // Only productions count toward "has rules" — a grammar of
+                // pure declarations derives nothing.
+                let is_rule = matches!(statement, Statement::Rule(_));
+                if let Err(e) = interpreter.add_statement(statement) {
+                    let msg = format!("line {}: {}", i + 1, e);
                     warn!("Shape `{}` {}", generator_ref, msg);
                     return Err(msg);
                 }
-                rule_count += 1;
+                if is_rule {
+                    rule_count += 1;
+                }
             }
             Err(e) => {
                 let msg = format!("line {}: {}", i + 1, e);
@@ -220,18 +243,30 @@ fn build_shape_geometry(
             .as_ref()
             .and_then(|m| def.materials.get(&m.id))
             .is_some_and(|s| s.texture.is_card());
+        // Turned terminals (columns, silos, spires) bake as elliptical
+        // prisms; the grammar still derived them as boxes, so splits and
+        // occlusion are unaffected. Keyed on the mesh id emitted by
+        // `I("...")` — a colonnade's shafts and its flat entablature
+        // usually share one stone material.
+        let round_segments = if def.round_meshes.contains(&terminal.mesh_id) {
+            ROUND_SEGMENTS
+        } else {
+            0
+        };
         let key = MeshCacheKey {
             profile: ProfileKey::from_profile(&terminal.face_profile),
             size_x_bits: size.x.to_bits(),
             size_y_bits: size.y.to_bits(),
             size_z_bits: size.z.to_bits(),
             stretch_uvs,
+            round_segments,
         };
         let mesh = upstream_cache.get_or_insert_with(key, || {
-            meshes.add(build_profiled_mesh(
+            meshes.add(build_profiled_mesh_with(
                 &terminal.face_profile,
                 size,
                 stretch_uvs,
+                round_segments,
             ))
         });
         instances.push(ShapeInstance {
@@ -305,6 +340,7 @@ pub(super) fn spawn_shape_entity(
         footprint,
         seed,
         materials,
+        round_meshes,
     } = kind
     else {
         return None;
@@ -320,6 +356,7 @@ pub(super) fn spawn_shape_entity(
         footprint: *footprint,
         seed: *seed,
         materials,
+        round_meshes,
     };
     let geometry_hash = shape_geometry_fingerprint(&def);
     let cached = ctx.shape_mesh_cache.get_if(generator_ref, geometry_hash);
@@ -435,6 +472,7 @@ mod grammar_error_tests {
                 footprint: Fp3([8.0, 8.0, 8.0]),
                 seed: 1,
                 materials: &HashMap::new(),
+                round_meshes: &[],
             },
             "test_gen",
             &mut meshes,
@@ -450,6 +488,7 @@ mod grammar_error_tests {
                 footprint: Fp3([8.0, 8.0, 8.0]),
                 seed: 1,
                 materials: &HashMap::new(),
+                round_meshes: &[],
             },
             "test_gen",
             &mut meshes,
@@ -465,6 +504,7 @@ mod grammar_error_tests {
                 footprint: Fp3([8.0, 8.0, 8.0]),
                 seed: 1,
                 materials: &HashMap::new(),
+                round_meshes: &[],
             },
             "test_gen",
             &mut meshes,
@@ -472,6 +512,93 @@ mod grammar_error_tests {
         )
         .expect_err("parse failure must be rejected");
         assert!(err.contains("line 1"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod round_mesh_tests {
+    use super::*;
+
+    /// #1036: a mesh id listed in `round_meshes` must bake as a
+    /// tessellated elliptical prism, while every other terminal in the
+    /// same grammar keeps the 24-vertex cuboid. Guards the whole wire:
+    /// record field → `ShapeDef` → cache key → `build_profiled_mesh_with`.
+    #[test]
+    fn listed_terminals_bake_round_and_others_stay_square() {
+        let mut meshes = Assets::<Mesh>::default();
+        let mut cache = UpstreamShapeMeshCache::default();
+        let grammar = [
+            "Lot --> Split(X) { ~1: Shaft | ~1: Pier }",
+            "Shaft --> Extrude(3) Taper(0.1) I(\"Column\")",
+            "Pier --> Extrude(3) I(\"Wall\")",
+        ]
+        .join("\n");
+        let round: Vec<String> = vec!["Column".to_string()];
+
+        let built = build_shape_geometry(
+            &ShapeDef {
+                grammar_source: &grammar,
+                root_rule: "Lot",
+                footprint: Fp3([4.0, 0.0, 2.0]),
+                seed: 1,
+                materials: &HashMap::new(),
+                round_meshes: &round,
+            },
+            "test_gen",
+            &mut meshes,
+            &mut cache,
+        )
+        .expect("grammar must derive");
+        assert_eq!(built.len(), 2);
+
+        let vert_count = |i: usize| -> usize {
+            meshes
+                .get(&built[i].mesh)
+                .expect("mesh handle must resolve")
+                .attribute(Mesh::ATTRIBUTE_POSITION)
+                .expect("positions")
+                .len()
+        };
+        // Terminals come out in split order: Shaft, then Pier.
+        assert!(
+            vert_count(0) > 24,
+            "the listed Column should be a tessellated prism, got {} verts",
+            vert_count(0)
+        );
+        assert_eq!(
+            vert_count(1),
+            24,
+            "an unlisted terminal must keep the cuboid"
+        );
+    }
+
+    /// Roundness is a geometry input: flipping the list must re-bake, or
+    /// the editor would keep serving square columns after the edit.
+    #[test]
+    fn round_list_invalidates_the_geometry_hash() {
+        let fp = Fp3([4.0, 0.0, 2.0]);
+        let empty: Vec<String> = Vec::new();
+        let listed: Vec<String> = vec!["Column".to_string()];
+        let reordered: Vec<String> = vec!["Column".to_string(), "Silo".to_string()];
+        let same_set: Vec<String> = vec!["Silo".to_string(), "Column".to_string()];
+
+        let h = |round: &[String]| {
+            shape_geometry_fingerprint(&ShapeDef {
+                grammar_source: "Lot --> I(\"Column\")",
+                root_rule: "Lot",
+                footprint: fp,
+                seed: 1,
+                materials: &HashMap::new(),
+                round_meshes: round,
+            })
+        };
+
+        assert_ne!(h(&empty), h(&listed), "adding a turned id must re-bake");
+        assert_eq!(
+            h(&reordered),
+            h(&same_set),
+            "the same set in a different order should reuse the bake"
+        );
     }
 }
 
@@ -540,6 +667,7 @@ mod card_uv_tests {
                 footprint: Fp3([8.0, 0.0, 4.0]),
                 seed: 1,
                 materials: &materials,
+                round_meshes: &[],
             },
             "test_gen",
             &mut meshes,
@@ -604,6 +732,7 @@ mod card_uv_tests {
                 footprint: fp,
                 seed: 1,
                 materials: m,
+                round_meshes: &[],
             })
         };
 

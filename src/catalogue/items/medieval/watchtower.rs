@@ -175,6 +175,8 @@ fn build_kind() -> GeneratorKind {
         footprint: Fp3([12.0, 0.0, 12.0]),
         seed: 7,
         materials,
+        // Nothing turned: the tower is a square-plan garrison keep.
+        round_meshes: Vec::new(),
     }
 }
 

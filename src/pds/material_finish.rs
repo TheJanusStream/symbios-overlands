@@ -390,6 +390,7 @@ mod tests {
             footprint: Fp3([1.0, 0.0, 1.0]),
             seed: 1,
             materials: shape_mats,
+            round_meshes: Vec::new(),
         });
         let mut lsys = Generator::from_kind(GeneratorKind::LSystem {
             source_code: String::new(),

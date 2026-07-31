@@ -187,6 +187,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &industrial_park::loading_dock::LoadingDock,
     &industrial_park::tank_farm::TankFarm,
     &industrial_park::shipping_containers::ShippingContainers,
+    &industrial_park::sawtooth_mill::SawtoothMill,
     &industrial_park::pipe_run::PipeRun,
     &industrial_park::pallet_stack::PalletStack,
     &industrial_park::floodlight::Floodlight,

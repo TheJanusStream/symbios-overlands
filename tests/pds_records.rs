@@ -347,6 +347,7 @@ fn shape_generator_round_trips() {
             // Above 2^53 to exercise the string-encoded seed path.
             seed: 18_446_744_073_709_551_557,
             materials,
+            round_meshes: vec!["Tower".into()],
         }),
     );
 
@@ -368,6 +369,7 @@ fn shape_generator_round_trips() {
         footprint,
         seed,
         materials,
+        round_meshes,
     } = kind
     else {
         panic!("expected Shape variant after round-trip, got {:?}", kind);
@@ -377,7 +379,22 @@ fn shape_generator_round_trips() {
     assert_eq!(footprint.0, [10.0, 0.0, 10.0]);
     assert_eq!(*seed, 18_446_744_073_709_551_557);
     assert!(materials.contains_key("Brick"));
+    assert_eq!(round_meshes, &vec!["Tower".to_string()]);
     assert_no_floats(&back);
+
+    // An empty turned-terminal list must not appear on the wire at all, so
+    // records written before the field round-trip byte-identically.
+    let mut plain = record.clone();
+    if let Some(g) = plain.generators.get_mut("tower")
+        && let GeneratorKind::Shape { round_meshes, .. } = &mut g.kind
+    {
+        round_meshes.clear();
+    }
+    let plain_json = serde_json::to_string(&plain).expect("serialise");
+    assert!(
+        !plain_json.contains("round_meshes"),
+        "an empty round_meshes must be omitted from the wire form"
+    );
 }
 
 /// A default recipe carries at least a terrain generator. Regression

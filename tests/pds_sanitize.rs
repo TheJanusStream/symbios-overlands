@@ -553,6 +553,14 @@ fn shape_generator_caps_clamp_oversized_inputs() {
         footprint: Fp3([f32::NAN, f32::INFINITY, 1e9]),
         seed: 0,
         materials,
+        // Hostile turned-terminal list: empty, oversized, and duplicated
+        // entries all have to come out clean.
+        round_meshes: vec![
+            String::new(),
+            "Column".into(),
+            "Column".into(),
+            "Y".repeat(limits::MAX_SHAPE_ROOT_RULE_BYTES * 4),
+        ],
     });
     sanitize_generator(&mut shape);
 
@@ -561,6 +569,7 @@ fn shape_generator_caps_clamp_oversized_inputs() {
         root_rule,
         footprint,
         materials,
+        round_meshes,
         ..
     } = &shape.kind
     else {
@@ -575,6 +584,11 @@ fn shape_generator_caps_clamp_oversized_inputs() {
         root_rule.len() <= limits::MAX_SHAPE_ROOT_RULE_BYTES,
         "root rule not truncated: {} bytes",
         root_rule.len()
+    );
+    assert_eq!(
+        round_meshes,
+        &vec!["Column".to_string()],
+        "round_meshes should drop empty/oversized ids and dedupe"
     );
     for axis in footprint.0 {
         assert!(axis.is_finite(), "footprint axis left non-finite: {axis}");

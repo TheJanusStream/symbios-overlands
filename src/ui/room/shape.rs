@@ -23,6 +23,7 @@ pub(super) fn draw_shape_forge(
     footprint: &mut Fp3,
     seed: &mut u64,
     materials: &mut std::collections::HashMap<String, SovereignMaterialSettings>,
+    round_meshes: &mut Vec<String>,
     dirty: &mut bool,
 ) {
     egui::CollapsingHeader::new("Grammar")
@@ -30,9 +31,11 @@ pub(super) fn draw_shape_forge(
         .show(ui, |ui| {
             ui.label(
                 egui::RichText::new(
-                    "One named rule per line: `Name --> ops`. Stochastic variants \
-                     use `weight%` prefixes (e.g. `Facade --> 70% Brick | 30% Glass`). \
-                     Lines beginning with `//` are skipped.",
+                    "One statement per line. Rules are `Name --> ops`; stochastic \
+                     variants use `weight%` prefixes (`Facade --> 70% Brick | 30% Glass`) \
+                     and guarded ones use `when(cond): ops | else: ops`. Lines may also \
+                     declare `attr Name = value`, `const Name = value`, or \
+                     `style Name { Attr = value }`. Lines beginning with `//` are skipped.",
                 )
                 .small()
                 .color(crate::ui::theme::current(ui.ctx()).text_weak),
@@ -108,6 +111,39 @@ pub(super) fn draw_shape_forge(
                     *dirty = true;
                 }
             });
+
+            // Turned terminals: a comma-separated list of the mesh ids
+            // (`I("...")` literals) that render as elliptical prisms
+            // rather than boxes. Keyed on mesh id, not material, because a
+            // colonnade's shafts and its flat entablature normally share
+            // one stone.
+            ui.label("Turned terminals (round cross-section)");
+            let mut joined = round_meshes.join(", ");
+            if ui
+                .add(
+                    egui::TextEdit::singleline(&mut joined)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("Column, Silo"),
+                )
+                .changed()
+            {
+                *round_meshes = joined
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                *dirty = true;
+            }
+            ui.label(
+                egui::RichText::new(
+                    "Mesh ids listed here bake as cylinders (or cones, with `Taper`) \
+                     inscribed in their scope. The grammar still derives boxes, so \
+                     splits and occlusion are unaffected.",
+                )
+                .small()
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
+            );
         });
 
     egui::CollapsingHeader::new("Material slots")
