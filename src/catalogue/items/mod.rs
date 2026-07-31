@@ -106,6 +106,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &nordic::mead_hall::MeadHall,
     &nordic::boathouse::Boathouse,
     &nordic::signal_beacon::SignalBeacon,
+    &nordic::stave_church::StaveChurch,
     &nordic::rune_stones::RuneStones,
     &nordic::longship::Longship,
     &nordic::shield_rack::ShieldRack,

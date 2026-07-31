@@ -26,6 +26,7 @@ pub mod monument;
 pub mod rune_stones;
 pub mod shield_rack;
 pub mod signal_beacon;
+pub mod stave_church;
 pub mod totem_pole;
 // Poor (croft) variants — the prosperity-Poor end of the theme.
 pub mod sod_shelter;
