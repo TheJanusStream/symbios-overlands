@@ -102,13 +102,13 @@ pub struct AvatarEditorState {
     /// [`crate::ui::editable::seed_row`].
     seed_row_state: crate::ui::editable::SeedRowState,
     /// Per-axis locks for the pinned re-roll (#1005): axes held (or
-    /// explicitly picked) across "Re-roll avatar" clicks via a
+    /// explicitly picked) across re-roll "Apply" clicks via a
     /// deterministic seed hunt. Transient editor state — never stored in
     /// the record. See [`crate::seeded_defaults::AvatarPins`].
     avatar_pins: crate::seeded_defaults::AvatarPins,
     /// Memoized hunt result for the axis readout (#1005): re-hunts only
     /// when the seed text or the pins change, so the preview can derive
-    /// from the seed "Re-roll" will actually use without paying the
+    /// from the seed "Apply" will actually use without paying the
     /// hunt every frame.
     pin_hunt: crate::ui::editable::PinHuntCache<crate::seeded_defaults::AvatarPins>,
     /// Pending publish-after-unrecoverable-fetch confirmation (#840):
@@ -411,13 +411,130 @@ pub fn avatar_ui(
                     ui.add_space(4.0);
                 }
 
+                // --- Manual re-roll ---------------------------------------
+                // The same DID-seeded engine as the defaults, with an
+                // owner-chosen master seed. Replaces the whole working avatar
+                // like "Reset to default" (which is this with
+                // seed = fnv1a_64(did)). The pfp banner tracks the DID, not
+                // the seed, so it survives a re-roll.
+                //
+                // Laid out in the window's normal flow rather than inside the
+                // footer panel (#1048). A `TopBottomPanel` reserves the height
+                // it measured LAST frame, so on the frame the collapsible
+                // section below opens, the taller content overflowed that
+                // reserve and egui grew the window to contain it — and a
+                // `Window`'s desired size never shrinks again, so collapsing
+                // handed the freed height to the greedy tab body instead of
+                // giving it back. Toggling therefore ratcheted the window
+                // taller every cycle. Here the tab body measures what is left
+                // AFTER this block is laid out, so the body absorbs the change
+                // in the same frame and the window height never moves.
+                if let Some(s) = session.as_ref() {
+                    let did_seed = crate::seeded_defaults::fnv1a_64(&s.did);
+                    // Collapsible (#1047): the seed field plus four pin rows
+                    // is the tallest fixed furniture in this window, and an
+                    // owner who has settled on an avatar rarely re-rolls it
+                    // again. Collapsed, the whole block folds to one header
+                    // row and the tab body takes back the space.
+                    let (reroll, start, effective) =
+                        crate::ui::editable::reroll_section(ui, "avatar_reroll", |ui| {
+                            let reroll = seed_row(
+                                ui,
+                                seed_row_state,
+                                did_seed,
+                                time.elapsed_secs_f64(),
+                                "avatar",
+                            );
+
+                            // Pinned re-roll readout (#1005): what "Apply"
+                            // will roll for each top-level avatar axis, each
+                            // lockable. The preview derives from the hunted
+                            // seed — the one a click will actually build from
+                            // — not the typed one, so 🎲 previews exactly what
+                            // Apply then delivers. Memoized: the hunt only
+                            // reruns when the seed text or the pins change.
+                            let start = seed_row_state.current_seed().unwrap_or(did_seed);
+                            let effective = pin_hunt
+                                .effective_seed(start, *avatar_pins, |s| avatar_pins.find_seed(s));
+                            use crate::seeded_defaults::{
+                                AvatarCharacter, ChassisFamily, OrnatenessTier, ThemeArchetype,
+                                WearTier,
+                            };
+                            let rolled = AvatarCharacter::for_seed(effective.unwrap_or(start));
+                            egui::Grid::new("avatar_pin_axes")
+                                .num_columns(3)
+                                .show(ui, |ui| {
+                                    pin_axis_row(
+                                        ui,
+                                        "Chassis",
+                                        &ChassisFamily::ALL,
+                                        ChassisFamily::label,
+                                        &mut avatar_pins.chassis,
+                                        rolled.chassis,
+                                    );
+                                    pin_axis_row(
+                                        ui,
+                                        "Style",
+                                        &ThemeArchetype::ALL,
+                                        ThemeArchetype::label,
+                                        &mut avatar_pins.style,
+                                        rolled.style,
+                                    );
+                                    pin_axis_row(
+                                        ui,
+                                        "Ornateness",
+                                        &OrnatenessTier::ALL,
+                                        OrnatenessTier::label,
+                                        &mut avatar_pins.ornateness,
+                                        rolled.ornateness_tier(),
+                                    );
+                                    pin_axis_row(
+                                        ui,
+                                        "Wear",
+                                        &WearTier::ALL,
+                                        WearTier::label,
+                                        &mut avatar_pins.wear,
+                                        rolled.wear_tier(),
+                                    );
+                                });
+                            (reroll, start, effective)
+                        })
+                        // Collapsed: no Apply button was drawn, so there is
+                        // nothing to act on this frame.
+                        .unwrap_or((SeedAction::None, did_seed, None));
+
+                    if let SeedAction::Reroll(_) = reroll {
+                        // Build from the same hunted seed the readout
+                        // previewed — never the raw typed one.
+                        if let Some(seed) = effective {
+                            seed_row_state.set_seed(seed);
+                            live_mut.0 = AvatarRecord::default_for_seed(seed);
+                            undo_labels.set_avatar(format!("seed re-roll ({seed})"));
+                            session_log.info(
+                                time.elapsed_secs_f64(),
+                                EventPayload::AvatarReseeded { seed },
+                            );
+                        } else {
+                            // Unreachable in practice (the cap misses a legal
+                            // pin-set with probability ~e⁻²⁴¹⁵); keep the
+                            // record untouched rather than violate the locks.
+                            bevy::log::warn!(
+                                "pinned re-roll found no seed matching {avatar_pins:?} from {start}"
+                            );
+                        }
+                    }
+                    ui.separator();
+                }
+
                 // --- Footer as a real bottom panel (#830) -----------------
                 // Declared BEFORE the tab body (egui's panels-before-content
                 // rule) but rendered pinned to the window's bottom edge, so
                 // it can never be clipped off a short window — the old
                 // fixed FOOTER_RESERVE guessed the footer height and lost
                 // whenever the guess was wrong. The tab body then fills
-                // exactly the space that remains.
+                // exactly the space that remains. Everything in here is
+                // fixed-height, which is what keeps the panel's reserve
+                // honest (see the re-roll block above).
                 egui::TopBottomPanel::bottom("avatar_footer")
                     .resizable(false)
                     .show_inside(ui, |ui| {
@@ -433,103 +550,6 @@ pub fn avatar_ui(
                         // equality the other two use — instead of
                         // `AvatarRecord`'s `PartialEq`, so all three editors
                         // behave identically.
-
-                        // Manual re-roll — the same DID-seeded engine as the
-                        // defaults, with an owner-chosen master seed. Replaces
-                        // the whole working avatar like "Reset to default"
-                        // (which is this with seed = fnv1a_64(did)). The pfp
-                        // banner tracks the DID, not the seed, so it survives
-                        // a re-roll.
-                        if let Some(s) = session.as_ref() {
-                            let did_seed = crate::seeded_defaults::fnv1a_64(&s.did);
-                            let reroll = seed_row(
-                                ui,
-                                seed_row_state,
-                                did_seed,
-                                time.elapsed_secs_f64(),
-                                "avatar",
-                            );
-
-                            // Pinned re-roll readout (#1005): what "Re-roll"
-                            // will roll for each top-level avatar axis, each
-                            // lockable. The preview derives from the hunted
-                            // seed — the one a click will actually build
-                            // from — not the typed one, so 🎲 previews
-                            // exactly what Apply then delivers. Memoized:
-                            // the hunt only reruns when the seed text or the
-                            // pins change.
-                            let start = seed_row_state.current_seed().unwrap_or(did_seed);
-                            let effective = pin_hunt
-                                .effective_seed(start, *avatar_pins, |s| avatar_pins.find_seed(s));
-                            {
-                                use crate::seeded_defaults::{
-                                    AvatarCharacter, ChassisFamily, OrnatenessTier, ThemeArchetype,
-                                    WearTier,
-                                };
-                                let rolled = AvatarCharacter::for_seed(effective.unwrap_or(start));
-                                egui::Grid::new("avatar_pin_axes")
-                                    .num_columns(3)
-                                    .show(ui, |ui| {
-                                        pin_axis_row(
-                                            ui,
-                                            "Chassis",
-                                            &ChassisFamily::ALL,
-                                            ChassisFamily::label,
-                                            &mut avatar_pins.chassis,
-                                            rolled.chassis,
-                                        );
-                                        pin_axis_row(
-                                            ui,
-                                            "Style",
-                                            &ThemeArchetype::ALL,
-                                            ThemeArchetype::label,
-                                            &mut avatar_pins.style,
-                                            rolled.style,
-                                        );
-                                        pin_axis_row(
-                                            ui,
-                                            "Ornateness",
-                                            &OrnatenessTier::ALL,
-                                            OrnatenessTier::label,
-                                            &mut avatar_pins.ornateness,
-                                            rolled.ornateness_tier(),
-                                        );
-                                        pin_axis_row(
-                                            ui,
-                                            "Wear",
-                                            &WearTier::ALL,
-                                            WearTier::label,
-                                            &mut avatar_pins.wear,
-                                            rolled.wear_tier(),
-                                        );
-                                    });
-                            }
-
-                            if let SeedAction::Reroll(_) = reroll {
-                                // Build from the same hunted seed the
-                                // readout previewed — never the raw typed
-                                // one.
-                                if let Some(seed) = effective {
-                                    seed_row_state.set_seed(seed);
-                                    live_mut.0 = AvatarRecord::default_for_seed(seed);
-                                    undo_labels.set_avatar(format!("seed re-roll ({seed})"));
-                                    session_log.info(
-                                        time.elapsed_secs_f64(),
-                                        EventPayload::AvatarReseeded { seed },
-                                    );
-                                } else {
-                                    // Unreachable in practice (the cap misses
-                                    // a legal pin-set with probability
-                                    // ~e⁻²⁴¹⁵); keep the record untouched
-                                    // rather than violate the locks.
-                                    bevy::log::warn!(
-                                        "pinned re-roll found no seed matching {avatar_pins:?} \
-                                         from {start}"
-                                    );
-                                }
-                            }
-                        }
-                        ui.separator();
 
                         let dirty = stored
                             .as_ref()

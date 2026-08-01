@@ -176,13 +176,13 @@ pub struct RoomEditorState {
     /// [`crate::ui::editable::seed_row`].
     seed_row_state: crate::ui::editable::SeedRowState,
     /// Per-axis locks for the pinned re-roll (#1005): axes held (or
-    /// explicitly picked) across "Re-roll world" clicks via a
+    /// explicitly picked) across re-roll "Apply" clicks via a
     /// deterministic seed hunt. Transient editor state — never stored in
     /// the record. See [`crate::seeded_defaults::ScenePins`].
     scene_pins: crate::seeded_defaults::ScenePins,
     /// Memoized hunt result for the axis readout (#1005): re-hunts only
     /// when the seed text or the pins change, so the preview can derive
-    /// from the seed "Re-roll" will actually use without paying the
+    /// from the seed "Apply" will actually use without paying the
     /// hunt every frame.
     pin_hunt: crate::ui::editable::PinHuntCache<crate::seeded_defaults::ScenePins>,
     /// Pending destructive tree-operation confirmations (#838): root
@@ -664,26 +664,34 @@ pub fn room_admin_ui(
                 });
                 ui.separator();
 
-                // --- Footer as a real bottom panel (#830 idiom) ---------
-                // The old code reserved a fixed FOOTER_RESERVE below the
-                // tab body; the pinned re-roll readout (#1005) made the
-                // real footer taller than the guess, so the window grew by
-                // the overflow every frame until it spanned the screen.
-                // Declared BEFORE the tab body (egui's panels-before-
-                // content rule) but rendered pinned to the window's bottom
-                // edge; the tab body then fills exactly what remains, and
-                // the footer can grow without a guess to outgrow.
-                egui::TopBottomPanel::bottom("world_editor_footer")
-                    .resizable(false)
-                    .show_inside(ui, |ui| {
-                        // Manual re-roll: the same DID-seeded engine that
-                        // builds the defaults, but with an owner-chosen
-                        // master seed. Re-rolling replaces the whole
-                        // working record exactly like "Reset to default"
-                        // (which is this with seed = fnv1a_64(did)) —
-                        // clear selections, refresh the raw-JSON mirror,
-                        // and arm a broadcast/recompile.
-                        let did_seed = crate::seeded_defaults::fnv1a_64(&room_did.0);
+                // --- Manual re-roll -------------------------------------
+                // The same DID-seeded engine that builds the defaults, but
+                // with an owner-chosen master seed. Re-rolling replaces the
+                // whole working record exactly like "Reset to default"
+                // (which is this with seed = fnv1a_64(did)) — clear
+                // selections, refresh the raw-JSON mirror, and arm a
+                // broadcast/recompile.
+                //
+                // Laid out in the window's normal flow rather than inside
+                // the footer panel (#1048). A `TopBottomPanel` reserves the
+                // height it measured LAST frame, so on the frame the
+                // collapsible section below opens, the taller content
+                // overflowed that reserve and egui grew the window to
+                // contain it — and a `Window`'s desired size never shrinks
+                // again, so collapsing handed the freed height to the
+                // greedy tab body instead of giving it back. Toggling
+                // therefore ratcheted the window taller every cycle. Here
+                // the tab body measures what is left AFTER this block is
+                // laid out, so the body absorbs the change in the same
+                // frame and the window height never moves.
+                let did_seed = crate::seeded_defaults::fnv1a_64(&room_did.0);
+                // Collapsible (#1047): the seed field plus five pin rows is
+                // the tallest fixed furniture in this window, and an owner
+                // who has settled on a world rarely re-rolls it again.
+                // Collapsed, the whole block folds to one header row and the
+                // tab body takes back the space.
+                let (action, start, effective) =
+                    crate::ui::editable::reroll_section(ui, "world_reroll", |ui| {
                         let action = seed_row(
                             ui,
                             seed_row_state,
@@ -692,97 +700,109 @@ pub fn room_admin_ui(
                             "world",
                         );
 
-                        // Pinned re-roll readout (#1005): what "Re-roll"
-                        // will roll for each top-level scene axis, each
-                        // lockable. The preview derives from the hunted
-                        // seed — the one a click will actually build from
-                        // — not the typed one, so 🎲 previews exactly what
-                        // Apply then delivers. Memoized: the hunt only
-                        // reruns when the seed text or the pins change.
+                        // Pinned re-roll readout (#1005): what "Apply" will
+                        // roll for each top-level scene axis, each lockable.
+                        // The preview derives from the hunted seed — the one
+                        // a click will actually build from — not the typed
+                        // one, so 🎲 previews exactly what Apply then
+                        // delivers. Memoized: the hunt only reruns when the
+                        // seed text or the pins change.
                         let start = seed_row_state.current_seed().unwrap_or(did_seed);
                         let effective = pin_hunt
                             .effective_seed(start, *scene_pins, |s| scene_pins.find_seed(s));
-                        {
-                            use crate::seeded_defaults::{
-                                BiomeArchetype, EscalationTier, LandformArchetype, ProsperityTier,
-                                SceneCharacter, ThemeArchetype,
-                            };
-                            let rolled = SceneCharacter::for_seed(effective.unwrap_or(start));
-                            egui::Grid::new("scene_pin_axes")
-                                .num_columns(3)
-                                .show(ui, |ui| {
-                                    pin_axis_row(
-                                        ui,
-                                        "Landform",
-                                        &LandformArchetype::ALL,
-                                        LandformArchetype::label,
-                                        &mut scene_pins.landform,
-                                        rolled.landform,
-                                    );
-                                    pin_axis_row(
-                                        ui,
-                                        "Biome",
-                                        &BiomeArchetype::ALL,
-                                        BiomeArchetype::label,
-                                        &mut scene_pins.biome,
-                                        rolled.biome,
-                                    );
-                                    pin_axis_row(
-                                        ui,
-                                        "Theme",
-                                        &ThemeArchetype::ALL,
-                                        ThemeArchetype::label,
-                                        &mut scene_pins.theme,
-                                        rolled.theme,
-                                    );
-                                    pin_axis_row(
-                                        ui,
-                                        "Prosperity",
-                                        &ProsperityTier::ALL,
-                                        ProsperityTier::label,
-                                        &mut scene_pins.prosperity,
-                                        rolled.prosperity_tier(),
-                                    );
-                                    pin_axis_row(
-                                        ui,
-                                        "Escalation",
-                                        &EscalationTier::ALL,
-                                        EscalationTier::label,
-                                        &mut scene_pins.escalation,
-                                        rolled.escalation_tier(),
-                                    );
-                                });
-                        }
-
-                        if let SeedAction::Reroll(_) = action {
-                            // Build from the same hunted seed the readout
-                            // previewed — never the raw typed one.
-                            if let Some(seed) = effective {
-                                seed_row_state.set_seed(seed);
-                                *record_mut = pds::RoomRecord::default_for_seed(seed, &room_did.0);
-                                *raw_text =
-                                    serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
-                                *raw_error = None;
-                                *selected_generator = None;
-                                *selected_placement = None;
-                                *selected_prim_path = None;
-                                tree_view_state.set_selected(Vec::new());
-                                needs_broadcast = true;
-                                undo_labels.set_room(format!("seed re-roll ({seed})"));
-                            } else {
-                                // Unreachable in practice (the cap misses a
-                                // legal pin-set with probability ~e⁻¹³⁸);
-                                // keep the record untouched rather than
-                                // violate the locks.
-                                bevy::log::warn!(
-                                    "pinned re-roll found no seed matching {scene_pins:?} \
-                                     from {start}"
+                        use crate::seeded_defaults::{
+                            BiomeArchetype, EscalationTier, LandformArchetype, ProsperityTier,
+                            SceneCharacter, ThemeArchetype,
+                        };
+                        let rolled = SceneCharacter::for_seed(effective.unwrap_or(start));
+                        egui::Grid::new("scene_pin_axes")
+                            .num_columns(3)
+                            .show(ui, |ui| {
+                                pin_axis_row(
+                                    ui,
+                                    "Landform",
+                                    &LandformArchetype::ALL,
+                                    LandformArchetype::label,
+                                    &mut scene_pins.landform,
+                                    rolled.landform,
                                 );
-                            }
-                        }
+                                pin_axis_row(
+                                    ui,
+                                    "Biome",
+                                    &BiomeArchetype::ALL,
+                                    BiomeArchetype::label,
+                                    &mut scene_pins.biome,
+                                    rolled.biome,
+                                );
+                                pin_axis_row(
+                                    ui,
+                                    "Theme",
+                                    &ThemeArchetype::ALL,
+                                    ThemeArchetype::label,
+                                    &mut scene_pins.theme,
+                                    rolled.theme,
+                                );
+                                pin_axis_row(
+                                    ui,
+                                    "Prosperity",
+                                    &ProsperityTier::ALL,
+                                    ProsperityTier::label,
+                                    &mut scene_pins.prosperity,
+                                    rolled.prosperity_tier(),
+                                );
+                                pin_axis_row(
+                                    ui,
+                                    "Escalation",
+                                    &EscalationTier::ALL,
+                                    EscalationTier::label,
+                                    &mut scene_pins.escalation,
+                                    rolled.escalation_tier(),
+                                );
+                            });
+                        (action, start, effective)
+                    })
+                    // Collapsed: no Apply button was drawn, so there is
+                    // nothing to act on this frame.
+                    .unwrap_or((SeedAction::None, did_seed, None));
 
-                        ui.separator();
+                if let SeedAction::Reroll(_) = action {
+                    // Build from the same hunted seed the readout previewed
+                    // — never the raw typed one.
+                    if let Some(seed) = effective {
+                        seed_row_state.set_seed(seed);
+                        *record_mut = pds::RoomRecord::default_for_seed(seed, &room_did.0);
+                        *raw_text = serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
+                        *raw_error = None;
+                        *selected_generator = None;
+                        *selected_placement = None;
+                        *selected_prim_path = None;
+                        tree_view_state.set_selected(Vec::new());
+                        needs_broadcast = true;
+                        undo_labels.set_room(format!("seed re-roll ({seed})"));
+                    } else {
+                        // Unreachable in practice (the cap misses a legal
+                        // pin-set with probability ~e⁻¹³⁸); keep the record
+                        // untouched rather than violate the locks.
+                        bevy::log::warn!(
+                            "pinned re-roll found no seed matching {scene_pins:?} from {start}"
+                        );
+                    }
+                }
+                ui.separator();
 
+                // --- Footer as a real bottom panel (#830 idiom) ---------
+                // The old code reserved a fixed FOOTER_RESERVE below the
+                // tab body; the pinned re-roll readout (#1005) made the
+                // real footer taller than the guess, so the window grew by
+                // the overflow every frame until it spanned the screen.
+                // Declared BEFORE the tab body (egui's panels-before-
+                // content rule) but rendered pinned to the window's bottom
+                // edge; the tab body then fills exactly what remains.
+                // Everything in here is fixed-height, which is what keeps
+                // the panel's reserve honest (see the re-roll block above).
+                egui::TopBottomPanel::bottom("world_editor_footer")
+                    .resizable(false)
+                    .show_inside(ui, |ui| {
                         // Publish / Revert to saved / Reset to default — the
                         // shared row + status line used by every editor
                         // (`ui::editable`). `dirty` is *derived* (the live

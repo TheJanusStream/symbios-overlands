@@ -370,14 +370,41 @@ impl<P: Copy + PartialEq> PinHuntCache<P> {
     }
 }
 
+/// Wrap an editor's re-roll block — a [`seed_row`] plus its
+/// [`pin_axis_row`] readout — in a collapsible section (#1047).
+///
+/// The block is the tallest thing in either editor's footer (a seed
+/// field over five or six pin rows), and an owner who has settled on a
+/// world or an avatar rarely re-rolls it again; collapsed it costs one
+/// header row and hands the rest back to the tab body above. Open by
+/// default — the pinned readout is only discoverable if it starts
+/// expanded — and the open/closed state lives in egui memory under
+/// `id_salt`, so it survives closing and reopening the editor window.
+///
+/// Returns the closure's value, or `None` while the section is
+/// collapsed and the body did not run. Callers fold that to their
+/// "nothing happened" case: a collapsed section shows no "Apply"
+/// button, so it can never report an action.
+pub fn reroll_section<R>(
+    ui: &mut egui::Ui,
+    id_salt: &str,
+    body: impl FnOnce(&mut egui::Ui) -> R,
+) -> Option<R> {
+    egui::CollapsingHeader::new("Seed & re-roll")
+        .id_salt(id_salt)
+        .default_open(true)
+        .show(ui, body)
+        .body_returned
+}
+
 /// Render the "Random seed" re-roll row shared by the World and Avatar
 /// editors.
 ///
 /// The field shows `did_seed` — the master seed the DID-derived defaults
 /// are built from — by default. The owner can type any `u64`, roll a
-/// fresh one (🎲), or restore the DID seed (↺), then click the re-roll
-/// button ("Re-roll {subject}", #838 — the old "Apply" label undersold
-/// that it replaces the ENTIRE record) and confirm. This is exactly the
+/// fresh one (🎲), or restore the DID seed (↺), then click "Apply". That
+/// it replaces the ENTIRE record — not just the axes shown — is carried
+/// by the hover text, which names `subject`. This is exactly the
 /// existing "Reset to default" with an owner-chosen seed instead of
 /// `fnv1a_64(did)`. `now_secs` seeds the dice without a system clock
 /// (wasm has none). Fires on the click itself (#866): the confirm that
@@ -420,10 +447,7 @@ pub fn seed_row(
             state.buf = dice_seed(now_secs, did_seed).to_string();
         }
         let apply_clicked = ui
-            .add_enabled(
-                parsed.is_ok(),
-                egui::Button::new(format!("Re-roll {subject}")),
-            )
+            .add_enabled(parsed.is_ok(), egui::Button::new("Apply"))
             .on_hover_text(format!(
                 "Replace the whole {subject} with a fresh roll from this seed"
             ))
@@ -446,7 +470,7 @@ pub fn seed_row(
 /// shared by the World and Avatar editors: what the seed in the row rolls
 /// for one category axis, with a lock toggle. Locking captures the shown
 /// value into `pin`; a locked axis renders as a combo box so an explicit
-/// value can be picked. Pins apply on the next "Re-roll" click — the
+/// value can be picked. Pins apply on the next "Apply" click — the
 /// caller hunts a seed satisfying them (`ScenePins::find_seed` /
 /// `AvatarPins::find_seed`) — matching the seed field's own
 /// edit-then-apply contract.
