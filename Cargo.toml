@@ -31,6 +31,12 @@ bevy_symbios_multiuser = "0.6"
 bevy_symbios_texture = { version = "0.9", features = ["egui"] }
 bevy_symbios_audio = { version = "0.2", features = ["egui"] }
 transform-gizmo-bevy = "0.9"
+# The rigged-avatar engine and its Bevy layer (epic #1054): sibling repos,
+# unpublished, path deps by design — overlands is where they are dogfooded.
+# `symbios-avatar` is named directly so record/rig/socket types are reachable
+# without going through re-exports. `bevy_symbios_avatar` sits in the target
+# tables below, because the two targets want different clip features.
+symbios-avatar = { path = "../symbios-avatar" }
 symbios = "1.5"
 symbios-turtle-3d = "0.5"
 symbios-shape = "0.3"
@@ -68,12 +74,22 @@ url = "2"
 glam = "0.30"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Native embeds the 200 KiB baked CC0 clip set; wasm deliberately does not
+# (#1055). The wasm binary never shrinks once grown (#565) and every embedded
+# byte is downloaded by every visitor, so the browser build will fetch
+# clips.bin at run time and insert its own `Clips` resource instead — that
+# fetch lands with the animator work (#1057). Until then wasm simply has no
+# clips, which nothing consumes yet. The `editor` default stays on for both:
+# bevy_egui 0.39 is already in the tree, so it costs nothing.
+bevy_symbios_avatar = { path = "../bevy_symbios_avatar", features = ["builtin-clips"] }
 tiny_http = "0.12"
 webbrowser = "1.0"
 arboard = "3"
 clap = { version = "4", features = ["derive"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+# No `builtin-clips` here — see the native table above for why.
+bevy_symbios_avatar = { path = "../bevy_symbios_avatar" }
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.2", features = ["js"] }
 web-sys = { version = "0.3", features = [

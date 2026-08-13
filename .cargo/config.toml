@@ -6,3 +6,12 @@
 # heavy links in flight. Raise this if you move to a higher-RAM box.
 [build]
 jobs = 6
+
+# symbios-avatar pulls getrandom 0.3 transitively (symbios-texture -> rand),
+# and 0.3 refuses to build for wasm32-unknown-unknown without a cfg naming
+# its backend. The sibling repo carries this flag in its own .cargo config,
+# but cargo configs do not propagate to dependents, so overlands must repeat
+# it (#1055). The direct getrandom 0.2 + "js" dependency is a separate major
+# version and coexists untouched.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
