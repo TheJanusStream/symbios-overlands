@@ -56,6 +56,7 @@
 //!   confirm step between portal contact and the actual travel fetch.
 
 mod airplane;
+mod attachments;
 mod car;
 mod clips;
 pub(crate) mod gait;
@@ -185,7 +186,11 @@ impl Plugin for PlayerPlugin {
             )
             .add_systems(
                 Update,
-                (rigged::kick_rigged_builds, rigged::land_rigged_builds)
+                (
+                    rigged::kick_rigged_builds,
+                    rigged::land_rigged_builds,
+                    attachments::sync_rigged_attachments,
+                )
                     .chain()
                     .in_set(bevy_symbios_avatar::AvatarSystems::Build)
                     .run_if(in_state(AppState::InGame)),
