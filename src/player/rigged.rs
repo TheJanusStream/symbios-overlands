@@ -561,6 +561,17 @@ pub(super) fn drive_rigged_motion(
                 let stride = Stride::for_body(rig, 1.0);
                 let steps = gait::step(rig, &mut pose, &gait, &stride, motion.cycle, floor);
                 gait::swing_arms(rig, &mut pose, &gait, motion.cycle);
+                // The trunk pitches into the walk and the neck holds the head
+                // level over it (#239). The lean is scaled by the stride this
+                // body is taking, which here is a CONSTANT: the stride above is
+                // pinned at pace 1.0 and speed is expressed by bending the
+                // cadence instead, so a sprinting avatar leans exactly as far
+                // as a strolling one. That is a real limitation and it belongs
+                // to the speed axis rather than to the lean — symbios-avatar
+                // #240 is where stride, cadence and gait choice all start
+                // coming from one dimensionless speed, and the lean responds
+                // for free the moment they do.
+                gait::lean(rig, &mut pose, &gait, &stride);
                 stance = steps.stance;
                 walking = Some(gait);
             }
