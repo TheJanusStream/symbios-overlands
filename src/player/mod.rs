@@ -57,6 +57,7 @@
 
 mod airplane;
 mod car;
+mod clips;
 pub(crate) mod gait;
 mod helicopter;
 mod hotswap;
@@ -65,6 +66,7 @@ mod humanoid;
 mod portal;
 mod preset;
 mod respawn;
+mod rigged;
 mod spawn;
 pub mod visuals;
 
@@ -166,6 +168,34 @@ pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
+        // The sibling crate's frame order (Build → Animate → Apply) and its
+        // pose-apply system. Its `AnimatorPlugin` is deliberately absent —
+        // single-subject viewer resource plus an egui panel — so the Clips
+        // resource is owned here: builtin natively, empty on wasm until
+        // `avatar.clips` lands (see `clips`).
+        app.add_plugins(bevy_symbios_avatar::AvatarPlugin)
+            .insert_resource(bevy_symbios_avatar::Clips::builtin())
+            .init_resource::<rigged::ClipRoles>()
+            .init_asset::<clips::ClipArchive>()
+            .init_asset_loader::<clips::ClipArchiveLoader>()
+            .add_systems(Startup, clips::request_clip_archive)
+            .add_systems(
+                Update,
+                (clips::install_clip_archive, rigged::index_clip_roles).chain(),
+            )
+            .add_systems(
+                Update,
+                (rigged::kick_rigged_builds, rigged::land_rigged_builds)
+                    .chain()
+                    .in_set(bevy_symbios_avatar::AvatarSystems::Build)
+                    .run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                Update,
+                rigged::drive_rigged_motion
+                    .in_set(bevy_symbios_avatar::AvatarSystems::Animate)
+                    .run_if(in_state(AppState::InGame)),
+            );
         app.add_systems(OnEnter(AppState::InGame), spawn::spawn_local_player)
             .add_systems(
                 Update,
