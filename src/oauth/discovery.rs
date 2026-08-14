@@ -71,15 +71,15 @@ pub const RELAY_SERVICE_LXM: &str = "network.symbios.overlands.signal";
 /// hosted copy in `assets/client-metadata.json` must stay in sync — see
 /// the `client_metadata_scope_matches_hosted_document` integration test.
 pub fn granular_scope() -> String {
-    use crate::pds::{
-        AVATAR_COLLECTION, COLLECTION, INVENTORY_COLLECTION, INVENTORY_ITEM_COLLECTION,
-        ROOM_GENERATOR_COLLECTION,
-    };
-    format!(
-        "atproto repo:{COLLECTION} repo:{ROOM_GENERATOR_COLLECTION} repo:{AVATAR_COLLECTION} \
-         repo:{INVENTORY_COLLECTION} repo:{INVENTORY_ITEM_COLLECTION} \
-         rpc:{RELAY_SERVICE_LXM}?aud=*"
-    )
+    // Derived from `WRITTEN_COLLECTIONS` rather than spelled out here, so a
+    // new collection cannot be added to the app and silently left out of the
+    // grant — which is how the three wardrobe collections shipped unscoped
+    // (#1065). Order follows that list so the string is stable.
+    let repos: Vec<String> = crate::pds::WRITTEN_COLLECTIONS
+        .iter()
+        .map(|nsid| format!("repo:{nsid}"))
+        .collect();
+    format!("atproto {} rpc:{RELAY_SERVICE_LXM}?aud=*", repos.join(" "))
 }
 
 /// Build the client metadata we hand to proto-blue-oauth.

@@ -5,7 +5,7 @@
   "redirect_uris": [
     "https://thejanusstream.github.io/symbios-overlands"
   ],
-  "scope": "atproto repo:network.symbios.overlands.room repo:network.symbios.overlands.room.generator repo:network.symbios.overlands.avatar repo:network.symbios.overlands.inventory repo:network.symbios.overlands.inventory.item rpc:network.symbios.overlands.signal?aud=*",
+  "scope": "atproto repo:network.symbios.overlands.room repo:network.symbios.overlands.room.generator repo:network.symbios.overlands.avatar repo:network.symbios.overlands.inventory repo:network.symbios.overlands.inventory.item repo:network.symbios.avatar.avatar repo:network.symbios.avatar.profile repo:network.symbios.overlands.avatar.attachment rpc:network.symbios.overlands.signal?aud=*",
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
   "token_endpoint_auth_method": "none",

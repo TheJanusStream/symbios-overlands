@@ -123,6 +123,35 @@ pub const AVATAR_PROFILE_COLLECTION: &str = "network.symbios.avatar.profile";
 /// plus the rig socket it hangs from and its offset transform.
 pub const AVATAR_ATTACHMENT_COLLECTION: &str = "network.symbios.overlands.avatar.attachment";
 
+/// Every collection this app **writes** to in the signed-in identity's repo.
+///
+/// The single source of truth for the OAuth grant: `oauth::granular_scope`
+/// builds one `repo:<nsid>` permission per entry, and
+/// `client_metadata_scope_covers_every_written_collection` asserts the
+/// hosted metadata document carries them all. Since #736 the app asks for
+/// granular scopes rather than `transition:generic`, so a collection missing
+/// here is a **runtime write rejection**, not a lint — and one that only
+/// shows up against a real PDS, which is exactly how the three wardrobe
+/// collections shipped unscoped in #1058/#1059 (fixed in #1065).
+///
+/// **Add to this list in the same commit that adds a collection constant.**
+/// Reads are ungated by the spec, so read-only collections do not belong
+/// here; every entry below is written by some path in [`avatar::wardrobe`],
+/// [`inventory`](crate::pds), or the room publish flow.
+pub const WRITTEN_COLLECTIONS: &[&str] = &[
+    COLLECTION,
+    ROOM_GENERATOR_COLLECTION,
+    AVATAR_COLLECTION,
+    INVENTORY_COLLECTION,
+    INVENTORY_ITEM_COLLECTION,
+    // The wardrobe trio (#1054): two under the SIBLING project's lexicon,
+    // because a cross-app body lives in a cross-app collection — but still
+    // in the signed-in identity's own repo, so still a `repo:` grant.
+    WARDROBE_COLLECTION,
+    AVATAR_PROFILE_COLLECTION,
+    AVATAR_ATTACHMENT_COLLECTION,
+];
+
 pub mod asset_reference;
 pub mod audio;
 pub mod avatar;

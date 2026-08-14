@@ -29,7 +29,7 @@ fn client_metadata_redirect_matches_target() {
 #[test]
 fn client_metadata_scope_is_granular() {
     // #736: the broad `transition:generic` grant is replaced by granular
-    // permissions — write access to exactly the five Overlands collections
+    // permissions — write access to exactly the collections the app writes,
     // plus a concrete-lxm/wildcard-aud rpc grant for relay service auth.
     // The rpc shape matters: `rpc:*?aud=*` is spec-invalid, and pinning
     // `aud` instead of `lxm` would bake one relay's DID into the static
@@ -37,20 +37,47 @@ fn client_metadata_scope_is_granular() {
     let scope = oauth::client_metadata().scope.expect("scope must be set");
     assert!(scope.starts_with("atproto "), "{scope}");
     assert!(!scope.contains("transition:generic"), "{scope}");
-    for collection in [
-        "network.symbios.overlands.room",
-        "network.symbios.overlands.room.generator",
-        "network.symbios.overlands.avatar",
-        "network.symbios.overlands.inventory",
-        "network.symbios.overlands.inventory.item",
-    ] {
-        assert!(
-            scope.split(' ').any(|s| s == format!("repo:{collection}")),
-            "missing repo grant for {collection} in {scope}"
-        );
-    }
     let rpc = format!("rpc:{}?aud=*", oauth::RELAY_SERVICE_LXM);
     assert!(scope.split(' ').any(|s| s == rpc), "{scope}");
+}
+
+/// #1065: every collection the app writes must carry a `repo:` grant — in
+/// the code's scope *and* in the hosted metadata document the authorization
+/// server actually reads.
+///
+/// The pre-existing pair of tests could not catch this. One compared the
+/// code's scope against the hosted doc — both were equally stale, so they
+/// agreed and passed. The other enumerated the five collections by hand,
+/// which is the same list that was wrong. Two instruments checking each
+/// other rather than checking reality: the wardrobe trio (#1054) shipped
+/// with no grant at all, and the failure mode is a PDS rejecting an avatar
+/// publish at runtime, against a real server, long after CI is green.
+///
+/// This one derives from `pds::WRITTEN_COLLECTIONS`, so adding a collection
+/// without granting it fails here instead of in production.
+#[test]
+fn client_metadata_scope_covers_every_written_collection() {
+    let scope = oauth::client_metadata().scope.expect("scope must be set");
+    let hosted: serde_json::Value =
+        serde_json::from_str(include_str!("../assets/client-metadata.json"))
+            .expect("client-metadata.json must parse");
+    let hosted_scope = hosted["scope"].as_str().expect("hosted scope must be set");
+
+    assert!(
+        !symbios_overlands::pds::WRITTEN_COLLECTIONS.is_empty(),
+        "the written-collection list is the source of truth and must not be empty"
+    );
+    for collection in symbios_overlands::pds::WRITTEN_COLLECTIONS {
+        let grant = format!("repo:{collection}");
+        assert!(
+            scope.split(' ').any(|s| s == grant),
+            "granular_scope() has no write grant for {collection}: {scope}"
+        );
+        assert!(
+            hosted_scope.split(' ').any(|s| s == grant),
+            "assets/client-metadata.json has no write grant for {collection}: {hosted_scope}"
+        );
+    }
 }
 
 #[test]
