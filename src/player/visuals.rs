@@ -17,7 +17,7 @@
 use bevy::prelude::*;
 use bevy_symbios::materials::MaterialPalette;
 
-use crate::pds::Generator;
+use crate::pds::AvatarBody;
 use crate::state::CurrentRoomDid;
 use crate::terrain::{FinishedHeightMap, OutgoingTerrain, TerrainMesh};
 use crate::water::{WaterMaterial, WaterSurfaces};
@@ -43,10 +43,16 @@ pub struct AvatarSpawnDeps<'w, 's> {
     pub current_room: Option<Res<'w, CurrentRoomDid>>,
 }
 
-/// Walk `visuals` and spawn one entity per node, parented under
-/// `chassis`. The visuals root's transform composes with each node's
-/// local transform; the chassis (a parent rigid body) provides the
-/// world-space anchor.
+/// Spawn the record's body under `chassis`. A generator body walks its
+/// `Generator` tree and spawns one entity per node; the visuals root's
+/// transform composes with each node's local transform, and the chassis (a
+/// parent rigid body) provides the world-space anchor.
+///
+/// A **rigged** body ([`AvatarBody::Rigged`]) spawns nothing here yet — its
+/// skinned build is #1057's slice and slots in exactly at this seam — and
+/// unknown/absent bodies are bare chassis by contract. Every variant still
+/// clears the previous children, because a hot-swap from a generator body
+/// to any other kind owes the despawn regardless of what replaces it.
 ///
 /// `existing_children` is the chassis's current child list, despawned
 /// before the new tree spawns to avoid double-instantiation on hot-swap.
@@ -55,7 +61,7 @@ pub struct AvatarSpawnDeps<'w, 's> {
 pub fn spawn_avatar_visuals(
     commands: &mut Commands,
     chassis: Entity,
-    visuals: &Generator,
+    body: &AvatarBody,
     existing_children: Option<&Children>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
@@ -68,7 +74,29 @@ pub fn spawn_avatar_visuals(
             commands.entity(child).despawn();
         }
     }
+    let Some(visuals) = body.visuals() else {
+        return;
+    };
+    spawn_visual_tree(
+        commands, chassis, visuals, meshes, materials, images, deps, is_local,
+    );
+}
 
+/// The generator-tree walk itself, body-kind agnostic. Split from
+/// [`spawn_avatar_visuals`] because the render tool feeds bare `Generator`
+/// trees (catalogue items, avatar parts) through the avatar spawn path
+/// without any record around them.
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_visual_tree(
+    commands: &mut Commands,
+    chassis: Entity,
+    visuals: &crate::pds::Generator,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
+    deps: &mut AvatarSpawnDeps,
+    is_local: bool,
+) {
     // The avatar spawner's `record` parameter is unused on every reachable
     // dispatch arm — the sanitiser strips Terrain / Water / Portal upstream, and
     // that Water arm is the only `ctx.record` reader — so a single shared

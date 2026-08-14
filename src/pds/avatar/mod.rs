@@ -2,18 +2,23 @@
 //!
 //! Each player's avatar is published to their own PDS at
 //! `collection = network.symbios.overlands.avatar, rkey = self`. The record
-//! is split into two disjoint halves:
+//! is split into disjoint halves:
 //!
-//!   - `visuals` — a hierarchical [`Generator`] tree describing the cosmetic
-//!     mesh (cuboids, capsules, lsystems, …). Identical machinery to room
-//!     generators, with avatar-specific allowed kinds enforced by
-//!     [`super::sanitize::sanitize_avatar_visuals`] (no Terrain/Water/Portal).
-//!     Remote peers render this.
+//!   - `body` — which body the avatar wears (#1056), as the open union
+//!     [`AvatarBody`]: a **rigged** engine body referenced out of the
+//!     cross-app wardrobe (see [`wardrobe`]) plus worn attachment records,
+//!     or a **generator** body — a hierarchical
+//!     [`super::generator::Generator`] tree (cuboids, capsules, lsystems, …)
+//!     using identical machinery to room generators, with avatar-specific
+//!     allowed kinds enforced by
+//!     [`super::sanitize::sanitize_avatar_visuals`] (no Terrain/Water/
+//!     Portal). Remote peers render this.
 //!   - `locomotion` — a tagged-union [`LocomotionConfig`] selecting one of
 //!     five physics presets (HoverBoat / Humanoid / Airplane / Helicopter /
 //!     Car), each carrying its own collider dimensions + tuning. Remote
 //!     peers *deserialize but ignore* this — only the local player's
 //!     locomotion drives the rigid body.
+//!   - `gait` — optional idle-motion tuning for generator bodies.
 //!
 //! Locomotion presets live in the [`locomotion`] submodule, one file per
 //! preset; each parameter struct impls
@@ -21,27 +26,32 @@
 //! `display_label`, `sanitize`, and `pickers` dispatch through the trait
 //! rather than a hand-maintained `match` ladder.
 //!
-//! Legacy `network.symbios.avatar.hover_rover` / `…humanoid` body records
-//! published before this schema land deserialize to
-//! [`LocomotionConfig::Unknown`] / [`super::generator::GeneratorKind::Unknown`]
-//! respectively, and the fetch path falls through to
-//! [`AvatarRecord::default_for_did`]. There is no automatic migration —
-//! old records require a manual republish.
+//! There is no automatic migration, for any generation of this schema: a
+//! pre-#1056 record (whose looks lived in a `visuals` field) decodes with
+//! [`AvatarBody::Absent`] and the fetch path treats it as "no record",
+//! falling through to the cross-app profile and then to
+//! [`AvatarRecord::default_for_did`]. Older still — the legacy
+//! `network.symbios.avatar.hover_rover` / `…humanoid` era — lands the same
+//! place. Old records require a manual republish.
 
+pub mod body;
 pub mod default_visuals;
 pub mod gait;
 pub mod locomotion;
 pub mod parts;
+pub mod wardrobe;
 
+pub use body::{
+    AvatarBody, GeneratorBody, MAX_AVATAR_ATTACHMENTS, ResolvedAttachment, ResolvedRig, RiggedBody,
+};
 pub use gait::GaitParams;
 pub use locomotion::{
     AirplaneParams, CarParams, HelicopterParams, HoverBoatParams, HumanoidParams, LocomotionConfig,
     LocomotionPickerEntry, LocomotionPreset,
 };
+pub use wardrobe::{AttachmentRecord, EngineAvatarRecord, EngineProfileRecord};
 
 use super::AVATAR_COLLECTION;
-use super::generator::Generator;
-use super::sanitize::sanitize_avatar_visuals;
 use super::xrpc::{FetchError, PutOutcome, XrpcError, decode_record_json, resolve_pds};
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
@@ -57,10 +67,13 @@ use serde::{Deserialize, Serialize};
 pub struct AvatarRecord {
     #[serde(rename = "$type")]
     pub lex_type: String,
-    /// Hierarchical visuals — the cosmetic mesh tree. Sanitised by
-    /// [`super::sanitize::sanitize_avatar_visuals`] which excludes
-    /// Terrain/Water/Portal kinds.
-    pub visuals: Generator,
+    /// Which body the avatar wears (#1056): a rigged engine body by
+    /// wardrobe reference, or a `Generator` tree. Field-level default so a
+    /// pre-#1056 record (which has `visuals` instead) decodes to
+    /// [`AvatarBody::Absent`] and the fetch path treats it as "no record" —
+    /// the standing no-automatic-migration rule.
+    #[serde(default)]
+    pub body: AvatarBody,
     /// Physics preset selecting the player's chassis collider + control
     /// scheme + tuning. Local-only — remote peers ignore this.
     pub locomotion: LocomotionConfig,
@@ -103,7 +116,7 @@ impl AvatarRecord {
         let (visuals, locomotion) = default_visuals::build_for_seed(seed);
         Self {
             lex_type: AVATAR_COLLECTION.into(),
-            visuals,
+            body: AvatarBody::generator(visuals),
             locomotion,
             // Explicit rather than None so a re-roll re-rolls the idle
             // motion with the same seed as the visuals — peers rendering
@@ -116,10 +129,24 @@ impl AvatarRecord {
     /// client shipping a record we cannot fully model) cannot weaponise the
     /// record to panic Bevy primitive constructors.
     pub fn sanitize(&mut self) {
-        sanitize_avatar_visuals(&mut self.visuals);
+        self.body.sanitize();
         self.locomotion.sanitize();
         if let Some(gait) = &mut self.gait {
             gait.sanitize();
+        }
+    }
+
+    /// A record wearing the identity's cross-app default body (#1056): the
+    /// fallback for an identity with no overlands avatar record but a
+    /// wardrobe published by another symbios application. Locomotion is the
+    /// humanoid preset — a rigged body walks — and gait is `None` because a
+    /// skinned body's motion comes from clips, not the procedural bobber.
+    pub fn wearing(wardrobe_rkey: impl Into<String>) -> Self {
+        Self {
+            lex_type: AVATAR_COLLECTION.into(),
+            body: AvatarBody::rigged(wardrobe_rkey),
+            locomotion: locomotion::HumanoidParams::default_config(),
+            gait: None,
         }
     }
 }
@@ -133,10 +160,19 @@ struct GetAvatarResponse {
     value: AvatarRecord,
 }
 
-/// Fetch a player's avatar record from their PDS. Result semantics mirror
-/// [`super::fetch_room_record`]: `Ok(None)` is a clean 404 ("no record
-/// yet"), and any other failure returns an `Err` the caller distinguishes
-/// so it does not silently overwrite a live record with the default.
+/// Fetch a player's avatar record from their PDS, resolving a rigged body's
+/// wardrobe + attachment references in the same pass (#1056). Result
+/// semantics mirror [`super::fetch_room_record`]: `Ok(None)` is a clean
+/// "nothing anywhere" (no record, no cross-app profile either) and the
+/// caller synthesises the seeded default; any other failure returns an `Err`
+/// the caller distinguishes so it does not silently overwrite a live record
+/// with the default.
+///
+/// Two shapes fall through to the profile lookup: a true 404, and a record
+/// that decodes with [`AvatarBody::Absent`] — the pre-#1056 schema, which
+/// this module's standing rule leaves unmigrated. An identity that published
+/// a wardrobe through another symbios app comes back as a record
+/// [`AvatarRecord::wearing`] their profile's default body.
 pub async fn fetch_avatar_record(
     client: &reqwest::Client,
     did: &str,
@@ -155,7 +191,7 @@ pub async fn fetch_avatar_record(
         .map_err(|e| FetchError::Network(e.to_string()))?;
     let status = resp.status();
     if status.as_u16() == 404 {
-        return Ok(None);
+        return fallback_from_profile(client, &pds, did).await;
     }
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
@@ -164,13 +200,46 @@ pub async fn fetch_avatar_record(
             && (err == "RecordNotFound"
                 || (err == "InvalidRequest" && body.contains("RecordNotFound")))
         {
-            return Ok(None);
+            return fallback_from_profile(client, &pds, did).await;
         }
         return Err(FetchError::PdsError(status.as_u16()));
     }
     let wrapper: GetAvatarResponse = decode_record_json(resp).await?;
     let mut record = wrapper.value;
     record.sanitize();
+    if record.body.is_absent() {
+        return fallback_from_profile(client, &pds, did).await;
+    }
+    if let Some(rig) = record.body.rigged_mut() {
+        wardrobe::resolve_rigged_body(client, &pds, did, rig).await;
+    }
+    Ok(Some(record))
+}
+
+/// The cross-app fallback behind every "no overlands record" answer: an
+/// identity whose `network.symbios.avatar.profile` names a default body
+/// spawns wearing it instead of a seeded vehicle. Only a *fully resolved*
+/// body is returned — a profile pointing at a deleted wardrobe record falls
+/// through to `Ok(None)` (seeded default), because a bare humanoid chassis
+/// with no geometry says less about the identity than the vehicle would.
+/// Transport errors propagate as `Err`, keeping the caller's
+/// don't-overwrite-on-transient-failure rule intact.
+async fn fallback_from_profile(
+    client: &reqwest::Client,
+    pds: &str,
+    did: &str,
+) -> Result<Option<AvatarRecord>, FetchError> {
+    let profile = wardrobe::fetch_avatar_profile_at(client, pds, did).await?;
+    let Some(rkey) = profile.and_then(|p| p.default_avatar) else {
+        return Ok(None);
+    };
+    let mut record = AvatarRecord::wearing(rkey);
+    if let Some(rig) = record.body.rigged_mut() {
+        wardrobe::resolve_rigged_body(client, pds, did, rig).await;
+        if rig.resolved.is_none() {
+            return Ok(None);
+        }
+    }
     Ok(Some(record))
 }
 
@@ -261,6 +330,9 @@ pub async fn publish_avatar_record(
     refresh: &crate::oauth::OauthRefreshCtx,
     record: &AvatarRecord,
 ) -> Result<(), String> {
+    // A body that cannot serialize (the Absent/Unknown markers) is refused
+    // with a sentence before it can become a serde error string.
+    record.body.wire_ready()?;
     // Pre-flight size guard BEFORE any network I/O — the 5xx fallback below
     // deletes the stored record, so an oversized record must be refused
     // before it can trigger that delete-without-replace sequence.
@@ -284,5 +356,70 @@ pub async fn publish_avatar_record(
                 | PutOutcome::Transport(m) => Err(format!("{first_err}; fallback put failed: {m}")),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_seeded_default_wears_a_generator_body_and_round_trips() {
+        let rolled = AvatarRecord::default_for_seed(42);
+        assert!(
+            rolled.body.visuals().is_some(),
+            "seeded defaults stay Generator until #1060"
+        );
+        assert!(rolled.body.wire_ready().is_ok());
+        // Quantisation happens IN serde (scaled-int wire types), so a fresh
+        // roll only lands on the wire grid after one pass; the stability
+        // claim is grid → grid.
+        let json = serde_json::to_string(&rolled).expect("serializes");
+        let mut once: AvatarRecord = serde_json::from_str(&json).expect("decodes");
+        once.sanitize();
+        let again = serde_json::to_string(&once).expect("re-serializes");
+        let mut twice: AvatarRecord = serde_json::from_str(&again).expect("re-decodes");
+        twice.sanitize();
+        assert_eq!(once, twice, "the record did not survive its own JSON");
+    }
+
+    #[test]
+    fn a_pre_1056_record_decodes_with_an_absent_body() {
+        // The old schema had `visuals` where `body` now stands. The field is
+        // simply unknown to the current shape, so the record decodes — with
+        // an Absent body the fetch path converts to "no record". This is the
+        // no-automatic-migration rule made testable.
+        let mut value =
+            serde_json::to_value(AvatarRecord::default_for_seed(7)).expect("serializes");
+        let object = value.as_object_mut().expect("an object");
+        let body = object.remove("body").expect("current shape has a body");
+        object.insert(
+            String::from("visuals"),
+            body.get("visuals").cloned().expect("generator body"),
+        );
+        let record: AvatarRecord = serde_json::from_value(value).expect("old records still parse");
+        assert!(record.body.is_absent());
+        assert!(
+            record.body.wire_ready().is_err(),
+            "and cannot be republished as-is"
+        );
+    }
+
+    #[test]
+    fn a_rigged_record_round_trips_its_references() {
+        let mut record = AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = record.body.rigged_mut() {
+            rig.attachments.push(String::from("3jzfcijpj2z2b"));
+        }
+        record.sanitize();
+        let json = serde_json::to_string(&record).expect("serializes");
+        assert!(json.contains("#rigged"));
+        let mut back: AvatarRecord = serde_json::from_str(&json).expect("decodes");
+        back.sanitize();
+        assert_eq!(record, back);
+        assert!(
+            matches!(back.locomotion, LocomotionConfig::Humanoid(_)),
+            "a rigged body walks"
+        );
     }
 }

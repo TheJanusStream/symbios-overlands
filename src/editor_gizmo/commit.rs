@@ -139,7 +139,10 @@ pub(super) fn commit_avatar_drag(
         return false;
     };
 
-    commit_transform_at_path(&mut record.0.visuals, &marker.path, new_local)
+    let Some(visuals) = record.0.body.visuals_mut() else {
+        return false;
+    };
+    commit_transform_at_path(visuals, &marker.path, new_local)
 }
 
 /// Commit a blueprint-ROOT drag by applying the drag's world-space delta

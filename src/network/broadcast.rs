@@ -80,6 +80,13 @@ pub(super) fn broadcast_avatar_state(
     if !live.is_changed() {
         return;
     }
+    // A body this build cannot re-serialize (a newer client's kind, kept as
+    // `Unknown`) is not broadcastable; peers get the authoritative record
+    // from the PDS instead, decoded by whatever build understands it. Without
+    // this gate every change tick would error-log a serialize failure.
+    if live.0.body.wire_ready().is_err() {
+        return;
+    }
     chunk.broadcast(
         &mut sender,
         &mut session_log,

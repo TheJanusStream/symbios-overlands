@@ -1,0 +1,665 @@
+//! Wardrobe, profile and attachment records — the rigged body's PDS half
+//! (#1056, epic #1054).
+//!
+//! Three collections, two of them adopted from the `symbios-avatar` sibling
+//! project's lexicons rather than invented here:
+//!
+//!   - [`WARDROBE_COLLECTION`] (`network.symbios.avatar.avatar`, tid-keyed) —
+//!     one engine [`EngineAvatarRecord`] per record, many per identity. The
+//!     wardrobe is cross-app by design: any symbios application can read the
+//!     same bodies, which is the reason these records do NOT live under an
+//!     overlands NSID.
+//!   - [`AVATAR_PROFILE_COLLECTION`] (`network.symbios.avatar.profile`,
+//!     rkey = self) — the identity's default-body pointer. Overlands keeps
+//!     it in step with the worn body so other symbios apps agree on what the
+//!     identity looks like, and reads it as a fallback: an identity with no
+//!     overlands avatar record but a wardrobe from another app spawns
+//!     wearing their default body instead of a seeded vehicle.
+//!   - [`AVATAR_ATTACHMENT_COLLECTION`]
+//!     (`network.symbios.overlands.avatar.attachment`, tid-keyed) — one worn
+//!     prop per record: an owned COPY of a [`Generator`] plus the rig socket
+//!     it hangs from and its offset transform. A copy rather than an
+//!     inventory reference (decision on epic #1054): editing or deleting the
+//!     inventory item must not mutate an outfit that was already dressed.
+//!
+//! Publishing here is plain `putRecord` upsert per record with no
+//! delete-then-put recovery — these are fresh collections with none of the
+//! legacy-record 5xx history the avatar record's publish path carries.
+
+use bevy::prelude::*;
+use bevy_symbios_multiuser::auth::AtprotoSession;
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+
+/// The engine's parametric avatar record, under the name the rest of this
+/// crate uses for it. `crate::pds::AvatarRecord` is the overlands record;
+/// this is the body it references.
+pub use symbios_avatar::AvatarRecord as EngineAvatarRecord;
+pub use symbios_avatar::ProfileRecord as EngineProfileRecord;
+
+use super::super::generator::Generator;
+use super::super::sanitize::{Sanitize as _, sanitize_avatar_visuals};
+use super::super::types::TransformData;
+use super::super::xrpc::{FetchError, PutOutcome, XrpcError, decode_record_json, resolve_pds};
+use super::super::{AVATAR_ATTACHMENT_COLLECTION, AVATAR_PROFILE_COLLECTION, WARDROBE_COLLECTION};
+use super::body::{ResolvedAttachment, ResolvedRig, RiggedBody};
+
+/// The longest socket name accepted off the wire. The engine's socket names
+/// are short kebab strings ([`symbios_avatar::Socket::name`]); anything past
+/// this is not one, but an *unknown short* name is deliberately kept — a
+/// future socket from a newer client degrades to "prop not worn", the same
+/// answer every open union here gives.
+const MAX_SOCKET_NAME_CHARS: usize = 32;
+
+/// How many `listRecords` pages a wardrobe walk will fetch (100 records a
+/// page). A wardrobe past this is not a wardrobe, it is a DoS.
+const MAX_WARDROBE_LIST_PAGES: usize = 4;
+
+// ---------------------------------------------------------------------------
+// AttachmentRecord
+// ---------------------------------------------------------------------------
+
+/// One worn prop: a record in [`AVATAR_ATTACHMENT_COLLECTION`] at a TID rkey.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct AttachmentRecord {
+    #[serde(rename = "$type")]
+    pub lex_type: String,
+    /// The prop itself — an owned copy of the item's `Generator` tree,
+    /// sanitised with the avatar kind rules (no Terrain/Water/Portal).
+    pub item: Generator,
+    /// Which rig socket carries it, as the engine's stable kebab name
+    /// ([`symbios_avatar::Socket::name`]). An unknown name is kept on the
+    /// record and skipped at spawn.
+    pub socket: String,
+    /// Offset from the socket's joint, in the joint's rest-pose frame.
+    /// Quantised like every transform on the wire; identity elides.
+    #[serde(default, skip_serializing_if = "TransformData::is_identity")]
+    pub offset: TransformData,
+}
+
+impl AttachmentRecord {
+    /// A new attachment of `item` at `socket`, with an identity offset.
+    pub fn new(item: Generator, socket: symbios_avatar::Socket) -> Self {
+        Self {
+            lex_type: AVATAR_ATTACHMENT_COLLECTION.into(),
+            item,
+            socket: socket.name().into(),
+            offset: TransformData::default(),
+        }
+    }
+
+    /// The socket this attachment names, when this build knows it.
+    pub fn socket(&self) -> Option<symbios_avatar::Socket> {
+        symbios_avatar::Socket::from_name(&self.socket)
+    }
+
+    /// Clamp every numeric field, exactly as the room and avatar records do.
+    ///
+    /// The offset's scale is forced **uniform** (all three components take
+    /// the sanitised X): a prop is instanced under an animated joint by one
+    /// uniform scale, and a non-uniform scale smuggled through a record
+    /// would shear every nested emitter and sub-assembly inside it — the
+    /// authoring rule the catalogue already works to.
+    pub fn sanitize(&mut self) {
+        if self.socket.chars().count() > MAX_SOCKET_NAME_CHARS {
+            self.socket = self.socket.chars().take(MAX_SOCKET_NAME_CHARS).collect();
+        }
+        sanitize_avatar_visuals(&mut self.item);
+        self.offset.sanitize();
+        self.offset.scale.0[1] = self.offset.scale.0[0];
+        self.offset.scale.0[2] = self.offset.scale.0[0];
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared getRecord / putRecord plumbing
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct RecordEnvelope<T> {
+    value: T,
+}
+
+/// `com.atproto.repo.getRecord` against an already-resolved PDS. `Ok(None)`
+/// is the clean "no record" answer, matching every other fetch here.
+async fn get_record_value<T: DeserializeOwned>(
+    client: &reqwest::Client,
+    pds: &str,
+    did: &str,
+    collection: &str,
+    rkey: &str,
+) -> Result<Option<T>, FetchError> {
+    let url = format!("{pds}/xrpc/com.atproto.repo.getRecord");
+    let resp = client
+        .get(&url)
+        .query(&[("repo", did), ("collection", collection), ("rkey", rkey)])
+        .send()
+        .await
+        .map_err(|e| FetchError::Network(e.to_string()))?;
+    let status = resp.status();
+    if status.as_u16() == 404 {
+        return Ok(None);
+    }
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        if let Ok(xrpc) = serde_json::from_str::<XrpcError>(&body)
+            && let Some(err) = xrpc.error.as_deref()
+            && (err == "RecordNotFound"
+                || (err == "InvalidRequest" && body.contains("RecordNotFound")))
+        {
+            return Ok(None);
+        }
+        return Err(FetchError::PdsError(status.as_u16()));
+    }
+    let wrapper: RecordEnvelope<T> = decode_record_json(resp).await?;
+    Ok(Some(wrapper.value))
+}
+
+#[derive(Serialize)]
+struct PutRequest<'a> {
+    repo: &'a str,
+    collection: &'a str,
+    rkey: &'a str,
+    record: &'a serde_json::Value,
+}
+
+/// `com.atproto.repo.putRecord` upsert of an already-serialized value.
+async fn put_record_json(
+    session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
+    pds: &str,
+    collection: &str,
+    rkey: &str,
+    record: &serde_json::Value,
+) -> PutOutcome {
+    let url = format!("{pds}/xrpc/com.atproto.repo.putRecord");
+    let body = PutRequest {
+        repo: &session.did,
+        collection,
+        rkey,
+        record,
+    };
+    let body_json = match serde_json::to_value(&body) {
+        Ok(v) => v,
+        Err(e) => return PutOutcome::Transport(format!("serialize: {e}")),
+    };
+    let (status, body) =
+        match crate::oauth::oauth_post_with_refresh(&session.session, refresh, &url, &body_json)
+            .await
+        {
+            Ok(pair) => pair,
+            Err(e) => return PutOutcome::Transport(e),
+        };
+    if status.is_success() {
+        return PutOutcome::Ok;
+    }
+    let msg = format!("putRecord ({collection}/{rkey}) failed: {status} — {body}");
+    if status.is_server_error() {
+        PutOutcome::ServerError(msg)
+    } else {
+        PutOutcome::ClientError(msg)
+    }
+}
+
+/// Resolve the PDS and upsert, mapping the outcome to the `Result` shape the
+/// publish tasks report through the status line.
+async fn resolve_and_put(
+    client: &reqwest::Client,
+    session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
+    collection: &str,
+    rkey: &str,
+    record: &serde_json::Value,
+) -> Result<(), String> {
+    let pds = resolve_pds(client, &session.did)
+        .await
+        .ok_or_else(|| "Failed to resolve PDS".to_string())?;
+    match put_record_json(session, refresh, &pds, collection, rkey, record).await {
+        PutOutcome::Ok => Ok(()),
+        PutOutcome::ClientError(m) | PutOutcome::ServerError(m) | PutOutcome::Transport(m) => {
+            Err(m)
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct DeleteRequest<'a> {
+    repo: &'a str,
+    collection: &'a str,
+    rkey: &'a str,
+}
+
+/// `com.atproto.repo.deleteRecord`; a 404 counts as deleted.
+async fn delete_record(
+    client: &reqwest::Client,
+    session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
+    collection: &str,
+    rkey: &str,
+) -> Result<(), String> {
+    let pds = resolve_pds(client, &session.did)
+        .await
+        .ok_or_else(|| "Failed to resolve PDS".to_string())?;
+    let url = format!("{pds}/xrpc/com.atproto.repo.deleteRecord");
+    let body = DeleteRequest {
+        repo: &session.did,
+        collection,
+        rkey,
+    };
+    let body_json = serde_json::to_value(&body).map_err(|e| e.to_string())?;
+    let (status, body) =
+        crate::oauth::oauth_post_with_refresh(&session.session, refresh, &url, &body_json).await?;
+    if status.is_success() || status.as_u16() == 404 {
+        Ok(())
+    } else {
+        Err(format!(
+            "deleteRecord ({collection}/{rkey}) failed: {status} — {body}"
+        ))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Wardrobe (engine avatar records)
+// ---------------------------------------------------------------------------
+
+/// The engine record as the JSON a PDS stores: its own camelCase form with
+/// the collection's `$type` injected through the record's `extra` passthrough
+/// map. The engine type deliberately has no `$type` field of its own — the
+/// NSID belongs to the application storing it — and round-tripping keeps the
+/// key harmlessly in `extra`.
+pub fn engine_record_wire(record: &EngineAvatarRecord) -> Result<serde_json::Value, String> {
+    let mut value = serde_json::to_value(record).map_err(|e| format!("serialize body: {e}"))?;
+    if let Some(map) = value.as_object_mut() {
+        map.insert(
+            String::from("$type"),
+            serde_json::Value::String(WARDROBE_COLLECTION.into()),
+        );
+    }
+    Ok(value)
+}
+
+/// Fetch one wardrobe record by rkey. `Ok(None)` is a clean miss.
+pub async fn fetch_wardrobe_record(
+    client: &reqwest::Client,
+    did: &str,
+    rkey: &str,
+) -> Result<Option<EngineAvatarRecord>, FetchError> {
+    let pds = resolve_pds(client, did)
+        .await
+        .ok_or(FetchError::DidResolutionFailed)?;
+    fetch_wardrobe_record_at(client, &pds, did, rkey).await
+}
+
+/// [`fetch_wardrobe_record`] against an already-resolved PDS — the resolution
+/// fan-out uses this so one avatar fetch resolves the DID document once.
+pub(crate) async fn fetch_wardrobe_record_at(
+    client: &reqwest::Client,
+    pds: &str,
+    did: &str,
+    rkey: &str,
+) -> Result<Option<EngineAvatarRecord>, FetchError> {
+    let record: Option<EngineAvatarRecord> =
+        get_record_value(client, pds, did, WARDROBE_COLLECTION, rkey).await?;
+    Ok(record.map(|mut r| {
+        r.sanitize();
+        r
+    }))
+}
+
+/// Every wardrobe record the identity has, as `(rkey, record)` pairs in
+/// rkey (= creation) order. Undecodable records are skipped one at a time,
+/// like the inventory walk. An empty wardrobe is `Ok(vec![])`.
+pub async fn list_wardrobe(
+    client: &reqwest::Client,
+    did: &str,
+) -> Result<Vec<(String, EngineAvatarRecord)>, FetchError> {
+    #[derive(Deserialize)]
+    struct Page {
+        #[serde(default)]
+        records: Vec<Listed>,
+        cursor: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct Listed {
+        uri: String,
+        value: serde_json::Value,
+    }
+
+    let pds = resolve_pds(client, did)
+        .await
+        .ok_or(FetchError::DidResolutionFailed)?;
+    let mut out = Vec::new();
+    let mut cursor: Option<String> = None;
+    for _ in 0..MAX_WARDROBE_LIST_PAGES {
+        let url = format!("{pds}/xrpc/com.atproto.repo.listRecords");
+        let mut query: Vec<(&str, String)> = vec![
+            ("repo", did.to_string()),
+            ("collection", WARDROBE_COLLECTION.to_string()),
+            ("limit", "100".to_string()),
+        ];
+        if let Some(c) = cursor.take() {
+            query.push(("cursor", c));
+        }
+        let resp = client
+            .get(&url)
+            .query(&query)
+            .send()
+            .await
+            .map_err(|e| FetchError::Network(e.to_string()))?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(FetchError::PdsError(status.as_u16()));
+        }
+        let page: Page = decode_record_json(resp).await?;
+        let empty_page = page.records.is_empty();
+        for listed in page.records {
+            // at://did/collection/rkey — the rkey is the last path segment.
+            let Some(rkey) = listed.uri.rsplit('/').next() else {
+                continue;
+            };
+            if let Ok(mut record) = serde_json::from_value::<EngineAvatarRecord>(listed.value) {
+                record.sanitize();
+                out.push((rkey.to_string(), record));
+            }
+        }
+        cursor = page.cursor;
+        if cursor.is_none() || empty_page {
+            break;
+        }
+    }
+    Ok(out)
+}
+
+/// Upsert one wardrobe record at `rkey` (a TID from
+/// [`crate::pds::tid::tid_now`] for a new body, the existing rkey for an
+/// edit).
+pub async fn publish_wardrobe_record(
+    client: &reqwest::Client,
+    session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
+    rkey: &str,
+    record: &EngineAvatarRecord,
+) -> Result<(), String> {
+    let wire = engine_record_wire(record)?;
+    crate::pds::record_size::preflight(&wire, "wardrobe body")?;
+    resolve_and_put(client, session, refresh, WARDROBE_COLLECTION, rkey, &wire).await
+}
+
+/// Delete one wardrobe record.
+pub async fn delete_wardrobe_record(
+    client: &reqwest::Client,
+    session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
+    rkey: &str,
+) -> Result<(), String> {
+    delete_record(client, session, refresh, WARDROBE_COLLECTION, rkey).await
+}
+
+// ---------------------------------------------------------------------------
+// Profile (default-body pointer)
+// ---------------------------------------------------------------------------
+
+/// The profile record as stored: the engine's shape plus the `$type` the
+/// engine type does not carry.
+#[derive(Serialize, Deserialize)]
+struct WireProfile {
+    #[serde(rename = "$type")]
+    lex_type: String,
+    #[serde(flatten)]
+    profile: EngineProfileRecord,
+}
+
+/// Fetch the identity's avatar profile. `Ok(None)` is a clean miss.
+pub async fn fetch_avatar_profile(
+    client: &reqwest::Client,
+    did: &str,
+) -> Result<Option<EngineProfileRecord>, FetchError> {
+    let pds = resolve_pds(client, did)
+        .await
+        .ok_or(FetchError::DidResolutionFailed)?;
+    fetch_avatar_profile_at(client, &pds, did).await
+}
+
+/// [`fetch_avatar_profile`] against an already-resolved PDS.
+pub(crate) async fn fetch_avatar_profile_at(
+    client: &reqwest::Client,
+    pds: &str,
+    did: &str,
+) -> Result<Option<EngineProfileRecord>, FetchError> {
+    let wire: Option<WireProfile> =
+        get_record_value(client, pds, did, AVATAR_PROFILE_COLLECTION, "self").await?;
+    Ok(wire.map(|w| w.profile))
+}
+
+/// Upsert the identity's avatar profile (rkey = self). Overlands calls this
+/// whenever the worn body changes so other symbios apps stay in agreement.
+pub async fn publish_avatar_profile(
+    client: &reqwest::Client,
+    session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
+    profile: &EngineProfileRecord,
+) -> Result<(), String> {
+    let wire = WireProfile {
+        lex_type: AVATAR_PROFILE_COLLECTION.into(),
+        profile: profile.clone(),
+    };
+    let value = serde_json::to_value(&wire).map_err(|e| format!("serialize profile: {e}"))?;
+    crate::pds::record_size::preflight(&value, "avatar profile")?;
+    resolve_and_put(
+        client,
+        session,
+        refresh,
+        AVATAR_PROFILE_COLLECTION,
+        "self",
+        &value,
+    )
+    .await
+}
+
+// ---------------------------------------------------------------------------
+// Attachments
+// ---------------------------------------------------------------------------
+
+/// Fetch one attachment record by rkey. `Ok(None)` is a clean miss.
+pub async fn fetch_attachment_record(
+    client: &reqwest::Client,
+    did: &str,
+    rkey: &str,
+) -> Result<Option<AttachmentRecord>, FetchError> {
+    let pds = resolve_pds(client, did)
+        .await
+        .ok_or(FetchError::DidResolutionFailed)?;
+    fetch_attachment_record_at(client, &pds, did, rkey).await
+}
+
+/// [`fetch_attachment_record`] against an already-resolved PDS.
+pub(crate) async fn fetch_attachment_record_at(
+    client: &reqwest::Client,
+    pds: &str,
+    did: &str,
+    rkey: &str,
+) -> Result<Option<AttachmentRecord>, FetchError> {
+    let record: Option<AttachmentRecord> =
+        get_record_value(client, pds, did, AVATAR_ATTACHMENT_COLLECTION, rkey).await?;
+    Ok(record.map(|mut r| {
+        r.sanitize();
+        r
+    }))
+}
+
+/// Upsert one attachment record at `rkey`.
+pub async fn publish_attachment_record(
+    client: &reqwest::Client,
+    session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
+    rkey: &str,
+    record: &AttachmentRecord,
+) -> Result<(), String> {
+    let value = serde_json::to_value(record).map_err(|e| format!("serialize attachment: {e}"))?;
+    crate::pds::record_size::preflight(&value, "attachment")?;
+    resolve_and_put(
+        client,
+        session,
+        refresh,
+        AVATAR_ATTACHMENT_COLLECTION,
+        rkey,
+        &value,
+    )
+    .await
+}
+
+/// Delete one attachment record — the detach half of the outfit editor.
+pub async fn delete_attachment_record(
+    client: &reqwest::Client,
+    session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
+    rkey: &str,
+) -> Result<(), String> {
+    delete_record(client, session, refresh, AVATAR_ATTACHMENT_COLLECTION, rkey).await
+}
+
+/// The deterministic engine body for an identity: `fnv1a_64(did)` feeding
+/// the engine's one-call record-from-seed roll (`AvatarRecord::rolled`,
+/// symbios-avatar #233). Every client derives the same person from the same
+/// DID, which is the whole contract — the rigged counterpart of
+/// [`super::AvatarRecord::default_for_did`], used when #1057 gives seeded
+/// defaults a rigged option. The archetype is the host's call and overlands
+/// says humanoid; the name is a placeholder the identity's handle replaces
+/// in UI, not on the record.
+pub fn engine_default_for_did(did: &str) -> EngineAvatarRecord {
+    let seed = crate::seeded_defaults::fnv1a_64(did) as i64;
+    EngineAvatarRecord::rolled("Wanderer", symbios_avatar::Archetype::default(), seed)
+}
+
+// ---------------------------------------------------------------------------
+// Resolution fan-out
+// ---------------------------------------------------------------------------
+
+/// Resolve a rigged body's references against the owner's (already resolved)
+/// PDS, writing the result onto [`RiggedBody::resolved`].
+///
+/// Degradation is graded, never all-or-nothing: a wardrobe reference that
+/// does not resolve leaves `resolved = None` (a bare chassis — there is no
+/// body worth building around missing geometry), while an attachment that
+/// does not resolve is skipped with a warning (a barer avatar beats a
+/// missing one). Every kept record arrives sanitised.
+pub(crate) async fn resolve_rigged_body(
+    client: &reqwest::Client,
+    pds: &str,
+    did: &str,
+    rig: &mut RiggedBody,
+) {
+    let body = match fetch_wardrobe_record_at(client, pds, did, &rig.avatar).await {
+        Ok(Some(body)) => body,
+        Ok(None) => {
+            warn!(
+                "wardrobe record {}/{} not found for {did} — spawning a bare chassis",
+                WARDROBE_COLLECTION, rig.avatar
+            );
+            rig.resolved = None;
+            return;
+        }
+        Err(err) => {
+            warn!(
+                "wardrobe fetch {}/{} failed for {did}: {err:?} — spawning a bare chassis",
+                WARDROBE_COLLECTION, rig.avatar
+            );
+            rig.resolved = None;
+            return;
+        }
+    };
+    let mut attachments = Vec::new();
+    for rkey in &rig.attachments {
+        match fetch_attachment_record_at(client, pds, did, rkey).await {
+            Ok(Some(record)) => attachments.push(ResolvedAttachment {
+                rkey: rkey.clone(),
+                record,
+            }),
+            Ok(None) => warn!("attachment record {rkey} not found for {did} — prop skipped"),
+            Err(err) => warn!("attachment fetch {rkey} failed for {did}: {err:?} — prop skipped"),
+        }
+    }
+    rig.resolved = Some(ResolvedRig { body, attachments });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pds::types::Fp3;
+
+    #[test]
+    fn the_engine_default_is_deterministic_per_did() {
+        // The contract the whole peer-rendering story rests on: every client
+        // derives the same person from the same DID, with nothing exchanged.
+        let a = engine_default_for_did("did:plc:vpkhqolt662uhesyj6nxm7ys");
+        let b = engine_default_for_did("did:plc:vpkhqolt662uhesyj6nxm7ys");
+        let other = engine_default_for_did("did:plc:aaaaaaaaaaaaaaaaaaaaaaaa");
+        assert_eq!(a, b);
+        assert_ne!(a, other, "two identities should not share a face");
+        assert!(matches!(
+            a.archetype,
+            symbios_avatar::Archetype::Humanoid(_)
+        ));
+    }
+
+    #[test]
+    fn an_attachment_record_round_trips_and_names_its_collection() {
+        let record = AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::LeftHand);
+        let json = serde_json::to_string(&record).expect("serializes");
+        assert!(json.contains("network.symbios.overlands.avatar.attachment"));
+        assert!(json.contains("left-hand"));
+        let back: AttachmentRecord = serde_json::from_str(&json).expect("decodes");
+        assert_eq!(back.socket(), Some(symbios_avatar::Socket::LeftHand));
+    }
+
+    #[test]
+    fn sanitize_forces_the_offset_scale_uniform() {
+        // A non-uniform scale under an animated joint shears every nested
+        // sub-assembly — the one-uniform-scale authoring rule, enforced at
+        // the record boundary rather than trusted to editors.
+        let mut record = AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Crown);
+        record.offset.scale = Fp3([2.0, 5.0, 0.5]);
+        record.sanitize();
+        let scale = record.offset.scale.0;
+        assert_eq!(scale[1], scale[0]);
+        assert_eq!(scale[2], scale[0]);
+    }
+
+    #[test]
+    fn an_unknown_socket_survives_the_record_and_resolves_to_nothing() {
+        let mut record = AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Crown);
+        record.socket = String::from("third-elbow");
+        record.sanitize();
+        assert_eq!(record.socket, "third-elbow", "kept for the future client");
+        assert_eq!(record.socket(), None, "and worn by nobody today");
+    }
+
+    #[test]
+    fn the_engine_record_wire_form_carries_the_wardrobe_type() {
+        let record = EngineAvatarRecord::default();
+        let wire = engine_record_wire(&record).expect("serializes");
+        assert_eq!(
+            wire.get("$type").and_then(|v| v.as_str()),
+            Some(WARDROBE_COLLECTION)
+        );
+        // And the injected key survives a round trip through the engine's
+        // own decoder via its `extra` passthrough, so a fetched record
+        // republishes without this crate having to strip anything.
+        let back: EngineAvatarRecord = serde_json::from_value(wire).expect("decodes");
+        assert_eq!(
+            back.extra.get("$type").and_then(|v| v.as_str()),
+            Some(WARDROBE_COLLECTION)
+        );
+    }
+
+    #[test]
+    fn fp_offsets_quantise_like_every_other_transform() {
+        let mut record = AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Back);
+        record.offset.translation = Fp3([0.123_456_78, 0.0, 0.0]);
+        let json = serde_json::to_string(&record).expect("serializes");
+        let back: AttachmentRecord = serde_json::from_str(&json).expect("decodes");
+        // (0.12345678 * 10000).round() / 10000 — the wire's thousandth-of-a
+        // -percent grid, same as every other transform.
+        assert!((back.offset.translation.0[0] - 0.1235).abs() < 1e-6);
+    }
+}

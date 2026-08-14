@@ -13,7 +13,7 @@ use bevy::render::gpu_readback::{Readback, ReadbackComplete};
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 
 use crate::pds::{Environment, Generator, Placement, RoomRecord, TransformData};
-use crate::player::visuals::{AvatarSpawnDeps, spawn_avatar_visuals};
+use crate::player::visuals::{AvatarSpawnDeps, spawn_visual_tree};
 use crate::world_builder::particles::{Particle, ParticleEmitterMarker};
 
 use super::{ANGLES, FOV, OUT_DIR, WARMUP};
@@ -122,11 +122,10 @@ pub(super) fn setup(
         Subject::Single(generator) => {
             spawn_neutral_sun(&mut commands);
             let chassis = commands.spawn(Transform::default()).id();
-            spawn_avatar_visuals(
+            spawn_visual_tree(
                 &mut commands,
                 chassis,
                 generator,
-                None,
                 &mut meshes,
                 &mut materials,
                 &mut images,
@@ -140,11 +139,10 @@ pub(super) fn setup(
                 let chassis = commands
                     .spawn(Transform::from_xyz(slot as f32 * SLOT_SPACING, 0.0, 0.0))
                     .id();
-                spawn_avatar_visuals(
+                spawn_visual_tree(
                     &mut commands,
                     chassis,
                     generator,
-                    None,
                     &mut meshes,
                     &mut materials,
                     &mut images,
@@ -191,8 +189,8 @@ fn spawn_room(
                     continue;
                 };
                 let chassis = commands.spawn(to_transform(transform)).id();
-                spawn_avatar_visuals(
-                    commands, chassis, generator, None, meshes, materials, images, deps, false,
+                spawn_visual_tree(
+                    commands, chassis, generator, meshes, materials, images, deps, false,
                 );
             }
             // Expand scatters at full count so `--room` renders (and, with
@@ -229,8 +227,8 @@ fn spawn_room(
                 );
                 for _ in 0..*count {
                     let chassis = commands.spawn(preview.next_pose()).id();
-                    spawn_avatar_visuals(
-                        commands, chassis, generator, None, meshes, materials, images, deps, false,
+                    spawn_visual_tree(
+                        commands, chassis, generator, meshes, materials, images, deps, false,
                     );
                 }
             }

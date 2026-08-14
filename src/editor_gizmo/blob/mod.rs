@@ -198,7 +198,7 @@ pub(super) fn resolve_blob_edit(
             if let (Some(path), Some(record)) = (
                 avatar_state.selected_prim_path.as_ref(),
                 avatar_record.as_deref(),
-            ) && let Some(node) = node_at_path(&record.0.visuals, path)
+            ) && let Some(node) = record.0.body.visuals().and_then(|v| node_at_path(v, path))
                 && matches!(node.kind, GeneratorKind::BlobGroup { .. })
             {
                 // AvatarVisualPrim is attached only to the local player's

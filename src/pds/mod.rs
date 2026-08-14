@@ -111,6 +111,17 @@ pub const INVENTORY_ITEM_COLLECTION: &str = "network.symbios.overlands.inventory
 /// `rkey = hex(fnv1a_64(child record json))`, referenced by name from the
 /// manifest's `generator_refs`.
 pub const ROOM_GENERATOR_COLLECTION: &str = "network.symbios.overlands.room.generator";
+/// The cross-app wardrobe (#1056): one `symbios-avatar` engine record per
+/// entry, tid-keyed, under the SIBLING project's lexicon — deliberately not
+/// an overlands NSID, so every symbios app reads the same bodies.
+pub const WARDROBE_COLLECTION: &str = "network.symbios.avatar.avatar";
+/// The identity's default-body pointer (`rkey = self`), also the sibling
+/// project's lexicon. Read as the spawn fallback for identities with no
+/// overlands avatar record; written whenever the worn body changes.
+pub const AVATAR_PROFILE_COLLECTION: &str = "network.symbios.avatar.profile";
+/// One worn prop per record (#1056), tid-keyed: an owned `Generator` copy
+/// plus the rig socket it hangs from and its offset transform.
+pub const AVATAR_ATTACHMENT_COLLECTION: &str = "network.symbios.overlands.avatar.attachment";
 
 pub mod asset_reference;
 pub mod audio;
@@ -127,6 +138,7 @@ pub mod sanitize;
 pub(crate) mod serde_util;
 pub mod terrain;
 pub mod texture;
+pub mod tid;
 pub mod types;
 pub mod xrpc;
 
@@ -138,8 +150,9 @@ pub mod xrpc;
 pub use asset_reference::SovereignAssetReference;
 pub use audio::SovereignAudioConfig;
 pub use avatar::{
-    AirplaneParams, AvatarRecord, CarParams, GaitParams, HelicopterParams, HoverBoatParams,
-    HumanoidParams, LocomotionConfig, fetch_avatar_record, publish_avatar_record,
+    AirplaneParams, AttachmentRecord, AvatarBody, AvatarRecord, CarParams, EngineAvatarRecord,
+    EngineProfileRecord, GaitParams, HelicopterParams, HoverBoatParams, HumanoidParams,
+    LocomotionConfig, fetch_avatar_record, publish_avatar_record,
 };
 pub use contact_effects::{
     AudioClipSource, AudioParams, ContactEffectKind, ContactEffectRecord, ContactEffects,

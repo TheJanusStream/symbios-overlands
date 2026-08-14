@@ -91,7 +91,7 @@ pub(super) fn spawn_local_player(
     visuals::spawn_avatar_visuals(
         &mut commands,
         entity,
-        &live.0.visuals,
+        &live.0.body,
         None,
         &mut meshes,
         &mut materials,

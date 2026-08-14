@@ -8,7 +8,6 @@ use bevy::prelude::*;
 
 use crate::config::rover as cfg;
 use crate::pds::AvatarRecord;
-use crate::pds::generator::Generator;
 use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 use crate::world_builder::AvatarVisualPrim;
 
@@ -30,7 +29,7 @@ use super::visuals;
 fn timed_spawn_avatar_visuals(
     commands: &mut Commands,
     chassis: Entity,
-    visual_tree: &Generator,
+    body: &crate::pds::AvatarBody,
     existing_children: Option<&Children>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
@@ -42,7 +41,7 @@ fn timed_spawn_avatar_visuals(
     visuals::spawn_avatar_visuals(
         commands,
         chassis,
-        visual_tree,
+        body,
         existing_children,
         meshes,
         materials,
@@ -137,7 +136,7 @@ pub(super) fn apply_local_locomotion_rebuild(
         timed_spawn_avatar_visuals(
             &mut commands,
             entity,
-            &live.0.visuals,
+            &live.0.body,
             children,
             &mut meshes,
             &mut materials,
@@ -213,7 +212,7 @@ pub(super) fn rebuild_local_visuals(
         timed_spawn_avatar_visuals(
             &mut commands,
             entity,
-            &live.0.visuals,
+            &live.0.body,
             children,
             &mut meshes,
             &mut materials,
@@ -262,7 +261,7 @@ pub(super) fn detect_remote_change(
         timed_spawn_avatar_visuals(
             &mut commands,
             entity,
-            &record.visuals,
+            &record.body,
             children,
             &mut meshes,
             &mut materials,

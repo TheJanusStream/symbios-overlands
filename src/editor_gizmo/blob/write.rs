@@ -186,7 +186,7 @@ pub(crate) fn commit_blob_element_drag(
             commit_element_into_generator(root, &info.key.path, info.index, local, info.duplicate)
         }
         ActiveTarget::Avatar => commit_element_into_generator(
-            &mut avatar_record?.0.visuals,
+            avatar_record?.0.body.visuals_mut()?,
             &info.key.path,
             info.index,
             local,

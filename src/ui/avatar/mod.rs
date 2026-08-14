@@ -203,7 +203,12 @@ impl AvatarEditorState {
         match &sel.prim_path {
             // `select_from_scene_pick` is exactly the fixup contract:
             // fields set, ancestors expanded, row selected + focused.
-            Some(path) if crate::ui::undo::restore::node_path_valid(&record.visuals, path) => {
+            Some(path)
+                if record
+                    .body
+                    .visuals()
+                    .is_some_and(|v| crate::ui::undo::restore::node_path_valid(v, path)) =>
+            {
                 self.select_from_scene_pick(path.clone());
             }
             // Root row selected without a node path: keep it — the
@@ -657,7 +662,22 @@ pub fn avatar_ui(
                 match *selected_tab {
                     AvatarTab::Visuals => {
                         ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
-                            let mut source = AvatarVisualsTreeSource::new(&mut live_mut.0.visuals);
+                            // The tree edits a generator body's tree; a
+                            // rigged body has no tree to draw and gets its
+                            // own editor sections with #1059.
+                            let Some(visuals) = live_mut.0.body.visuals_mut() else {
+                                ui.label(
+                                    egui::RichText::new(
+                                        "This avatar wears a rigged body — its editor \
+                                         arrives with the wardrobe work (#1059). Re-roll \
+                                         to switch back to a generator chassis.",
+                                    )
+                                    .small()
+                                    .weak(),
+                                );
+                                return;
+                            };
+                            let mut source = AvatarVisualsTreeSource::new(visuals);
                             // One-shot focus request from an in-world pick
                             // (#823) — same consume-on-draw contract as the
                             // room editor's tree.
