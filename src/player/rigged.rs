@@ -43,7 +43,6 @@
 use avian3d::prelude::LinearVelocity;
 use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 use bevy::prelude::*;
-use bevy::tasks::AsyncComputeTaskPool;
 use bevy_symbios_avatar::{
     AvatarBody as BuiltBody, AvatarClosure, AvatarPose, Clips, spawn_avatar,
 };
@@ -106,7 +105,7 @@ pub(super) struct RiggedBuild {
     /// Vertical drop from chassis centre to the engine's ground plane,
     /// captured at kick time from the record's locomotion half.
     offset: f32,
-    task: bevy::tasks::Task<Option<Avatar>>,
+    task: bevy::tasks::Task<crate::offload::GenResult>,
 }
 
 /// The one child of the chassis the skinned body hangs off. Deliberately not
@@ -239,15 +238,13 @@ pub(super) fn kick_rigged_builds(
                 }
                 let target = resolved.body.clone();
                 let offset = record.map_or(0.0, |r| locomotion_total_height(&r.locomotion) / 2.0);
-                let build = target.clone();
-                let task = AsyncComputeTaskPool::get().spawn(async move {
-                    Avatar::build_with(
-                        &build,
-                        &symbios_avatar::AvatarConfig {
-                            atlas,
-                            ..Default::default()
-                        },
-                    )
+                // Through the platform-routed offload (#1061), not the compute
+                // pool directly: on wasm that pool runs on the main thread, so
+                // every body would be a dropped frame or several. Native still
+                // lands on `AsyncComputeTaskPool` inside `offload`.
+                let task = crate::offload::offload(crate::offload::GenJob::AvatarBuild {
+                    record: Box::new(target.clone()),
+                    atlas,
                 });
                 commands.entity(chassis).insert(RiggedBuild {
                     target,
@@ -298,6 +295,15 @@ pub(super) fn land_rigged_builds(
     for (chassis, mut build) in &mut builds {
         let Some(result) = block_on(future::poll_once(&mut build.task)) else {
             continue;
+        };
+        // The job roster is shared, so the variant is matched rather than
+        // assumed: anything else here is a dispatch bug, not a bad body.
+        let result = match result {
+            crate::offload::GenResult::Avatar(avatar) => avatar.map(|boxed| *boxed),
+            _ => {
+                error!("an avatar build returned some other job's result");
+                None
+            }
         };
         commands.entity(chassis).remove::<RiggedBuild>();
         // Stamped even on failure: the engine returns None for exactly one

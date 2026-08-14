@@ -333,15 +333,43 @@ pub enum GenJob {
         width: u32,
         height: u32,
     },
+    /// Build a parametric avatar body from its record (#1061).
+    ///
+    /// The one job here whose *reason* for existing is wasm rather than
+    /// throughput: `Avatar::build` costs 68 ms at a draft atlas and 277 ms at
+    /// a full one, and a wasm `AsyncComputeTaskPool` runs on the main thread,
+    /// so on the browser build every body would otherwise be a dropped frame
+    /// or several. Native still runs it straight on the compute pool.
+    ///
+    /// Boxed for the same reason `TextureBake` is: the record is the largest
+    /// input in the roster.
+    AvatarBuild {
+        record: Box<symbios_avatar::AvatarRecord>,
+        /// Side of the square skin atlas, in texels — the draft/settle rung
+        /// the caller is asking for.
+        atlas: u32,
+    },
 }
 
 /// The output of a [`GenJob`], paired by variant with the job that produced it.
-#[derive(Serialize, Deserialize, Clone)]
+///
+/// **Not `Clone`, since #1061.** A built `symbios_avatar::Avatar` owns several
+/// megabytes of atlas and the engine withholds `Clone` on it deliberately, so
+/// that anybody who wants the copy has to say so. A result is produced once
+/// and consumed once by every path here, so nothing needed the derive.
+#[derive(Serialize, Deserialize)]
 pub enum GenResult {
     Heightmap(HeightmapData),
     /// WAV bytes (mono 16-bit PCM).
     Audio(#[serde(with = "serde_bytes")] Vec<u8>),
     Texture(TextureData),
+    /// A built body, or `None` for a record describing one that cannot be
+    /// meshed — the engine's single failure mode (limbs overlapping at a
+    /// joint). Boxed because a built avatar owns its atlas.
+    ///
+    /// What crosses is **drawable, not rebuildable**: see the
+    /// `serde-avatar` feature on `symbios-avatar`.
+    Avatar(Option<Box<symbios_avatar::Avatar>>),
 }
 
 // Hydraulic-erosion tuning fixed by the app (mirror of
@@ -360,6 +388,16 @@ impl GenJob {
             GenJob::TextureBake { job, width, height } => {
                 GenResult::Texture(job.generate(width, height))
             }
+            GenJob::AvatarBuild { record, atlas } => GenResult::Avatar(
+                symbios_avatar::Avatar::build_with(
+                    &record,
+                    &symbios_avatar::AvatarConfig {
+                        atlas,
+                        ..symbios_avatar::AvatarConfig::default()
+                    },
+                )
+                .map(Box::new),
+            ),
         }
     }
 }
@@ -772,5 +810,49 @@ mod tests {
             unreachable!("a heightmap result must decode as a heightmap");
         };
         assert_eq!(original, res_back);
+    }
+
+    /// A built body survives the worker boundary drawable (#1061), through
+    /// the same codec `gen-worker` actually uses.
+    ///
+    /// The engine's own suite proves the serde contract; what this pins is
+    /// the *job* layer: that `AvatarBuild` runs, that its result decodes as
+    /// an avatar rather than as some other variant, and that the geometry a
+    /// renderer uploads is bit-identical on the far side. A small atlas —
+    /// the payload scales with its square and this is a unit test, not a
+    /// benchmark.
+    #[test]
+    fn an_avatar_build_round_trips_through_msgpack() {
+        let mut record =
+            symbios_avatar::AvatarRecord::new("Worker", symbios_avatar::Archetype::default());
+        record.reroll(11);
+
+        let GenResult::Avatar(built) = GenJob::AvatarBuild {
+            record: Box::new(record),
+            atlas: 64,
+        }
+        .run() else {
+            unreachable!("an avatar job must return an avatar result");
+        };
+        let built = built.expect("the default body meshes");
+
+        let bytes =
+            rmp_serde::to_vec_named(&GenResult::Avatar(Some(built))).expect("encode result");
+        let GenResult::Avatar(back) = rmp_serde::from_slice(&bytes).expect("decode result") else {
+            unreachable!("an avatar result must decode as an avatar");
+        };
+        let back = back.expect("a built body stays built");
+
+        // What the far side draws and queries.
+        assert!(!back.meshes.is_empty(), "a body arrived with no geometry");
+        assert!(!back.rig.joints.is_empty(), "a body arrived with no rig");
+        assert!(
+            !back.skin.albedo.is_empty(),
+            "a body arrived with no painted atlas"
+        );
+        assert!(
+            back.parts.eyes.is_some(),
+            "a humanoid arrived without the eyes its blink needs"
+        );
     }
 }

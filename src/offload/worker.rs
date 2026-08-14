@@ -80,8 +80,19 @@ thread_local! {
 /// is the difference between a silent and a sounding world, and a heightmap
 /// gates terrain (and everything seated on it) after a region re-seed.
 /// Texture bakes only delay their own pop-in.
+///
+/// An avatar build joins them (#1061), and it is the most visible of the
+/// four: until it lands the wearer is a bare chassis — a person shaped like
+/// nothing, walking around a room. A texture that arrives late is a surface
+/// that sharpens; a body that arrives late is somebody missing. It is also
+/// the heaviest job in the roster, which is the argument *against* the
+/// urgent lane, and the reason the lane exists is exactly that trade: one
+/// in-flight job of waiting, rather than a whole re-roll's texture flood.
 fn is_urgent(job: &GenJob) -> bool {
-    matches!(job, GenJob::AudioBake(_) | GenJob::Heightmap(_))
+    matches!(
+        job,
+        GenJob::AudioBake(_) | GenJob::Heightmap(_) | GenJob::AvatarBuild { .. }
+    )
 }
 
 /// Spawn a fresh gen-worker.

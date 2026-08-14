@@ -2,7 +2,7 @@
 name = "gen-jobs"
 version = "0.1.0"
 edition = "2021"
-description = "Platform-agnostic, serialisable CPU generation jobs shared by the Symbios Overlands app (native AsyncComputeTaskPool backend) and the wasm Web Worker. Depends only on the Bevy-free symbios-ground / symbios-texture / symbios-audio cores so the worker stays slim."
+description = "Platform-agnostic, serialisable CPU generation jobs shared by the Symbios Overlands app (native AsyncComputeTaskPool backend) and the wasm Web Worker. Depends only on the Bevy-free symbios-* cores (ground / texture / audio / avatar), never the engine."
 
 [lib]
 crate-type = ["rlib"]
@@ -11,6 +11,10 @@ crate-type = ["rlib"]
 symbios-ground = "0.3"
 symbios-texture = "0.4"
 symbios-audio = "0.1"
+# The avatar engine, for `GenJob::AvatarBuild` (#1061). Bevy-free by design,
+# so the slim-worker constraint above holds; `serde-avatar` is what makes a
+# built body serialisable across the worker boundary (symbios-avatar#234).
+symbios-avatar = { path = "../../../symbios-avatar", features = ["serde-avatar"] }
 serde = { version = "1", features = ["derive"] }
 # Encode the large RGBA / WAV byte buffers as compact msgpack `bin` blobs
 # instead of per-element integer arrays across the wasm worker boundary (the

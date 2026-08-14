@@ -12,7 +12,14 @@
 //! spawned via `gloo-worker` and kept warm between jobs — see the `worker`
 //! submodule for the pool, #802), which runs it on a real worker thread —
 //! matching native's off-the-frame progressive loading. The worker links only
-//! the Bevy-free [`gen_jobs`] crate, so its `.wasm` is ~16 KB gzipped.
+//! the Bevy-free [`gen_jobs`] crate, never the engine.
+//!
+//! **It is no longer small.** Adding `GenJob::AvatarBuild` (#1061) linked the
+//! whole avatar engine into it: measured at 839 KB gzipped (3.9 MB raw)
+//! against ~16 KB before. That is one lazy fetch, cached, and it buys the
+//! browser build the only off-main-thread body build available to it — but it
+//! is a real boot cost for a session that never renders a rigged avatar, and
+//! splitting the roster across two worker artifacts is filed as #1063.
 //!
 //! The shared [`gen_jobs::GenJob::run`] guarantees native and worker execution
 //! are byte-identical — the determinism the terrain pipeline relies on across
