@@ -116,6 +116,112 @@ pub(super) fn spawn_peer_avatar_fetch(
     });
 }
 
+/// A rigged reference resolution in flight for one peer (#1059).
+///
+/// A live-preview `AvatarStateUpdate` decodes with `resolved = None` — the
+/// resolution never rides the wire — so a peer wearing a rigged body needs
+/// its wardrobe + attachment references re-fetched before anything can be
+/// built. The rkeys are snapshotted so a preview that changes the references
+/// mid-flight simply drops this result and re-resolves.
+#[derive(Component)]
+pub(super) struct PeerRigResolveTask {
+    peer_id: PeerId,
+    avatar_rkey: String,
+    attachment_rkeys: Vec<String>,
+    task: bevy::tasks::Task<Option<crate::pds::avatar::ResolvedRig>>,
+}
+
+/// Start a resolution for every peer whose record is rigged but unresolved.
+pub(super) fn spawn_peer_rig_resolutions(
+    mut commands: Commands,
+    peers: Query<&RemotePeer>,
+    inflight: Query<&PeerRigResolveTask>,
+) {
+    for peer in &peers {
+        let Some(did) = peer.did.clone() else {
+            continue;
+        };
+        let Some(rig) = peer
+            .avatar
+            .as_ref()
+            .and_then(|record| record.body.rigged_ref())
+        else {
+            continue;
+        };
+        if rig.resolved.is_some() || inflight.iter().any(|t| t.peer_id == peer.peer_id) {
+            continue;
+        }
+        let avatar_rkey = rig.avatar.clone();
+        let attachment_rkeys = rig.attachments.clone();
+        let (rkey_for_task, attachments_for_task) = (avatar_rkey.clone(), attachment_rkeys.clone());
+        let pool = bevy::tasks::IoTaskPool::get();
+        let task = pool.spawn(async move {
+            let fut = async {
+                let client = config::http::default_client();
+                let pds = pds::xrpc::resolve_pds(&client, &did).await?;
+                let mut rig = crate::pds::avatar::RiggedBody {
+                    avatar: rkey_for_task,
+                    attachments: attachments_for_task,
+                    resolved: None,
+                };
+                pds::avatar::wardrobe::resolve_rigged_body(&client, &pds, &did, &mut rig).await;
+                rig.resolved
+            };
+            #[cfg(target_arch = "wasm32")]
+            {
+                fut.await
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                config::http::block_on(fut)
+            }
+        });
+        commands.spawn(PeerRigResolveTask {
+            peer_id: peer.peer_id,
+            avatar_rkey,
+            attachment_rkeys,
+            task,
+        });
+    }
+}
+
+/// Land finished resolutions onto their peers. A result whose reference
+/// snapshot no longer matches the peer's current record is dropped — the
+/// spawn system re-resolves against the newer references next frame.
+pub(super) fn poll_peer_rig_resolutions(
+    mut commands: Commands,
+    mut tasks: Query<(Entity, &mut PeerRigResolveTask)>,
+    mut peers: Query<&mut RemotePeer>,
+) {
+    for (entity, mut task) in tasks.iter_mut() {
+        let Some(result) =
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
+        else {
+            continue;
+        };
+        commands.entity(entity).despawn();
+        let Some(resolved) = result else {
+            // Nothing resolved (deleted wardrobe record, transport failure):
+            // the peer keeps whatever body is standing. NOT retried in a
+            // loop — the next record change re-arms the spawn system.
+            continue;
+        };
+        let Some(mut peer) = peers.iter_mut().find(|p| p.peer_id == task.peer_id) else {
+            continue;
+        };
+        let Some(record) = peer.avatar.as_mut() else {
+            continue;
+        };
+        let Some(rig) = record.body.rigged_mut() else {
+            continue;
+        };
+        if rig.avatar != task.avatar_rkey || rig.attachments != task.attachment_rkeys {
+            continue;
+        }
+        rig.resolved = Some(resolved);
+    }
+}
+
 /// Drain completed peer-avatar fetch tasks and install the fetched record
 /// onto the matching `RemotePeer`. A 404 means the peer has never published
 /// an avatar, in which case we synthesise the deterministic default keyed

@@ -136,6 +136,28 @@ impl AvatarRecord {
         }
     }
 
+    /// Whether this record would publish differently from `other` (#1059).
+    ///
+    /// [`crate::state::records_differ`] compares serialised forms, which is
+    /// right for every other record — but a rigged body's payload lives on
+    /// `resolved`, which is deliberately `serde(skip)`. Sculpting a body or
+    /// nudging a prop's offset would therefore look *clean* to a plain
+    /// serde compare, and the Save button would sit disabled over unsaved
+    /// work. This asks the wire question about the record and a value
+    /// question about the resolution the bundle publishes alongside it.
+    pub fn publishes_differently_from(&self, other: &Self) -> bool {
+        if crate::state::records_differ(self, other) {
+            return true;
+        }
+        let resolved = |record: &Self| {
+            record
+                .body
+                .rigged_ref()
+                .and_then(|rig| rig.resolved.clone())
+        };
+        resolved(self) != resolved(other)
+    }
+
     /// A record wearing the identity's cross-app default body (#1056): the
     /// fallback for an identity with no overlands avatar record but a
     /// wardrobe published by another symbios application. Locomotion is the
@@ -403,6 +425,38 @@ mod tests {
             record.body.wire_ready().is_err(),
             "and cannot be republished as-is"
         );
+    }
+
+    #[test]
+    fn a_sculpted_body_reads_dirty_even_though_the_wire_form_is_identical() {
+        // The trap #1059 walked into: `resolved` is serde-skipped, so the
+        // shared serde dirty-check calls a sculpted body clean and the Save
+        // button sits disabled over unsaved work.
+        let mut saved = AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = saved.body.rigged_mut() {
+            rig.resolved = Some(body::ResolvedRig {
+                body: wardrobe::engine_default_for_did("did:plc:dirty-test"),
+                attachments: Vec::new(),
+            });
+        }
+        let mut edited = saved.clone();
+        if let Some(resolved) = edited
+            .body
+            .rigged_mut()
+            .and_then(|rig| rig.resolved.as_mut())
+        {
+            resolved.body.composites.femininity += 0.25;
+        }
+
+        assert!(
+            !crate::state::records_differ(&saved, &edited),
+            "the wire form is identical — which is exactly why the plain check is not enough"
+        );
+        assert!(
+            edited.publishes_differently_from(&saved),
+            "a sculpted body is unsaved work"
+        );
+        assert!(!saved.publishes_differently_from(&saved.clone()));
     }
 
     #[test]

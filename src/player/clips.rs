@@ -113,7 +113,10 @@ pub(super) fn install_clip_archive(
         return;
     };
     if let Some(archive) = archives.remove(&pending.0) {
-        info!("avatar clip library loaded: {} clips", archive.0.clips.len());
+        info!(
+            "avatar clip library loaded: {} clips",
+            archive.0.clips.len()
+        );
         *clips = Clips(archive.0);
         commands.remove_resource::<PendingClips>();
     } else if assets.load_state(&pending.0).is_failed() {

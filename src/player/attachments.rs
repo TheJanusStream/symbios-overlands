@@ -99,10 +99,7 @@ pub(super) fn sync_rigged_attachments(
             continue;
         };
 
-        if applied
-            .as_ref()
-            .is_some_and(|worn| worn.applied == desired)
-        {
+        if applied.as_ref().is_some_and(|worn| worn.applied == desired) {
             continue;
         }
         if let Some(worn) = applied.as_mut() {
@@ -237,10 +234,8 @@ mod tests {
             symbios_avatar::Socket::Crown,
         ));
         // Authored offset: taken verbatim in the joint's frame.
-        let mut hand_record = AttachmentRecord::new(
-            Generator::default(),
-            symbios_avatar::Socket::LeftHand,
-        );
+        let mut hand_record =
+            AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::LeftHand);
         hand_record.offset = TransformData {
             translation: Fp3([0.1, 0.2, 0.3]),
             ..Default::default()
@@ -295,11 +290,10 @@ mod tests {
             let placed = placements(&avatar, std::slice::from_ref(&attachment));
             let (joint, transform, _) = placed.first().expect("wearable");
             let world = avatar.rig.joints[*joint].position + transform.translation;
-            let clearance =
-                avatar
-                    .parts
-                    .surface
-                    .clearance(&avatar.rig, world, SEAT_MARGIN * 0.5);
+            let clearance = avatar
+                .parts
+                .surface
+                .clearance(&avatar.rig, world, SEAT_MARGIN * 0.5);
             assert_eq!(
                 clearance,
                 Vec3::ZERO,

@@ -44,7 +44,9 @@ use avian3d::prelude::LinearVelocity;
 use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 use bevy::prelude::*;
 use bevy::tasks::AsyncComputeTaskPool;
-use bevy_symbios_avatar::{AvatarBody as BuiltBody, AvatarClosure, AvatarPose, Clips, spawn_avatar};
+use bevy_symbios_avatar::{
+    AvatarBody as BuiltBody, AvatarClosure, AvatarPose, Clips, spawn_avatar,
+};
 use symbios_avatar::anim::{contacts_during, gait, plant_feet_of};
 use symbios_avatar::{
     Avatar, Blink, Expression, FootingConfig, Gait, Ground, Inertializer, Limb, Pose, Stride,
@@ -78,15 +80,29 @@ const AIRBORNE_VERTICAL: f32 = 3.5;
 /// default transition.
 const BLEND_SECS: f32 = 0.15;
 
-/// The engine record whose build is currently standing under this chassis.
-/// Compared by value against the resolved reference to decide rebuilds.
+/// Atlas side used while the record is still moving under an editor. The
+/// sibling viewer's own draft rung: 68 ms a build against 277 at full size.
+const DRAFT_ATLAS: u32 = 256;
+/// How long the record must be still before the full-atlas build is owed.
+const SETTLE_SECS: f32 = 0.8;
+
+/// The engine record whose build is currently standing under this chassis,
+/// and the atlas it was built at. Compared by value against the resolved
+/// reference to decide rebuilds; a draft-atlas build owes a full one once
+/// the record settles (#1059's editor ladder).
 #[derive(Component)]
-pub(super) struct RiggedApplied(pub(super) EngineAvatarRecord);
+pub(super) struct RiggedApplied {
+    pub(super) record: EngineAvatarRecord,
+    atlas: u32,
+}
 
 /// A build in flight for this chassis. At most one exists at a time.
 #[derive(Component)]
 pub(super) struct RiggedBuild {
     target: EngineAvatarRecord,
+    /// The atlas this build runs at, stamped onto [`RiggedApplied`] so the
+    /// settle pass knows a draft still owes the full build.
+    atlas: u32,
     /// Vertical drop from chassis centre to the engine's ground plane,
     /// captured at kick time from the record's locomotion half.
     offset: f32,
@@ -165,26 +181,55 @@ pub(super) fn index_clip_roles(clips: Res<Clips>, mut roles: ResMut<ClipRoles>) 
 /// one standing under it, and tear down rigged state on a chassis whose
 /// body stopped being rigged.
 #[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
 pub(super) fn kick_rigged_builds(
     mut commands: Commands,
+    time: Res<Time>,
     live: Option<Res<LiveAvatarRecord>>,
     locals: Query<Entity, With<LocalPlayer>>,
     peers: Query<(Entity, &RemotePeer)>,
     applied: Query<&RiggedApplied>,
     building: Query<&RiggedBuild>,
     roots: Query<(Entity, &ChildOf), With<RiggedRoot>>,
+    mut last_change: Local<bevy::platform::collections::HashMap<Entity, f32>>,
 ) {
+    let now = time.elapsed_secs();
     let mut visit = |chassis: Entity, record: Option<&crate::pds::AvatarRecord>| {
-        let resolved = record
-            .and_then(|r| r.body.rigged_ref())
-            .and_then(|rig| rig.resolved.as_ref());
+        let rigged = record.and_then(|r| r.body.rigged_ref());
+        // Rigged but unresolved is a WAIT, not a teardown: a live-preview
+        // broadcast arrives with its references unresolved (`resolved` never
+        // rides the wire), and tearing the standing body down while
+        // `network::peer_cache` re-resolves would blink every rigged peer
+        // out on every preview. The body that is up stays up.
+        if rigged.is_some_and(|rig| rig.resolved.is_none()) {
+            return;
+        }
+        let resolved = rigged.and_then(|rig| rig.resolved.as_ref());
         match resolved {
             Some(resolved) => {
-                let has_root = roots.iter().any(|(_, child_of)| child_of.parent() == chassis);
-                let already = applied
-                    .get(chassis)
-                    .is_ok_and(|built| built.0 == resolved.body);
-                if already && has_root {
+                let has_root = roots
+                    .iter()
+                    .any(|(_, child_of)| child_of.parent() == chassis);
+                let built = applied.get(chassis).ok();
+                let same_record = built.is_some_and(|built| built.record == resolved.body);
+                // The draft/settle ladder (#1059): while a record is moving —
+                // an editor slider mid-drag, a stream of peer previews — a
+                // build is only worth the draft atlas, because the next edit
+                // obsoletes it; once it has been still for SETTLE_SECS the
+                // full-atlas build is owed, even though nothing changed.
+                if !same_record {
+                    last_change.insert(chassis, now);
+                }
+                let settled = last_change
+                    .get(&chassis)
+                    .is_none_or(|&at| now - at >= SETTLE_SECS);
+                let atlas = if settled {
+                    symbios_avatar::AvatarConfig::default().atlas
+                } else {
+                    DRAFT_ATLAS
+                };
+                let atlas_owed = built.is_some_and(|built| built.atlas < atlas);
+                if same_record && has_root && !atlas_owed {
                     return;
                 }
                 // One in flight per chassis: a stale target lands, and the
@@ -195,9 +240,18 @@ pub(super) fn kick_rigged_builds(
                 let target = resolved.body.clone();
                 let offset = record.map_or(0.0, |r| locomotion_total_height(&r.locomotion) / 2.0);
                 let build = target.clone();
-                let task = AsyncComputeTaskPool::get().spawn(async move { Avatar::build(&build) });
+                let task = AsyncComputeTaskPool::get().spawn(async move {
+                    Avatar::build_with(
+                        &build,
+                        &symbios_avatar::AvatarConfig {
+                            atlas,
+                            ..Default::default()
+                        },
+                    )
+                });
                 commands.entity(chassis).insert(RiggedBuild {
                     target,
+                    atlas,
                     offset,
                     task,
                 });
@@ -250,9 +304,10 @@ pub(super) fn land_rigged_builds(
         // reason (limbs overlapping at a joint), and re-kicking the same
         // doomed record every frame would burn a core proving it. A changed
         // record re-triggers through the value comparison.
-        commands
-            .entity(chassis)
-            .insert(RiggedApplied(build.target.clone()));
+        commands.entity(chassis).insert(RiggedApplied {
+            record: build.target.clone(),
+            atlas: build.atlas,
+        });
         let Some(avatar) = result else {
             warn!("a rigged avatar record described a body that could not be built");
             continue;
@@ -459,8 +514,8 @@ pub(super) fn drive_rigged_motion(
 mod tests {
     use super::*;
     use crate::pds::AvatarRecord;
-    use crate::pds::avatar::wardrobe::engine_default_for_did;
     use crate::pds::avatar::ResolvedRig;
+    use crate::pds::avatar::wardrobe::engine_default_for_did;
     use bevy::ecs::system::RunSystemOnce;
 
     /// A minimal world carrying every store the spawn path touches — the
@@ -490,11 +545,8 @@ mod tests {
         // The artifact overlands actually deploys, read by the loader's own
         // path: a renamed or re-baked archive that loses a role would
         // otherwise degrade every body to the procedural gait silently.
-        let bytes = std::fs::read(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/assets/avatar.clips"
-        ))
-        .expect("assets/avatar.clips ships with the app");
+        let bytes = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/avatar.clips"))
+            .expect("assets/avatar.clips ships with the app");
         let library = symbios_avatar::ClipLibrary::read(&bytes).expect("parses");
         for role in ["Idle_A", "Walk", "Jog", "Sprint"] {
             assert!(
@@ -515,7 +567,11 @@ mod tests {
         app.insert_resource(LiveAvatarRecord(rigged_record(resolved)));
         let chassis = app
             .world_mut()
-            .spawn((LocalPlayer, Transform::default(), GlobalTransform::default()))
+            .spawn((
+                LocalPlayer,
+                Transform::default(),
+                GlobalTransform::default(),
+            ))
             .id();
 
         app.world_mut()

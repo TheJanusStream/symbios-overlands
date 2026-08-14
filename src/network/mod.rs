@@ -141,6 +141,8 @@ impl Plugin for NetworkPlugin {
                     lifecycle::handle_peer_connections,
                     inbound::handle_incoming_messages,
                     peer_cache::poll_peer_avatar_fetches,
+                    peer_cache::spawn_peer_rig_resolutions,
+                    peer_cache::poll_peer_rig_resolutions,
                     lifecycle::evict_stale_offer_dialog,
                     lifecycle::dismiss_offer_dialog_from_muted_sender,
                     lifecycle::sweep_stale_pending_offers,

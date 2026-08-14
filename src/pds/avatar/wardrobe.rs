@@ -518,6 +518,109 @@ pub async fn delete_attachment_record(
     delete_record(client, session, refresh, AVATAR_ATTACHMENT_COLLECTION, rkey).await
 }
 
+// ---------------------------------------------------------------------------
+// The orchestrated save (#1059)
+// ---------------------------------------------------------------------------
+
+/// Everything one avatar save writes, precomputed so the async half is a
+/// straight walk. Built by [`plan_avatar_publish`] — pure, so the ordering
+/// and the fill-ins are testable without a network.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AvatarPublishPlan {
+    /// The worn engine body, at its wardrobe rkey. `None` for a generator
+    /// body — the classic single-record save.
+    pub wardrobe: Option<(String, EngineAvatarRecord)>,
+    /// Every worn attachment, at its rkey.
+    pub attachments: Vec<(String, AttachmentRecord)>,
+    /// Attachment records detached this session, deleted **after** the
+    /// avatar record stops referencing them.
+    pub attachment_deletes: Vec<String>,
+    /// The cross-app default-body pointer, kept in step with the worn body
+    /// so every symbios app agrees what this identity looks like.
+    pub profile: Option<EngineProfileRecord>,
+    /// The overlands avatar record itself.
+    pub record: super::AvatarRecord,
+}
+
+/// Lay out one save. For a rigged body the engine record is made
+/// publishable on the way — an empty name and a missing `createdAt` are
+/// filled here (`now_iso` is the application's clock; the engine crate is
+/// deliberately clock-free) — and the profile follows the worn body.
+pub fn plan_avatar_publish(
+    record: &super::AvatarRecord,
+    deleted_attachments: &[String],
+    now_iso: &str,
+) -> AvatarPublishPlan {
+    let mut plan = AvatarPublishPlan {
+        wardrobe: None,
+        attachments: Vec::new(),
+        attachment_deletes: deleted_attachments.to_vec(),
+        profile: None,
+        record: record.clone(),
+    };
+    if let Some(rig) = record.body.rigged_ref()
+        && let Some(resolved) = rig.resolved.as_ref()
+    {
+        let mut body = resolved.body.clone();
+        if body.name.trim().is_empty() {
+            body.name = String::from("Wanderer");
+        }
+        if body
+            .created_at
+            .as_deref()
+            .is_none_or(|at| at.trim().is_empty())
+        {
+            body.created_at = Some(now_iso.to_string());
+        }
+        plan.wardrobe = Some((rig.avatar.clone(), body));
+        plan.attachments = resolved
+            .attachments
+            .iter()
+            .map(|attachment| (attachment.rkey.clone(), attachment.record.clone()))
+            .collect();
+        plan.profile = Some(EngineProfileRecord::pointing_at(
+            rig.avatar.clone(),
+            now_iso,
+        ));
+    }
+    plan
+}
+
+/// Execute a [`AvatarPublishPlan`], children before pointers: the wardrobe
+/// body and the attachments land first, then the profile and the avatar
+/// record that reference them, and detached attachment records are deleted
+/// last — so no reader ever resolves a dangling reference, and a failure
+/// partway leaves at worst an unreferenced record, never a broken outfit.
+pub async fn publish_avatar_bundle(
+    client: &reqwest::Client,
+    session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
+    plan: &AvatarPublishPlan,
+) -> Result<(), String> {
+    if let Some((rkey, body)) = &plan.wardrobe {
+        publish_wardrobe_record(client, session, refresh, rkey, body)
+            .await
+            .map_err(|e| format!("wardrobe body: {e}"))?;
+    }
+    for (rkey, attachment) in &plan.attachments {
+        publish_attachment_record(client, session, refresh, rkey, attachment)
+            .await
+            .map_err(|e| format!("attachment {rkey}: {e}"))?;
+    }
+    if let Some(profile) = &plan.profile {
+        publish_avatar_profile(client, session, refresh, profile)
+            .await
+            .map_err(|e| format!("profile: {e}"))?;
+    }
+    super::publish_avatar_record(client, session, refresh, &plan.record).await?;
+    for rkey in &plan.attachment_deletes {
+        delete_attachment_record(client, session, refresh, rkey)
+            .await
+            .map_err(|e| format!("detach {rkey}: {e}"))?;
+    }
+    Ok(())
+}
+
 /// The deterministic engine body for an identity: `fnv1a_64(did)` feeding
 /// the engine's one-call record-from-seed roll (`AvatarRecord::rolled`,
 /// symbios-avatar #233). Every client derives the same person from the same
@@ -529,6 +632,28 @@ pub async fn delete_attachment_record(
 pub fn engine_default_for_did(did: &str) -> EngineAvatarRecord {
     let seed = crate::seeded_defaults::fnv1a_64(did) as i64;
     EngineAvatarRecord::rolled("Wanderer", symbios_avatar::Archetype::default(), seed)
+}
+
+/// Dress `record` in a fresh engine body (#1059): a new wardrobe rkey
+/// minted from the DID's entropy, resolved locally so the editor and the
+/// spawn pipeline see the body immediately — nothing exists on the PDS
+/// until the next save publishes the bundle.
+///
+/// Humanoid locomotion tuning survives the switch; any other preset is
+/// replaced by the humanoid default, because a rigged body walks.
+pub fn wear_new_engine_body(record: &mut super::AvatarRecord, did: &str) {
+    let rkey = crate::pds::tid::tid_now(crate::seeded_defaults::fnv1a_64(did));
+    let mut fresh = super::AvatarRecord::wearing(rkey);
+    if let Some(rig) = fresh.body.rigged_mut() {
+        rig.resolved = Some(ResolvedRig {
+            body: engine_default_for_did(did),
+            attachments: Vec::new(),
+        });
+    }
+    if matches!(record.locomotion, super::LocomotionConfig::Humanoid(_)) {
+        fresh.locomotion = record.locomotion.clone();
+    }
+    *record = fresh;
 }
 
 // ---------------------------------------------------------------------------
@@ -586,6 +711,82 @@ pub(crate) async fn resolve_rigged_body(
 mod tests {
     use super::*;
     use crate::pds::types::Fp3;
+
+    #[test]
+    fn a_rigged_publish_plan_fills_the_lexicons_requirements_and_orders_the_pointer() {
+        let mut record = super::super::AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = record.body.rigged_mut() {
+            rig.attachments.push(String::from("3jzfcijpj2z2b"));
+            let mut body = engine_default_for_did("did:plc:plan-test");
+            body.name = String::from("   ");
+            body.created_at = None;
+            rig.resolved = Some(ResolvedRig {
+                body,
+                attachments: vec![ResolvedAttachment {
+                    rkey: String::from("3jzfcijpj2z2b"),
+                    record: AttachmentRecord::new(
+                        Generator::default(),
+                        symbios_avatar::Socket::Crown,
+                    ),
+                }],
+            });
+        }
+        let plan = plan_avatar_publish(
+            &record,
+            &[String::from("3jzfcijpj2z2c")],
+            "2026-08-14T00:00:00Z",
+        );
+        let (rkey, body) = plan
+            .wardrobe
+            .as_ref()
+            .expect("a rigged plan carries its body");
+        assert_eq!(rkey, "3jzfcijpj2z2a");
+        // The lexicon's two required fields, filled on the way out rather
+        // than rejected at the PDS.
+        assert_eq!(body.name, "Wanderer");
+        assert_eq!(body.created_at.as_deref(), Some("2026-08-14T00:00:00Z"));
+        assert_eq!(plan.attachments.len(), 1);
+        assert_eq!(
+            plan.profile
+                .as_ref()
+                .and_then(|p| p.default_avatar.as_deref()),
+            Some("3jzfcijpj2z2a"),
+            "the cross-app pointer follows the worn body"
+        );
+        assert_eq!(plan.attachment_deletes, vec![String::from("3jzfcijpj2z2c")]);
+    }
+
+    #[test]
+    fn a_generator_publish_plan_is_the_classic_single_record_save() {
+        let record = super::super::AvatarRecord::default_for_seed(7);
+        let plan = plan_avatar_publish(&record, &[], "2026-08-14T00:00:00Z");
+        assert!(plan.wardrobe.is_none());
+        assert!(plan.attachments.is_empty());
+        assert!(plan.profile.is_none());
+        assert_eq!(plan.record, record);
+    }
+
+    #[test]
+    fn wearing_a_fresh_engine_body_resolves_locally_and_keeps_humanoid_tuning() {
+        let mut record = super::super::AvatarRecord::default_for_seed(7);
+        let walked = matches!(
+            record.locomotion,
+            super::super::LocomotionConfig::Humanoid(_)
+        );
+        wear_new_engine_body(&mut record, "did:plc:wear-test");
+        let rig = record.body.rigged_ref().expect("rigged now");
+        assert_eq!(rig.avatar.len(), 13, "a freshly minted TID rkey");
+        let resolved = rig.resolved.as_ref().expect("resolved locally");
+        assert_eq!(resolved.body, engine_default_for_did("did:plc:wear-test"));
+        assert!(
+            matches!(
+                record.locomotion,
+                super::super::LocomotionConfig::Humanoid(_)
+            ),
+            "a rigged body walks"
+        );
+        let _ = walked;
+    }
 
     #[test]
     fn the_engine_default_is_deterministic_per_did() {

@@ -148,8 +148,11 @@ impl GuardRecords<'_> {
                 (Some(live), Some(stored)) => records_differ(&live.0, &stored.0),
                 _ => false,
             };
+        // Avatar-specific (#1059): a rigged body's payload rides on the
+        // serde-skipped `resolved`, so a plain wire compare would call a
+        // sculpted body clean and let the logout guard drop the work.
         let differ_avatar = match (&self.live_avatar, &self.stored_avatar) {
-            (Some(live), Some(stored)) => records_differ(&live.0, &stored.0),
+            (Some(live), Some(stored)) => live.0.publishes_differently_from(&stored.0),
             _ => false,
         };
         let differ_inventory = match (&self.live_inventory, &self.stored_inventory) {

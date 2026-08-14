@@ -1,12 +1,17 @@
 //! Avatar editor — tabbed split view.
 //!
-//! The avatar window has two tabs:
+//! The avatar window has four tabs:
 //!
+//!   * **Body** (#1059) — the rigged engine body: the sibling crate's own
+//!     axis sections hosted in this window's chrome, plus the cross-app
+//!     wardrobe. See [`body`].
+//!   * **Attachments** (#1059) — props worn at rig sockets, copied out of
+//!     the inventory. See [`attachments`].
 //!   * **Visuals** — embeds the same tree-view + detail-panel widget that
 //!     drives the room editor's Generators tab, fed by an
-//!     [`AvatarVisualsTreeSource`] adapter so the avatar's single
-//!     `visuals` root is editable through the unified vocabulary
-//!     (primitives only in v1).
+//!     [`AvatarVisualsTreeSource`] adapter so a *generator* body's tree is
+//!     editable through the unified vocabulary. A rigged body has no such
+//!     tree and the tab says so.
 //!   * **Locomotion** — picker for the [`crate::pds::LocomotionConfig`]
 //!     preset (HoverBoat / Humanoid / Airplane / Helicopter / Car) plus a
 //!     per-preset slider panel for collider dimensions and physics
@@ -27,6 +32,8 @@
 //!   * **Reset to default** replaces `LiveAvatarRecord` with the canonical
 //!     [`AvatarRecord::default_for_did`] seed.
 
+mod attachments;
+mod body;
 mod locomotion;
 
 use bevy::prelude::*;
@@ -38,7 +45,6 @@ use crate::diagnostics::event::{EventPayload, RecordKind};
 use crate::pds::{self, AvatarRecord};
 use crate::state::{
     LiveAvatarRecord, LiveInventoryRecord, PublishFeedback, PublishStatus, StoredAvatarRecord,
-    records_differ,
 };
 use crate::ui::editable::{
     RecordAction, SeedAction, pin_axis_row, publish_status_line, save_load_reset_row, seed_row,
@@ -64,6 +70,8 @@ pub struct PublishAvatarTask {
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum AvatarTab {
     #[default]
+    Body,
+    Attachments,
     Visuals,
     Locomotion,
 }
@@ -137,6 +145,17 @@ pub struct AvatarEditorState {
     /// so the picked row highlights like a direct click — the same
     /// one-shot mechanism as `RoomEditorState::pending_tree_focus`.
     pending_tree_focus: bool,
+    /// The fetched cross-app wardrobe listing (#1059), refreshed on demand
+    /// from the Body tab rather than on open: it is a `listRecords` walk of
+    /// someone's whole avatar collection.
+    wardrobe: body::WardrobeListing,
+    /// Attachment picker state (item + socket) across frames.
+    attachments: attachments::AttachmentsTabState,
+    /// Attachment records detached this session, deleted by the publish
+    /// bundle AFTER the avatar record stops referencing them. Cleared only
+    /// when that save lands — a failed publish keeps the queue so the next
+    /// attempt still tidies up.
+    pending_attachment_deletes: Vec<String>,
 }
 
 impl AvatarEditorState {
@@ -338,6 +357,8 @@ pub fn avatar_ui(
                 // --- Tab bar ----------------------------------------------
                 ui.horizontal(|ui| {
                     let tabs = [
+                        (AvatarTab::Body, "Body"),
+                        (AvatarTab::Attachments, "Attachments"),
                         (AvatarTab::Visuals, "Visuals"),
                         (AvatarTab::Locomotion, "Locomotion"),
                     ];
@@ -384,6 +405,9 @@ pub fn avatar_ui(
                     tree_confirms,
                     default_cache,
                     pending_tree_focus,
+                    wardrobe,
+                    attachments: attachments_state,
+                    pending_attachment_deletes,
                     ..
                 } = &mut *editor;
 
@@ -558,7 +582,7 @@ pub fn avatar_ui(
 
                         let dirty = stored
                             .as_ref()
-                            .is_some_and(|s| records_differ(&s.0, &live_mut.0));
+                            .is_some_and(|s| live_mut.0.publishes_differently_from(&s.0));
                         let can_publish = session.is_some() && refresh_ctx.is_some();
                         // Rebuild the seeded default only when the session DID
                         // changes, not every frame (#637) — full
@@ -572,8 +596,8 @@ pub fn avatar_ui(
                             _ => {}
                         }
                         let default_record = default_cache.as_ref().map(|(_, r)| r);
-                        let can_reset =
-                            default_record.is_some_and(|d| records_differ(d, &live_mut.0));
+                        let can_reset = default_record
+                            .is_some_and(|d| live_mut.0.publishes_differently_from(d));
 
                         let record_bytes = crate::ui::editable::refresh_size_readout(
                             &mut *feedback,
@@ -644,11 +668,16 @@ pub fn avatar_ui(
                                 (session.as_ref(), refresh_ctx.as_ref())
                         {
                             feedback.status = PublishStatus::Publishing;
-                            spawn_publish_avatar_task(
+                            spawn_publish_avatar_bundle_task(
                                 &mut commands,
                                 session,
                                 refresh,
                                 live_mut.0.clone(),
+                                // Handed to the task, not cleared here: a
+                                // failed publish must keep the queue so the
+                                // next attempt still tidies the detached
+                                // records up.
+                                pending_attachment_deletes.clone(),
                                 time.elapsed_secs_f64(),
                             );
                         }
@@ -660,6 +689,42 @@ pub fn avatar_ui(
                 let body_height = ui.available_height();
 
                 match *selected_tab {
+                    AvatarTab::Body => {
+                        ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
+                            let outcome = body::draw_body_tab(
+                                ui,
+                                &mut live_mut.0,
+                                wardrobe,
+                                session.as_ref().map(|s| s.did.as_str()),
+                            );
+                            widget_changed |= outcome.changed;
+                            if let Some(label) = outcome.label {
+                                undo_labels.set_avatar(label);
+                            }
+                            if outcome.wants_wardrobe_refresh
+                                && let Some(s) = session.as_ref()
+                            {
+                                wardrobe.fetching = true;
+                                spawn_wardrobe_list_task(&mut commands, &s.did);
+                            }
+                        });
+                    }
+                    AvatarTab::Attachments => {
+                        ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
+                            let outcome = attachments::draw_attachments_tab(
+                                ui,
+                                &mut live_mut.0,
+                                inventory.as_deref().map(|live| &live.0),
+                                attachments_state,
+                                pending_attachment_deletes,
+                                session.as_ref().map(|s| s.did.as_str()),
+                            );
+                            widget_changed |= outcome.changed;
+                            if let Some(label) = outcome.label {
+                                undo_labels.set_avatar(label);
+                            }
+                        });
+                    }
                     AvatarTab::Visuals => {
                         ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
                             // The tree edits a generator body's tree; a
@@ -826,6 +891,8 @@ pub fn avatar_ui(
         // Coarse per-tab undo label (#865) when no site named the edit.
         if !undo_labels.avatar_pending() {
             undo_labels.set_avatar(match editor.selected_tab {
+                AvatarTab::Body => "body edit",
+                AvatarTab::Attachments => "attachment edit",
                 AvatarTab::Visuals => "visuals edit",
                 AvatarTab::Locomotion => "locomotion edit",
             });
@@ -847,15 +914,87 @@ pub fn avatar_ui(
     }
 }
 
-/// Spawn the async avatar-record publish. `pub(crate)` because the
-/// unsaved-edits guard ([`crate::ui::unsaved_guard`]) drives the same
-/// pipeline for its "Publish & log out" path — the shared
-/// [`poll_publish_avatar_tasks`] system lands the result either way.
+/// An in-flight wardrobe listing (#1059), landed by
+/// [`poll_wardrobe_list_tasks`] onto the editor's cached listing.
+#[derive(Component)]
+pub struct WardrobeListTask {
+    task:
+        bevy::tasks::Task<Result<Vec<(String, pds::avatar::EngineAvatarRecord)>, pds::FetchError>>,
+}
+
+/// Walk the identity's wardrobe collection for the Body tab's list.
+fn spawn_wardrobe_list_task(commands: &mut Commands, did: &str) {
+    let did = did.to_string();
+    let pool = bevy::tasks::IoTaskPool::get();
+    let task = pool.spawn(async move {
+        let fut = async {
+            let client = crate::config::http::default_client();
+            pds::avatar::wardrobe::list_wardrobe(&client, &did).await
+        };
+        #[cfg(target_arch = "wasm32")]
+        {
+            fut.await
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            crate::config::http::block_on(fut)
+        }
+    });
+    commands.spawn(WardrobeListTask { task });
+}
+
+/// Land finished wardrobe listings. A failed walk clears the spinner and
+/// leaves whatever list was there — the button is the retry.
+pub fn poll_wardrobe_list_tasks(
+    mut commands: Commands,
+    mut tasks: Query<(Entity, &mut WardrobeListTask)>,
+    mut editor: ResMut<AvatarEditorState>,
+) {
+    for (entity, mut task) in tasks.iter_mut() {
+        let Some(result) =
+            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
+        else {
+            continue;
+        };
+        commands.entity(entity).despawn();
+        let editor = editor.bypass_change_detection();
+        editor.wardrobe.fetching = false;
+        match result {
+            Ok(entries) => editor.wardrobe.entries = Some(entries),
+            Err(err) => warn!("wardrobe listing failed: {err:?}"),
+        }
+    }
+}
+
+/// Spawn the async avatar publish. `pub(crate)` because the unsaved-edits
+/// guard ([`crate::ui::unsaved_guard`]) drives the same pipeline for its
+/// "Publish & log out" path — the shared [`poll_publish_avatar_tasks`]
+/// system lands the result either way.
+///
+/// A rigged record is a **bundle** (#1059): the wardrobe body and every
+/// worn attachment land before the profile and the avatar record that
+/// reference them, and detached records are deleted last, so no reader ever
+/// resolves a dangling reference. A generator record is exactly the classic
+/// single-record save it always was — [`pds::avatar::wardrobe::plan_avatar_publish`]
+/// decides which by looking at the body.
 pub(crate) fn spawn_publish_avatar_task(
     commands: &mut Commands,
     session: &AtprotoSession,
     refresh: &crate::oauth::OauthRefreshCtx,
     record: AvatarRecord,
+    now: f64,
+) {
+    spawn_publish_avatar_bundle_task(commands, session, refresh, record, Vec::new(), now);
+}
+
+/// [`spawn_publish_avatar_task`] with the session's detached-attachment
+/// queue, which only the editor holds.
+pub(crate) fn spawn_publish_avatar_bundle_task(
+    commands: &mut Commands,
+    session: &AtprotoSession,
+    refresh: &crate::oauth::OauthRefreshCtx,
+    record: AvatarRecord,
+    deletes: Vec<String>,
     now: f64,
 ) {
     // The avatar record is always the local user's own, saved to their PDS, so
@@ -865,11 +1004,22 @@ pub(crate) fn spawn_publish_avatar_task(
     let session_clone = session.clone();
     let refresh_clone = refresh.clone();
     let record_bytes = pds::record_size::serialized_record_bytes(&record);
+    // The engine crate is clock-free by design (std::time panics on wasm),
+    // so the ISO timestamp the wardrobe lexicon requires is stamped here —
+    // chrono is already the app's wasm-safe clock (#846).
+    let now_iso = chrono::Utc::now().to_rfc3339();
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
             let client = crate::config::http::default_client();
-            pds::publish_avatar_record(&client, &session_clone, &refresh_clone, &record).await
+            let plan = pds::avatar::wardrobe::plan_avatar_publish(&record, &deletes, &now_iso);
+            pds::avatar::wardrobe::publish_avatar_bundle(
+                &client,
+                &session_clone,
+                &refresh_clone,
+                &plan,
+            )
+            .await
         };
         #[cfg(target_arch = "wasm32")]
         {
@@ -900,6 +1050,7 @@ pub fn poll_publish_avatar_tasks(
     mut feedback: ResMut<PublishFeedback<AvatarRecord>>,
     mut session_log: ResMut<SessionLog>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
+    mut editor: ResMut<AvatarEditorState>,
     time: Res<Time>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
@@ -925,6 +1076,13 @@ pub fn poll_publish_avatar_tasks(
                 if let Some(stored) = stored.as_mut() {
                     stored.0 = live.0.clone();
                 }
+                // The detached records are gone from the repo now, so the
+                // queue retires. Cleared only here: a failed publish keeps
+                // it for the next attempt.
+                editor
+                    .bypass_change_detection()
+                    .pending_attachment_deletes
+                    .clear();
                 feedback.status = PublishStatus::Success { at_secs: now };
                 session_log.info(
                     now,

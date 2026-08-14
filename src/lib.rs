@@ -532,6 +532,7 @@ pub fn run() {
             (
                 ui::room::poll_publish_tasks,
                 ui::avatar::poll_publish_avatar_tasks,
+                ui::avatar::poll_wardrobe_list_tasks,
                 ui::inventory::poll_publish_inventory_tasks,
                 ui::inventory::handle_generator_drop,
                 ui::inventory::preview_generator_drop,
