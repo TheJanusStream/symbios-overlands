@@ -12,6 +12,7 @@ use transform_gizmo_bevy::{EnumSet, GizmoMode, GizmoOptions, GizmoOrientation, G
 
 use crate::pds::Placement;
 use crate::pds::generator::BlobShape;
+use crate::player::attachments::LocalAttachment;
 use crate::ui::avatar::AvatarEditorState;
 use crate::ui::room::{EditorTab, RoomEditorState};
 use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
@@ -64,8 +65,25 @@ pub(super) fn sync_gizmo_selection(
         Has<GizmoDetachedPrim>,
         Option<&ChildOf>,
     )>,
-    // Bundled to stay under Bevy's 16-parameter ceiling.
-    (detached_query, global_tf): (Query<&GizmoDetachedPrim>, Query<&GlobalTransform>),
+    // Bundled to stay under Bevy's 16-parameter ceiling. `attachment_query`
+    // is worn props on the local rigged body (#1062), addressed by
+    // attachment record rkey rather than by a path into a visuals tree, and
+    // `rigged_bodies` is the rig each one hangs off — needed because a
+    // prop's frame is its joint's REST frame, which only the rig knows.
+    (detached_query, global_tf, attachment_query, rigged_bodies): (
+        Query<&GizmoDetachedPrim>,
+        Query<&GlobalTransform>,
+        Query<(
+            Entity,
+            &LocalAttachment,
+            &GlobalTransform,
+            &Transform,
+            Has<GizmoTarget>,
+            Has<GizmoDetachedPrim>,
+            Option<&ChildOf>,
+        )>,
+        Query<&bevy_symbios_avatar::AvatarBody>,
+    ),
     camera_query: Query<&GlobalTransform, With<Camera3d>>,
     // Any entity still carrying gizmo state a deselect would need to tear down.
     gizmoed: Query<(), Or<(With<GizmoTarget>, With<GizmoDetachedPrim>)>>,
@@ -242,6 +260,22 @@ pub(super) fn sync_gizmo_selection(
         None
     };
 
+    // Worn prop: the unique entity whose `LocalAttachment` names the
+    // selected record. `LocalAttachment` only rides the local player's own
+    // props (a peer's outfit carries none), and rkeys are unique per record,
+    // so a match is singular — no proximity scan, like avatar visuals.
+    let target_attachment = if target_proxy.is_some() {
+        None
+    } else if active == ActiveTarget::Attachment {
+        avatar_state.selected_attachment().and_then(|rkey| {
+            attachment_query
+                .iter()
+                .find_map(|(entity, worn, ..)| (worn.rkey == rkey).then_some(entity))
+        })
+    } else {
+        None
+    };
+
     // --- Placements (room only) --------------------------------------------
     let want_placement_gizmo =
         active == ActiveTarget::Room && room_state.selected_tab == EditorTab::Placements;
@@ -295,6 +329,8 @@ pub(super) fn sync_gizmo_selection(
             .map(|p| p.is_empty())
             .unwrap_or(false);
         gizmo_options.gizmo_modes = prim_modes(is_root);
+    } else if target_attachment.is_some() {
+        gizmo_options.gizmo_modes = attachment_modes();
     }
 
     // --- Room prims (attach / detach + parent baking) ----------------------
@@ -326,6 +362,31 @@ pub(super) fn sync_gizmo_selection(
             child_of,
             &detached_query,
             &global_tf,
+        );
+    }
+
+    // --- Worn props (#1062) -------------------------------------------------
+    // Same detach-to-world trick, but both directions go through the
+    // carrying joint's REST frame rather than its live `GlobalTransform`.
+    // See `attach_or_release_attachment` for why that is not a refinement
+    // but the whole correctness story.
+    for (entity, worn, gt, local, has_gizmo, is_detached, child_of) in attachment_query.iter() {
+        let is_target = target_attachment == Some(entity);
+        let rest = rigged_bodies
+            .get(worn.rigged_root)
+            .ok()
+            .zip(global_tf.get(worn.rigged_root).ok())
+            .and_then(|(body, root)| worn.rest_frame(&body.avatar, root));
+        attach_or_release_attachment(
+            &mut commands,
+            entity,
+            is_target,
+            has_gizmo,
+            is_detached,
+            (gt, local),
+            rest.as_ref(),
+            child_of,
+            &detached_query,
         );
     }
 
@@ -405,6 +466,23 @@ fn prim_modes(is_root: bool) -> EnumSet<GizmoMode> {
     modes
 }
 
+/// Mode set for a worn prop (#1062): translate and rotate freely, but only
+/// the **uniform** scale handle.
+///
+/// Not a stylistic restriction — [`crate::pds::AttachmentRecord::sanitize`]
+/// forces the offset's scale uniform on every write, because a prop is
+/// instanced under an animated joint and a non-uniform scale there shears
+/// every nested emitter and sub-assembly inside it. Offering per-axis
+/// handles would let a drag be silently thrown away by the sanitiser, which
+/// is exactly the failure `placement_modes` exists to avoid.
+fn attachment_modes() -> EnumSet<GizmoMode> {
+    let mut modes = EnumSet::new();
+    modes.insert_all(GizmoMode::all_translate());
+    modes.insert_all(GizmoMode::all_rotate());
+    modes.insert(GizmoMode::ScaleUniform);
+    modes
+}
+
 /// Mode set for a blob element (#705). Every shape translates. A sphere
 /// gets the full scale triad (uniform *and* per-axis): dragging one axis
 /// stretches it, and the commit promotes it to an ellipsoid so per-axis
@@ -434,6 +512,84 @@ fn element_modes(shape: BlobShape) -> EnumSet<GizmoMode> {
         }
     }
     modes
+}
+
+/// [`attach_or_release_prim`] for a worn prop (#1062), with every world ⇄
+/// local conversion taken through the carrying joint's **rest** frame.
+///
+/// The shared version bakes the target's live `GlobalTransform` on attach
+/// and reparents against its live parent on release. For a prop that parent
+/// is an *animated* rig joint, which makes both halves depend on which frame
+/// of which clip happened to be showing:
+///
+///   * **Attach** — the record's offset is a rest-frame quantity, so the
+///     gizmo must appear at `rest ⊗ offset`. Baking the live world pose
+///     instead would plant the gizmo wherever the animation had swung the
+///     prop, and a drag from there commits an offset shifted by that swing.
+///   * **Release** without a drag must be a no-op on the visible scene.
+///     Reparenting against the live joint returns `joint_live⁻¹ ⊗ world`,
+///     which equals the stored offset only while the body is exactly at
+///     rest — so a deselect one frame after the editing hold lifts would
+///     leave the prop permanently nudged, with nothing to correct it (the
+///     re-dress pass only fires when the *worn set* changes).
+///
+/// Going through `rest` makes both exact regardless of what the body is
+/// doing, which is what demotes the bind-pose hold in
+/// `player::rigged::drive_rigged_motion` from a correctness requirement to
+/// what it should be: the owner aiming at the pose they are authoring for.
+///
+/// A body that despawns mid-gesture yields no rest frame; the prop then just
+/// drops its gizmo markers and the re-dress that is already coming sweeps it.
+#[allow(clippy::too_many_arguments)]
+fn attach_or_release_attachment(
+    commands: &mut Commands,
+    entity: Entity,
+    is_target: bool,
+    has_gizmo: bool,
+    is_detached: bool,
+    (gt, local): (&GlobalTransform, &Transform),
+    rest: Option<&GlobalTransform>,
+    child_of: Option<&ChildOf>,
+    detached_query: &Query<&GizmoDetachedPrim>,
+) {
+    if is_target && !has_gizmo {
+        let Some((rest, child_of)) = rest.zip(child_of) else {
+            return;
+        };
+        let world = rest.mul_transform(*local);
+        commands
+            .entity(entity)
+            .remove::<ChildOf>()
+            .insert(world.compute_transform())
+            .try_insert((
+                GizmoDetachedPrim {
+                    original_parent: child_of.parent(),
+                },
+                GizmoTarget::default(),
+            ));
+    } else if !is_target && (has_gizmo || is_detached) {
+        let restored = detached_query
+            .get(entity)
+            .ok()
+            .zip(rest)
+            .map(|(detached, rest)| (detached.original_parent, gt.reparented_to(rest)));
+        match restored {
+            Some((parent, new_local)) => {
+                commands
+                    .entity(entity)
+                    .try_insert(ChildOf(parent))
+                    .try_insert(new_local)
+                    .remove::<GizmoDetachedPrim>()
+                    .try_remove::<GizmoTarget>();
+            }
+            None => {
+                commands
+                    .entity(entity)
+                    .remove::<GizmoDetachedPrim>()
+                    .try_remove::<GizmoTarget>();
+            }
+        }
+    }
 }
 
 /// Attach the gizmo to `entity` (detaching it from its parent and baking

@@ -25,8 +25,9 @@
 //! Props spawn through [`spawn_visual_tree`] — the same avatar-mode pipeline
 //! as generator bodies, colliders and room tags suppressed — always with
 //! `is_local = false`: `AvatarVisualPrim` paths index into a record's own
-//! `visuals` tree, which an attachment is not part of; the attachment editor
-//! (#1059) gets its own selection story.
+//! `visuals` tree, which an attachment is not part of. The owner's own props
+//! instead carry [`LocalAttachment`], the identity the numeric editor
+//! (#1059) and the in-world offset gizmo (#1062) address them by.
 
 use bevy::prelude::*;
 use bevy_symbios_avatar::{AvatarBody as BuiltBody, AvatarJoints};
@@ -42,6 +43,51 @@ const SEAT_MARGIN: f32 = 0.02;
 /// The root entity of one worn prop, a child of its rig joint's entity.
 #[derive(Component)]
 pub(super) struct AttachmentRoot;
+
+/// Editor identity for one of the **local** player's worn props (#1062).
+///
+/// Only the local body's props carry it — exactly as `AvatarVisualPrim` only
+/// rides local visuals — so a scene pick or a gizmo can never reach into a
+/// peer's outfit. It carries everything the in-world offset editor needs
+/// that the entity itself cannot answer:
+///
+///   - `rkey` — the record half of the `(rkey, socket)` pair an attachment
+///     is addressed by. A worn prop is *not* a node in any visuals tree, so
+///     an `AvatarVisualPrim` path cannot name one.
+///   - `joint` + `rigged_root` — the carrying joint's index into
+///     `Avatar::rig` and the body root it hangs off, which together give the
+///     joint's **rest** frame in world space. The stored offset lives in
+///     that frame, not in the animated one the joint entity is at.
+#[derive(Component, Clone, Debug)]
+pub(crate) struct LocalAttachment {
+    /// Record key of the attachment record this prop was spawned from.
+    pub(crate) rkey: String,
+    /// Index of the carrying joint into the built body's `rig.joints`.
+    pub(crate) joint: usize,
+    /// The [`RiggedRoot`] the joint hierarchy hangs off — the entity whose
+    /// `GlobalTransform` places the rig's rest frame in the world.
+    pub(crate) rigged_root: Entity,
+}
+
+impl LocalAttachment {
+    /// Where the carrying joint sits **at rest**, in world space.
+    ///
+    /// The engine spawns joints at the bind pose — every joint unrotated at
+    /// its rig position (see `bevy_symbios_avatar::spawn_joints`) — so the
+    /// rest frame is the body root's frame translated by the joint's rig
+    /// position, with no rotation of its own. This is the frame an
+    /// attachment offset is authored and stored in; the joint entity's live
+    /// `GlobalTransform` is the *animated* frame and drifts away from it
+    /// every frame a clip plays.
+    pub(crate) fn rest_frame(
+        &self,
+        avatar: &symbios_avatar::Avatar,
+        root_world: &GlobalTransform,
+    ) -> Option<GlobalTransform> {
+        let joint = avatar.rig.joints.get(self.joint)?;
+        Some(root_world.mul_transform(Transform::from_translation(joint.position)))
+    }
+}
 
 /// What is currently worn on this rigged body, kept on the [`RiggedRoot`]
 /// entity — deliberately, because a body rebuild replaces that entity and a
@@ -108,6 +154,7 @@ pub(super) fn sync_rigged_attachments(
             }
         }
 
+        let is_local = locals.contains(chassis);
         let mut spawned = Vec::new();
         for (joint, transform, attachment) in placements(&body.avatar, desired) {
             let Some(&carrier) = joints.0.get(joint) else {
@@ -121,6 +168,17 @@ pub(super) fn sync_rigged_attachments(
                     ChildOf(carrier),
                 ))
                 .id();
+            // Only the owner's own props are editable, so only they carry
+            // the editor identity (#1062) — a peer's outfit can then never
+            // be picked or dragged, the same invariant `AvatarVisualPrim`
+            // holds for visuals.
+            if is_local {
+                commands.entity(prop).insert(LocalAttachment {
+                    rkey: attachment.rkey.clone(),
+                    joint,
+                    rigged_root: root,
+                });
+            }
             spawn_visual_tree(
                 &mut commands,
                 prop,
@@ -273,6 +331,168 @@ mod tests {
             Some(*hand_joint)
         );
         assert!((hand_tf.translation - Vec3::new(0.1, 0.2, 0.3)).length() < 1e-6);
+    }
+
+    /// The whole in-world offset editor (#1062) rests on one cross-crate
+    /// claim: the frame an attachment offset is stored in is the *bind
+    /// pose*, and the bind pose puts every joint entity unrotated at its rig
+    /// position. This checks that against the sibling crate's real spawn and
+    /// pose systems rather than against a re-derivation of them — if the
+    /// engine ever poses a rest body differently, every committed drag
+    /// silently lands somewhere else, and this is the test that says so.
+    #[test]
+    fn the_rest_frame_is_where_the_engine_actually_puts_a_joint_at_rest() {
+        use bevy::MinimalPlugins;
+        use bevy::asset::AssetPlugin;
+        use bevy::ecs::system::RunSystemOnce;
+        use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
+        use bevy::transform::TransformPlugin;
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin));
+        app.init_asset::<Mesh>();
+        app.init_asset::<StandardMaterial>();
+        app.init_asset::<Image>();
+        app.init_asset::<SkinnedMeshInverseBindposes>();
+
+        // A body somewhere other than the origin, turned: a rest frame that
+        // only happens to be right at the identity would pass a weaker test.
+        let root_tf = Transform::from_xyz(11.0, -0.75, -4.25)
+            .with_rotation(Quat::from_rotation_y(1.1));
+        let root = app.world_mut().spawn((root_tf, Visibility::default())).id();
+        let mut built = Some(built());
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>| {
+                    // `Avatar` withholds `Clone` deliberately, so the single
+                    // build is taken out of an `Option` on the one run.
+                    let Some(avatar) = built.take() else {
+                        return;
+                    };
+                    bevy_symbios_avatar::spawn_avatar(
+                        &mut commands,
+                        root,
+                        avatar,
+                        0.0,
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut bindposes,
+                    );
+                },
+            )
+            .expect("spawns");
+
+        // Pose it at rest through the engine's own writer, then propagate.
+        let rest_pose = {
+            let body = app
+                .world()
+                .get::<BuiltBody>(root)
+                .expect("the body landed on the root");
+            symbios_avatar::Pose::rest(&body.avatar.rig)
+        };
+        app.world_mut()
+            .entity_mut(root)
+            .insert(bevy_symbios_avatar::AvatarPose(rest_pose));
+        app.world_mut()
+            .run_system_once(bevy_symbios_avatar::spawn::apply_avatar_poses)
+            .expect("poses");
+        app.update();
+
+        let joints = app
+            .world()
+            .get::<AvatarJoints>(root)
+            .expect("joints")
+            .0
+            .clone();
+        let body = app.world().get::<BuiltBody>(root).expect("body");
+        let root_world = *app
+            .world()
+            .get::<GlobalTransform>(root)
+            .expect("root global");
+
+        for socket in [
+            symbios_avatar::Socket::Crown,
+            symbios_avatar::Socket::Chest,
+            symbios_avatar::Socket::LeftHand,
+            symbios_avatar::Socket::RightFoot,
+        ] {
+            let Some(joint) = socket.joint(&body.avatar.rig) else {
+                continue;
+            };
+            let worn = LocalAttachment {
+                rkey: String::from("3jzfcijpj2z2a"),
+                joint,
+                rigged_root: root,
+            };
+            let claimed = worn
+                .rest_frame(&body.avatar, &root_world)
+                .expect("the joint is in this rig");
+            let actual = *app
+                .world()
+                .get::<GlobalTransform>(joints[joint])
+                .expect("joint global");
+            let (claimed, actual) = (claimed.compute_transform(), actual.compute_transform());
+            assert!(
+                claimed.translation.distance(actual.translation) < 1e-4,
+                "{socket:?}: rest frame at {} but the engine posed the joint at {}",
+                claimed.translation,
+                actual.translation
+            );
+            assert!(
+                claimed.rotation.angle_between(actual.rotation) < 1e-3,
+                "{socket:?}: a rest joint is unrotated; the engine gave {:?}",
+                actual.rotation
+            );
+        }
+    }
+
+    /// A released world pose converts back to the stored offset through the
+    /// rest frame, and doing it through the *animated* joint instead — the
+    /// obvious-looking shortcut, and what `resolve_committed_local` would do
+    /// — gets a materially different answer. That difference is the bug the
+    /// rest frame exists to prevent, so it is asserted rather than implied.
+    #[test]
+    fn an_offset_round_trips_through_the_rest_frame_but_not_an_animated_one() {
+        let avatar = built();
+        let joint = symbios_avatar::Socket::LeftHand
+            .joint(&avatar.rig)
+            .expect("a biped has a left hand");
+        let worn = LocalAttachment {
+            rkey: String::from("3jzfcijpj2z2a"),
+            joint,
+            rigged_root: Entity::PLACEHOLDER,
+        };
+        let root_world = GlobalTransform::from(
+            Transform::from_xyz(-3.0, 0.4, 8.0).with_rotation(Quat::from_rotation_y(-0.7)),
+        );
+        let rest = worn
+            .rest_frame(&avatar, &root_world)
+            .expect("the joint is in this rig");
+
+        let offset = Transform::from_xyz(0.06, -0.11, 0.03)
+            .with_rotation(Quat::from_rotation_x(0.5))
+            .with_scale(Vec3::splat(1.25));
+        let released = rest.mul_transform(offset);
+
+        let back = released.reparented_to(&rest);
+        assert!((back.translation - offset.translation).length() < 1e-5);
+        assert!(back.rotation.angle_between(offset.rotation) < 1e-4);
+        assert!((back.scale - offset.scale).length() < 1e-5);
+
+        // Mid-swing, the same world pose read against the live joint frame.
+        let swung = rest.mul_transform(Transform::from_rotation(Quat::from_rotation_z(0.9)));
+        let wrong = released.reparented_to(&swung);
+        assert!(
+            wrong.translation.distance(offset.translation) > 0.02,
+            "an animated-frame commit must not accidentally agree; got {} vs {}",
+            wrong.translation,
+            offset.translation
+        );
     }
 
     #[test]

@@ -58,6 +58,7 @@ pub(super) fn draw_selection_highlight(
         Has<GizmoDetachedPrim>,
     )>,
     avatar_prim_query: Query<(Entity, &AvatarVisualPrim)>,
+    worn_props: Query<(Entity, &crate::player::attachments::LocalAttachment)>,
     placement_query: Query<(Entity, &PlacementMarker)>,
     children: Query<&Children>,
     bounds_query: Query<(&Aabb, &GlobalTransform)>,
@@ -158,6 +159,26 @@ pub(super) fn draw_selection_highlight(
             // Local-only and singular (see `sync`) — at most one match.
             for (entity, marker) in avatar_prim_query.iter() {
                 if marker.path == *path {
+                    draw_subtree_box(
+                        &mut gizmos,
+                        entity,
+                        selected,
+                        frame_of(entity),
+                        &children,
+                        &bounds_query,
+                    );
+                }
+            }
+        }
+        ActiveTarget::Attachment => {
+            let Some(rkey) = avatar_state.selected_attachment() else {
+                return;
+            };
+            // Local-only and unique by record key (see `sync`) — at most one
+            // match, so no proximity scan and no sibling dimming: a worn prop
+            // has exactly one instance in the world.
+            for (entity, worn) in worn_props.iter() {
+                if worn.rkey == rkey {
                     draw_subtree_box(
                         &mut gizmos,
                         entity,

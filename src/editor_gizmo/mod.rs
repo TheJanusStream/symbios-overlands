@@ -5,12 +5,21 @@
 //! * attaches a `GizmoTarget` to whichever entity the owner is currently
 //!   editing, in either editor — Room editor: a `Placement::Absolute`
 //!   root, or any node inside a named generator's tree; Avatar editor:
-//!   any node in the local player's `visuals` tree — and removes it
-//!   from any previously-selected entity.
+//!   any node in the local player's `visuals` tree, or one of their worn
+//!   props (#1062) — and removes it from any previously-selected entity.
 //! * commits the dragged `Transform` back into the live record on mouse
 //!   release — `RoomRecord` for room edits, `LiveAvatarRecord` for avatar
 //!   edits — so the downstream recompile, the Publish-to-PDS button and
 //!   the peer broadcast all see the final pose exactly once per drag.
+//!
+//! **Three target kinds, three addressing schemes.** A room prim is a
+//! `(generator_ref, path)` pair, an avatar visual is a `path` into the
+//! record's own tree — and a worn prop is neither: it is a `(record rkey,
+//! socket)` pair naming an attachment record of its own, hung off a rig
+//! joint rather than off any visuals tree. That is why [`ActiveTarget`] has
+//! a third variant instead of the attachment being folded into `Avatar`,
+//! and why the prop's world ⇄ local conversions go through the carrying
+//! joint's *rest* frame rather than through its (animated) parent.
 //!
 //! **Single-active-target invariant.** The two editors implement a click-
 //! site mutex (selecting a row in one editor clears the other's
@@ -54,7 +63,8 @@
 //!   edges), Escape abort, copy-on-drag ghost rendering.
 //! * [`commit`] — drag-end writeback into [`crate::pds::RoomRecord`] /
 //!   [`crate::state::LiveAvatarRecord`] (placement vs prim split,
-//!   copy-on-drag clone, path-walked transform overwrite).
+//!   copy-on-drag clone, path-walked transform overwrite, and the
+//!   rest-frame attachment offset).
 //! * [`blob`] — in-scene BlobGroup element editing (#705): wireframe
 //!   surface swap, red/green per-element proxies, per-element gizmo
 //!   targeting and the element writeback.
@@ -252,6 +262,13 @@ pub(crate) enum ActiveTarget {
     None,
     Room,
     Avatar,
+    /// A worn prop on the local rigged body (#1062). Its own kind rather
+    /// than a flavour of `Avatar` because the two are addressed
+    /// differently: an avatar visual is a path into the record's `visuals`
+    /// tree, while an attachment is a `(record rkey, socket)` pair naming a
+    /// record of its own — no path can reach it — and its drag frame is the
+    /// carrying joint's rest frame rather than the record root's.
+    Attachment,
 }
 
 pub(crate) fn determine_active_target(
@@ -263,7 +280,16 @@ pub(crate) fn determine_active_target(
     // should keep this from happening, but if it does, deferring to
     // avatar lines up with the locomotion-freeze gate (which already
     // reads avatar state) so physics behaviour is consistent.
-    if avatar.has_visuals_selection() {
+    //
+    // Within the avatar editor the two selections are already mutually
+    // exclusive (each tab clears the other's on switch, and both scene-pick
+    // entry points clear the other), so the order here only decides a
+    // one-frame race; attachments win it because the body is being held at
+    // its bind pose for them and a visuals gizmo would read against a pose
+    // the record does not describe.
+    if avatar.has_attachment_selection() {
+        ActiveTarget::Attachment
+    } else if avatar.has_visuals_selection() {
         ActiveTarget::Avatar
     } else if room.selected_placement.is_some() || room.selected_prim_path.is_some() {
         ActiveTarget::Room
@@ -403,11 +429,12 @@ fn pick_on_scene_click(
     parents: Query<&ChildOf>,
     mut room_state: ResMut<RoomEditorState>,
     mut avatar_state: ResMut<AvatarEditorState>,
-    (mut blob_ctx, blob_proxies, global_tfs, avatar_prims): (
+    (mut blob_ctx, blob_proxies, global_tfs, avatar_prims, worn_props): (
         ResMut<blob::BlobEditContext>,
         Query<&blob::proxy::BlobElementProxy>,
         Query<&GlobalTransform>,
         Query<&AvatarVisualPrim>,
+        Query<&crate::player::attachments::LocalAttachment>,
     ),
     (mut face_pick, face_groups, meshes, time): (
         ResMut<face_pick::FacePick>,
@@ -489,9 +516,24 @@ fn pick_on_scene_click(
     // gates (avatar wins the cross-editor mutex, matching
     // `determine_active_target`); the room selection is cleared so the
     // gizmo dispatch is unambiguous.
+    // Worn-prop pick (#1062): a prop hangs off a rig joint, not off the
+    // record's visuals tree, so it has no `AvatarVisualPrim` path to walk
+    // into — `LocalAttachment` names its record instead. Checked in the same
+    // ancestor walk and before the visuals branch, because the two subtrees
+    // are disjoint (`sync_rigged_attachments` spawns props with
+    // `is_local = false`, so no prop carries a visuals path) and a hit on a
+    // prop is unambiguous. Only the owner's props carry the component, so a
+    // peer's outfit is never selectable.
     if panels.avatar {
         let mut cursor_entity = hit_entity;
         while let Some(entity) = cursor_entity {
+            if let Ok(worn) = worn_props.get(entity) {
+                avatar_state.select_attachment_from_scene_pick(worn.rkey.clone());
+                if room_state.has_selection() {
+                    room_state.clear_selection();
+                }
+                return;
+            }
             if let Ok(marker) = avatar_prims.get(entity) {
                 avatar_state.select_from_scene_pick(marker.path.clone());
                 if room_state.has_selection() {
@@ -518,6 +560,12 @@ fn pick_on_scene_click(
     // must not close the panel it is aimed from.
     if avatar_state.has_visuals_selection() && !face_pick.armed {
         avatar_state.clear_visuals_selection();
+    }
+    // Same for a worn prop (#1062) — a click into empty scene drops the
+    // offset gizmo. Face picking never aims at a prop, so it does not gate
+    // this one.
+    if avatar_state.has_attachment_selection() {
+        avatar_state.clear_attachment_selection();
     }
 
     // Picking needs the editor open in a room the user owns (the same

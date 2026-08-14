@@ -371,7 +371,16 @@ fn install_built_body(
 }
 
 /// Pose every built body from what its chassis is doing.
-#[allow(clippy::type_complexity)]
+///
+/// **The attachment-editing hold (#1062).** An attachment offset is stored
+/// in its carrying joint's *rest* frame, so while the owner is authoring one
+/// — numerically or with the in-world gizmo — their own body is pinned to
+/// the bind pose and the whole editing session happens in the frame the
+/// record actually keeps. The pin is a hard snap, not an inertial blend: a
+/// body still settling would let a gizmo release land against a pose that is
+/// already gone. Peers are never held; neither is the local body outside
+/// that editor state.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn drive_rigged_motion(
     mut commands: Commands,
     time: Res<Time>,
@@ -379,12 +388,19 @@ pub(super) fn drive_rigged_motion(
     roles: Res<ClipRoles>,
     mut bodies: Query<(Entity, &ChildOf, &BuiltBody, &mut RiggedMotion), With<RiggedRoot>>,
     chassis: Query<(&GlobalTransform, Option<&LinearVelocity>)>,
+    locals: Query<(), With<LocalPlayer>>,
+    avatar_editor: Option<Res<crate::ui::avatar::AvatarEditorState>>,
 ) {
     let delta = time.delta_secs();
     if delta <= 0.0 {
         return;
     }
+    let editing_offsets = avatar_editor.is_some_and(|state| state.holds_rig_at_rest());
     for (entity, child_of, body, mut motion) in &mut bodies {
+        if editing_offsets && locals.contains(child_of.parent()) {
+            hold_at_rest(&mut commands, entity, body, &mut motion, delta);
+            continue;
+        }
         let Ok((transform, velocity)) = chassis.get(child_of.parent()) else {
             continue;
         };
@@ -514,6 +530,37 @@ pub(super) fn drive_rigged_motion(
             .entity(entity)
             .insert((AvatarPose(posed), AvatarClosure(closure)));
     }
+}
+
+/// Pin one body to the bind pose for this frame — the attachment-editing
+/// hold documented on [`drive_rigged_motion`].
+///
+/// Deliberately bypasses the [`Inertializer`]: the point is that the joint
+/// entities sit *exactly* where `symbios_avatar::Pose::rest` puts them, which
+/// is the frame [`crate::player::attachments::LocalAttachment::rest_frame`]
+/// reconstructs a released gizmo pose against. `previous`/`current` are still
+/// kept up to date, so releasing the hold blends back out of rest normally.
+/// The blink rides along — an eyelid is not a socket, and a body that stops
+/// blinking reads as broken rather than as held.
+fn hold_at_rest(
+    commands: &mut Commands,
+    entity: Entity,
+    body: &BuiltBody,
+    motion: &mut RiggedMotion,
+    delta: f32,
+) {
+    let mut posed = Pose::rest(&body.avatar.rig);
+    let closure = Expression::NEUTRAL.closure_at(motion.blink.advance(delta));
+    if let Some(eyes) = body.avatar.parts.eyes.as_ref() {
+        eyes.blink(&mut posed, closure);
+    }
+    motion.source = MotionSource::Rest;
+    motion.transition = None;
+    motion.previous = motion.current.take();
+    motion.current = Some(posed.clone());
+    commands
+        .entity(entity)
+        .insert((AvatarPose(posed), AvatarClosure(closure)));
 }
 
 #[cfg(test)]

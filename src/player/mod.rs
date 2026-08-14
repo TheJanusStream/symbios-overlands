@@ -56,7 +56,7 @@
 //!   confirm step between portal contact and the actual travel fetch.
 
 mod airplane;
-mod attachments;
+pub(crate) mod attachments;
 mod car;
 mod clips;
 pub(crate) mod gait;

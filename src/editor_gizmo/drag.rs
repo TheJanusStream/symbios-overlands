@@ -8,6 +8,7 @@
 use bevy::prelude::*;
 use transform_gizmo_bevy::GizmoTarget;
 
+use crate::player::attachments::LocalAttachment;
 use crate::state::{LiveAvatarRecord, LiveRoomRecord};
 use crate::ui::room::RoomEditorState;
 use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
@@ -15,7 +16,9 @@ use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
 use super::blob::BlobEditContext;
 use super::blob::proxy::BlobElementProxy;
 use super::blob::write::{BlobDragInfo, commit_blob_element_drag};
-use super::commit::{commit_avatar_drag, commit_room_drag, resolve_committed_local};
+use super::commit::{
+    commit_attachment_drag, commit_avatar_drag, commit_room_drag, resolve_committed_local,
+};
 use super::{ActiveTarget, DragState, GizmoDetachedPrim};
 
 /// Drive the full drag session: detect the rising edge (Shift at drag
@@ -97,6 +100,27 @@ pub(super) fn manage_gizmo_drag(
             Without<AvatarVisualPrim>,
         ),
     >,
+    // Worn props (#1062). The four `Without`s are what keep this query
+    // provably disjoint from the four above — every one of them takes
+    // `&mut Transform`, and Bevy rejects overlapping mutable access.
+    mut attachment_query: Query<
+        (
+            Entity,
+            &mut Transform,
+            &LocalAttachment,
+            &GizmoTarget,
+            Option<&GizmoDetachedPrim>,
+        ),
+        (
+            Without<PlacementMarker>,
+            Without<PrimMarker>,
+            Without<AvatarVisualPrim>,
+            Without<BlobElementProxy>,
+        ),
+    >,
+    // The rigged bodies worn props hang off — the rig (for its rest joint
+    // positions) and the root pose that puts the rest frame in the world.
+    rigged_bodies: Query<&bevy_symbios_avatar::AvatarBody>,
     global_tf: Query<&GlobalTransform>,
     room_record: Option<ResMut<LiveRoomRecord>>,
     avatar_record: Option<ResMut<LiveAvatarRecord>>,
@@ -132,6 +156,14 @@ pub(super) fn manage_gizmo_drag(
         }
     }
     if active_target.is_none() {
+        for (entity, _tf, _m, target, _d) in attachment_query.iter() {
+            if target.is_active() {
+                active_target = Some((entity, ActiveTarget::Attachment));
+                break;
+            }
+        }
+    }
+    if active_target.is_none() {
         for (entity, _tf, _p, target, _d) in proxy_query.iter() {
             if target.is_active() {
                 // The proxy belongs to whichever editor owns the blob-edit
@@ -161,6 +193,8 @@ pub(super) fn manage_gizmo_drag(
                 (*tf, marker.path.is_empty())
             } else if let Ok((_e, tf, marker, _t, _d)) = avatar_prim_query.get(entity) {
                 (*tf, marker.path.is_empty())
+            } else if let Ok((_e, tf, _w, _t, _d)) = attachment_query.get(entity) {
+                (*tf, false)
             } else if let Ok((_e, tf, _p, _t, _d)) = proxy_query.get(entity) {
                 (*tf, false)
             } else {
@@ -189,7 +223,16 @@ pub(super) fn manage_gizmo_drag(
         // equivalent of placements, and the visuals tree is single-
         // rooted per local player. Blob elements route Shift through the
         // session info above, not the placement/prim copy path.
-        if is_prim_root || target_kind == ActiveTarget::Avatar || state.blob.is_some() {
+        // Worn props join avatar visuals in refusing copy-on-drag: a second
+        // prop means a second attachment RECORD (owned copy, minted TID,
+        // fan-out cap), which is the Attach row's job, not a drag's.
+        if is_prim_root
+            || matches!(
+                target_kind,
+                ActiveTarget::Avatar | ActiveTarget::Attachment
+            )
+            || state.blob.is_some()
+        {
             is_copy = false;
         }
         state.active_entity = Some(entity);
@@ -218,6 +261,8 @@ pub(super) fn manage_gizmo_drag(
             } else if let Ok((_e, mut tf, _m, _t, _d)) = prim_query.get_mut(active_entity) {
                 *tf = state.original_world_tf;
             } else if let Ok((_e, mut tf, _m, _t, _d)) = avatar_prim_query.get_mut(active_entity) {
+                *tf = state.original_world_tf;
+            } else if let Ok((_e, mut tf, _w, _t, _d)) = attachment_query.get_mut(active_entity) {
                 *tf = state.original_world_tf;
             } else if let Ok((_e, mut tf, _p, _t, _d)) = proxy_query.get_mut(active_entity) {
                 *tf = state.original_world_tf;
@@ -301,7 +346,11 @@ pub(super) fn manage_gizmo_drag(
                 }
                 landed
             }),
-            ActiveTarget::None => None,
+            // Blob-element sculpting is addressed by a path into a
+            // generator tree; a worn prop's tree lives in its own record and
+            // has no element session, so this is unreachable rather than
+            // unimplemented.
+            ActiveTarget::Attachment | ActiveTarget::None => None,
         };
         match landed.flatten() {
             // Keep the gizmo on the element the edit landed at — for a
@@ -358,6 +407,26 @@ pub(super) fn manage_gizmo_drag(
                 // fire; a gizmo drag bypasses that path, so explicitly
                 // mark the record changed so `rebuild_local_visuals` and
                 // `network::broadcast_avatar_state` see a fresh tick.
+                record.set_changed();
+            }
+        }
+        ActiveTarget::Attachment => {
+            let Some(mut record) = avatar_record else {
+                return;
+            };
+            if commit_attachment_drag(
+                active_entity,
+                &attachment_query,
+                &rigged_bodies,
+                &global_tf,
+                &mut record,
+            ) {
+                info!("Gizmo drag committed (attachment). Re-dressing the body.");
+                undo_labels.set_avatar("move of worn prop");
+                // Same reason as the avatar branch: a gizmo drag bypasses
+                // the editor's widget debounce, so the change tick has to
+                // be set here for `sync_rigged_attachments` (re-dress) and
+                // `broadcast_avatar_state` (peer preview) to see it.
                 record.set_changed();
             }
         }

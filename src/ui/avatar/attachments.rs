@@ -12,8 +12,14 @@
 //! record's sanitiser guarantees (a non-uniform scale under an animated
 //! joint shears every nested sub-assembly). Every drag quantises through
 //! the record's own `Fp` grid on sanitize, so what is shown is what is
-//! stored. The in-world drag gizmo on attachment roots is follow-up work,
-//! filed on the epic.
+//! stored.
+//!
+//! These rows are the **fallback** for the in-world offset gizmo (#1062),
+//! and stay authoritative for anything a drag cannot express. Selecting a
+//! row here aims the gizmo at that prop; an in-world pick focuses the row
+//! back. Because the gizmo writes a free rotation while this tab only shows
+//! a yaw, the yaw row composes rather than replaces: dragging it re-aims a
+//! tilted prop instead of flattening the tilt a drag put there.
 
 use bevy_egui::egui;
 
@@ -39,6 +45,7 @@ pub(super) struct AttachmentsTabState {
 
 /// Draw the tab. `pending_deletes` is the session's queue of detached
 /// record rkeys, owned by the publish flow.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_attachments_tab(
     ui: &mut egui::Ui,
     record: &mut AvatarRecord,
@@ -46,6 +53,8 @@ pub(super) fn draw_attachments_tab(
     state: &mut AttachmentsTabState,
     pending_deletes: &mut Vec<String>,
     did: Option<&str>,
+    selected: &mut Option<String>,
+    focus_selected: bool,
 ) -> AttachmentsTabOutcome {
     let mut outcome = AttachmentsTabOutcome::default();
 
@@ -66,11 +75,13 @@ pub(super) fn draw_attachments_tab(
             // needs `rig` itself, because the reference list lives there and
             // both halves have to move together.
             let mut detach: Option<usize> = None;
+            let mut newly_selected: Option<Option<String>> = None;
             {
                 let Some(resolved) = rig.resolved.as_mut() else {
                     return;
                 };
                 for (index, attachment) in resolved.attachments.iter_mut().enumerate() {
+                    let is_selected = selected.as_deref() == Some(attachment.rkey.as_str());
                     let title = match attachment.record.socket() {
                         Some(socket) => format!("{} — {}", socket.name(), attachment.rkey),
                         None => format!(
@@ -78,9 +89,30 @@ pub(super) fn draw_attachments_tab(
                             attachment.record.socket, attachment.rkey
                         ),
                     };
-                    egui::CollapsingHeader::new(title)
+                    // An in-world pick (#1062) opens the row it landed on and
+                    // scrolls it into view; every other frame the header keeps
+                    // whatever openness the owner left it at.
+                    let force_open = (focus_selected && is_selected).then_some(true);
+                    let header = egui::CollapsingHeader::new(title)
                         .id_salt(("attachment", index))
+                        .open(force_open)
                         .show(ui, |ui| {
+                            // Gizmo aim (#1062): the row IS the target, the
+                            // same contract a visuals tree row has. Clicking
+                            // the armed row again drops the gizmo.
+                            if ui
+                                .selectable_label(is_selected, "◈ Drag in world")
+                                .on_hover_text(
+                                    "aim the in-world gizmo at this prop — the body holds \
+                                     its bind pose while the tab is open, because the \
+                                     offset is stored in the joint's rest frame",
+                                )
+                                .clicked()
+                            {
+                                newly_selected = Some(
+                                    (!is_selected).then(|| attachment.rkey.clone()),
+                                );
+                            }
                             // Socket picker: re-seating a prop keeps its offset —
                             // usually wrong for the new socket, but predictable;
                             // zeroing it re-seats via the engine on next spawn.
@@ -116,14 +148,28 @@ pub(super) fn draw_attachments_tab(
                                 }
                             });
                         });
+                    if force_open.is_some() {
+                        header.header_response.scroll_to_me(Some(egui::Align::Center));
+                    }
                 }
+            }
+            if let Some(pick) = newly_selected {
+                *selected = pick;
             }
             let worn_count = rig
                 .resolved
                 .as_ref()
                 .map_or(0, |resolved| resolved.attachments.len());
             if let Some(index) = detach {
+                let gone = rig
+                    .resolved
+                    .as_ref()
+                    .and_then(|r| r.attachments.get(index))
+                    .map(|a| a.rkey.clone());
                 detach_at(rig, index, pending_deletes);
+                if gone.is_some() && *selected == gone {
+                    *selected = None;
+                }
                 outcome.changed = true;
                 outcome.label = Some(String::from("detach prop"));
             }
@@ -263,10 +309,13 @@ fn offset_rows(ui: &mut egui::Ui, record: &mut AttachmentRecord) -> bool {
     });
     ui.horizontal(|ui| {
         // One yaw turn covers the common "face the prop outward" need; the
-        // full free rotation waits for the attachment gizmo follow-up.
+        // full free rotation is the in-world gizmo's (#1062). Decompose and
+        // RECOMPOSE rather than overwrite: a prop the gizmo tilted would
+        // otherwise snap flat the moment this row was nudged, which is the
+        // fallback editor quietly destroying work the primary one did.
         let quat = bevy::math::Quat::from_array(record.offset.rotation.0);
-        let (mut yaw_degrees, ..) = quat.to_euler(bevy::math::EulerRot::YXZ);
-        yaw_degrees = yaw_degrees.to_degrees();
+        let (yaw, pitch, roll) = quat.to_euler(bevy::math::EulerRot::YXZ);
+        let mut yaw_degrees = yaw.to_degrees();
         ui.label("yaw");
         if ui
             .add(
@@ -277,8 +326,13 @@ fn offset_rows(ui: &mut egui::Ui, record: &mut AttachmentRecord) -> bool {
             )
             .changed()
         {
-            record.offset.rotation.0 =
-                bevy::math::Quat::from_rotation_y(yaw_degrees.to_radians()).to_array();
+            record.offset.rotation.0 = bevy::math::Quat::from_euler(
+                bevy::math::EulerRot::YXZ,
+                yaw_degrees.to_radians(),
+                pitch,
+                roll,
+            )
+            .to_array();
             changed = true;
         }
         ui.label("scale");

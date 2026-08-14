@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use transform_gizmo_bevy::GizmoTarget;
 
 use crate::pds::{Fp3, Fp4, Generator, Placement, RoomRecord, TransformData};
+use crate::player::attachments::LocalAttachment;
 use crate::state::LiveAvatarRecord;
 use crate::ui::room::RoomEditorState;
 use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
@@ -143,6 +144,103 @@ pub(super) fn commit_avatar_drag(
         return false;
     };
     commit_transform_at_path(visuals, &marker.path, new_local)
+}
+
+/// Commit a finished drag of a worn prop (#1062) into the resolved
+/// attachment's `offset`. Returns `true` when the record was mutated.
+///
+/// **The frame is the carrying joint's REST frame, not the world and not
+/// the joint's live pose.** A rig joint is animated; its `GlobalTransform`
+/// is wherever this frame's clip put it. The record stores one offset that
+/// has to hold for every frame of every clip, and the frame it is authored
+/// against is the bind pose the engine spawns joints at — every joint
+/// unrotated at its rig position. So the released world pose is reparented
+/// against [`LocalAttachment::rest_frame`] (the body root's pose translated
+/// by the joint's rig position), *not* against the detached parent the way
+/// [`resolve_committed_local`] does for prims. Reparenting against the live
+/// joint would bake this instant of the clip into the offset, and the prop
+/// would sit correctly only at that one phase of the walk.
+///
+/// The gizmo is *placed* through the same rest frame on attach (see
+/// `sync::attach_or_release_attachment`), so the conversion is exact
+/// whatever the body happens to be doing. The bind-pose hold in
+/// `player::rigged::drive_rigged_motion` is therefore about the owner
+/// seeing the pose they are authoring for, not about making this arithmetic
+/// come out right.
+///
+/// Scale lands through [`crate::pds::AttachmentRecord::sanitize`], which
+/// forces it uniform — a prop is instanced under an animated joint by one
+/// scale, and a non-uniform one shears every nested sub-assembly inside it.
+/// The gizmo only offers the uniform handle (see `sync::attachment_modes`),
+/// so the sanitiser is a backstop against a non-uniform parent chain rather
+/// than something a drag can trip.
+#[allow(clippy::type_complexity)]
+pub(super) fn commit_attachment_drag(
+    active_entity: Entity,
+    attachment_query: &Query<
+        (
+            Entity,
+            &mut Transform,
+            &LocalAttachment,
+            &GizmoTarget,
+            Option<&GizmoDetachedPrim>,
+        ),
+        (
+            Without<PlacementMarker>,
+            Without<PrimMarker>,
+            Without<AvatarVisualPrim>,
+            Without<BlobElementProxy>,
+        ),
+    >,
+    rigged_bodies: &Query<&bevy_symbios_avatar::AvatarBody>,
+    global_tf: &Query<&GlobalTransform>,
+    record: &mut LiveAvatarRecord,
+) -> bool {
+    let Ok((_e, transform, worn, _t, detached)) = attachment_query.get(active_entity) else {
+        return false;
+    };
+    if detached.is_none() {
+        // The gizmo detaches its target from the hierarchy on attach, and a
+        // prop always has a joint parent to be detached from. No marker
+        // means the entity lost its parent mid-drag (a body rebuild landing
+        // under the gesture) — its `Transform` is then not the world pose
+        // this conversion assumes, and committing it would write garbage.
+        warn!("Attachment commit skipped: the dragged prop was never detached");
+        return false;
+    }
+    let world = GlobalTransform::from(*transform);
+
+    let (Ok(body), Ok(root_world)) = (
+        rigged_bodies.get(worn.rigged_root),
+        global_tf.get(worn.rigged_root),
+    ) else {
+        warn!("Attachment commit skipped: the rigged body despawned during the drag");
+        return false;
+    };
+    let Some(rest) = worn.rest_frame(&body.avatar, root_world) else {
+        warn!("Attachment commit skipped: joint {} is not in this rig", worn.joint);
+        return false;
+    };
+
+    let Some(resolved) = record
+        .0
+        .body
+        .rigged_mut()
+        .and_then(|rig| rig.resolved.as_mut())
+    else {
+        return false;
+    };
+    let Some(attachment) = resolved
+        .attachments
+        .iter_mut()
+        .find(|a| a.rkey == worn.rkey)
+    else {
+        // Detached from the Attachments tab while the drag was in flight.
+        return false;
+    };
+    attachment.record.offset = TransformData::from(world.reparented_to(&rest));
+    attachment.record.sanitize();
+    true
 }
 
 /// Commit a blueprint-ROOT drag by applying the drag's world-space delta

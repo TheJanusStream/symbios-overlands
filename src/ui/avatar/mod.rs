@@ -67,7 +67,7 @@ pub struct PublishAvatarTask {
     pub record_bytes: Option<usize>,
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 enum AvatarTab {
     #[default]
     Body,
@@ -151,6 +151,17 @@ pub struct AvatarEditorState {
     wardrobe: body::WardrobeListing,
     /// Attachment picker state (item + socket) across frames.
     attachments: attachments::AttachmentsTabState,
+    /// Which worn prop the in-world offset gizmo is aimed at (#1062), by
+    /// attachment record rkey. An attachment is addressed by its `(rkey,
+    /// socket)` record pair rather than by a visuals-tree path — a prop is
+    /// not a node in any tree — so this is deliberately *not* folded into
+    /// `selected_prim_path`. Mutually exclusive with the visuals selection:
+    /// leaving either tab clears the other's.
+    selected_attachment: Option<String>,
+    /// Set for one frame when an in-world pick (#1062) selects a worn prop,
+    /// so the next Attachments draw force-opens that row and scrolls to it.
+    /// The attachment-tab twin of [`Self::pending_tree_focus`].
+    pending_attachment_focus: bool,
     /// Attachment records detached this session, deleted by the publish
     /// bundle AFTER the avatar record stops referencing them. Cleared only
     /// when that save lands — a failed publish keeps the queue so the next
@@ -163,6 +174,51 @@ impl AvatarEditorState {
     /// freeze gate and the gizmo dispatch read this.
     pub fn has_visuals_selection(&self) -> bool {
         self.selected_prim_path.is_some()
+    }
+
+    /// The worn prop the offset gizmo is aimed at (#1062), by record rkey.
+    pub fn selected_attachment(&self) -> Option<&str> {
+        self.selected_attachment.as_deref()
+    }
+
+    /// True while a worn prop is selected for in-world offset editing.
+    pub fn has_attachment_selection(&self) -> bool {
+        self.selected_attachment.is_some()
+    }
+
+    /// Drop the attachment selection — tab switch, window collapse, or the
+    /// mutex against the visuals selection.
+    pub fn clear_attachment_selection(&mut self) {
+        self.selected_attachment = None;
+    }
+
+    /// True while the local rigged body must be pinned to its **bind pose**
+    /// (#1062): the whole Attachments tab authors offsets in the carrying
+    /// joint's rest frame — the numeric rows no less than the gizmo — so an
+    /// animated body would have the owner aiming at a pose no offset can
+    /// express. Read by [`crate::player`]'s rigged motion driver.
+    ///
+    /// Wider than the selection alone so that picking a prop out of the
+    /// scene does not snap the body mid-gesture: opening the tab settles it
+    /// first. A selection surviving a tab switch (the close-frame gap) still
+    /// holds, exactly as [`Self::holds_avatar_still`] does for visuals.
+    pub fn holds_rig_at_rest(&self) -> bool {
+        (self.window_visible && self.selected_tab == AvatarTab::Attachments)
+            || self.has_attachment_selection()
+    }
+
+    /// Select a worn prop from an in-world scene pick (#1062), the
+    /// attachment-tab counterpart of [`Self::select_from_scene_pick`]: the
+    /// tab that can show it comes forward, the row is selected, and a
+    /// one-shot focus request is armed so the next draw opens and scrolls to
+    /// it. The visuals selection goes, because only one gizmo target exists.
+    pub fn select_attachment_from_scene_pick(&mut self, rkey: String) {
+        self.selected_tab = AvatarTab::Attachments;
+        self.selected_attachment = Some(rkey);
+        self.pending_attachment_focus = true;
+        if self.has_visuals_selection() {
+            self.clear_visuals_selection();
+        }
     }
 
     /// True while the Avatar window is open with its body visible (as of
@@ -219,6 +275,18 @@ impl AvatarEditorState {
         // A pending burst was aimed at pre-restore state; draining it
         // would double-fire `set_changed` and mint a phantom entry.
         self.pending_flush_secs = 0.0;
+        // A worn prop the restored record no longer wears cannot host a
+        // gizmo (#1062); one it still wears keeps its selection.
+        if let Some(rkey) = self.selected_attachment.as_deref() {
+            let still_worn = record
+                .body
+                .rigged_ref()
+                .and_then(|rig| rig.resolved.as_ref())
+                .is_some_and(|resolved| resolved.attachments.iter().any(|a| a.rkey == rkey));
+            if !still_worn {
+                self.selected_attachment = None;
+            }
+        }
         match &sel.prim_path {
             // `select_from_scene_pick` is exactly the fixup contract:
             // fields set, ancestors expanded, row selected + focused.
@@ -251,6 +319,9 @@ impl AvatarEditorState {
     /// bright focused highlight on the next draw. Mirrors the room
     /// editor's pick path in `editor_gizmo::pick_on_scene_click`.
     pub fn select_from_scene_pick(&mut self, path: Vec<usize>) {
+        // Only one gizmo target at a time — the visuals/attachment mutex is
+        // the intra-editor twin of the room/avatar one.
+        self.selected_attachment = None;
         let root = AvatarVisualsTreeSource::ROOT_NAME.to_string();
         self.selected_generator = Some(root.clone());
         self.selected_prim_path = Some(path.clone());
@@ -323,7 +394,7 @@ pub fn avatar_ui(
     // selection per the cross-editor mutex contract, and (b) tab change —
     // switching off the Visuals tab drops the gizmo target the same way
     // the room editor's tab bar already does.
-    let prev_visuals_selected = editor.has_visuals_selection();
+    let prev_visuals_selected = editor.has_visuals_selection() || editor.has_attachment_selection();
 
     // `.open()` only hides the window *body* — without this gate the
     // whole-record `before` clone below (and the egui Window bookkeeping)
@@ -408,6 +479,8 @@ pub fn avatar_ui(
                     wardrobe,
                     attachments: attachments_state,
                     pending_attachment_deletes,
+                    selected_attachment,
+                    pending_attachment_focus,
                     ..
                 } = &mut *editor;
 
@@ -718,6 +791,8 @@ pub fn avatar_ui(
                                 attachments_state,
                                 pending_attachment_deletes,
                                 session.as_ref().map(|s| s.did.as_str()),
+                                selected_attachment,
+                                std::mem::take(pending_attachment_focus),
                             );
                             widget_changed |= outcome.changed;
                             if let Some(label) = outcome.label {
@@ -864,18 +939,26 @@ pub fn avatar_ui(
     if !window_visible_with_body && editor.has_visuals_selection() {
         editor.clear_visuals_selection();
     }
+    if !window_visible_with_body && editor.has_attachment_selection() {
+        editor.clear_attachment_selection();
+    }
 
     // Tab-switch clear: the avatar editor doesn't gizmo-edit Locomotion,
     // so leaving the Visuals tab also drops the selection.
     if editor.selected_tab != AvatarTab::Visuals && editor.has_visuals_selection() {
         editor.clear_visuals_selection();
     }
+    // Same rule for worn props (#1062): the offset gizmo belongs to the
+    // Attachments tab and goes with it.
+    if editor.selected_tab != AvatarTab::Attachments && editor.has_attachment_selection() {
+        editor.clear_attachment_selection();
+    }
 
     // Cross-editor mutex: when this frame's avatar selection rose from
     // None → Some, drop the room editor's selection so only one gizmo is
     // attached at a time. The reverse direction is enforced by the
     // analogous block in `room::room_admin_ui`.
-    let now_visuals_selected = editor.has_visuals_selection();
+    let now_visuals_selected = editor.has_visuals_selection() || editor.has_attachment_selection();
     if now_visuals_selected
         && !prev_visuals_selected
         && let Some(room) = room_editor.as_deref_mut()
@@ -1137,6 +1220,55 @@ mod tests {
         state.window_visible = false;
         state.selected_prim_path = Some(vec![0]);
         assert!(state.holds_avatar_still());
+    }
+
+    /// #1062: the two avatar-side gizmo targets are mutually exclusive, and
+    /// both scene-pick entry points enforce it. Without this the gizmo
+    /// dispatch has two live selections to choose between and the loser's
+    /// row stays highlighted over a gizmo it does not own.
+    #[test]
+    fn a_prop_pick_and_a_visuals_pick_take_the_gizmo_from_each_other() {
+        let mut state = AvatarEditorState::default();
+
+        state.select_from_scene_pick(vec![0, 1]);
+        state.select_attachment_from_scene_pick(String::from("3jzfcijpj2z2a"));
+        assert_eq!(state.selected_attachment(), Some("3jzfcijpj2z2a"));
+        assert!(!state.has_visuals_selection(), "the visuals row let go");
+        assert_eq!(
+            state.selected_tab,
+            AvatarTab::Attachments,
+            "the pick brings forward the tab that can show it"
+        );
+        assert!(state.pending_attachment_focus, "focus request armed");
+
+        state.select_from_scene_pick(vec![2]);
+        assert!(!state.has_attachment_selection(), "the prop let go");
+        assert!(state.has_visuals_selection());
+    }
+
+    /// #1062: an attachment offset is stored in its carrying joint's rest
+    /// frame, so the whole Attachments tab — numeric rows included — is
+    /// authored against a body held at its bind pose. Narrower than
+    /// `holds_avatar_still` on purpose: the other three tabs still show a
+    /// live idle.
+    #[test]
+    fn the_bind_pose_hold_covers_the_attachments_tab_and_nothing_else() {
+        let mut state = AvatarEditorState {
+            window_visible: true,
+            ..Default::default()
+        };
+        assert!(!state.holds_rig_at_rest(), "the Body tab shows a live body");
+
+        state.selected_tab = AvatarTab::Attachments;
+        assert!(state.holds_rig_at_rest());
+
+        // A selection surviving the close-frame gap still holds, so a drag
+        // released as the window goes cannot land against a moving pose.
+        state.window_visible = false;
+        state.selected_tab = AvatarTab::Visuals;
+        assert!(!state.holds_rig_at_rest());
+        state.selected_attachment = Some(String::from("3jzfcijpj2z2a"));
+        assert!(state.holds_rig_at_rest());
     }
 
     /// #823: a scene pick must land the full row-click state — selection
