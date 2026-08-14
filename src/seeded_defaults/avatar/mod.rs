@@ -17,10 +17,8 @@
 //!     → fx         (style-gated particle aura + spatial-audio voice)
 //!     → outfit     (slot → part choice, querying the part catalogue)
 //!     → body/gait  (proportions + locomotion tuning)
-//!     → blueprint  (humanoid canon: joint anchors + capsule dimensions)
 //!     → vehicle_blueprint (the vehicle counterpart: hull / cabin / envelope
 //!                  proportions from a seeded stance register)
-//!     → face       (head shape, feature layout, resting expression)
 //! ```
 //!
 //! The top-level discrete pick is [`ChassisFamily`] (boat / airship /
@@ -34,11 +32,9 @@
 //! family-agnostic and feed every part build; [`MaterialKit`] supplies the
 //! style/wear finish.
 
-pub mod blueprint;
 pub mod body;
 pub mod character;
 pub mod chassis;
-pub mod face;
 pub mod fx;
 pub mod gait;
 pub mod materials;
@@ -46,13 +42,11 @@ pub mod outfit;
 pub mod palette;
 pub mod vehicle_blueprint;
 
-pub use blueprint::HumanoidBlueprint;
 pub use body::{AvatarBody, BodyArchetype, StylizationTier};
 pub use character::{
     AvatarCharacter, AvatarPins, FinishRegister, OrnatenessBand, OrnatenessTier, WearBand, WearTier,
 };
 pub use chassis::ChassisFamily;
-pub use face::{Disposition, FaceParams, FaceShape, FacialHair, HairStyle, NoseKind};
 pub use fx::{AvatarFx, AvatarVoice, ParticleAura};
 pub use gait::AvatarGait;
 pub use materials::MaterialKit;

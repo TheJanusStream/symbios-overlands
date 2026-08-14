@@ -37,10 +37,8 @@
 //!         · avatar::fx       (style-gated particle aura + audio voice)
 //!         · avatar::outfit   (slot → part choice from the part catalogue)
 //!         · avatar::body     (proportions)
-//!         · avatar::blueprint (humanoid canon: joint anchors + capsule dims)
 //!         · avatar::vehicle_blueprint (the vehicle counterpart: hull /
 //!                             cabin / envelope proportions)
-//!         · avatar::face     (head shape, features, resting expression)
 //!         · avatar::gait     (cadence/bounce/sway)
 //! ```
 //!
@@ -62,8 +60,7 @@ pub mod scene;
 pub use avatar::{
     AirshipBlueprint, AvatarBody, AvatarCharacter, AvatarFx, AvatarGait, AvatarOutfit,
     AvatarPalette, AvatarPins, AvatarVoice, BoatBlueprint, BodyArchetype, ChassisFamily,
-    Disposition, FaceParams, FaceShape, FacialHair, FinishRegister, HairStyle, HumanoidBlueprint,
-    MaterialKit, NoseKind, OrnatenessBand, OrnatenessTier, OutfitPart, ParticleAura,
+    FinishRegister, MaterialKit, OrnatenessBand, OrnatenessTier, OutfitPart, ParticleAura,
     SkiffBlueprint, StylizationTier, VehicleBlueprint, VehicleStance, WearBand, WearTier,
 };
 pub use hash::fnv1a_64;

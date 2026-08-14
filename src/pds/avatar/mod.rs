@@ -113,10 +113,10 @@ impl AvatarRecord {
     /// every derived value (avatars carry no identity sign since #733).
     /// `default_for_did` is exactly `default_for_seed(fnv1a_64(did))`.
     pub fn default_for_seed(seed: u64) -> Self {
-        let (visuals, locomotion) = default_visuals::build_for_seed(seed);
+        let (body, locomotion) = default_visuals::build_for_seed(seed);
         Self {
             lex_type: AVATAR_COLLECTION.into(),
-            body: AvatarBody::generator(visuals),
+            body,
             locomotion,
             // Explicit rather than None so a re-roll re-rolls the idle
             // motion with the same seed as the visuals — peers rendering

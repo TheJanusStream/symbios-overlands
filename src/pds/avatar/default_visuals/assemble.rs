@@ -7,7 +7,7 @@
 
 use std::f32::consts::PI;
 
-use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug, outfit_has_hat};
+use crate::pds::avatar::parts::{PartCtx, PartSlot, by_slug};
 use crate::pds::generator::Generator;
 use crate::pds::types::Fp3;
 use crate::seeded_defaults::{AvatarOutfit, OrnatenessTier};
@@ -31,7 +31,7 @@ pub(super) fn ornament_count(ctx: &PartCtx) -> usize {
 /// works from — bundles the two-step derivation every one repeats.
 pub(super) fn outfit_ctx(seed: u64) -> (AvatarOutfit, PartCtx) {
     let outfit = AvatarOutfit::for_seed(seed);
-    let ctx = PartCtx::for_seed_with_hat(seed, outfit_has_hat(&outfit));
+    let ctx = PartCtx::for_seed(seed);
     (outfit, ctx)
 }
 

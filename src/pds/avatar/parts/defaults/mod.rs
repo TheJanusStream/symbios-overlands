@@ -7,10 +7,14 @@
 //! (`super`'s `#518`/`#519` content) fill in. The geometry is plain — a
 //! readable, *recognisable* silhouette built from the shared primitive
 //! vocabulary and finished through the seeded
-//! [`MaterialKit`](crate::seeded_defaults::MaterialKit) — humanoids carry a
-//! neck/face/hair/hands/feet, vehicles a shaped hull / cabin / cigar
-//! envelope, rather than bare capsules and slabs. Each builds in its slot's
-//! local attachment frame (see the module docstring on [`super`]).
+//! [`MaterialKit`](crate::seeded_defaults::MaterialKit) — a shaped hull /
+//! cabin / cigar envelope rather than bare capsules and slabs. Each builds
+//! in its slot's local attachment frame (see the module docstring on
+//! [`super`]).
+//!
+//! Vehicles only, since #1060: the humanoid families' parts retired with
+//! the generator humanoid, and a humanoid avatar is a rigged
+//! `symbios-avatar` body now.
 //!
 //! ## Colour coherence
 //!
@@ -37,7 +41,6 @@ mod boat;
 // Crate-visible so the styled vehicle kits (`super::vehicle`) can share the
 // `shade` colour helper instead of keeping their own copy (#798).
 pub(crate) mod common;
-mod humanoid;
 // Crate-visible so the land-skiff assembler + the styled chassis / wheel
 // variants (`super::vehicle`) can share its blueprint-derived dims, colour
 // scheme, and wheel-anchor / fender contract (#788).
@@ -49,59 +52,12 @@ use crate::seeded_defaults::{OrnatenessBand, WearBand};
 use super::{BodyPart, PartDef, PartSlot};
 use airship::*;
 use boat::*;
-use humanoid::*;
 use skiff::*;
 
-const HUMANOID: &[ChassisFamily] = &[ChassisFamily::Humanoid];
 const BOAT: &[ChassisFamily] = &[ChassisFamily::Boat];
 const AIRSHIP: &[ChassisFamily] = &[ChassisFamily::Airship];
 const SKIFF: &[ChassisFamily] = &[ChassisFamily::Skiff];
 
-static HEAD: PartDef = PartDef {
-    slug: "default_head",
-    slot: PartSlot::Head,
-    chassis: HUMANOID,
-    styles: &[],
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: head,
-};
-static TORSO: PartDef = PartDef {
-    slug: "default_torso",
-    slot: PartSlot::Torso,
-    chassis: HUMANOID,
-    styles: &[],
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: torso,
-};
-static COAT: PartDef = PartDef {
-    slug: "default_torso_coat",
-    slot: PartSlot::Torso,
-    chassis: HUMANOID,
-    styles: &[],
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: coat,
-};
-static ARM: PartDef = PartDef {
-    slug: "default_arm",
-    slot: PartSlot::Arm,
-    chassis: HUMANOID,
-    styles: &[],
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: arm,
-};
-static LEG: PartDef = PartDef {
-    slug: "default_leg",
-    slot: PartSlot::Leg,
-    chassis: HUMANOID,
-    styles: &[],
-    ornateness: OrnatenessBand::ANY,
-    wear: WearBand::ANY,
-    build: leg,
-};
 static HULL: PartDef = PartDef {
     slug: "default_hull",
     slot: PartSlot::Hull,
@@ -267,11 +223,6 @@ static WHEEL: PartDef = PartDef {
 
 /// Every universal default part, in slot order per chassis.
 pub(super) static ENTRIES: &[&dyn BodyPart] = &[
-    &HEAD,
-    &TORSO,
-    &COAT,
-    &ARM,
-    &LEG,
     &HULL,
     &HULL_CATAMARAN,
     &HULL_TRIMARAN,

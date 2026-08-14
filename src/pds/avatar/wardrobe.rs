@@ -630,8 +630,36 @@ pub async fn publish_avatar_bundle(
 /// says humanoid; the name is a placeholder the identity's handle replaces
 /// in UI, not on the record.
 pub fn engine_default_for_did(did: &str) -> EngineAvatarRecord {
-    let seed = crate::seeded_defaults::fnv1a_64(did) as i64;
-    EngineAvatarRecord::rolled("Wanderer", symbios_avatar::Archetype::default(), seed)
+    engine_default_for_seed(crate::seeded_defaults::fnv1a_64(did))
+}
+
+/// [`engine_default_for_did`] from a pre-computed seed — the re-roll path,
+/// and the one the seeded humanoid chassis builds through (#1060).
+///
+/// **Stature is held to the engine's conservative range, and the wider
+/// exploration envelope is deliberately not used here.** The engine draws
+/// each shape axis with a rare wildcard over a range stretched about the
+/// default — right for an editor, where a 3-metre body is somebody
+/// exploring and one drag undoes it, and wrong for the avatar an identity
+/// is *given* before they have ever opened one: roughly one seed in thirty
+/// would hand a new arrival a 20 cm or 3 m body they never asked for, in a
+/// world whose doorways, seats and camera are cut for people. Every other
+/// axis is a bounded offset and rolls untouched; stature is the one that
+/// sets world scale and the physics capsule.
+pub fn engine_default_for_seed(seed: u64) -> EngineAvatarRecord {
+    let mut record = EngineAvatarRecord::rolled(
+        "Wanderer",
+        symbios_avatar::Archetype::default(),
+        seed as i64,
+    );
+    let (low, high) = symbios_avatar::plan::humanoid_height_range();
+    if let symbios_avatar::Archetype::Humanoid(params) = &mut record.archetype {
+        params.height = params.height.clamp(low, high);
+    }
+    // Re-quantise: the clamp above can land off the wire's grid, and this
+    // record is compared by value against what a peer decoded.
+    record.sanitize();
+    record
 }
 
 /// Dress `record` in a fresh engine body (#1059): a new wardrobe rkey
@@ -786,6 +814,26 @@ mod tests {
             "a rigged body walks"
         );
         let _ = walked;
+    }
+
+    #[test]
+    fn a_seeded_body_is_always_a_plausible_height() {
+        // The engine's exploration envelope reaches roughly 0.1 m to 3.1 m
+        // with a rare wildcard draw — about one seed in thirty. That is the
+        // right distribution for somebody dragging a slider and the wrong
+        // one for the body an identity is handed on arrival.
+        let (low, high) = symbios_avatar::plan::humanoid_height_range();
+        for seed in 0u64..600 {
+            let record = engine_default_for_seed(seed);
+            let symbios_avatar::Archetype::Humanoid(params) = &record.archetype else {
+                panic!("seed {seed} rolled a non-humanoid default");
+            };
+            assert!(
+                params.height >= low && params.height <= high,
+                "seed {seed} stands {:.2} m, outside {low:.2}..{high:.2}",
+                params.height
+            );
+        }
     }
 
     #[test]

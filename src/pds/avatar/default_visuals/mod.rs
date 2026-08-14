@@ -3,27 +3,37 @@
 //! [`build_for_did`] is the single entry point the record layer calls:
 //! it resolves the DID's [`ChassisFamily`] and dispatches to that
 //! family's builder, returning both halves of the avatar record — the
-//! visuals tree and a locomotion preset that *matches* the visuals
-//! (boat → HoverBoat, airship → Helicopter, humanoid → Humanoid,
-//! skiff → Car), so the default chassis drives the way it looks.
+//! body and a locomotion preset that *matches* it (boat → HoverBoat,
+//! airship → Helicopter, humanoid → Humanoid, skiff → Car), so the
+//! default chassis drives the way it looks.
 //!
-//! One file per family, mirroring the
-//! [`crate::seeded_defaults::avatar`] deriver layout; shared
-//! primitive/material vocabulary lives in [`common`].
+//! **The humanoid family is rigged now** (#1060, epic #1054). The three
+//! vehicle families still assemble a [`crate::pds::Generator`] tree out of the tagged
+//! part catalogue, one file per family; a humanoid instead resolves to a
+//! parametric `symbios-avatar` body rolled from the same seed. That body
+//! is filled in **locally** rather than fetched: the engine's roll is
+//! deterministic, so every peer derives the same person for a DID with
+//! nothing on the wire and no PDS round trip — the same promise the
+//! generator families always kept. The wardrobe record key comes from
+//! [`crate::pds::tid::tid_for_seed`] so two devices that both save a
+//! never-edited seeded default agree on where it goes.
+//!
+//! Shared primitive/material vocabulary lives in [`common`].
 
 mod airship;
 mod assemble;
 mod boat;
 pub(crate) mod common;
 mod fx;
-mod humanoid;
 mod skiff;
 
 use crate::pds::avatar::parts::PartSlot;
-use crate::pds::generator::Generator;
+// Aliased: `crate::seeded_defaults::AvatarBody` (imported below) is the
+// seeded *proportions* anchor, a different thing with the same name.
+use crate::pds::avatar::body::AvatarBody as RecordBody;
 use crate::pds::types::{Fp, Fp3};
 use crate::seeded_defaults::{
-    AvatarBody, AvatarFx, AvatarGait, AvatarOutfit, AvatarPalette, ChassisFamily, ParticleAura,
+    AvatarFx, AvatarGait, AvatarOutfit, AvatarPalette, ChassisFamily, ParticleAura,
     VehicleBlueprint, fnv1a_64,
 };
 
@@ -32,9 +42,9 @@ use super::locomotion::{
     LocomotionPreset,
 };
 
-/// Build the full seeded default avatar (visuals + locomotion) for a
+/// Build the full seeded default avatar (body + locomotion) for a
 /// DID. Deterministic: every peer derives the identical record.
-pub fn build_for_did(did: &str) -> (Generator, LocomotionConfig) {
+pub fn build_for_did(did: &str) -> (RecordBody, LocomotionConfig) {
     build_for_seed(fnv1a_64(did))
 }
 
@@ -43,13 +53,22 @@ pub fn build_for_did(did: &str) -> (Generator, LocomotionConfig) {
 /// `build_for_did(did)` is exactly `build_for_seed(fnv1a_64(did))`.
 /// (Avatars no longer wear a pfp identity sign — #733 removed the
 /// chest-badge / hull-decal / bow-crest panels from every chassis.)
-pub fn build_for_seed(seed: u64) -> (Generator, LocomotionConfig) {
+pub fn build_for_seed(seed: u64) -> (RecordBody, LocomotionConfig) {
     let family = ChassisFamily::for_seed(seed);
+    // The rigged family short-circuits the whole part-assembly pipeline:
+    // there is no tree to compose, no FX mount to snap to a blueprint
+    // landmark, and no sanitiser pass to owe — the engine record IS the
+    // body, and the skinned build happens at spawn (#1057).
+    if family == ChassisFamily::Humanoid {
+        return (RecordBody::rigged_seeded(seed), humanoid_locomotion(seed));
+    }
     let (mut visuals, loco) = match family {
         ChassisFamily::Boat => (boat::build(seed), boat_locomotion(seed)),
         ChassisFamily::Airship => (airship::build(seed), airship_locomotion(seed)),
-        ChassisFamily::Humanoid => (humanoid::build(seed), humanoid_locomotion(seed)),
         ChassisFamily::Skiff => (skiff::build(seed), skiff_locomotion(seed)),
+        // Handled above; a family added later lands here loudly rather
+        // than silently assembling nothing.
+        ChassisFamily::Humanoid => unreachable!("the rigged family returns above"),
     };
     // Seeded FX: hang the style's signature particle aura (floored to the
     // chassis wake / vent / exhaust) + body voice on the built root. The mount
@@ -65,7 +84,23 @@ pub fn build_for_seed(seed: u64) -> (Generator, LocomotionConfig) {
         family,
         seed,
     );
-    (visuals, loco)
+    (RecordBody::generator(visuals), loco)
+}
+
+/// How tall the engine body this seed rolls actually stands, in metres.
+///
+/// Read off the archetype's own stature axis rather than by building the
+/// body: a record's height axis IS the nominal stature, and meshing a body
+/// to measure one would cost a quarter-second per seeded default.
+fn engine_stature(seed: u64) -> f32 {
+    let record = super::wardrobe::engine_default_for_seed(seed);
+    match &record.archetype {
+        symbios_avatar::Archetype::Humanoid(params) => params.height,
+        symbios_avatar::Archetype::Quadruped(params) => params.height,
+        // A body plan this build cannot read gets the canon figure, which
+        // is what the preset's own default collider was cut for.
+        symbios_avatar::Archetype::Unknown { .. } => 1.7,
+    }
 }
 
 /// Diegetic FX mount for `aura` on `family` (root-local frame, *before* the
@@ -137,22 +172,25 @@ fn structural_slug(outfit: &AvatarOutfit, slot: PartSlot) -> &'static str {
         .map_or("", |p| p.slug)
 }
 
-/// Humanoid locomotion tuned to the seeded body: the collider capsule
-/// tracks the figure's height/build and the walk speed tracks the
-/// seeded gait cadence (nominal 2.2 steps/s ↔ the preset's default
-/// 4.0 m/s), so a long-legged strider actually covers ground faster
-/// than a short-stepped walker.
+/// Humanoid locomotion tuned to the **engine** body the seed rolls
+/// (#1060): the collider capsule tracks that body's own stature and the
+/// walk speed tracks the seeded gait cadence (nominal 2.2 steps/s ↔ the
+/// preset's default 4.0 m/s), so a long-legged strider actually covers
+/// ground faster than a short-stepped walker.
+///
+/// Sized from the engine record rather than the retired humanoid
+/// blueprint, and that is a correctness fix rather than a swap of
+/// equivalent sources: the rigged spawn path seats the skinned body's
+/// feet at the collider's *bottom*, so a capsule that disagreed with the
+/// body's stature would sink it into the ground or float it above.
 fn humanoid_locomotion(seed: u64) -> LocomotionConfig {
-    let body = AvatarBody::for_seed(seed);
-    let bp = crate::seeded_defaults::HumanoidBlueprint::from_body(&body);
+    let stature = engine_stature(seed);
     let gait = AvatarGait::for_seed(seed);
     let mut p = HumanoidParams::default();
-    // The capsule tracks the blueprint exactly: a Toy avatar is genuinely
-    // small in-world, a Heroic one genuinely tall. Radius hugs the figure's
-    // widest mass (shoulders + splayed arms).
-    let total_h = bp.total_h;
-    p.capsule_radius = Fp(((bp.shoulder_x + 2.0 * bp.arm_r) * 0.95).clamp(0.18, 0.34));
-    p.capsule_length = Fp((total_h - 2.0 * p.capsule_radius.0).max(0.4));
+    // A person is roughly a tenth of their height across the shoulders; the
+    // clamp keeps a rolled extreme inside collider sanity.
+    p.capsule_radius = Fp((stature * 0.11).clamp(0.18, 0.34));
+    p.capsule_length = Fp((stature - 2.0 * p.capsule_radius.0).max(0.4));
     p.walk_speed = Fp(4.0 * (gait.step_cadence / 2.2));
     p.into_config()
 }
@@ -305,7 +343,27 @@ fn fit_extents(raw: [f32; 3]) -> Fp3 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pds::LocomotionConfig;
+    use crate::pds::{Generator, LocomotionConfig};
+
+    /// The generator tree a seed builds, or `None` for the rigged family
+    /// (#1060). Every tree-walking test below is about *assembled* geometry,
+    /// which a rigged body has none of — it skips rather than pretending.
+    fn visuals_for_seed(seed: u64) -> Option<Generator> {
+        build_for_seed(seed).0.visuals().cloned()
+    }
+
+    /// The same for a DID.
+    fn visuals_for_did(did: &str) -> Option<Generator> {
+        build_for_did(did).0.visuals().cloned()
+    }
+
+    /// A DID per VEHICLE family — the three that still assemble parts.
+    fn vehicle_dids() -> Vec<(ChassisFamily, String)> {
+        family_dids()
+            .into_iter()
+            .filter(|(fam, _)| *fam != ChassisFamily::Humanoid)
+            .collect()
+    }
 
     /// The first seed of each chassis family whose outfit rolls the given
     /// structural class slug, searching a wide seed range.
@@ -424,7 +482,9 @@ mod tests {
             }
         }
         for s in 0u64..400 {
-            let (built, _) = build_for_seed(s);
+            let Some(built) = visuals_for_seed(s) else {
+                continue;
+            };
             let mut sanitized = built.clone();
             sanitize_avatar_visuals(&mut sanitized);
             let (mut a, mut b) = (Vec::new(), Vec::new());
@@ -524,8 +584,8 @@ mod tests {
             }
         }
 
-        for (fam, did) in family_dids() {
-            let (built, _) = build_for_did(&did);
+        for (fam, did) in vehicle_dids() {
+            let built = visuals_for_did(&did).expect("a vehicle assembles a tree");
             let mut sanitized = built.clone();
             sanitize_avatar_visuals(&mut sanitized);
             assert_tree_eq(&built, &sanitized, fam);
@@ -541,8 +601,8 @@ mod tests {
         fn has_sign(g: &Generator) -> bool {
             matches!(g.kind, GeneratorKind::Sign { .. }) || g.children.iter().any(has_sign)
         }
-        for (fam, did) in family_dids() {
-            let (built, _) = build_for_did(&did);
+        for (fam, did) in vehicle_dids() {
+            let built = visuals_for_did(&did).expect("a vehicle assembles a tree");
             assert!(!has_sign(&built), "{fam:?} avatar still carries a sign");
         }
     }
@@ -644,17 +704,65 @@ mod tests {
         let aura_seed = aura_seed.expect("no seed rolled a particle aura");
         let voice_seed = voice_seed.expect("no seed rolled a voice");
 
-        let (built, _) = build_for_seed(aura_seed);
+        let built = visuals_for_seed(aura_seed).expect("a vehicle assembles a tree");
         assert!(
             has_particles(&built),
             "aura seed {aura_seed} grew no ParticleSystem"
         );
 
-        let (built, _) = build_for_seed(voice_seed);
+        let built = visuals_for_seed(voice_seed).expect("a vehicle assembles a tree");
         assert!(
             !matches!(built.audio, crate::pds::SovereignAudioConfig::None),
             "voice seed {voice_seed} set no body audio"
         );
+    }
+
+    #[test]
+    fn the_humanoid_family_is_rigged_and_resolves_without_a_fetch() {
+        // The #1060 contract, and the reason a seeded default still works
+        // for a peer nobody has ever heard of: the engine body is rolled
+        // locally from the same seed, so two clients agree on the person
+        // AND on the wardrobe key it would be saved under, with nothing
+        // exchanged.
+        let seed = (0u64..400)
+            .find(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Humanoid)
+            .expect("some seed rolls a humanoid");
+        let (body, loco) = build_for_seed(seed);
+        let rig = body.rigged_ref().expect("the humanoid family is rigged");
+        let resolved = rig
+            .resolved
+            .as_ref()
+            .expect("seeded bodies resolve locally — no PDS round trip");
+        assert_eq!(rig.avatar.len(), 13, "a deterministic TID rkey");
+        assert!(body.visuals().is_none(), "no generator tree to walk");
+        assert_eq!(loco.kind_tag(), "humanoid", "a rigged body walks");
+
+        let (again, _) = build_for_seed(seed);
+        let again = again.rigged_ref().expect("still rigged");
+        assert_eq!(rig.avatar, again.avatar, "the rkey must be deterministic");
+        assert_eq!(
+            resolved.body,
+            again.resolved.as_ref().expect("resolved").body,
+            "the person must be deterministic"
+        );
+    }
+
+    #[test]
+    fn a_rigged_collider_matches_the_body_it_carries() {
+        // The capsule is what `player::rigged` seats the skinned feet
+        // against, so a capsule that disagreed with the body's stature
+        // would sink it into the ground or float it above.
+        for seed in (0u64..600).filter(|&s| ChassisFamily::for_seed(s) == ChassisFamily::Humanoid) {
+            let stature = engine_stature(seed);
+            let LocomotionConfig::Humanoid(p) = build_for_seed(seed).1 else {
+                panic!("seed {seed} rolled a rigged body without humanoid locomotion");
+            };
+            let capsule = p.capsule_length.0 + 2.0 * p.capsule_radius.0;
+            assert!(
+                (capsule - stature).abs() < 0.05,
+                "seed {seed}: a {stature:.2} m body in a {capsule:.2} m capsule"
+            );
+        }
     }
 
     #[test]

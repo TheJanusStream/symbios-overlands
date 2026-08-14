@@ -17,9 +17,9 @@
 //! Each part builds its geometry in a **local frame whose origin is the
 //! part's attachment point**; the assembler
 //! ([`super::default_visuals`]) positions the part root into the avatar.
-//! By slot: [`PartSlot::Head`] / [`PartSlot::Torso`] and the vehicle body
-//! slots are centred on the origin; [`PartSlot::Arm`] / [`PartSlot::Leg`]
-//! hang *downward* from a shoulder / hip pivot at the origin;
+//! By slot: the vehicle body slots ([`PartSlot::Hull`], [`PartSlot::Envelope`],
+//! [`PartSlot::Chassis`]) are centred on the origin; [`PartSlot::Wheel`] and
+//! [`PartSlot::Fin`] hang from their mount pivot at the origin;
 //! [`PartSlot::Mast`] rises *upward* from a deck pivot at the origin.
 //!
 //! ## Style coverage
@@ -31,14 +31,13 @@
 //! analogue of the settlement's `FALLBACK_THEME`, but per-slot).
 
 pub(crate) mod defaults;
-pub(crate) mod humanoid;
 pub(crate) mod vehicle;
 
 use crate::pds::generator::Generator;
 use crate::seeded_defaults::{
-    AirshipBlueprint, AvatarBody, AvatarCharacter, AvatarOutfit, AvatarPalette, BoatBlueprint,
-    ChassisFamily, FaceParams, HumanoidBlueprint, MaterialKit, OrnatenessBand, OrnatenessTier,
-    SkiffBlueprint, ThemeArchetype, VehicleBlueprint, WearBand, WearTier,
+    AirshipBlueprint, AvatarBody, AvatarCharacter, AvatarPalette, BoatBlueprint, ChassisFamily,
+    MaterialKit, OrnatenessBand, OrnatenessTier, SkiffBlueprint, ThemeArchetype, VehicleBlueprint,
+    WearBand, WearTier,
 };
 
 /// One composable slot of an avatar. Flat across every chassis (a part
@@ -47,17 +46,6 @@ use crate::seeded_defaults::{
 /// [`optional_slots`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PartSlot {
-    // --- Humanoid ---
-    /// The head + face (carries eyes / hair attachment).
-    Head,
-    /// The torso / trunk.
-    Torso,
-    /// One arm (the assembler mirrors it left/right).
-    Arm,
-    /// One leg (the assembler mirrors it left/right).
-    Leg,
-    /// Optional headwear.
-    Hat,
     // --- Boat ---
     /// The waterline hull.
     Hull,
@@ -97,7 +85,8 @@ pub enum PartSlot {
 pub fn required_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
     use PartSlot::*;
     match chassis {
-        ChassisFamily::Humanoid => &[Head, Torso, Arm, Leg],
+        // A rigged family assembles no parts (#1060).
+        ChassisFamily::Humanoid => &[],
         ChassisFamily::Boat => &[Hull, Deck, Mast],
         ChassisFamily::Airship => &[Envelope, Gondola, Fin, Pod],
         ChassisFamily::Skiff => &[Chassis, Canopy, Wheel],
@@ -109,7 +98,7 @@ pub fn required_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
 pub fn optional_slots(chassis: ChassisFamily) -> &'static [PartSlot] {
     use PartSlot::*;
     match chassis {
-        ChassisFamily::Humanoid => &[Hat, Ornament],
+        ChassisFamily::Humanoid => &[],
         ChassisFamily::Boat => &[Bow, Stack, Ornament],
         ChassisFamily::Airship => &[Ornament],
         ChassisFamily::Skiff => &[Exhaust, Ornament],
@@ -124,18 +113,11 @@ pub struct PartCtx {
     pub palette: AvatarPalette,
     pub materials: MaterialKit,
     pub body: AvatarBody,
-    /// Concrete humanoid skeleton dimensions derived from `body` — the
-    /// shared proportion contract between the humanoid parts and the
-    /// assembler. Vehicle parts ignore it.
-    pub blueprint: HumanoidBlueprint,
     /// Concrete vehicle proportions + mount landmarks for the seed's chassis
     /// — the shared contract between the vehicle parts and the assembler
-    /// (`None` for the humanoid, or a vehicle family not yet wired). Read
+    /// (`None` for the rigged family, or a vehicle family not yet wired). Read
     /// through the family accessors ([`Self::boat`]).
     pub vehicle: Option<VehicleBlueprint>,
-    /// Seeded face identity (head shape / expression / hair) — humanoid
-    /// head builder input; tier-locked to `body.tier`.
-    pub face: FaceParams,
     /// The avatar seed — parts open their own sub-stream for stochastic
     /// detail without re-deriving the anchor.
     pub seed: u64,
@@ -143,34 +125,24 @@ pub struct PartCtx {
     /// (gondola dressing, engine-pod richness) so the tier finally reads on the
     /// geometry, not just the optional-slot roll.
     pub ornateness: OrnatenessTier,
-    /// Whether this avatar's outfit fills the [`PartSlot::Hat`] slot. Parts
-    /// that would clip headwear (the hair flourish) suppress themselves when a
-    /// hat is worn.
-    pub has_hat: bool,
 }
 
 impl PartCtx {
     /// Derive the full build context from an avatar seed.
+    ///
+    /// No longer derives an `AvatarOutfit` of its own: the hat flag it used
+    /// to carry existed for the humanoid hair flourish, which retired with
+    /// the generator humanoid (#1060). The two-constructor split #638 added
+    /// to avoid a second outfit derivation went with it.
     pub fn for_seed(seed: u64) -> Self {
-        Self::for_seed_with_hat(seed, outfit_has_hat(&AvatarOutfit::for_seed(seed)))
-    }
-
-    /// Like [`Self::for_seed`] but with `has_hat` precomputed by the caller. The four
-    /// family builders already derive the `AvatarOutfit` for their own parts
-    /// iteration, so they pass its hat flag in here instead of forcing a second
-    /// full `AvatarOutfit::for_seed` derivation per build (#638).
-    pub fn for_seed_with_hat(seed: u64, has_hat: bool) -> Self {
         let body = AvatarBody::for_seed(seed);
         Self {
             palette: AvatarPalette::for_seed(seed),
             materials: MaterialKit::for_seed(seed),
             body,
-            blueprint: HumanoidBlueprint::from_body(&body),
             vehicle: VehicleBlueprint::from_body(&body, ChassisFamily::for_seed(seed), seed),
-            face: FaceParams::for_seed(seed, body.tier),
             seed,
             ornateness: AvatarCharacter::for_seed(seed).ornateness_tier(),
-            has_hat,
         }
     }
 
@@ -191,13 +163,6 @@ impl PartCtx {
     pub fn skiff(&self) -> Option<&SkiffBlueprint> {
         self.vehicle.as_ref().and_then(VehicleBlueprint::skiff)
     }
-}
-
-/// Whether the outfit fills the Hat slot — the one bit of the outfit the
-/// [`PartCtx`] needs (hair parts self-suppress under a hat). Takes the outfit by
-/// reference so the family builders can reuse the one they already derived.
-pub(crate) fn outfit_has_hat(outfit: &AvatarOutfit) -> bool {
-    outfit.parts.iter().any(|p| p.slot == PartSlot::Hat)
 }
 
 /// One composable avatar part blueprint. Implementors are aggregated into
@@ -312,7 +277,6 @@ pub fn parts_for_avatar(
 pub fn entries() -> impl Iterator<Item = &'static dyn BodyPart> {
     defaults::ENTRIES
         .iter()
-        .chain(humanoid::ENTRIES.iter())
         .chain(vehicle::ENTRIES.iter())
         .copied()
 }
@@ -446,105 +410,6 @@ mod tests {
                 let mut sanitized = built.clone();
                 sanitize_avatar_visuals(&mut sanitized);
                 assert_tree_eq(&built, &sanitized, part.slug());
-            }
-        }
-    }
-
-    #[test]
-    fn humanoid_blob_masses_are_single_connected_skins() {
-        // Union-find over each BlobGroup mesh's triangle graph: a blended
-        // trunk / limb / pelvis / shoe must polygonise as ONE component.
-        // This is the mechanical guard for the #726 round-2 regression —
-        // needle-tipped limb segments visually separating at the joints
-        // ("exploded marionette") — and for any future element retune that
-        // drifts masses out of blend range. Seeds span the four
-        // stylization tiers via the user-supplied humanoid seed list.
-        use crate::pds::generator::GeneratorKind;
-        use crate::world_builder::build_primitive_mesh;
-        use bevy::mesh::VertexAttributeValues;
-
-        fn find(parent: &mut [usize], mut a: usize) -> usize {
-            while parent[a] != a {
-                parent[a] = parent[parent[a]];
-                a = parent[a];
-            }
-            a
-        }
-        fn components(kind: &GeneratorKind) -> usize {
-            let mesh = build_primitive_mesh(kind).mesh;
-            let pos = match mesh.attribute(bevy::prelude::Mesh::ATTRIBUTE_POSITION) {
-                Some(VertexAttributeValues::Float32x3(p)) => p.clone(),
-                _ => return 0,
-            };
-            let Some(indices) = mesh.indices() else {
-                return 0;
-            };
-            // Weld coincident vertices before the union-find: the UV seam
-            // splits (#739's Box/Cylindrical modes duplicate a vertex per
-            // projection region — and Box is the default since #742) are
-            // texture-atlas topology, not geometry, and this guard cares
-            // about *geometric* connectivity. Bit-exact keys suffice
-            // because the seam duplicates are verbatim copies.
-            let mut weld: std::collections::HashMap<[u32; 3], usize> =
-                std::collections::HashMap::with_capacity(pos.len());
-            let rep: Vec<usize> = pos
-                .iter()
-                .enumerate()
-                .map(|(i, p)| {
-                    *weld
-                        .entry([p[0].to_bits(), p[1].to_bits(), p[2].to_bits()])
-                        .or_insert(i)
-                })
-                .collect();
-            let n = pos.len();
-            let mut parent: Vec<usize> = (0..n).collect();
-            let mut touched = vec![false; n];
-            let idx: Vec<usize> = indices.iter().map(|i| rep[i]).collect();
-            for tri in idx.chunks(3) {
-                for &(a, b) in &[(tri[0], tri[1]), (tri[0], tri[2])] {
-                    touched[a] = true;
-                    touched[b] = true;
-                    let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
-                    parent[ra] = rb;
-                }
-            }
-            (0..n)
-                .filter(|&v| touched[v] && find(&mut parent, v) == v)
-                .count()
-        }
-        fn walk(g: &Generator, out: &mut Vec<GeneratorKind>) {
-            if matches!(g.kind, GeneratorKind::BlobGroup { .. }) {
-                out.push(g.kind.clone());
-            }
-            for c in &g.children {
-                walk(c, out);
-            }
-        }
-
-        // All verified humanoid-producing seeds (a vehicle seed would have
-        // no blob masses and trip the non-empty assert below).
-        for seed in [
-            6300350204994988827u64,
-            16829956693767402793,
-            18102493806418102393,
-            5227756743208462829,
-            15252705949980194106,
-            184810340591539844,
-            14887495512784657594,
-        ] {
-            let (avatar, _) = crate::pds::avatar::default_visuals::build_for_seed(seed);
-            let mut kinds = Vec::new();
-            walk(&avatar, &mut kinds);
-            assert!(
-                !kinds.is_empty(),
-                "seed {seed}: humanoid avatar lost its blob masses"
-            );
-            for (i, k) in kinds.iter().enumerate() {
-                assert_eq!(
-                    components(k),
-                    1,
-                    "seed {seed}: blob mass #{i} meshes as a disconnected skin"
-                );
             }
         }
     }

@@ -1,17 +1,17 @@
 //! Avatar body proportions — overall scale, shoulder width, head
 //! size, limb thickness, body archetype.
 //!
-//! These seeded knobs are the shared anchor every chassis family's
-//! blueprint reads: a humanoid derives its figure via
-//! [`HumanoidBlueprint`](crate::seeded_defaults::HumanoidBlueprint), and
-//! each vehicle its proportions via
+//! These seeded knobs are the shared anchor every vehicle chassis family's
+//! blueprint reads: each derives its proportions via
 //! [`VehicleBlueprint`](crate::seeded_defaults::VehicleBlueprint) (a boat's
 //! hull length / beam / freeboard, an airship's envelope length / girth +
 //! gondola, a skiff's body + wheels). `height_scale` sets overall size,
 //! `shoulder_width_scale` the lateral spread (a figure's shoulders, a hull's
 //! beam), `head_scale` a crowning mass (a head, an airship gondola),
-//! `limb_thickness_scale` slender-vs-stout members (limbs, pontoons, wheels).
-//! `torso_leg_ratio` is humanoid-only — the vehicle blueprints ignore it.
+//! `limb_thickness_scale` slender-vs-stout members (pontoons, wheels).
+//! `torso_leg_ratio` is read by nothing since the generator humanoid retired
+//! (#1060); it stays on the record's seeded anchor so a seed keeps rolling
+//! the same vehicle it always did.
 
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;

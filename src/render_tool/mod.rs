@@ -36,6 +36,7 @@ use bevy::prelude::*;
 use bevy::window::ExitCondition;
 use clap::Parser;
 
+use crate::pds::AvatarBody;
 use crate::pds::avatar::default_visuals::{build_for_did, build_for_seed};
 use crate::pds::types::{Fp, Fp2};
 use crate::pds::{Generator, GeneratorKind, RoomRecord};
@@ -369,10 +370,11 @@ pub fn run() {
             apply_prim_overrides(&mut kind, &args);
             Generator::from_kind(kind)
         } else if let Some(avatar) = args.avatar.as_deref() {
-            match avatar.parse::<u64>() {
+            let body = match avatar.parse::<u64>() {
                 Ok(seed) => build_for_seed(seed).0,
                 Err(_) => build_for_did(avatar).0,
-            }
+            };
+            generator_body(body, avatar)
         } else {
             panic!(
                 "--dump requires --catalogue <slug>, --prim <tag>, or --avatar <seed|did> \
@@ -512,11 +514,33 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
         return (Subject::Single(Box::new(generator)), label);
     }
     let avatar = args.avatar.clone().unwrap_or_else(|| "7".to_string());
-    let (generator, label) = match avatar.parse::<u64>() {
+    let (body, label) = match avatar.parse::<u64>() {
         Ok(seed) => (build_for_seed(seed).0, format!("seed-{seed}")),
         Err(_) => (build_for_did(&avatar).0, avatar.replace([':', '/'], "_")),
     };
-    (Subject::Single(Box::new(generator)), label)
+    (
+        Subject::Single(Box::new(generator_body(body, &avatar))),
+        label,
+    )
+}
+
+/// The generator tree behind a seeded avatar, or a clear refusal.
+///
+/// This tool draws `Generator` geometry through the real spawn path; a
+/// rigged body (#1060 — every humanoid seed) is a skinned
+/// `symbios-avatar` build with no tree to walk, so it is turned away by
+/// name rather than rendered as an empty sheet. The sibling
+/// `bevy_symbios_avatar` viewer is that body's instrument, and it has its
+/// own `--shot` capture.
+fn generator_body(body: AvatarBody, subject: &str) -> Generator {
+    match body {
+        AvatarBody::Generator(body) => body.visuals,
+        _ => panic!(
+            "avatar {subject:?} is a rigged body — this tool renders generator trees. \n\
+             Vehicle seeds (boat / airship / skiff) still render here; for a rigged \n\
+             body use the bevy_symbios_avatar viewer's --shot capture."
+        ),
+    }
 }
 
 /// Expand a single-generator subject into the `--ages` lineup: one clone per

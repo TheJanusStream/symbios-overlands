@@ -132,25 +132,7 @@ pub(crate) fn cylinder(
     }
 }
 
-pub(crate) fn capsule(
-    radius: f32,
-    length: f32,
-    material: SovereignMaterialSettings,
-) -> GeneratorKind {
-    GeneratorKind::Capsule {
-        radius: Fp(radius),
-        length: Fp(length),
-        latitudes: 8,
-        longitudes: 16,
-        solid: false,
-        uv_mapping: UvMapping::fit(),
-        material,
-        faces: Vec::new(),
-        torture: TortureParams::default(),
-    }
-}
-
-/// Smooth-blend SDF group (#690): `elements` built with [`blob_sphere`] /
+/// Smooth-blend SDF group (#690): `elements` built with [`blob_ellipsoid`] /
 /// [`blob_ellipsoid`] / [`blob_capsule`] / [`blob_carve`]. The organic-mass
 /// workhorse — overlapping elements merge into one seamless skin, so the
 /// old bolted-ellipsoid idiom (and its intersection seams) is obsolete.
@@ -185,18 +167,6 @@ pub(crate) fn blob_group_uv(
         material,
         faces: Vec::new(),
         torture: TortureParams::default(),
-    }
-}
-
-/// Additive blob sphere at `position` with uniform `radius`.
-pub(crate) fn blob_sphere(position: [f32; 3], radius: f32, blend: f32) -> BlobElement {
-    BlobElement {
-        shape: BlobShape::Sphere,
-        position: Fp3(position),
-        rotation: Fp4([0.0, 0.0, 0.0, 1.0]),
-        radii: Fp3([radius, radius, radius]),
-        subtract: false,
-        blend: Fp(blend),
     }
 }
 

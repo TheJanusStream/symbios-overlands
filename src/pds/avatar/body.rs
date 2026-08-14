@@ -129,6 +129,25 @@ impl AvatarBody {
         Self::Generator(Box::new(GeneratorBody { visuals }))
     }
 
+    /// The seeded default's rigged body (#1060): the engine record rolled
+    /// from `seed`, resolved **locally** at a deterministic wardrobe key.
+    ///
+    /// Nothing is fetched, and nothing needs to exist on a PDS — the
+    /// engine's roll is deterministic, so every peer derives the same
+    /// person for a DID with nothing on the wire. That is what lets an
+    /// identity who has never opened the editor still look like themselves
+    /// to everyone in the room.
+    pub fn rigged_seeded(seed: u64) -> Self {
+        Self::Rigged(Box::new(RiggedBody {
+            avatar: crate::pds::tid::tid_for_seed(seed),
+            attachments: Vec::new(),
+            resolved: Some(ResolvedRig {
+                body: super::wardrobe::engine_default_for_seed(seed),
+                attachments: Vec::new(),
+            }),
+        }))
+    }
+
     /// A rigged body wearing the wardrobe record at `rkey`, unresolved.
     pub fn rigged(rkey: impl Into<String>) -> Self {
         Self::Rigged(Box::new(RiggedBody {

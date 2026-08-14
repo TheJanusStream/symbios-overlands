@@ -31,6 +31,20 @@ pub fn tid_now(entropy: u64) -> String {
     tid_for(micros, entropy)
 }
 
+/// The TID a seeded default's wardrobe record lives at (#1060).
+///
+/// Deterministic rather than clock-minted, and that is the point: every
+/// client derives the same seeded body for an identity, so they must also
+/// agree on where it would be stored — otherwise the first save from one
+/// device and the first save from another would publish the same body
+/// twice under two keys. The encoded "timestamp" is drawn from the seed
+/// and means nothing as a time; a TID's ordering only has to be
+/// well-defined, and a body nobody has saved yet has no creation moment to
+/// tell the truth about.
+pub fn tid_for_seed(seed: u64) -> String {
+    tid_for(seed >> 11, seed)
+}
+
 /// The TID for a given microsecond timestamp and entropy — split from
 /// [`tid_now`] so tests can pin exact strings without a clock.
 pub fn tid_for(micros: u64, entropy: u64) -> String {

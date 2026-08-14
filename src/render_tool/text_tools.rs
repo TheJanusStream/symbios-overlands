@@ -26,18 +26,15 @@ pub(super) fn print_family_seeds(fam: &str, count: usize) {
         .take(count)
         .collect();
     println!("{want:?} seeds: {seeds:?}");
-    // Humanoids also print their stylization tier + physical height so the
-    // overhaul loop can pick one exemplar per tier without trial renders.
+    // Humanoid seeds are rigged bodies since #1060 — there is no generator
+    // tree to render and no stylization tier to exemplify, so say where the
+    // instrument for them lives instead of printing a table about parts
+    // that no longer exist.
     if want == ChassisFamily::Humanoid {
-        for &s in &seeds {
-            let bp = crate::seeded_defaults::HumanoidBlueprint::for_seed(s);
-            println!(
-                "  seed {s}: {:?} ({:.2} m, {:.1} heads)",
-                bp.tier,
-                bp.total_h,
-                bp.total_h / bp.head_unit
-            );
-        }
+        println!(
+            "  (humanoid seeds are rigged symbios-avatar bodies — render them \n\
+              with the bevy_symbios_avatar viewer, not this tool)"
+        );
     }
 }
 
