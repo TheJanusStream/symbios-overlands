@@ -360,7 +360,7 @@ fn install_built_body(
         .spawn((
             RiggedRoot,
             RiggedMotion::default(),
-            Transform::from_xyz(0.0, -offset, 0.0),
+            rigged_root_transform(offset),
             Visibility::default(),
             ChildOf(chassis),
         ))
@@ -368,6 +368,33 @@ fn install_built_body(
     spawn_avatar(
         commands, root, avatar, 0.0, meshes, materials, images, bindposes,
     );
+}
+
+/// Where the skinned body hangs relative to its chassis (#1066).
+///
+/// Two corrections, both of them convention mismatches rather than tuning:
+///
+/// * **Height** — the engine's ground plane is `y = 0`, so the body drops by
+///   half the collider so its feet meet the chassis capsule's bottom.
+/// * **Facing** — a half turn about Y. `symbios_avatar::rig::landmark::FORWARD`
+///   is `+Z`, the glTF/VRM convention the engine shares; Bevy's forward is
+///   `-Z`, and the chassis is steered by
+///   `Transform::looking_to(movement_direction, Y)`, which aims *its* `-Z`
+///   down the direction of travel. Hanging the body off that with no rotation
+///   pointed the engine's `+Z` face directly away from where the avatar was
+///   going — walking correctly, moonwalking visibly. The half turn is applied
+///   here, on the one entity that bridges the two conventions, rather than by
+///   re-aiming the chassis (which the camera, the vehicles and the locomotion
+///   drive all share) or by rotating the clips (which are authored in the
+///   engine's frame and are consistent with the body).
+///
+/// Everything below this entity inherits the turn together — geometry, rig,
+/// clips, and the socket anchors that
+/// [`crate::player::attachments::LocalAttachment::rest_frame`] reconstructs an
+/// offset against — so worn props stay put relative to the body they are on.
+fn rigged_root_transform(offset: f32) -> Transform {
+    Transform::from_xyz(0.0, -offset, 0.0)
+        .with_rotation(Quat::from_rotation_y(std::f32::consts::PI))
 }
 
 /// Pose every built body from what its chassis is doing.
@@ -591,6 +618,56 @@ mod tests {
             rig.resolved = Some(resolved);
         }
         record
+    }
+
+    /// #1066: the body must face where the chassis is going.
+    ///
+    /// The engine and Bevy disagree about forward — `landmark::FORWARD` is
+    /// `+Z` (the glTF/VRM convention), Bevy's is `-Z`, and the chassis is
+    /// aimed with `Transform::looking_to`, which points *its* `-Z` down the
+    /// direction of travel. Without the half turn on the rigged root the
+    /// avatar ran backwards.
+    ///
+    /// Asserted against the engine's OWN forward landmark rather than
+    /// against a re-derivation of it: `Socket::Chest`'s anchor is defined to
+    /// face `+FORWARD`, so if upstream ever changes which way that points,
+    /// this fails instead of silently agreeing with a stale constant.
+    #[test]
+    fn a_rigged_body_faces_the_way_its_chassis_travels() {
+        let avatar = symbios_avatar::Avatar::build_with(
+            &engine_default_for_did("did:plc:facing-test"),
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                ..Default::default()
+            },
+        )
+        .expect("the seeded default engine body builds");
+
+        let chest = symbios_avatar::Socket::Chest
+            .anchor(&avatar.rig)
+            .expect("a humanoid rig has a chest");
+        // Sanity: the engine really does put the chest on +Z. If this trips,
+        // the bug is upstream and the correction below is aimed wrong.
+        assert!(
+            chest.direction.dot(Vec3::Z) > 0.9,
+            "engine chest anchor is no longer +Z forward: {}",
+            chest.direction
+        );
+
+        // In chassis space, after the root's correction.
+        let facing = rigged_root_transform(0.9).rotation * chest.direction;
+        assert!(
+            facing.dot(Vec3::NEG_Z) > 0.9,
+            "the body's chest must point down Bevy's forward (-Z), the axis \
+             `looking_to` aims at the direction of travel; got {facing}"
+        );
+        // And the turn must be a pure yaw — a body tipped or rolled here
+        // would plant its feet through the floor.
+        let up = rigged_root_transform(0.9).rotation * Vec3::Y;
+        assert!(
+            up.dot(Vec3::Y) > 0.999,
+            "the correction tilted the body: {up}"
+        );
     }
 
     #[test]
