@@ -128,3 +128,28 @@ lto = "fat"       # Enable full Link Time Optimization (CRITICAL FIX)
 codegen-units = 1 # Reduce parallelism to improve optimization quality
 strip = true      # Strip symbols to clean up the binary tables
 panic = "abort"   # Reduce binary size by removing stack unwinding
+
+# The profile the standing pre-commit gate runs under (#1064).
+#
+# `[profile.release]` above is tuned for ONE artifact: the wasm bundle
+# `wasm-bindgen` ships. `cargo test --release` inherits it, and there are 24
+# test binaries, each of which then pays a whole-program fat-LTO link of the
+# entire Bevy engine at `codegen-units = 1` (i.e. single-threaded
+# optimization), six at a time. Measured on the #1062 gate run: 2.0s of
+# actual test execution behind roughly 25 minutes of linking, with
+# `target/release/deps` at 5.8 GB.
+#
+# None of that optimization buys a test anything — the tests are gated on
+# behaviour, not on code size or throughput — so this profile keeps release
+# codegen (which is what makes the avatar/terrain builds in the suite
+# tolerable) and drops the whole-program link.
+#
+# NOTE: `[profile.bench]` does NOT work here. Despite the folklore, cargo
+# builds `--release` test targets with `profile.release`; a probe crate with
+# `[profile.bench] lto = false` still emitted `-C lto=fat`. A custom profile
+# is the only lever.
+[profile.test-release]
+inherits = "release"
+lto = false        # the ~25 minutes: 24 whole-program Bevy links
+codegen-units = 16 # was 1 — single-threaded optimization per binary
+strip = false      # a failing gate should still print a legible backtrace

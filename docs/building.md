@@ -92,10 +92,34 @@ that fails at `init`, check that pair first.)
 cargo fmt --all -- --check                             # formatting (CI blocks on it)
 cargo clippy --all-targets -- -D warnings              # lint, exactly as CI runs it
 cargo test --lib                                       # unit tests (fast path)
-cargo test                                             # + the integration tests in tests/
+cargo nextest run --cargo-profile test-release         # the full suite (see below)
+cargo test --profile test-release --doc                # doctests: nextest cannot run them
 cargo doc --no-deps --document-private-items           # docs (kept warning-free)
 cargo check --workspace --target wasm32-unknown-unknown # app + worker still build for web
 ```
+
+**Never run the full suite under plain `--release`** (#1064). `[profile.release]`
+is tuned for one artifact — the wasm bundle `wasm-bindgen` ships — and carries
+`lto = "fat"` with `codegen-units = 1`. `cargo test --release` inherits that, so
+each of the ~24 test binaries pays a whole-program LTO link of the entire Bevy
+engine. Measured on one binary, same machine, same relink:
+
+| profile | wall | peak RSS |
+| --- | --- | --- |
+| `release` (fat LTO) | 644 s | 7.97 GB |
+| `test-release` | 4.75 s | 1.67 GB |
+
+At `build.jobs = 6` that is six concurrent 8 GB links — which is what the jobs
+pin below is really protecting against. `[profile.test-release]` keeps release
+codegen (the avatar and terrain builds in the suite are unbearable in debug) and
+drops only the whole-program link. Note that `[profile.bench]` does **not** work
+as an override here: despite the folklore, cargo builds `--release` test targets
+with `profile.release`.
+
+`cargo nextest run` does not run doctests — that is a known upstream limitation,
+not a configuration gap — so the separate `--doc` line above is part of the gate,
+not optional. Without it the single live doctest in `src/diagnostics/anomaly/`
+stops being covered.
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `cargo fmt --all
 -- --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` on
@@ -114,7 +138,11 @@ or Bevy bump — if it passes, the workaround can go.
 
 Note: [`.cargo/config.toml`](../.cargo/config.toml) pins `build.jobs = 6` —
 each integration-test file links a full Bevy binary, and an uncapped parallel
-link can exhaust RAM on smaller machines.
+link can exhaust RAM on smaller machines. Its comment still says "~15" binaries;
+there are 24 now. The pin was calibrated against fat-LTO links, so under
+`test-release` (1.67 GB a link rather than 8 GB) there is real headroom to raise
+it — deliberately left alone for now, since the profile fix already removed the
+pressure that made it necessary.
 
 ## Cargo features
 

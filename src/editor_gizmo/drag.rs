@@ -227,10 +227,7 @@ pub(super) fn manage_gizmo_drag(
         // prop means a second attachment RECORD (owned copy, minted TID,
         // fan-out cap), which is the Attach row's job, not a drag's.
         if is_prim_root
-            || matches!(
-                target_kind,
-                ActiveTarget::Avatar | ActiveTarget::Attachment
-            )
+            || matches!(target_kind, ActiveTarget::Avatar | ActiveTarget::Attachment)
             || state.blob.is_some()
         {
             is_copy = false;

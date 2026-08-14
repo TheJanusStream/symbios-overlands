@@ -218,7 +218,10 @@ pub(super) fn commit_attachment_drag(
         return false;
     };
     let Some(rest) = worn.rest_frame(&body.avatar, root_world) else {
-        warn!("Attachment commit skipped: joint {} is not in this rig", worn.joint);
+        warn!(
+            "Attachment commit skipped: joint {} is not in this rig",
+            worn.joint
+        );
         return false;
     };
 

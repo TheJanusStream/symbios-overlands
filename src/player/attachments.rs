@@ -357,8 +357,8 @@ mod tests {
 
         // A body somewhere other than the origin, turned: a rest frame that
         // only happens to be right at the identity would pass a weaker test.
-        let root_tf = Transform::from_xyz(11.0, -0.75, -4.25)
-            .with_rotation(Quat::from_rotation_y(1.1));
+        let root_tf =
+            Transform::from_xyz(11.0, -0.75, -4.25).with_rotation(Quat::from_rotation_y(1.1));
         let root = app.world_mut().spawn((root_tf, Visibility::default())).id();
         let mut built = Some(built());
         app.world_mut()

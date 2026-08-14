@@ -109,9 +109,8 @@ pub(super) fn draw_attachments_tab(
                                 )
                                 .clicked()
                             {
-                                newly_selected = Some(
-                                    (!is_selected).then(|| attachment.rkey.clone()),
-                                );
+                                newly_selected =
+                                    Some((!is_selected).then(|| attachment.rkey.clone()));
                             }
                             // Socket picker: re-seating a prop keeps its offset —
                             // usually wrong for the new socket, but predictable;
@@ -149,7 +148,9 @@ pub(super) fn draw_attachments_tab(
                             });
                         });
                     if force_open.is_some() {
-                        header.header_response.scroll_to_me(Some(egui::Align::Center));
+                        header
+                            .header_response
+                            .scroll_to_me(Some(egui::Align::Center));
                     }
                 }
             }
