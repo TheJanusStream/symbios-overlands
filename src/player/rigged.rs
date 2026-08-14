@@ -538,6 +538,19 @@ pub(super) fn drive_rigged_motion(
         // Build this frame's target pose.
         let mut pose = Pose::rest(rig);
         let mut stance: Vec<Limb> = Vec::new();
+        // The floor under this body, in the rigged root's own frame: the root
+        // is offset so `y = 0` is the chassis collider's bottom, which on a
+        // standing body is the ground the physics chassis rests on. Slopes are
+        // carried by the chassis pose, exactly as the collider itself handles
+        // them. **One closure, given to both the stride and the plant** — the
+        // gait seats its contacts on the same surface the footing solve settles
+        // them onto, and handing the two different floors is what put the swing
+        // arc through the hill upstream (#1069, symbios-avatar #221).
+        let floor = |point: Vec3| Some(Ground::level(Vec3::new(point.x, 0.0, point.z)));
+        // Kept past the match so the ankles can roll AFTER the plant: the plant
+        // lays every sole flat and a roll applied before it is simply levelled
+        // away, which is the order `examples/walkaudit` establishes upstream.
+        let mut walking = None;
         // Always the LOCOMOTION pose, never the gesture: an emote is laid over
         // what the body is already doing rather than replacing it, so the legs
         // keep their walk and their contacts (#1068).
@@ -546,9 +559,10 @@ pub(super) fn drive_rigged_motion(
             MotionSource::Gait => {
                 let gait = Gait::natural(rig);
                 let stride = Stride::for_body(rig, 1.0);
-                let steps = gait::step(rig, &mut pose, &gait, &stride, motion.cycle);
+                let steps = gait::step(rig, &mut pose, &gait, &stride, motion.cycle, floor);
                 gait::swing_arms(rig, &mut pose, &gait, motion.cycle);
                 stance = steps.stance;
+                walking = Some(gait);
             }
             MotionSource::Clip(index) => {
                 if let Some(clip) = clips.0.clips.get(index) {
@@ -575,18 +589,20 @@ pub(super) fn drive_rigged_motion(
             stance.clear();
         }
         if !stance.is_empty() {
-            // The engine's ground plane: the rigged root is offset so y = 0
-            // is the chassis collider's bottom, which on a standing body is
-            // the ground the physics chassis is resting on. Slopes are
-            // carried by the chassis pose, exactly as the collider itself
-            // handles them.
-            plant_feet_of(
-                rig,
-                &mut pose,
-                &stance,
-                |point| Some(Ground::level(Vec3::new(point.x, 0.0, point.z))),
-                &FootingConfig::default(),
-            );
+            plant_feet_of(rig, &mut pose, &stance, floor, &FootingConfig::default());
+        }
+        // **The ankles, which this never drove** (#1069). `step` places the
+        // feet and `swing_arms` the arms, and the third stage was simply
+        // missing here: without it a sole keeps its rest attitude relative to
+        // the shin, so there is no heel-strike, no toe-off, and at full stride
+        // the whole foot tilts with the leg instead of rolling over. The engine
+        // treats the three as one drive sequence and its own `roll_feet`
+        // records that two solve passes are the converged answer, not a budget.
+        //
+        // Gait only: a clip carries its own ankle motion, and rolling on top of
+        // authored feet would fight it. After the plant, per above.
+        if let Some(gait) = &walking {
+            gait::roll_feet(rig, &mut pose, gait, motion.cycle);
         }
 
         // Inertialize source switches so a jog does not snap into a stand.
@@ -885,6 +901,162 @@ mod tests {
         (chassis, root)
     }
 
+    /// How far a foot's sole is pitched from its own rest attitude, in degrees,
+    /// positive toe-up.
+    ///
+    /// Mirrors the engine's own `sole_pitch`: measured on the POSED body
+    /// between the rearmost and foremost joints past the ankle, and referenced
+    /// to the rest attitude rather than to level, because this body's foot
+    /// nodes run a few degrees uphill at rest and 0 has to mean "carried as it
+    /// stands".
+    fn sole_pitch(rig: &symbios_avatar::Rig, pose: &Pose, limb: Limb) -> f32 {
+        let joints = rig.extremity_joints(limb);
+        let sole = &joints[1..];
+        let along = |&joint: &usize| rig.joints[joint].position.z;
+        let rear = *sole
+            .iter()
+            .min_by(|a, b| along(a).total_cmp(&along(b)))
+            .expect("a foot");
+        let fore = *sole
+            .iter()
+            .max_by(|a, b| along(a).total_cmp(&along(b)))
+            .expect("a foot");
+        let angle = |run: Vec3| {
+            run.y
+                .atan2((run.x * run.x + run.z * run.z).sqrt())
+                .to_degrees()
+        };
+        let posed = pose.forward(rig);
+        angle(posed.positions[fore] - posed.positions[rear])
+            - angle(rig.joints[fore].position - rig.joints[rear].position)
+    }
+
+    #[test]
+    fn the_procedural_walk_lands_toe_up_and_leaves_toe_down() {
+        // **#1069.** This drove `gait::step` and `gait::swing_arms` and stopped,
+        // never `gait::roll_feet` — so every procedurally-driven body walked
+        // with its soles held at their rest attitude: no heel-strike, no
+        // toe-off, the whole foot tilting with the shin at full stride. The
+        // engine treats the three as one drive sequence and `examples/walkaudit`
+        // has always called all three; this had two of them.
+        //
+        // **Driven through `drive_rigged_motion` and read off the `AvatarPose`
+        // the body is actually drawn in.** Written first as a loop that called
+        // step/swing_arms/plant/roll itself and asserted on that — which proves
+        // nothing about this file, because deleting the roll from the system
+        // under test leaves such a test passing on its own copy of the
+        // sequence. A test that reimplements its subject measures its own
+        // arithmetic.
+        //
+        // The defect was invisible in the app for a separate reason worth
+        // recording: the gait only drives a body when the clip library is
+        // empty, which on native never happens. It would have appeared the
+        // moment #1067 removed the clips, looking like a regression the removal
+        // caused. `test_app` ships an empty library, which is exactly the wasm
+        // pre-fetch case and the post-#1067 case.
+        let mut app = test_app();
+        let chassis = app
+            .world_mut()
+            .spawn((Transform::default(), GlobalTransform::default()))
+            .id();
+        let avatar = symbios_avatar::Avatar::build_with(
+            &engine_default_for_did("did:plc:ankle-test"),
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                ..Default::default()
+            },
+        )
+        .expect("the seeded default engine body builds");
+        let mut built = Some(avatar);
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>| {
+                    let Some(avatar) = built.take() else {
+                        return;
+                    };
+                    install_built_body(
+                        &mut commands,
+                        chassis,
+                        0.9,
+                        avatar,
+                        &[],
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut bindposes,
+                    );
+                },
+            )
+            .expect("runs");
+        let mut roots = app.world_mut().query_filtered::<Entity, With<RiggedRoot>>();
+        let root = roots.single(app.world()).expect("one rigged root");
+        let rig = app
+            .world()
+            .get::<BuiltBody>(root)
+            .expect("the body landed")
+            .avatar
+            .rig
+            .clone();
+
+        // Walk the chassis forward. No `LinearVelocity` and no transform
+        // propagation here, so the speed the driver reads is the one this moves
+        // the `GlobalTransform` by — which is the remote-peer path, and enough
+        // to select the gait.
+        const STEP_SECS: f32 = 1.0 / 60.0;
+        const PACE: f32 = 1.3;
+        let (mut lowest, mut highest) = (f32::MAX, f32::MIN);
+        for frame in 0..150 {
+            let at = Vec3::Z * (PACE * STEP_SECS * frame as f32);
+            let mut chassis_mut = app.world_mut().entity_mut(chassis);
+            *chassis_mut.get_mut::<Transform>().unwrap() = Transform::from_translation(at);
+            *chassis_mut.get_mut::<GlobalTransform>().unwrap() =
+                GlobalTransform::from_translation(at);
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
+            app.world_mut()
+                .run_system_once(drive_rigged_motion)
+                .expect("runs");
+
+            let motion = app.world().get::<RiggedMotion>(root).expect("motion state");
+            // Only once the gait is actually the source: the first frame has no
+            // previous position, so it reads as standing.
+            if motion.source != MotionSource::Gait {
+                continue;
+            }
+            let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
+            for limb in [Limb::HindLeft, Limb::HindRight] {
+                let pitch = sole_pitch(&rig, pose, limb);
+                lowest = lowest.min(pitch);
+                highest = highest.max(pitch);
+            }
+        }
+        assert!(
+            lowest < f32::MAX,
+            "the gait never drove the body — the test never measured anything"
+        );
+
+        // The literature's bands, which the engine's constants are set against:
+        // heel-strike ~15-25 degrees toe-up, push-off ~15-20 toe-down. Asserted
+        // loosely, because what is guarded here is that the stage RUNS — a sole
+        // held flat all cycle reads -0.0 to 0.0 and is a shuffle. What actually
+        // arrives through this path is -17.2 to 20.1 degrees, which is
+        // `examples/walkaudit`'s own reading upstream: the app is now driving
+        // the gait the engine's instrument measures.
+        assert!(
+            highest > 10.0,
+            "the foot never landed toe-up: peak pitch {highest:.1} deg — roll_feet is not running"
+        );
+        assert!(
+            lowest < -10.0,
+            "the foot never left toe-down: lowest pitch {lowest:.1} deg — roll_feet is not running"
+        );
+    }
+
     #[test]
     fn a_chat_keyword_gestures_the_sender_and_nobody_else() {
         // #1068. The request names a chassis; every OTHER body in the room has
@@ -992,7 +1164,7 @@ mod tests {
         let mut walking = Pose::rest(rig);
         let gait = Gait::natural(rig);
         let stride = Stride::for_body(rig, 1.0);
-        gait::step(rig, &mut walking, &gait, &stride, 0.25);
+        gait::step(rig, &mut walking, &gait, &stride, 0.25, |_| None);
         gait::swing_arms(rig, &mut walking, &gait, 0.25);
 
         let mut posed = walking.clone();
