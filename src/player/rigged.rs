@@ -46,10 +46,10 @@ use bevy::prelude::*;
 use bevy_symbios_avatar::{
     AvatarBody as BuiltBody, AvatarClosure, AvatarPose, Clips, spawn_avatar,
 };
-use symbios_avatar::anim::{contacts_during, gait, plant_feet_of};
+use symbios_avatar::anim::{contacts_during, plant_feet_of};
 use symbios_avatar::{
     Avatar, Blink, Expression, FootingConfig, Gait, Ground, Inertializer, Limb, Pose, PoseClip,
-    Stride,
+    Stride, Walk,
 };
 
 use crate::interaction::locomotion::locomotion_total_height;
@@ -559,20 +559,27 @@ pub(super) fn drive_rigged_motion(
             MotionSource::Gait => {
                 let gait = Gait::natural(rig);
                 let stride = Stride::for_body(rig, 1.0);
-                let steps = gait::step(rig, &mut pose, &gait, &stride, motion.cycle, floor);
-                gait::swing_arms(rig, &mut pose, &gait, motion.cycle);
-                // The trunk pitches into the walk and the neck holds the head
-                // level over it (#239). The lean is scaled by the stride this
-                // body is taking, which here is a CONSTANT: the stride above is
-                // pinned at pace 1.0 and speed is expressed by bending the
-                // cadence instead, so a sprinting avatar leans exactly as far
-                // as a strolling one. That is a real limitation and it belongs
-                // to the speed axis rather than to the lean — symbios-avatar
-                // #240 is where stride, cadence and gait choice all start
-                // coming from one dimensionless speed, and the lean responds
-                // for free the moment they do.
-                gait::lean(rig, &mut pose, &gait, &stride);
-                stance = steps.stance;
+                // The head of the engine's own drive sequence — step, arms,
+                // lean — with the footing OFF, because an emote is laid over
+                // this pose below and the feet have to be settled after that
+                // rather than before (symbios-avatar #253). This file used to
+                // spell the stages out and was one of the three consumers that
+                // had forgotten the ankles entirely (#1069).
+                //
+                // The lean is scaled by the stride this body is taking, which
+                // here is a CONSTANT: the stride is pinned at pace 1.0 and
+                // speed is expressed by bending the cadence instead, so a
+                // sprinting avatar leans exactly as far as a strolling one.
+                // That belongs to the speed axis rather than to the lean —
+                // symbios-avatar #240 is where stride, cadence and gait choice
+                // all start coming from one dimensionless speed, and the lean
+                // responds for free the moment they do.
+                let walked = Walk {
+                    footing: None,
+                    ..Walk::at(motion.cycle)
+                }
+                .drive(rig, &mut pose, &gait, &stride, floor);
+                stance = walked.steps.stance;
                 walking = Some(gait);
             }
             MotionSource::Clip(index) => {
@@ -599,21 +606,19 @@ pub(super) fn drive_rigged_motion(
         if airborne {
             stance.clear();
         }
-        if !stance.is_empty() {
-            plant_feet_of(rig, &mut pose, &stance, floor, &FootingConfig::default());
-        }
-        // **The ankles, which this never drove** (#1069). `step` places the
-        // feet and `swing_arms` the arms, and the third stage was simply
-        // missing here: without it a sole keeps its rest attitude relative to
-        // the shin, so there is no heel-strike, no toe-off, and at full stride
-        // the whole foot tilts with the leg instead of rolling over. The engine
-        // treats the three as one drive sequence and its own `roll_feet`
-        // records that two solve passes are the converged answer, not a budget.
-        //
-        // Gait only: a clip carries its own ankle motion, and rolling on top of
-        // authored feet would fight it. After the plant, per above.
-        if let Some(gait) = &walking {
-            gait::roll_feet(rig, &mut pose, gait, motion.cycle);
+        // The tail of the drive: settle the contacts, then roll the ankles, in
+        // that order — the engine owns both so this file cannot get the order
+        // wrong again (symbios-avatar #253). Gait only, because a clip carries
+        // its own ankle motion and rolling on top of authored feet would fight
+        // it; a clip's contacts still get planted, they just do not roll.
+        match &walking {
+            Some(gait) => {
+                Walk::at(motion.cycle).settle(rig, &mut pose, gait, &stance, floor);
+            }
+            None if !stance.is_empty() => {
+                plant_feet_of(rig, &mut pose, &stance, floor, &FootingConfig::default());
+            }
+            None => {}
         }
 
         // Inertialize source switches so a jog does not snap into a stand.
@@ -741,7 +746,7 @@ fn overlay_gesture(rig: &symbios_avatar::Rig, pose: &mut Pose, clip: &PoseClip, 
 /// emote overlay.
 ///
 /// Asked of the rig rather than assumed from anatomy — `ground_contacts` is the
-/// same question [`gait::swing_arms`] asks to decide which limbs are legs, so a
+/// same question `gait::swing_arms` asks to decide which limbs are legs, so a
 /// body plan nobody has written yet answers it correctly too.
 fn carries_the_body(rig: &symbios_avatar::Rig, joint: usize) -> bool {
     let zone = rig.joints[joint].zone;
@@ -795,6 +800,7 @@ mod tests {
     use crate::pds::avatar::ResolvedRig;
     use crate::pds::avatar::wardrobe::engine_default_for_did;
     use bevy::ecs::system::RunSystemOnce;
+    use symbios_avatar::anim::gait;
 
     /// A minimal world carrying every store the spawn path touches — the
     /// same skeleton `tests/freeze_rigid_body.rs` builds.
