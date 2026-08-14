@@ -59,6 +59,7 @@ mod airplane;
 pub(crate) mod attachments;
 mod car;
 mod clips;
+pub(crate) mod emote;
 pub(crate) mod gait;
 mod helicopter;
 mod hotswap;
@@ -195,9 +196,13 @@ impl Plugin for PlayerPlugin {
                     .in_set(bevy_symbios_avatar::AvatarSystems::Build)
                     .run_if(in_state(AppState::InGame)),
             )
+            .add_message::<emote::EmoteRequest>()
             .add_systems(
                 Update,
-                rigged::drive_rigged_motion
+                // Ordered: an emote requested this frame is posed this frame,
+                // rather than a frame after the message that asked for it.
+                (rigged::start_emotes, rigged::drive_rigged_motion)
+                    .chain()
                     .in_set(bevy_symbios_avatar::AvatarSystems::Animate)
                     .run_if(in_state(AppState::InGame)),
             );

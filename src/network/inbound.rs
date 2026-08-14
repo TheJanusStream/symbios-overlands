@@ -97,6 +97,9 @@ pub(super) struct InboundBuffers<'w> {
     /// `RoomStateUpdate` wholesale-replaces `LiveRoomRecord`, and the
     /// history must reset instead of recording it as a local edit.
     undo_signals: ResMut<'w, crate::ui::undo::RoomWriteSignals>,
+    /// Chat-keyword emotes (#1068): an arriving message plays a gesture on
+    /// its sender's own body.
+    emotes: MessageWriter<'w, crate::player::emote::EmoteRequest>,
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -457,6 +460,17 @@ pub(super) fn handle_incoming_messages(
                     let author = sender_peer
                         .and_then(|(_, peer, _, _)| peer.handle.clone())
                         .unwrap_or_else(|| msg.sender.to_string());
+                    // Chat-keyword emotes (#1068): the sender's own body plays
+                    // the gesture their words asked for. Read off the CLIPPED,
+                    // control-stripped text — the same string the room is shown
+                    // — so a hostile peer cannot smuggle a trigger past the
+                    // sanitiser, and driven from the sender's chassis entity so
+                    // a muted peer stays silent in gesture as well as in text.
+                    if let Some((chassis, ..)) = sender_peer
+                        && let Some(request) = crate::player::emote::request_for(chassis, &clipped)
+                    {
+                        bufs.emotes.write(request);
+                    }
                     // Capped + wall-clock-stamped (#846).
                     chat.push(did, author, clipped);
                     // With the window closed this message would be

@@ -48,11 +48,13 @@ use bevy_symbios_avatar::{
 };
 use symbios_avatar::anim::{contacts_during, gait, plant_feet_of};
 use symbios_avatar::{
-    Avatar, Blink, Expression, FootingConfig, Gait, Ground, Inertializer, Limb, Pose, Stride,
+    Avatar, Blink, Expression, FootingConfig, Gait, Ground, Inertializer, Limb, Pose, PoseClip,
+    Stride,
 };
 
 use crate::interaction::locomotion::locomotion_total_height;
 use crate::pds::avatar::EngineAvatarRecord;
+use crate::player::emote::{Emote, EmoteRequest};
 use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 
 /// Below this horizontal speed the body idles.
@@ -78,6 +80,14 @@ const AIRBORNE_VERTICAL: f32 = 3.5;
 /// How long a source switch blends, in seconds — the sibling viewer's own
 /// default transition.
 const BLEND_SECS: f32 = 0.15;
+/// The shortest gap between two emotes on one body, in seconds (#1068).
+///
+/// Measured from one gesture's START rather than its end, so the limit is a
+/// rate and not a gap: a peer pasting "hi hi hi hi" waves once and then stands
+/// there, which is what a room full of people needs it to do. Two seconds is
+/// longer than the longest emote in the archive, so a well-behaved sender is
+/// never throttled by it.
+const EMOTE_COOLDOWN: f32 = 2.0;
 
 /// Atlas side used while the record is still moving under an editor. The
 /// sibling viewer's own draft rung: 68 ms a build against 277 at full size.
@@ -124,6 +134,23 @@ pub(super) struct RiggedMotion {
     current: Option<Pose>,
     transition: Option<Inertializer>,
     blink: Blink,
+    /// The emote playing over the locomotion, if any (#1068).
+    gesture: Option<ActiveGesture>,
+    /// When the last emote *started*, in seconds since app start, for the
+    /// per-body rate limit. Kept across the gesture ending, which is the whole
+    /// point: the cooldown outlives what it is limiting.
+    gestured_at: Option<f32>,
+}
+
+/// An emote in progress on one body.
+#[derive(Clone, Copy)]
+struct ActiveGesture {
+    /// Index into [`Clips`].
+    clip: usize,
+    /// How far into the clip, in seconds. A gesture plays **once**: this counts
+    /// up to the clip's duration and then the gesture clears, where a
+    /// locomotion cycle wraps.
+    elapsed: f32,
 }
 
 impl Default for RiggedMotion {
@@ -136,6 +163,8 @@ impl Default for RiggedMotion {
             current: None,
             transition: None,
             blink: Blink::seeded(7),
+            gesture: None,
+            gestured_at: None,
         }
     }
 }
@@ -149,6 +178,9 @@ enum MotionSource {
     Clip(usize),
     /// The engine's procedural gait — the no-clips fallback.
     Gait,
+    /// A one-shot emote clip riding over whatever else the body is doing
+    /// (#1068), by index into [`Clips`].
+    Gesture(usize),
 }
 
 /// Which library index each locomotion role resolved to. Rebuilt whenever
@@ -160,6 +192,8 @@ pub(super) struct ClipRoles {
     walk: Option<usize>,
     jog: Option<usize>,
     sprint: Option<usize>,
+    /// One slot per [`Emote`], in [`Emote::ALL`] order (#1068).
+    emotes: [Option<usize>; Emote::ALL.len()],
 }
 
 /// Re-index the roles when the library changes. Names are the baked
@@ -174,6 +208,9 @@ pub(super) fn index_clip_roles(clips: Res<Clips>, mut roles: ResMut<ClipRoles>) 
     roles.walk = find("Walk");
     roles.jog = find("Jog");
     roles.sprint = find("Sprint");
+    for (slot, emote) in roles.emotes.iter_mut().zip(Emote::ALL) {
+        *slot = find(emote.clip_name());
+    }
 }
 
 /// Start a build for every chassis whose resolved rigged record is not the
@@ -452,7 +489,7 @@ pub(super) fn drive_rigged_motion(
             slot.and_then(|index| clips.0.clips.get(index).map(|clip| (index, clip)))
                 .filter(|(_, clip)| clip.duration() > 0.0)
         };
-        let (source, cadence) = if planar < IDLE_BELOW {
+        let (locomotion, cadence) = if planar < IDLE_BELOW {
             match clip_for(roles.idle) {
                 Some((index, clip)) => (MotionSource::Clip(index), 1.0 / clip.duration()),
                 None => (MotionSource::Rest, 0.0),
@@ -482,10 +519,29 @@ pub(super) fn drive_rigged_motion(
             motion.cycle = (motion.cycle + delta * cadence).fract();
         }
 
+        // Advance the emote and retire it at the end of its one play. Done
+        // before the pose is built so a gesture that finished this frame does
+        // not get one last frame of overlay.
+        let gesture = motion.gesture.and_then(|mut active| {
+            let duration = clips.0.clips.get(active.clip)?.duration();
+            active.elapsed += delta;
+            (active.elapsed < duration).then_some(active)
+        });
+        motion.gesture = gesture;
+        // A gesture is its own motion source, so ending one blends back into
+        // the walk it was riding rather than snapping.
+        let source = match gesture {
+            Some(active) => MotionSource::Gesture(active.clip),
+            None => locomotion,
+        };
+
         // Build this frame's target pose.
         let mut pose = Pose::rest(rig);
         let mut stance: Vec<Limb> = Vec::new();
-        match source {
+        // Always the LOCOMOTION pose, never the gesture: an emote is laid over
+        // what the body is already doing rather than replacing it, so the legs
+        // keep their walk and their contacts (#1068).
+        match locomotion {
             MotionSource::Rest => {}
             MotionSource::Gait => {
                 let gait = Gait::natural(rig);
@@ -506,6 +562,14 @@ pub(super) fn drive_rigged_motion(
                     stance = contacts_during(rig, clip, at);
                 }
             }
+            // `locomotion` is never a gesture by construction — the gesture is
+            // chosen below, from this.
+            MotionSource::Gesture(_) => {}
+        }
+        if let Some(active) = gesture
+            && let Some(clip) = clips.0.clips.get(active.clip)
+        {
+            overlay_gesture(rig, &mut pose, clip, active.elapsed);
         }
         if airborne {
             stance.clear();
@@ -559,6 +623,113 @@ pub(super) fn drive_rigged_motion(
     }
 }
 
+/// Start emotes on the bodies their requests name (#1068).
+///
+/// Runs in the Animate set ahead of [`drive_rigged_motion`], so a gesture
+/// requested this frame is posed this frame rather than a frame late.
+///
+/// **A request names a chassis and this finds the body under it**, because the
+/// chat and network layers hold chassis entities and know nothing of rigged
+/// roots. Three ways a request is dropped, all silent and all intended: the
+/// chassis has no rigged body (a boat has nothing to wave with), the archive
+/// has no clip for that emote, or the body is inside its cooldown.
+pub(super) fn start_emotes(
+    mut requests: MessageReader<EmoteRequest>,
+    time: Res<Time>,
+    clips: Res<Clips>,
+    roles: Res<ClipRoles>,
+    mut bodies: Query<(&ChildOf, &mut RiggedMotion), With<RiggedRoot>>,
+) {
+    let now = time.elapsed_secs();
+    for request in requests.read() {
+        let slot = Emote::ALL
+            .iter()
+            .position(|emote| *emote == request.emote)
+            .and_then(|index| roles.emotes[index]);
+        let Some(slot) = slot else {
+            continue;
+        };
+        // A zero-length clip would divide the overlay by nothing and hold the
+        // gesture forever; the locomotion roles filter the same way.
+        if clips
+            .0
+            .clips
+            .get(slot)
+            .is_none_or(|clip| clip.duration() <= 0.0)
+        {
+            continue;
+        }
+        for (child_of, mut motion) in &mut bodies {
+            if child_of.parent() != request.chassis {
+                continue;
+            }
+            if motion
+                .gestured_at
+                .is_some_and(|last| now - last < EMOTE_COOLDOWN)
+            {
+                continue;
+            }
+            motion.gesture = Some(ActiveGesture {
+                clip: slot,
+                elapsed: 0.0,
+            });
+            motion.gestured_at = Some(now);
+        }
+    }
+}
+
+/// Lay an emote clip over a pose the locomotion layer already built (#1068).
+///
+/// **The legs and the pelvis are left exactly as they were, and that is the
+/// whole design.** A gesture has to be playable while the body is walking —
+/// people wave as they arrive, not only once they have stopped — and a clip
+/// applied wholesale would replace the walk with a standing wave and slide the
+/// feet through the ground for its duration. So the gesture owns the spine, the
+/// arms and the head, and the locomotion layer keeps whatever carries the body.
+///
+/// The pelvis is on the locomotion side too, which costs a bow some depth and
+/// buys correctness: rotating the root swings both feet through the floor, and
+/// on an idle body no contact is planted, so nothing downstream would put them
+/// back. A bow bends at the spine here. When symbios-avatar #248 re-authors
+/// these as goal-space clips the constraint can be revisited, because a goal is
+/// solved against the ground rather than replayed at it.
+///
+/// The root translation is dropped for the same reason
+/// [`drive_rigged_motion`] drops a locomotion clip's: the chassis owns where
+/// the body is.
+fn overlay_gesture(rig: &symbios_avatar::Rig, pose: &mut Pose, clip: &PoseClip, at: f32) {
+    let mut gesture = Pose::rest(rig);
+    clip.apply(rig, &mut gesture, at);
+    if !gesture.fits(rig) || !pose.fits(rig) {
+        return;
+    }
+    for joint in 0..pose.rotations.len() {
+        if !carries_the_body(rig, joint) {
+            pose.rotations[joint] = gesture.rotations[joint];
+        }
+    }
+}
+
+/// Whether a joint is part of what holds the body up, and so off limits to an
+/// emote overlay.
+///
+/// Asked of the rig rather than assumed from anatomy — `ground_contacts` is the
+/// same question [`gait::swing_arms`] asks to decide which limbs are legs, so a
+/// body plan nobody has written yet answers it correctly too.
+fn carries_the_body(rig: &symbios_avatar::Rig, joint: usize) -> bool {
+    let zone = rig.joints[joint].zone;
+    if zone == symbios_avatar::Zone::Pelvis {
+        return true;
+    }
+    let carries = rig.ground_contacts();
+    match zone {
+        symbios_avatar::Zone::UpperLimb(limb)
+        | symbios_avatar::Zone::LowerLimb(limb)
+        | symbios_avatar::Zone::Extremity(limb) => carries.contains(&limb),
+        _ => false,
+    }
+}
+
 /// Pin one body to the bind pose for this frame — the attachment-editing
 /// hold documented on [`drive_rigged_motion`].
 ///
@@ -609,6 +780,7 @@ mod tests {
         app.init_asset::<SkinnedMeshInverseBindposes>();
         app.insert_resource(Clips::default());
         app.init_resource::<ClipRoles>();
+        app.add_message::<crate::player::emote::EmoteRequest>();
         app
     }
 
@@ -682,6 +854,208 @@ mod tests {
             assert!(
                 library.clips.iter().any(|clip| clip.name == role),
                 "the shipped archive is missing {role}"
+            );
+        }
+    }
+
+    /// Build the app with the SHIPPED archive loaded and its roles indexed,
+    /// which is what an emote needs to resolve a clip at all.
+    fn app_with_clips() -> App {
+        let mut app = test_app();
+        let bytes = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/avatar.clips"))
+            .expect("assets/avatar.clips ships with the app");
+        let library = symbios_avatar::ClipLibrary::read(&bytes).expect("parses");
+        app.insert_resource(Clips(library));
+        app.world_mut()
+            .run_system_once(index_clip_roles)
+            .expect("the role indexer runs");
+        app
+    }
+
+    /// A chassis with a rigged root under it, carrying motion state.
+    fn chassis_with_body(app: &mut App) -> (Entity, Entity) {
+        let chassis = app
+            .world_mut()
+            .spawn((Transform::default(), GlobalTransform::default()))
+            .id();
+        let root = app
+            .world_mut()
+            .spawn((RiggedRoot, RiggedMotion::default(), ChildOf(chassis)))
+            .id();
+        (chassis, root)
+    }
+
+    #[test]
+    fn a_chat_keyword_gestures_the_sender_and_nobody_else() {
+        // #1068. The request names a chassis; every OTHER body in the room has
+        // to stay still, which is the property that makes this readable as
+        // "that person waved" rather than as the room twitching.
+        let mut app = app_with_clips();
+        let (sender, sender_body) = chassis_with_body(&mut app);
+        let (_bystander, bystander_body) = chassis_with_body(&mut app);
+
+        let request = crate::player::emote::request_for(sender, "hello everyone")
+            .expect("\"hello\" asks for a greeting");
+        app.world_mut().write_message(request);
+        app.world_mut()
+            .run_system_once(start_emotes)
+            .expect("start_emotes runs");
+
+        let gestured = |app: &App, body: Entity| {
+            app.world()
+                .entity(body)
+                .get::<RiggedMotion>()
+                .expect("the body keeps its motion state")
+                .gesture
+                .is_some()
+        };
+        assert!(gestured(&app, sender_body), "the sender should gesture");
+        assert!(
+            !gestured(&app, bystander_body),
+            "a body the request did not name must not gesture"
+        );
+    }
+
+    #[test]
+    fn a_flood_of_keywords_gestures_once() {
+        // The rate limit, and the reason it is measured from the START of a
+        // gesture: a peer pasting "hi hi hi" must wave once and then stand
+        // there. Both requests are delivered in one run, so this also covers
+        // two keywords arriving in the same frame.
+        let mut app = app_with_clips();
+        let (chassis, body) = chassis_with_body(&mut app);
+
+        for text in ["hi", "hello again", "hey"] {
+            let request = crate::player::emote::request_for(chassis, text).expect("asks");
+            app.world_mut().write_message(request);
+        }
+        app.world_mut()
+            .run_system_once(start_emotes)
+            .expect("start_emotes runs");
+
+        // Advance the gesture as playback would, and assert the flood does not
+        // rewind it. **Asserted on `elapsed` rather than on `gestured_at`,
+        // because the clock does not move under `run_system_once`** — the
+        // stamp is identical whether the cooldown ran or not, so the first
+        // version of this test passed with the guard deleted. Playback
+        // progress is the one thing a restart cannot fake.
+        {
+            let mut motion = app.world_mut().entity_mut(body);
+            let mut motion = motion.get_mut::<RiggedMotion>().unwrap();
+            assert!(motion.gesture.is_some(), "the first keyword should gesture");
+            motion.gesture.as_mut().unwrap().elapsed = 0.4;
+        }
+
+        for text in ["hi", "hey"] {
+            let request = crate::player::emote::request_for(chassis, text).expect("asks");
+            app.world_mut().write_message(request);
+        }
+        app.world_mut()
+            .run_system_once(start_emotes)
+            .expect("start_emotes runs");
+
+        let motion = app.world().entity(body).get::<RiggedMotion>().unwrap();
+        let gesture = motion.gesture.expect("the gesture is still running");
+        assert_eq!(
+            gesture.elapsed, 0.4,
+            "a keyword inside the cooldown restarted the gesture from the top"
+        );
+    }
+
+    #[test]
+    fn a_gesture_leaves_the_legs_to_the_locomotion_layer() {
+        // **The load-bearing claim of the overlay** (#1068): an emote plays
+        // over a walk rather than replacing it, so the joints that carry the
+        // body must come out of `overlay_gesture` untouched while the upper
+        // body takes the clip. Without this a wave while walking would stand
+        // the body still and slide its feet along the ground.
+        let avatar = symbios_avatar::Avatar::build_with(
+            &engine_default_for_did("did:plc:emote-test"),
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                ..Default::default()
+            },
+        )
+        .expect("the default body builds");
+        let rig = &avatar.rig;
+
+        let bytes = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/avatar.clips"))
+            .expect("assets/avatar.clips ships with the app");
+        let library = symbios_avatar::ClipLibrary::read(&bytes).expect("parses");
+        let clip = library
+            .clips
+            .iter()
+            .find(|clip| clip.name == Emote::Greeting.clip_name())
+            .expect("the archive carries a Greeting");
+
+        // A walk pose, so the legs hold something a gesture could destroy.
+        let mut walking = Pose::rest(rig);
+        let gait = Gait::natural(rig);
+        let stride = Stride::for_body(rig, 1.0);
+        gait::step(rig, &mut walking, &gait, &stride, 0.25);
+        gait::swing_arms(rig, &mut walking, &gait, 0.25);
+
+        let mut posed = walking.clone();
+        overlay_gesture(rig, &mut posed, clip, clip.duration() * 0.5);
+
+        // Compared by DOT rather than by `Quat::angle_between`, which is
+        // `acos` of the dot and so loses all its precision exactly where this
+        // test looks: acos(0.9999999) is already 3.4e-4, so two bit-identical
+        // rotations read as a third of a milliradian apart and every carrying
+        // joint failed.
+        let apart = |a: Quat, b: Quat| 1.0 - a.dot(b).abs();
+        // **Judged against the zones directly, NOT through `carries_the_body`.**
+        // Written the other way first, and reintroducing the bug proved it
+        // worthless: the test asked the function under test which joints to
+        // check, so inverting that function's pelvis arm moved the pelvis AND
+        // excused itself from noticing. An instrument that takes its
+        // expectations from its subject measures nothing.
+        let carried: Vec<symbios_avatar::Zone> = rig
+            .ground_contacts()
+            .into_iter()
+            .flat_map(|limb| {
+                [
+                    symbios_avatar::Zone::UpperLimb(limb),
+                    symbios_avatar::Zone::LowerLimb(limb),
+                    symbios_avatar::Zone::Extremity(limb),
+                ]
+            })
+            .chain([symbios_avatar::Zone::Pelvis])
+            .collect();
+        assert!(
+            carried.len() > 3,
+            "a biped should carry itself on more than {} zones",
+            carried.len()
+        );
+        let mut upper_moved = 0;
+        for joint in 0..posed.rotations.len() {
+            if carried.contains(&rig.joints[joint].zone) {
+                assert_eq!(
+                    posed.rotations[joint], walking.rotations[joint],
+                    "joint {joint} ({:?}) carries the body and the gesture moved it",
+                    rig.joints[joint].zone
+                );
+            } else if apart(posed.rotations[joint], walking.rotations[joint]) > 1e-6 {
+                upper_moved += 1;
+            }
+        }
+        assert!(
+            upper_moved > 0,
+            "the gesture changed nothing at all — the overlay is not applying"
+        );
+    }
+
+    #[test]
+    fn the_shipped_clip_archive_carries_every_emote() {
+        // The same guard the locomotion roles carry, from the playback side:
+        // `index_clip_roles` must resolve a slot for every emote, or a keyword
+        // is silently inert at runtime.
+        let app = app_with_clips();
+        let roles = app.world().resource::<ClipRoles>();
+        for (slot, emote) in roles.emotes.iter().zip(Emote::ALL) {
+            assert!(
+                slot.is_some(),
+                "{emote:?} resolved no clip from the shipped archive"
             );
         }
     }
@@ -802,5 +1176,97 @@ mod tests {
             .expect("runs");
         assert!(app.world().get::<AvatarPose>(root).is_some());
         assert!(app.world().get::<AvatarClosure>(root).is_some());
+    }
+
+    #[test]
+    fn a_chat_keyword_changes_the_pose_the_body_is_actually_drawn_in() {
+        // **End to end through the real systems** (#1068), because every other
+        // test here proves a piece: the keyword scan, the targeting, the
+        // cooldown and the overlay arithmetic each pass on their own while the
+        // wiring between them could still be wrong. This is the one that fails
+        // if `drive_rigged_motion` never reaches the gesture branch — the exact
+        // defect that would otherwise only show up in the running app.
+        let mut app = app_with_clips();
+        let chassis = app
+            .world_mut()
+            .spawn((Transform::default(), GlobalTransform::default()))
+            .id();
+        let avatar = symbios_avatar::Avatar::build_with(
+            &engine_default_for_did("did:plc:emote-drive-test"),
+            &symbios_avatar::AvatarConfig {
+                atlas: 128,
+                ..Default::default()
+            },
+        )
+        .expect("the seeded default engine body builds");
+        let mut built = Some(avatar);
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>| {
+                    let Some(avatar) = built.take() else {
+                        return;
+                    };
+                    install_built_body(
+                        &mut commands,
+                        chassis,
+                        0.9,
+                        avatar,
+                        &[],
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut bindposes,
+                    );
+                },
+            )
+            .expect("runs");
+        let mut roots = app.world_mut().query_filtered::<Entity, With<RiggedRoot>>();
+        let root = roots.single(app.world()).expect("one rigged root");
+
+        // A frame with no keyword: the idle baseline this is measured against.
+        let frame = |app: &mut App| {
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_millis(16));
+            app.world_mut().run_system_once(start_emotes).expect("runs");
+            app.world_mut()
+                .run_system_once(drive_rigged_motion)
+                .expect("runs");
+            app.world()
+                .get::<AvatarPose>(root)
+                .expect("a pose")
+                .0
+                .clone()
+        };
+        let idle = frame(&mut app);
+
+        // Now say hello, through the same helper the chat and network layers
+        // call — not by poking `RiggedMotion` directly, which would skip the
+        // half of the path most likely to be miswired.
+        let request = crate::player::emote::request_for(chassis, "hello!")
+            .expect("\"hello\" asks for a greeting");
+        app.world_mut().write_message(request);
+        let waving = frame(&mut app);
+
+        assert!(
+            app.world()
+                .get::<RiggedMotion>(root)
+                .expect("motion state")
+                .gesture
+                .is_some(),
+            "the greeting never started"
+        );
+        let apart = |a: Quat, b: Quat| 1.0 - a.dot(b).abs();
+        let moved = (0..idle.rotations.len())
+            .filter(|joint| apart(idle.rotations[*joint], waving.rotations[*joint]) > 1e-6)
+            .count();
+        assert!(
+            moved > 0,
+            "the body was drawn in the same pose with and without the greeting"
+        );
     }
 }

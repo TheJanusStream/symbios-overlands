@@ -39,6 +39,8 @@ pub fn chat_ui(
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut input: Local<String>,
     peers: Query<(&RemotePeer, Option<&SocialResonance>)>,
+    local: Query<Entity, With<crate::state::LocalPlayer>>,
+    mut emotes: MessageWriter<crate::player::emote::EmoteRequest>,
 ) {
     use crate::config::ui::chat as cfg;
 
@@ -201,6 +203,19 @@ pub fn chat_ui(
                         // used to push uncapped with a session-relative
                         // stamp.
                         chat.push(did, author, text.clone());
+
+                        // Chat-keyword emotes (#1068): my own body plays what
+                        // I just said, exactly as every peer's does. Without
+                        // this the sender is the one person in the room who
+                        // never sees their own gesture, which reads as the
+                        // feature being broken rather than as an omission.
+                        // Same `request_for` the inbound path uses, so the two
+                        // cannot drift.
+                        if let Ok(chassis) = local.single()
+                            && let Some(request) = crate::player::emote::request_for(chassis, &text)
+                        {
+                            emotes.write(request);
+                        }
 
                         writer.write(Broadcast {
                             payload: OverlandsMessage::Chat { text },
