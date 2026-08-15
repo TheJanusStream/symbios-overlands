@@ -48,8 +48,8 @@ use bevy_symbios_avatar::{
 };
 use symbios_avatar::anim::{contacts_during, plant_feet_of};
 use symbios_avatar::{
-    Avatar, Blink, Expression, FootingConfig, Gait, Ground, Inertializer, Limb, Pose, PoseClip,
-    Stride, Walk,
+    Avatar, Blink, Expression, FootingConfig, Ground, Inertializer, Limb, Pose, PoseClip, Speed,
+    Walk,
 };
 
 use crate::interaction::locomotion::locomotion_total_height;
@@ -508,11 +508,16 @@ pub(super) fn drive_rigged_motion(
                     (MotionSource::Clip(index), rate / clip.duration())
                 }
                 // No library (or a library missing the role): the engine's
-                // procedural gait, cadence scaled the same way.
-                None => (
-                    MotionSource::Gait,
-                    1.1 * (planar / WALK_REF).clamp(RATE_CLAMP.0, RATE_CLAMP.1),
-                ),
+                // procedural gait, whose cadence is **derived from the speed
+                // rather than bent toward it** (symbios-avatar #240). A clip
+                // has one stride baked into it and can only be played faster or
+                // slower, which is what `RATE_CLAMP` is apologising for; a
+                // generator does not, so this asks the speed axis for the
+                // cadence that the stride it is about to take actually implies.
+                // The old line held the stride at pace 1.0 and scaled only the
+                // rate, so a sprinting avatar took a stroller's step very
+                // quickly.
+                None => (MotionSource::Gait, Speed::new(rig, planar).cadence(rig)),
             }
         };
         if !airborne {
@@ -557,23 +562,30 @@ pub(super) fn drive_rigged_motion(
         match locomotion {
             MotionSource::Rest => {}
             MotionSource::Gait => {
-                let gait = Gait::natural(rig);
-                let stride = Stride::for_body(rig, 1.0);
+                // **One number in, everything out** (symbios-avatar #240). The
+                // gait pattern, its duty, the stride length, the foot lift and
+                // the cadence above all come from how fast this body is
+                // actually travelling, expressed as the Froude number so the
+                // same relation fits a child, a giant and a quadruped.
+                //
+                // Three things follow that this file used to get wrong. The
+                // body now takes a LONGER step when it moves faster instead of
+                // the same step more often. It CHANGES GAIT on its own at the
+                // Froude number where walking stops working, so a fast avatar
+                // runs rather than speed-walking. And the trunk lean stops
+                // being a constant: the lean is scaled by the stride against
+                // the legs taking it, and that ratio was pinned at pace 1.0 —
+                // it responds for free now, which is the whole of #239's
+                // complaint against this file.
+                let speed = Speed::new(rig, planar);
+                let gait = speed.gait(rig);
+                let stride = speed.stride(rig);
                 // The head of the engine's own drive sequence — step, arms,
                 // lean — with the footing OFF, because an emote is laid over
                 // this pose below and the feet have to be settled after that
                 // rather than before (symbios-avatar #253). This file used to
                 // spell the stages out and was one of the three consumers that
                 // had forgotten the ankles entirely (#1069).
-                //
-                // The lean is scaled by the stride this body is taking, which
-                // here is a CONSTANT: the stride is pinned at pace 1.0 and
-                // speed is expressed by bending the cadence instead, so a
-                // sprinting avatar leans exactly as far as a strolling one.
-                // That belongs to the speed axis rather than to the lean —
-                // symbios-avatar #240 is where stride, cadence and gait choice
-                // all start coming from one dimensionless speed, and the lean
-                // responds for free the moment they do.
                 let walked = Walk {
                     footing: None,
                     ..Walk::at(motion.cycle)
@@ -1074,6 +1086,144 @@ mod tests {
         );
     }
 
+    /// Drives one body along `+Z` at a fixed ground speed and reports what the
+    /// drawn pose did: the widest fore-and-aft split between the feet, and the
+    /// highest the pelvis rode above its standing height.
+    ///
+    /// Both are read off the `AvatarPose` the body is actually drawn in rather
+    /// than recomputed here — a test that reimplements its subject measures its
+    /// own arithmetic, which is the lesson
+    /// `the_procedural_walk_lands_toe_up_and_leaves_toe_down` records above.
+    fn walked_at(metres_per_second: f32) -> (f32, f32) {
+        let mut app = test_app();
+        let chassis = app
+            .world_mut()
+            .spawn((Transform::default(), GlobalTransform::default()))
+            .id();
+        let avatar = symbios_avatar::Avatar::build_with(
+            &engine_default_for_did("did:plc:speed-test"),
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                ..Default::default()
+            },
+        )
+        .expect("the seeded default engine body builds");
+        let mut built = Some(avatar);
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>| {
+                    let Some(avatar) = built.take() else {
+                        return;
+                    };
+                    install_built_body(
+                        &mut commands,
+                        chassis,
+                        0.9,
+                        avatar,
+                        &[],
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut bindposes,
+                    );
+                },
+            )
+            .expect("runs");
+        let mut roots = app.world_mut().query_filtered::<Entity, With<RiggedRoot>>();
+        let root = roots.single(app.world()).expect("one rigged root");
+        let rig = app
+            .world()
+            .get::<BuiltBody>(root)
+            .expect("the body landed")
+            .avatar
+            .rig
+            .clone();
+        let pelvis = rig
+            .joints
+            .iter()
+            .position(|joint| joint.parent.is_none())
+            .expect("a root joint");
+        let standing = rig.joints[pelvis].position.y;
+        let feet: Vec<usize> = [Limb::HindLeft, Limb::HindRight]
+            .into_iter()
+            .map(|limb| rig.in_zone(symbios_avatar::Zone::Extremity(limb))[0])
+            .collect();
+
+        const STEP_SECS: f32 = 1.0 / 60.0;
+        let (mut split, mut crest) = (0.0f32, f32::MIN);
+        for frame in 0..240 {
+            let at = Vec3::Z * (metres_per_second * STEP_SECS * frame as f32);
+            let mut chassis_mut = app.world_mut().entity_mut(chassis);
+            *chassis_mut.get_mut::<Transform>().unwrap() = Transform::from_translation(at);
+            *chassis_mut.get_mut::<GlobalTransform>().unwrap() =
+                GlobalTransform::from_translation(at);
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
+            app.world_mut()
+                .run_system_once(drive_rigged_motion)
+                .expect("runs");
+            let motion = app.world().get::<RiggedMotion>(root).expect("motion state");
+            if motion.source != MotionSource::Gait {
+                continue;
+            }
+            let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
+            let posed = pose.forward(&rig);
+            split = split.max((posed.positions[feet[0]].z - posed.positions[feet[1]].z).abs());
+            crest = crest.max(posed.positions[pelvis].y - standing);
+        }
+        assert!(crest > f32::MIN, "the gait never drove the body");
+        (split, crest)
+    }
+
+    #[test]
+    fn a_faster_body_takes_a_longer_step_and_eventually_leaves_the_ground() {
+        // **#1070, and the defect it removes is a one-liner with a long shadow.**
+        // This file pinned the stride at `Stride::for_body(rig, 1.0)` and
+        // expressed speed by bending the CADENCE alone, so a sprinting avatar
+        // took a stroller's step very quickly. Everything scaled by the stride
+        // inherited that: the trunk lean is scaled by the stride against the
+        // legs taking it, and with the stride pinned that ratio never moved, so
+        // #239's new lean was a constant in the app.
+        //
+        // Now the speed axis answers all of it (symbios-avatar #240): a faster
+        // body takes a LONGER step, and past the Froude number where the
+        // inverted pendulum stops working it runs rather than speed-walking.
+        // Both are read off the drawn pose.
+        let (slow_split, slow_crest) = walked_at(1.0);
+        let (brisk_split, _) = walked_at(1.8);
+        let (_, fast_crest) = walked_at(3.0);
+
+        // **Both samples are walks, and that is deliberate.** A foot's split is
+        // its EXCURSION — how far it slides back under the body across one
+        // stance — and that legitimately FALLS when the body starts running,
+        // because a running foot is down for a third of the cycle instead of
+        // two thirds. Comparing a walk against a run here reads the gait change
+        // as a shorter stride and asserts the opposite of the truth.
+        assert!(
+            brisk_split > slow_split * 1.15,
+            "a body at 1.8 m/s split its feet {brisk_split:.3} m against {slow_split:.3} at \
+             1.0 — the stride is still pinned"
+        );
+        // A walking body never rises above its standing height; a running one
+        // is a projectile between steps and does. That is the cleanest sign in
+        // the drawn pose that the gait changed on its own.
+        assert!(
+            slow_crest <= 1e-3,
+            "a walking body rode {:.1} mm above standing height",
+            slow_crest * 1000.0
+        );
+        assert!(
+            fast_crest > 0.005,
+            "a body at 3 m/s never left the ground: crest {:.1} mm — it is still walking",
+            fast_crest * 1000.0
+        );
+    }
+
     #[test]
     fn a_chat_keyword_gestures_the_sender_and_nobody_else() {
         // #1068. The request names a chassis; every OTHER body in the room has
@@ -1179,8 +1329,9 @@ mod tests {
 
         // A walk pose, so the legs hold something a gesture could destroy.
         let mut walking = Pose::rest(rig);
-        let gait = Gait::natural(rig);
-        let stride = Stride::for_body(rig, 1.0);
+        let speed = Speed::new(rig, 1.4);
+        let gait = speed.gait(rig);
+        let stride = speed.stride(rig);
         gait::step(rig, &mut walking, &gait, &stride, 0.25, |_| None);
         gait::swing_arms(rig, &mut walking, &gait, 0.25);
 
