@@ -592,7 +592,11 @@ pub(super) fn drive_rigged_motion(
                 }
                 .drive(rig, &mut pose, &gait, &stride, floor);
                 stance = walked.steps.stance;
-                walking = Some(gait);
+                // The stride travels with the gait, because the tail of the
+                // sequence needs it too: a turning body's ankles are turned to
+                // face where they were planted, and `roll_feet` is where that
+                // lands (engine #241).
+                walking = Some((gait, stride));
             }
             MotionSource::Clip(index) => {
                 if let Some(clip) = clips.0.clips.get(index) {
@@ -624,8 +628,8 @@ pub(super) fn drive_rigged_motion(
         // its own ankle motion and rolling on top of authored feet would fight
         // it; a clip's contacts still get planted, they just do not roll.
         match &walking {
-            Some(gait) => {
-                Walk::at(motion.cycle).settle(rig, &mut pose, gait, &stance, floor);
+            Some((gait, stride)) => {
+                Walk::at(motion.cycle).settle(rig, &mut pose, gait, stride, &stance, floor);
             }
             None if !stance.is_empty() => {
                 plant_feet_of(rig, &mut pose, &stance, floor, &FootingConfig::default());
