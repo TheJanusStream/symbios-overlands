@@ -58,7 +58,6 @@
 mod airplane;
 pub(crate) mod attachments;
 mod car;
-mod clips;
 pub(crate) mod emote;
 pub(crate) mod gait;
 mod helicopter;
@@ -172,19 +171,11 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         // The sibling crate's frame order (Build → Animate → Apply) and its
         // pose-apply system. Its `AnimatorPlugin` is deliberately absent —
-        // single-subject viewer resource plus an egui panel — so the Clips
-        // resource is owned here: builtin natively, empty on wasm until
-        // `avatar.clips` lands (see `clips`).
+        // single-subject viewer resource plus an egui panel. There is no clip
+        // library to own any more (#1067): every motion source is the
+        // engine's procedural layer, so nothing is fetched, embedded or
+        // indexed before a body can move.
         app.add_plugins(bevy_symbios_avatar::AvatarPlugin)
-            .insert_resource(bevy_symbios_avatar::Clips::builtin())
-            .init_resource::<rigged::ClipRoles>()
-            .init_asset::<clips::ClipArchive>()
-            .init_asset_loader::<clips::ClipArchiveLoader>()
-            .add_systems(Startup, clips::request_clip_archive)
-            .add_systems(
-                Update,
-                (clips::install_clip_archive, rigged::index_clip_roles).chain(),
-            )
             .add_systems(
                 Update,
                 (

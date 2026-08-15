@@ -162,7 +162,8 @@ impl AvatarRecord {
     /// fallback for an identity with no overlands avatar record but a
     /// wardrobe published by another symbios application. Locomotion is the
     /// humanoid preset — a rigged body walks — and gait is `None` because a
-    /// skinned body's motion comes from clips, not the procedural bobber.
+    /// skinned body's motion comes from the engine's procedural layer, not
+    /// the generator-visual bobber.
     pub fn wearing(wardrobe_rkey: impl Into<String>) -> Self {
         Self {
             lex_type: AVATAR_COLLECTION.into(),

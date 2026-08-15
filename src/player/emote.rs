@@ -1,7 +1,7 @@
 //! Chat-keyword emotes: a message plays a gesture on its sender's body (#1068).
 //!
-//! The expressive half of the baked clip set had no way into the world. Four of
-//! the twelve clips — a greeting, a yes, a no and a bow — were imported because
+//! The expressive half of the motion roster had no way into the world. Four
+//! gestures — a greeting, a yes, a no and a bow — exist because
 //! *"a social space is other people"* and they carry meaning to a viewer without
 //! a shared language, and then nothing ever asked for one. This is the surface
 //! that asks: say hello in chat and your avatar waves.
@@ -12,31 +12,32 @@
 //! type anyway. That is deliberate: an emote nobody has to learn is one every
 //! visitor uses on their first day.
 //!
-//! # Where this sits in the clip removal
+//! # The clip removal came through here, and this survived it verbatim
 //!
-//! It plays the **baked** clips, which symbios-avatar's epic #237 is in the
-//! middle of retiring — and that is not a contradiction. What this module owns is the *trigger*:
-//! the keyword table, the arbitration, the timing, and the rule that a gesture
-//! rides the upper body while the legs go on walking. None of that is clip
-//! shaped. When symbios-avatar #248 re-authors the expressive set as goal-space
-//! clips, [`Emote::clip_name`] points at the new ones and everything else here
-//! is unchanged — and this module becomes the place each re-authored gesture is
-//! judged, because it is the only place they are ever seen in motion.
+//! This surface was built against the baked clips and designed to outlive
+//! them, and it did (#1067): what this module owns is the *trigger* — the
+//! keyword table, the arbitration, the timing — and none of that is clip
+//! shaped. [`Emote::gesture_name`] now points at the engine's goal-space
+//! gestures (symbios-avatar #248), which write only the parts they address,
+//! so the old rule that a gesture rides the upper body while the legs go on
+//! walking stopped being a rule this crate enforces and became a property of
+//! the format. This module is also where each re-authored gesture is judged,
+//! because it is the only place they are ever seen in motion.
 //!
 //! # What it does not do
 //!
 //! Only rigged bodies gesture. A generator chassis — a boat, an airship — has
-//! no rig to pose and no clip that would mean anything on it, so a keyword from
-//! one is simply a chat message.
+//! no rig to pose and no gesture that would mean anything on it, so a keyword
+//! from one is simply a chat message.
 
 use bevy::prelude::*;
 
 /// A gesture a chat message can ask for.
 ///
-/// Deliberately a closed set of four, and the four are the ones
-/// `docs/clips.md` in the engine argued a social space actually needs: a
-/// greeting, a yes, a no and a bow. Adding a fifth means adding a clip, so the
-/// enum and the artifact stay in step rather than drifting.
+/// Deliberately a closed set of four, and the four are the ones the engine's
+/// clip documentation argued a social space actually needs: a greeting, a
+/// yes, a no and a bow. Adding a fifth means the engine authoring a gesture
+/// for it, so the enum and the roster stay in step rather than drifting.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Emote {
     /// A wave. Hello, goodbye, and the one every visitor tries first.
@@ -53,13 +54,15 @@ impl Emote {
     /// Every emote, for iteration and for the role indexer.
     pub const ALL: [Emote; 4] = [Emote::Greeting, Emote::Nod, Emote::Reject, Emote::Bow];
 
-    /// The baked clip this plays, by the artifact's own name.
+    /// The engine gesture this plays, by `gesture::by_name`'s own name.
     ///
-    /// The names are `docs/clips.md`'s verbatim, exactly as the locomotion
-    /// roles read them: a library missing one simply leaves that emote silent
-    /// rather than substituting another.
+    /// The names are the baked roster's, kept verbatim through the removal
+    /// (#1067) because the engine's `gesture::by_name` answers to them by
+    /// design (symbios-avatar #248). The pairing — every emote resolves a
+    /// gesture — is guarded by test in `rigged`, so a rename on either side
+    /// fails the suite instead of leaving a keyword silently inert.
     #[must_use]
-    pub fn clip_name(self) -> &'static str {
+    pub fn gesture_name(self) -> &'static str {
         match self {
             Emote::Greeting => "Greeting",
             Emote::Nod => "Head Nod",
@@ -223,21 +226,20 @@ mod tests {
     }
 
     #[test]
-    fn every_emote_names_a_clip_in_the_shipped_archive() {
-        // The same guard the locomotion roles carry: an emote whose clip is not
-        // in the artifact is silent at runtime and silent in review, so the
-        // names are checked against the bytes rather than against a doc.
-        let bytes = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/avatar.clips"))
-            .expect("the shipped clip archive is readable");
-        let library = symbios_avatar::ClipLibrary::read(&bytes).expect("the archive parses");
+    fn every_emote_names_a_gesture_the_engine_can_build() {
+        // An emote whose name the engine does not answer to is silent at
+        // runtime and silent in review — the keyword scans, the request is
+        // written, and the drive's `by_name` lookup quietly returns `None`
+        // every frame. So the names are checked against the engine's own
+        // resolver rather than against a doc, and a rename on EITHER side
+        // fails here: this is the guard that replaced the shipped-archive
+        // check when the archive stopped shipping (#1067).
+        use symbios_avatar::anim::gesture;
         for emote in Emote::ALL {
             assert!(
-                library
-                    .clips
-                    .iter()
-                    .any(|clip| clip.name == emote.clip_name()),
-                "{emote:?} names {:?}, which the archive does not carry",
-                emote.clip_name()
+                gesture::by_name(emote.gesture_name()).is_some(),
+                "{emote:?} names {:?}, which gesture::by_name cannot build",
+                emote.gesture_name()
             );
         }
     }

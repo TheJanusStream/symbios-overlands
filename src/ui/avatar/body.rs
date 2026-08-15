@@ -66,7 +66,7 @@ pub(super) fn draw_body_tab(
         ui.label(
             "This avatar is a generator chassis — the classic construction-kit \
              body. A rigged body is the parametric skinned kind: sculpted by \
-             sliders, animated by clips, dressable at sockets.",
+             sliders, animated procedurally, dressable at sockets.",
         );
         ui.add_space(4.0);
         match did {

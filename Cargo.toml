@@ -74,21 +74,17 @@ url = "2"
 glam = "0.30"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# Native embeds the 200 KiB baked CC0 clip set; wasm deliberately does not
-# (#1055). The wasm binary never shrinks once grown (#565) and every embedded
-# byte is downloaded by every visitor, so the browser build will fetch
-# clips.bin at run time and insert its own `Clips` resource instead — that
-# fetch lands with the animator work (#1057). Until then wasm simply has no
-# clips, which nothing consumes yet. The `editor` default stays on for both:
-# bevy_egui 0.39 is already in the tree, so it costs nothing.
-bevy_symbios_avatar = { path = "../bevy_symbios_avatar", features = ["builtin-clips"] }
+# No `builtin-clips` on either target since #1067: every runtime motion
+# source is the engine's procedural layer, so the 200 KiB baked archive is
+# neither embedded natively nor fetched on wasm. The `editor` default stays
+# on for both: bevy_egui 0.39 is already in the tree, so it costs nothing.
+bevy_symbios_avatar = { path = "../bevy_symbios_avatar" }
 tiny_http = "0.12"
 webbrowser = "1.0"
 arboard = "3"
 clap = { version = "4", features = ["derive"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-# No `builtin-clips` here — see the native table above for why.
 bevy_symbios_avatar = { path = "../bevy_symbios_avatar" }
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.2", features = ["js"] }

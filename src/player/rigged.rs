@@ -1,4 +1,5 @@
-//! Rigged-body spawn and clip-driven locomotion (#1057, epic #1054).
+//! Rigged-body spawn and procedural locomotion (#1057, epic #1054; clips
+//! removed under #1067, the overlands half of symbios-avatar epic #237).
 //!
 //! The generator half of an avatar spawns through the room compiler
 //! ([`super::visuals`]); this module is the other half: a
@@ -27,14 +28,20 @@
 //!     ([`locomotion_total_height`] / 2 below its centre) — the same
 //!     convention generator visuals are authored to.
 //!   - [`drive_rigged_motion`] poses every built body from what its chassis
-//!     is actually doing: clip locomotion (Idle_A / Walk / Jog / Sprint)
-//!     picked by horizontal speed, play rate scaled by speed against each
-//!     clip's reference so feet do not skate (the #873-877 anti-slide
-//!     lesson), inertialized transitions, stance feet planted on the local
-//!     ground plane, and engine-driven blinking. With an empty [`Clips`]
-//!     library — a wasm session before `avatar.clips` arrives — the engine's
-//!     procedural gait carries the body instead, so no build is ever a
-//!     T-pose.
+//!     is actually doing, through the engine's procedural layer and nothing
+//!     else: the gait on the speed axis when the chassis travels (one
+//!     dimensionless speed decides stride, cadence, duty and the walk-run
+//!     boundary — symbios-avatar #240, adopted under #1070), the idle when
+//!     it stands (breath, sway, weight shift and fidgets — engine #246),
+//!     goal-space gestures over either (#1068), inertialized source
+//!     switches, stance feet planted on the local ground plane, and
+//!     engine-driven blinking.
+//!
+//! There is no clip library, no clip fetch and no play-rate arithmetic left
+//! anywhere in this path (#1067): a generator needs no reference speed to
+//! apologise to, so the anti-slide clamps went with the clips. The engine
+//! keeps its baked archive as a dev-only comparison target (symbios-avatar
+//! #249); overlands never ships or downloads it.
 //!
 //! The procedural [`super::gait`] layer never touches these bodies: it
 //! animates [`crate::world_builder::AvatarVisualRoot`], which only the
@@ -43,13 +50,10 @@
 use avian3d::prelude::LinearVelocity;
 use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 use bevy::prelude::*;
-use bevy_symbios_avatar::{
-    AvatarBody as BuiltBody, AvatarClosure, AvatarPose, Clips, spawn_avatar,
-};
-use symbios_avatar::anim::{contacts_during, plant_feet_of};
+use bevy_symbios_avatar::{AvatarBody as BuiltBody, AvatarClosure, AvatarPose, spawn_avatar};
+use symbios_avatar::anim::gesture;
 use symbios_avatar::{
-    Avatar, Blink, Expression, FootingConfig, Ground, Inertializer, Limb, Pose, PoseClip, Speed,
-    Walk,
+    Avatar, Blink, Expression, Ground, Idle, Inertializer, Limb, Pose, Speed, Walk,
 };
 
 use crate::interaction::locomotion::locomotion_total_height;
@@ -59,21 +63,6 @@ use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 
 /// Below this horizontal speed the body idles.
 const IDLE_BELOW: f32 = 0.3;
-/// Walk hands over to jog here, jog to sprint at the next one (m/s).
-const WALK_TO_JOG: f32 = 2.2;
-const JOG_TO_SPRINT: f32 = 4.4;
-/// The travel speed each clip was authored at, used to scale its play rate
-/// so foot speed tracks ground speed. Provenance: the mesh2motion source
-/// clips walk ≈ 1.4 m/s, jog ≈ 3.2, sprint ≈ 5.8; exact figures matter less
-/// than the ratio staying near 1, because the clamp below keeps a mismatch
-/// from becoming either a moonwalk or a blur.
-const WALK_REF: f32 = 1.4;
-const JOG_REF: f32 = 3.2;
-const SPRINT_REF: f32 = 5.8;
-/// How far a clip's play rate may be bent from natural before it reads as
-/// wrong; outside this the feet slide instead, which is the lesser evil at
-/// the extremes of the speed range.
-const RATE_CLAMP: (f32, f32) = (0.5, 2.0);
 /// Vertical speed past which a body is treated as airborne: the cycle holds
 /// and no foot is planted, so a fall does not march in mid-air.
 const AIRBORNE_VERTICAL: f32 = 3.5;
@@ -88,6 +77,15 @@ const BLEND_SECS: f32 = 0.15;
 /// longer than the longest emote in the archive, so a well-behaved sender is
 /// never throttled by it.
 const EMOTE_COOLDOWN: f32 = 2.0;
+/// How long an emote takes, in seconds.
+///
+/// The engine's gestures are written in normalised time — a goal-space clip
+/// runs `0..1` and says nothing about seconds — so this is the only place the
+/// real duration is decided, and it is the sibling viewer's own figure: a
+/// second and a half is a greeting, long enough for three waves to read as
+/// waves and short enough that a body is not still doing it when the
+/// conversation has moved on.
+const EMOTE_SECS: f32 = 1.5;
 
 /// Atlas side used while the record is still moving under an editor. The
 /// sibling viewer's own draft rung: 68 ms a build against 277 at full size.
@@ -134,6 +132,12 @@ pub(super) struct RiggedMotion {
     current: Option<Pose>,
     transition: Option<Inertializer>,
     blink: Blink,
+    /// The engine's idle driver: breath, sway, weight shift and fidget
+    /// scheduling for a body that is standing (engine #246). Stateful — it
+    /// owns its own clocks and its fidget schedule — and paused rather than
+    /// advanced while something else carries the body, so a body that stops
+    /// walking resumes its own idle rather than a reset one.
+    idler: Idle,
     /// The emote playing over the locomotion, if any (#1068).
     gesture: Option<ActiveGesture>,
     /// When the last emote *started*, in seconds since app start, for the
@@ -145,16 +149,25 @@ pub(super) struct RiggedMotion {
 /// An emote in progress on one body.
 #[derive(Clone, Copy)]
 struct ActiveGesture {
-    /// Index into [`Clips`].
-    clip: usize,
-    /// How far into the clip, in seconds. A gesture plays **once**: this counts
-    /// up to the clip's duration and then the gesture clears, where a
+    /// Which emote is playing. The clip itself is rebuilt from
+    /// [`gesture::by_name`] each frame — a goal-space clip is a few keyed
+    /// goals, so rebuilding costs less than the solve that follows it and
+    /// keeps this state a value rather than a cache.
+    emote: Emote,
+    /// How far into the gesture, in seconds. A gesture plays **once**: this
+    /// counts up to [`EMOTE_SECS`] and then the gesture clears, where a
     /// locomotion cycle wraps.
     elapsed: f32,
 }
 
 impl Default for RiggedMotion {
     fn default() -> Self {
+        // Each body seeds its own idle and blink off a process-wide counter,
+        // because these are the clocks a ROOM is judged on: seeded alike,
+        // every body in it breathes, shifts its weight and blinks in unison,
+        // which reads as a drill team rather than a crowd.
+        static SEED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(7);
+        let seed = SEED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self {
             cycle: 0.0,
             source: MotionSource::Rest,
@@ -162,7 +175,8 @@ impl Default for RiggedMotion {
             previous: None,
             current: None,
             transition: None,
-            blink: Blink::seeded(7),
+            blink: Blink::seeded(seed),
+            idler: Idle::seeded(seed),
             gesture: None,
             gestured_at: None,
         }
@@ -172,45 +186,16 @@ impl Default for RiggedMotion {
 /// What is carrying the body this frame. A change starts a blend.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum MotionSource {
-    /// Standing, no clips loaded: rest pose plus blinking.
+    /// Pinned to the bind pose: the attachment-editing hold, and the state a
+    /// body is born in. Kept distinct from [`Self::Idle`] so releasing the
+    /// hold reads as a source change and blends back out instead of snapping.
     Rest,
-    /// A baked clip, by index into [`Clips`].
-    Clip(usize),
-    /// The engine's procedural gait — the no-clips fallback.
+    /// Standing: the engine's idle — breath, sway, weight shift, fidgets.
+    Idle,
+    /// Travelling: the engine's procedural gait on the speed axis.
     Gait,
-    /// A one-shot emote clip riding over whatever else the body is doing
-    /// (#1068), by index into [`Clips`].
-    Gesture(usize),
-}
-
-/// Which library index each locomotion role resolved to. Rebuilt whenever
-/// the [`Clips`] resource changes (the wasm fetch replacing the empty
-/// library is exactly such a change).
-#[derive(Resource, Default)]
-pub(super) struct ClipRoles {
-    idle: Option<usize>,
-    walk: Option<usize>,
-    jog: Option<usize>,
-    sprint: Option<usize>,
-    /// One slot per [`Emote`], in [`Emote::ALL`] order (#1068).
-    emotes: [Option<usize>; Emote::ALL.len()],
-}
-
-/// Re-index the roles when the library changes. Names are the baked
-/// artifact's own (`docs/clips.md` in the engine): a library without one of
-/// them simply leaves that role procedural.
-pub(super) fn index_clip_roles(clips: Res<Clips>, mut roles: ResMut<ClipRoles>) {
-    if !clips.is_changed() {
-        return;
-    }
-    let find = |name: &str| clips.0.clips.iter().position(|clip| clip.name == name);
-    roles.idle = find("Idle_A");
-    roles.walk = find("Walk");
-    roles.jog = find("Jog");
-    roles.sprint = find("Sprint");
-    for (slot, emote) in roles.emotes.iter_mut().zip(Emote::ALL) {
-        *slot = find(emote.clip_name());
-    }
+    /// A one-shot emote riding over whatever else the body is doing (#1068).
+    Gesture(Emote),
 }
 
 /// Start a build for every chassis whose resolved rigged record is not the
@@ -448,8 +433,6 @@ fn rigged_root_transform(offset: f32) -> Transform {
 pub(super) fn drive_rigged_motion(
     mut commands: Commands,
     time: Res<Time>,
-    clips: Res<Clips>,
-    roles: Res<ClipRoles>,
     mut bodies: Query<(Entity, &ChildOf, &BuiltBody, &mut RiggedMotion), With<RiggedRoot>>,
     chassis: Query<(&GlobalTransform, Option<&LinearVelocity>)>,
     locals: Query<(), With<LocalPlayer>>,
@@ -483,42 +466,17 @@ pub(super) fn drive_rigged_motion(
         motion.last_position = Some(position);
         let airborne = vertical > AIRBORNE_VERTICAL;
 
-        // Pick the source and its cycle rate.
+        // Pick the source and its cycle rate. Standing is the engine's idle,
+        // travelling is the gait — and the gait's cadence is **derived from
+        // the speed rather than bent toward it** (symbios-avatar #240): a
+        // clip had one stride baked into it and could only be played faster
+        // or slower; a generator asks the speed axis for the cadence the
+        // stride it is about to take actually implies.
         let rig = &body.avatar.rig;
-        let clip_for = |slot: Option<usize>| {
-            slot.and_then(|index| clips.0.clips.get(index).map(|clip| (index, clip)))
-                .filter(|(_, clip)| clip.duration() > 0.0)
-        };
         let (locomotion, cadence) = if planar < IDLE_BELOW {
-            match clip_for(roles.idle) {
-                Some((index, clip)) => (MotionSource::Clip(index), 1.0 / clip.duration()),
-                None => (MotionSource::Rest, 0.0),
-            }
+            (MotionSource::Idle, 0.0)
         } else {
-            let (slot, reference) = if planar < WALK_TO_JOG {
-                (roles.walk, WALK_REF)
-            } else if planar < JOG_TO_SPRINT {
-                (roles.jog, JOG_REF)
-            } else {
-                (roles.sprint, SPRINT_REF)
-            };
-            match clip_for(slot) {
-                Some((index, clip)) => {
-                    let rate = (planar / reference).clamp(RATE_CLAMP.0, RATE_CLAMP.1);
-                    (MotionSource::Clip(index), rate / clip.duration())
-                }
-                // No library (or a library missing the role): the engine's
-                // procedural gait, whose cadence is **derived from the speed
-                // rather than bent toward it** (symbios-avatar #240). A clip
-                // has one stride baked into it and can only be played faster or
-                // slower, which is what `RATE_CLAMP` is apologising for; a
-                // generator does not, so this asks the speed axis for the
-                // cadence that the stride it is about to take actually implies.
-                // The old line held the stride at pace 1.0 and scaled only the
-                // rate, so a sprinting avatar took a stroller's step very
-                // quickly.
-                None => (MotionSource::Gait, Speed::new(rig, planar).cadence(rig)),
-            }
+            (MotionSource::Gait, Speed::new(rig, planar).cadence(rig))
         };
         if !airborne {
             motion.cycle = (motion.cycle + delta * cadence).fract();
@@ -528,15 +486,14 @@ pub(super) fn drive_rigged_motion(
         // before the pose is built so a gesture that finished this frame does
         // not get one last frame of overlay.
         let gesture = motion.gesture.and_then(|mut active| {
-            let duration = clips.0.clips.get(active.clip)?.duration();
             active.elapsed += delta;
-            (active.elapsed < duration).then_some(active)
+            (active.elapsed < EMOTE_SECS).then_some(active)
         });
         motion.gesture = gesture;
         // A gesture is its own motion source, so ending one blends back into
         // the walk it was riding rather than snapping.
         let source = match gesture {
-            Some(active) => MotionSource::Gesture(active.clip),
+            Some(active) => MotionSource::Gesture(active.emote),
             None => locomotion,
         };
 
@@ -561,6 +518,17 @@ pub(super) fn drive_rigged_motion(
         // keep their walk and their contacts (#1068).
         match locomotion {
             MotionSource::Rest => {}
+            MotionSource::Idle => {
+                // **A body with nothing else to do stands and breathes**
+                // (engine #246): breath, sway, a weight shift onto one foot,
+                // and scheduled fidgets, all through `Idle::drive`, which
+                // advances the schedule and poses every layer in one call —
+                // a stage a caller has to remember is a stage a caller
+                // forgets, and this file has the scar (#1069). The idle
+                // solves and plants its own feet against the same level
+                // floor the gait uses, so no settle tail runs for it below.
+                motion.idler.drive(rig, &mut pose, delta);
+            }
             MotionSource::Gait => {
                 // **One number in, everything out** (symbios-avatar #240). The
                 // gait pattern, its duty, the stride length, the foot lift and
@@ -598,43 +566,32 @@ pub(super) fn drive_rigged_motion(
                 // lands (engine #241).
                 walking = Some((gait, stride));
             }
-            MotionSource::Clip(index) => {
-                if let Some(clip) = clips.0.clips.get(index) {
-                    let at = motion.cycle * clip.duration();
-                    clip.apply(rig, &mut pose, at);
-                    // In place: the chassis carries the travel; a clip that
-                    // also travelled would walk out of its own collider and
-                    // snap back once a cycle. The vertical bob is kept.
-                    pose.translation.x = 0.0;
-                    pose.translation.z = 0.0;
-                    stance = contacts_during(rig, clip, at);
-                }
-            }
-            // `locomotion` is never a gesture by construction — the gesture is
-            // chosen below, from this.
+            // `locomotion` is never a gesture by construction — the gesture
+            // is chosen below, from this.
             MotionSource::Gesture(_) => {}
         }
+        // The emote rides over whatever the body is already doing. A
+        // goal-space clip writes only the parts its own tracks address —
+        // a wave is a hand, a nod is a gaze, a bow is a trunk and a gaze
+        // (engine #248) — so the legs and the pelvis keep the walk or the
+        // idle that carries them, and there is no joint mask here to
+        // maintain: the clip's own vocabulary is the mask. Normalised time,
+        // so the elapsed seconds are scaled by the one duration decision
+        // ([`EMOTE_SECS`]).
         if let Some(active) = gesture
-            && let Some(clip) = clips.0.clips.get(active.clip)
+            && let Some(clip) = gesture::by_name(active.emote.gesture_name())
         {
-            overlay_gesture(rig, &mut pose, clip, active.elapsed);
+            clip.apply(rig, &mut pose, active.elapsed / EMOTE_SECS);
         }
         if airborne {
             stance.clear();
         }
         // The tail of the drive: settle the contacts, then roll the ankles, in
         // that order — the engine owns both so this file cannot get the order
-        // wrong again (symbios-avatar #253). Gait only, because a clip carries
-        // its own ankle motion and rolling on top of authored feet would fight
-        // it; a clip's contacts still get planted, they just do not roll.
-        match &walking {
-            Some((gait, stride)) => {
-                Walk::at(motion.cycle).settle(rig, &mut pose, gait, stride, &stance, floor);
-            }
-            None if !stance.is_empty() => {
-                plant_feet_of(rig, &mut pose, &stance, floor, &FootingConfig::default());
-            }
-            None => {}
+        // wrong again (symbios-avatar #253). Gait only: the idle plants its
+        // own feet inside `Idle::drive`, and a resting body has nothing down.
+        if let Some((gait, stride)) = &walking {
+            Walk::at(motion.cycle).settle(rig, &mut pose, gait, stride, &stance, floor);
         }
 
         // Inertialize source switches so a jog does not snap into a stand.
@@ -678,35 +635,18 @@ pub(super) fn drive_rigged_motion(
 ///
 /// **A request names a chassis and this finds the body under it**, because the
 /// chat and network layers hold chassis entities and know nothing of rigged
-/// roots. Three ways a request is dropped, all silent and all intended: the
-/// chassis has no rigged body (a boat has nothing to wave with), the archive
-/// has no clip for that emote, or the body is inside its cooldown.
+/// roots. Two ways a request is dropped, both silent and both intended: the
+/// chassis has no rigged body (a boat has nothing to wave with), or the body
+/// is inside its cooldown. There is no missing-clip case any more — every
+/// [`Emote`] names an engine gesture, and the pairing is guarded by test
+/// rather than checked per request.
 pub(super) fn start_emotes(
     mut requests: MessageReader<EmoteRequest>,
     time: Res<Time>,
-    clips: Res<Clips>,
-    roles: Res<ClipRoles>,
     mut bodies: Query<(&ChildOf, &mut RiggedMotion), With<RiggedRoot>>,
 ) {
     let now = time.elapsed_secs();
     for request in requests.read() {
-        let slot = Emote::ALL
-            .iter()
-            .position(|emote| *emote == request.emote)
-            .and_then(|index| roles.emotes[index]);
-        let Some(slot) = slot else {
-            continue;
-        };
-        // A zero-length clip would divide the overlay by nothing and hold the
-        // gesture forever; the locomotion roles filter the same way.
-        if clips
-            .0
-            .clips
-            .get(slot)
-            .is_none_or(|clip| clip.duration() <= 0.0)
-        {
-            continue;
-        }
         for (child_of, mut motion) in &mut bodies {
             if child_of.parent() != request.chassis {
                 continue;
@@ -718,63 +658,11 @@ pub(super) fn start_emotes(
                 continue;
             }
             motion.gesture = Some(ActiveGesture {
-                clip: slot,
+                emote: request.emote,
                 elapsed: 0.0,
             });
             motion.gestured_at = Some(now);
         }
-    }
-}
-
-/// Lay an emote clip over a pose the locomotion layer already built (#1068).
-///
-/// **The legs and the pelvis are left exactly as they were, and that is the
-/// whole design.** A gesture has to be playable while the body is walking —
-/// people wave as they arrive, not only once they have stopped — and a clip
-/// applied wholesale would replace the walk with a standing wave and slide the
-/// feet through the ground for its duration. So the gesture owns the spine, the
-/// arms and the head, and the locomotion layer keeps whatever carries the body.
-///
-/// The pelvis is on the locomotion side too, which costs a bow some depth and
-/// buys correctness: rotating the root swings both feet through the floor, and
-/// on an idle body no contact is planted, so nothing downstream would put them
-/// back. A bow bends at the spine here. When symbios-avatar #248 re-authors
-/// these as goal-space clips the constraint can be revisited, because a goal is
-/// solved against the ground rather than replayed at it.
-///
-/// The root translation is dropped for the same reason
-/// [`drive_rigged_motion`] drops a locomotion clip's: the chassis owns where
-/// the body is.
-fn overlay_gesture(rig: &symbios_avatar::Rig, pose: &mut Pose, clip: &PoseClip, at: f32) {
-    let mut gesture = Pose::rest(rig);
-    clip.apply(rig, &mut gesture, at);
-    if !gesture.fits(rig) || !pose.fits(rig) {
-        return;
-    }
-    for joint in 0..pose.rotations.len() {
-        if !carries_the_body(rig, joint) {
-            pose.rotations[joint] = gesture.rotations[joint];
-        }
-    }
-}
-
-/// Whether a joint is part of what holds the body up, and so off limits to an
-/// emote overlay.
-///
-/// Asked of the rig rather than assumed from anatomy — `ground_contacts` is the
-/// same question `gait::swing_arms` asks to decide which limbs are legs, so a
-/// body plan nobody has written yet answers it correctly too.
-fn carries_the_body(rig: &symbios_avatar::Rig, joint: usize) -> bool {
-    let zone = rig.joints[joint].zone;
-    if zone == symbios_avatar::Zone::Pelvis {
-        return true;
-    }
-    let carries = rig.ground_contacts();
-    match zone {
-        symbios_avatar::Zone::UpperLimb(limb)
-        | symbios_avatar::Zone::LowerLimb(limb)
-        | symbios_avatar::Zone::Extremity(limb) => carries.contains(&limb),
-        _ => false,
     }
 }
 
@@ -827,8 +715,6 @@ mod tests {
         app.init_asset::<StandardMaterial>();
         app.init_asset::<Image>();
         app.init_asset::<SkinnedMeshInverseBindposes>();
-        app.insert_resource(Clips::default());
-        app.init_resource::<ClipRoles>();
         app.add_message::<crate::player::emote::EmoteRequest>();
         app
     }
@@ -889,36 +775,6 @@ mod tests {
             up.dot(Vec3::Y) > 0.999,
             "the correction tilted the body: {up}"
         );
-    }
-
-    #[test]
-    fn the_shipped_clip_archive_carries_every_locomotion_role() {
-        // The artifact overlands actually deploys, read by the loader's own
-        // path: a renamed or re-baked archive that loses a role would
-        // otherwise degrade every body to the procedural gait silently.
-        let bytes = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/avatar.clips"))
-            .expect("assets/avatar.clips ships with the app");
-        let library = symbios_avatar::ClipLibrary::read(&bytes).expect("parses");
-        for role in ["Idle_A", "Walk", "Jog", "Sprint"] {
-            assert!(
-                library.clips.iter().any(|clip| clip.name == role),
-                "the shipped archive is missing {role}"
-            );
-        }
-    }
-
-    /// Build the app with the SHIPPED archive loaded and its roles indexed,
-    /// which is what an emote needs to resolve a clip at all.
-    fn app_with_clips() -> App {
-        let mut app = test_app();
-        let bytes = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/avatar.clips"))
-            .expect("assets/avatar.clips ships with the app");
-        let library = symbios_avatar::ClipLibrary::read(&bytes).expect("parses");
-        app.insert_resource(Clips(library));
-        app.world_mut()
-            .run_system_once(index_clip_roles)
-            .expect("the role indexer runs");
-        app
     }
 
     /// A chassis with a rigged root under it, carrying motion state.
@@ -1233,7 +1089,7 @@ mod tests {
         // #1068. The request names a chassis; every OTHER body in the room has
         // to stay still, which is the property that makes this readable as
         // "that person waved" rather than as the room twitching.
-        let mut app = app_with_clips();
+        let mut app = test_app();
         let (sender, sender_body) = chassis_with_body(&mut app);
         let (_bystander, bystander_body) = chassis_with_body(&mut app);
 
@@ -1265,7 +1121,7 @@ mod tests {
         // gesture: a peer pasting "hi hi hi" must wave once and then stand
         // there. Both requests are delivered in one run, so this also covers
         // two keywords arriving in the same frame.
-        let mut app = app_with_clips();
+        let mut app = test_app();
         let (chassis, body) = chassis_with_body(&mut app);
 
         for text in ["hi", "hello again", "hey"] {
@@ -1307,11 +1163,18 @@ mod tests {
 
     #[test]
     fn a_gesture_leaves_the_legs_to_the_locomotion_layer() {
-        // **The load-bearing claim of the overlay** (#1068): an emote plays
-        // over a walk rather than replacing it, so the joints that carry the
-        // body must come out of `overlay_gesture` untouched while the upper
-        // body takes the clip. Without this a wave while walking would stand
+        // **The load-bearing claim of the emote layer** (#1068): a gesture
+        // plays over a walk rather than replacing it, so the joints that
+        // carry the body must come out of the application untouched while the
+        // upper body takes it. Without this a wave while walking would stand
         // the body still and slide its feet along the ground.
+        //
+        // Under the clips this was `overlay_gesture`'s rule, enforced with a
+        // joint mask; since #1067 it is a property of the goal-space format —
+        // a clip writes only the parts its tracks address — and THIS is the
+        // test that keeps it one: the engine is free to add tracks to a
+        // gesture, and one that grows a leg or root track fails here before
+        // a walking body ever slides a foot.
         let avatar = symbios_avatar::Avatar::build_with(
             &engine_default_for_did("did:plc:emote-test"),
             &symbios_avatar::AvatarConfig {
@@ -1322,15 +1185,6 @@ mod tests {
         .expect("the default body builds");
         let rig = &avatar.rig;
 
-        let bytes = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/avatar.clips"))
-            .expect("assets/avatar.clips ships with the app");
-        let library = symbios_avatar::ClipLibrary::read(&bytes).expect("parses");
-        let clip = library
-            .clips
-            .iter()
-            .find(|clip| clip.name == Emote::Greeting.clip_name())
-            .expect("the archive carries a Greeting");
-
         // A walk pose, so the legs hold something a gesture could destroy.
         let mut walking = Pose::rest(rig);
         let speed = Speed::new(rig, 1.4);
@@ -1339,21 +1193,15 @@ mod tests {
         gait::step(rig, &mut walking, &gait, &stride, 0.25, |_| None);
         gait::swing_arms(rig, &mut walking, &gait, &stride, 0.25);
 
-        let mut posed = walking.clone();
-        overlay_gesture(rig, &mut posed, clip, clip.duration() * 0.5);
-
         // Compared by DOT rather than by `Quat::angle_between`, which is
         // `acos` of the dot and so loses all its precision exactly where this
         // test looks: acos(0.9999999) is already 3.4e-4, so two bit-identical
         // rotations read as a third of a milliradian apart and every carrying
         // joint failed.
         let apart = |a: Quat, b: Quat| 1.0 - a.dot(b).abs();
-        // **Judged against the zones directly, NOT through `carries_the_body`.**
-        // Written the other way first, and reintroducing the bug proved it
-        // worthless: the test asked the function under test which joints to
-        // check, so inverting that function's pelvis arm moved the pelvis AND
-        // excused itself from noticing. An instrument that takes its
-        // expectations from its subject measures nothing.
+        // Judged against the rig's own zones — the same question
+        // `gait::swing_arms` asks to decide which limbs are legs, so a body
+        // plan nobody has written yet answers it correctly too.
         let carried: Vec<symbios_avatar::Zone> = rig
             .ground_contacts()
             .into_iter()
@@ -1371,36 +1219,43 @@ mod tests {
             "a biped should carry itself on more than {} zones",
             carried.len()
         );
-        let mut upper_moved = 0;
-        for joint in 0..posed.rotations.len() {
-            if carried.contains(&rig.joints[joint].zone) {
-                assert_eq!(
-                    posed.rotations[joint], walking.rotations[joint],
-                    "joint {joint} ({:?}) carries the body and the gesture moved it",
-                    rig.joints[joint].zone
-                );
-            } else if apart(posed.rotations[joint], walking.rotations[joint]) > 1e-6 {
-                upper_moved += 1;
-            }
-        }
-        assert!(
-            upper_moved > 0,
-            "the gesture changed nothing at all — the overlay is not applying"
-        );
-    }
 
-    #[test]
-    fn the_shipped_clip_archive_carries_every_emote() {
-        // The same guard the locomotion roles carry, from the playback side:
-        // `index_clip_roles` must resolve a slot for every emote, or a keyword
-        // is silently inert at runtime.
-        let app = app_with_clips();
-        let roles = app.world().resource::<ClipRoles>();
-        for (slot, emote) in roles.emotes.iter().zip(Emote::ALL) {
-            assert!(
-                slot.is_some(),
-                "{emote:?} resolved no clip from the shipped archive"
-            );
+        // Every emote in the roster, over the same walk, at three points of
+        // its play — the claim is about the set, not about the wave, and a
+        // track added to any one of them is exactly what this exists to
+        // catch. Mid-gesture alone would miss a key that returns to zero by
+        // the middle.
+        for emote in Emote::ALL {
+            let clip = gesture::by_name(emote.gesture_name()).expect("the roster covers it");
+            for through in [0.25, 0.5, 0.9] {
+                let mut posed = walking.clone();
+                clip.apply(rig, &mut posed, through);
+                assert_eq!(
+                    posed.translation, walking.translation,
+                    "{emote:?} moved the root at {through} — a Root track has no \
+                     business in an emote"
+                );
+                let mut upper_moved = 0;
+                for joint in 0..posed.rotations.len() {
+                    if carried.contains(&rig.joints[joint].zone) {
+                        assert_eq!(
+                            posed.rotations[joint], walking.rotations[joint],
+                            "joint {joint} ({:?}) carries the body and {emote:?} moved it \
+                             at {through}",
+                            rig.joints[joint].zone
+                        );
+                    } else if apart(posed.rotations[joint], walking.rotations[joint]) > 1e-6 {
+                        upper_moved += 1;
+                    }
+                }
+                if through == 0.5 {
+                    assert!(
+                        upper_moved > 0,
+                        "{emote:?} changed nothing at all mid-play — the gesture is not \
+                         applying"
+                    );
+                }
+            }
         }
     }
 
@@ -1510,8 +1365,8 @@ mod tests {
                 .is_empty()
         );
 
-        // Drive one frame: an empty clip library and zero speed is the Rest
-        // source, which must still write a pose (the blink is alive).
+        // Drive one frame: zero speed is the Idle source (#1067), which must
+        // still write a pose — the body breathes and the blink is alive.
         app.world_mut()
             .resource_mut::<Time>()
             .advance_by(std::time::Duration::from_millis(16));
@@ -1523,6 +1378,100 @@ mod tests {
     }
 
     #[test]
+    fn a_standing_body_breathes_instead_of_freezing() {
+        // **The statue regression, which is what #1067 risked.** Under the
+        // clips a standing body played Idle_A; with them gone the replacement
+        // is the engine's idle (#246), and the failure mode of forgetting to
+        // wire it is silent: `Rest` writes a perfectly valid pose every frame
+        // — the same one, forever. So the guard is change over time, read off
+        // the drawn pose: a breathing body's joints move between frames a
+        // second apart, a statue's do not. Blinking cannot satisfy it — the
+        // eyes are geometry closure, not pose rotations.
+        let mut app = test_app();
+        let chassis = app
+            .world_mut()
+            .spawn((Transform::default(), GlobalTransform::default()))
+            .id();
+        let avatar = symbios_avatar::Avatar::build_with(
+            &engine_default_for_did("did:plc:idle-test"),
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                ..Default::default()
+            },
+        )
+        .expect("the seeded default engine body builds");
+        let mut built = Some(avatar);
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>| {
+                    let Some(avatar) = built.take() else {
+                        return;
+                    };
+                    install_built_body(
+                        &mut commands,
+                        chassis,
+                        0.9,
+                        avatar,
+                        &[],
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut bindposes,
+                    );
+                },
+            )
+            .expect("runs");
+        let mut roots = app.world_mut().query_filtered::<Entity, With<RiggedRoot>>();
+        let root = roots.single(app.world()).expect("one rigged root");
+
+        // The chassis never moves; the body is standing. Sampled once a
+        // second for several seconds, because a breath is slow — adjacent
+        // 16 ms frames of a breathing body are nearly identical too.
+        let mut samples: Vec<Pose> = Vec::new();
+        for frame in 0..240 {
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_secs_f32(1.0 / 60.0));
+            app.world_mut()
+                .run_system_once(drive_rigged_motion)
+                .expect("runs");
+            if frame % 60 == 0 {
+                samples.push(
+                    app.world()
+                        .get::<AvatarPose>(root)
+                        .expect("a pose")
+                        .0
+                        .clone(),
+                );
+            }
+        }
+        let motion = app.world().get::<RiggedMotion>(root).expect("motion state");
+        assert_eq!(
+            motion.source,
+            MotionSource::Idle,
+            "a standing body's source must be the idle"
+        );
+        let apart = |a: Quat, b: Quat| 1.0 - a.dot(b).abs();
+        let moved = samples
+            .windows(2)
+            .map(|pair| {
+                (0..pair[0].rotations.len())
+                    .map(|joint| apart(pair[0].rotations[joint], pair[1].rotations[joint]))
+                    .fold(0.0f32, f32::max)
+            })
+            .fold(0.0f32, f32::max);
+        assert!(
+            moved > 1e-6,
+            "four seconds of standing drew a bit-identical skeleton — the idle is not \
+             running and every standing body in the room is a statue"
+        );
+    }
+
+    #[test]
     fn a_chat_keyword_changes_the_pose_the_body_is_actually_drawn_in() {
         // **End to end through the real systems** (#1068), because every other
         // test here proves a piece: the keyword scan, the targeting, the
@@ -1530,7 +1479,7 @@ mod tests {
         // wiring between them could still be wrong. This is the one that fails
         // if `drive_rigged_motion` never reaches the gesture branch — the exact
         // defect that would otherwise only show up in the running app.
-        let mut app = app_with_clips();
+        let mut app = test_app();
         let chassis = app
             .world_mut()
             .spawn((Transform::default(), GlobalTransform::default()))
