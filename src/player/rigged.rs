@@ -1337,7 +1337,7 @@ mod tests {
         let gait = speed.gait(rig);
         let stride = speed.stride(rig);
         gait::step(rig, &mut walking, &gait, &stride, 0.25, |_| None);
-        gait::swing_arms(rig, &mut walking, &gait, 0.25);
+        gait::swing_arms(rig, &mut walking, &gait, &stride, 0.25);
 
         let mut posed = walking.clone();
         overlay_gesture(rig, &mut posed, clip, clip.duration() * 0.5);
