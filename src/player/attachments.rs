@@ -109,6 +109,29 @@ pub(super) fn sync_rigged_attachments(
     live: Option<Res<LiveAvatarRecord>>,
     locals: Query<(), With<LocalPlayer>>,
     peers: Query<&RemotePeer>,
+    // Props orphaned from every hierarchy (#1077). Arming the in-world gizmo
+    // on a worn prop deliberately detaches it from its joint — that is how
+    // the gizmo renders a world pose mid-drag — and a body REBUILD landing
+    // while it is armed despawns the root, the joints and every parented
+    // prop, but not this one: with no `ChildOf` it survives the cascade,
+    // the fresh root re-dresses a duplicate, and no ledger anywhere holds
+    // the survivor. Detaching then removes the tracked prop and leaves the
+    // phantom floating, which is exactly how the defect was found.
+    //
+    // The prop currently UNDER the gizmo is exempt (`Without<GizmoTarget>`):
+    // parentless is its working state, and the release path drops its
+    // markers — including against a parent that no longer exists — which
+    // hands it to this sweep one frame later. The generator-visual twin of
+    // this sweep is `despawn_orphan_avatar_visuals`, which cannot cover
+    // props because a prop never carries `AvatarVisualPrim`.
+    orphans: Query<
+        Entity,
+        (
+            With<AttachmentRoot>,
+            Without<ChildOf>,
+            Without<transform_gizmo_bevy::GizmoTarget>,
+        ),
+    >,
     mut roots: Query<
         (
             Entity,
@@ -124,6 +147,9 @@ pub(super) fn sync_rigged_attachments(
     mut images: ResMut<Assets<Image>>,
     mut deps: AvatarSpawnDeps,
 ) {
+    for orphan in &orphans {
+        commands.entity(orphan).despawn();
+    }
     for (root, child_of, body, joints, mut applied) in &mut roots {
         let chassis = child_of.parent();
         // Whose record dresses this body: the local player's live record, or
@@ -279,6 +305,264 @@ mod tests {
             rkey: String::from("3jzfcijpj2z2a"),
             record,
         }
+    }
+
+    /// A world with every resource the spawn path reaches, one local chassis
+    /// wearing one resolved crown, and the built body installed — the stage
+    /// both #1077 tests play on.
+    fn dressed_app() -> (bevy::app::App, Entity) {
+        use bevy::ecs::system::RunSystemOnce;
+
+        let mut app = bevy::app::App::new();
+        app.add_plugins((
+            bevy::app::TaskPoolPlugin::default(),
+            bevy::asset::AssetPlugin::default(),
+        ));
+        app.init_asset::<bevy::prelude::Mesh>();
+        app.init_asset::<bevy::prelude::StandardMaterial>();
+        app.init_asset::<bevy::prelude::Image>();
+        app.init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
+        app.init_asset::<crate::water::WaterMaterial>();
+        // Everything `AvatarSpawnDeps` fans out to.
+        app.init_resource::<crate::world_builder::image_cache::BlobImageCache>();
+        app.init_resource::<crate::world_builder::audio_resolver::BlobAudioCache>();
+        app.init_resource::<crate::water::WaterSurfaces>();
+        app.init_resource::<crate::world_builder::lsystem::LSystemMaterialCache>();
+        app.init_resource::<crate::world_builder::lsystem::LSystemMeshCache>();
+        app.init_resource::<crate::world_builder::ShapeMaterialCache>();
+        app.init_resource::<crate::world_builder::ShapeMeshCache>();
+        app.init_resource::<crate::world_builder::prim_cache::PrimMeshCache>();
+        app.init_resource::<crate::world_builder::prim_cache::PrimMaterialCache>();
+        app.init_resource::<bevy_symbios_shape::cache::ShapeMeshCache>();
+        app.init_resource::<crate::world_builder::spatial_audio::BakedAudioCache>();
+        app.insert_resource(crate::world_builder::fresh_texture_cache());
+        app.init_resource::<crate::world_builder::compile::CompiledWorld>();
+        app.init_resource::<crate::world_builder::compile::CompileJob>();
+        app.init_resource::<crate::diagnostics::SessionLog>();
+        app.init_resource::<bevy::prelude::Time>();
+
+        // A local chassis wearing one crown, resolved.
+        let record = {
+            let mut record = crate::pds::AvatarRecord::wearing("3jzfcijpj2z2a");
+            if let Some(rig) = record.body.rigged_mut() {
+                rig.resolved = Some(crate::pds::avatar::ResolvedRig {
+                    body: engine_default_for_did("did:plc:attachment-test"),
+                    attachments: vec![worn(AttachmentRecord::new(
+                        Generator::default(),
+                        symbios_avatar::Socket::Crown,
+                    ))],
+                });
+            }
+            record
+        };
+        app.insert_resource(crate::state::LiveAvatarRecord(record));
+        let chassis = app
+            .world_mut()
+            .spawn((
+                crate::state::LocalPlayer,
+                bevy::prelude::Transform::default(),
+                bevy::prelude::GlobalTransform::default(),
+            ))
+            .id();
+        let avatar = built();
+        let mut take = Some(avatar);
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: bevy::prelude::Commands,
+                      mut meshes: bevy::prelude::ResMut<
+                    bevy::prelude::Assets<bevy::prelude::Mesh>,
+                >,
+                      mut materials: bevy::prelude::ResMut<
+                    bevy::prelude::Assets<bevy::prelude::StandardMaterial>,
+                >,
+                      mut images: bevy::prelude::ResMut<
+                    bevy::prelude::Assets<bevy::prelude::Image>,
+                >,
+                      mut bindposes: bevy::prelude::ResMut<
+                    bevy::prelude::Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
+                >| {
+                    let Some(avatar) = take.take() else { return };
+                    super::super::rigged::install_built_body(
+                        &mut commands,
+                        chassis,
+                        0.9,
+                        avatar,
+                        &[],
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut bindposes,
+                    );
+                },
+            )
+            .expect("installs");
+
+        // Dress.
+        app.world_mut()
+            .run_system_once(sync_rigged_attachments)
+            .expect("dresses");
+        let mut props = app
+            .world_mut()
+            .query_filtered::<Entity, With<AttachmentRoot>>();
+        let prop = props.single(app.world()).expect("one worn prop");
+        (app, prop)
+    }
+
+    /// The full dress-and-detach cycle through the REAL system (#1077): the
+    /// record loses the prop and the sync must take every entity it spawned
+    /// back out of the world.
+    #[test]
+    fn detaching_takes_the_prop_and_its_whole_tree_out_of_the_world() {
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut app, prop) = dressed_app();
+        // Every entity the prop carries, gathered before the detach so the
+        // assertion afterwards is about THOSE entities and not about a query
+        // that could simply have lost its marker.
+        let mut tree = vec![prop];
+        let mut cursor = 0;
+        while cursor < tree.len() {
+            if let Some(children) = app.world().get::<bevy::prelude::Children>(tree[cursor]) {
+                tree.extend(children.iter());
+            }
+            cursor += 1;
+        }
+
+        // Detach: the record loses the prop, exactly as the editor tab does it.
+        {
+            let mut live = app
+                .world_mut()
+                .resource_mut::<crate::state::LiveAvatarRecord>();
+            let rig = live.0.body.rigged_mut().expect("rigged");
+            rig.resolved.as_mut().expect("resolved").attachments.clear();
+            rig.attachments.clear();
+        }
+        app.world_mut()
+            .run_system_once(sync_rigged_attachments)
+            .expect("undresses");
+
+        let survivors: Vec<Entity> = tree
+            .iter()
+            .copied()
+            .filter(|&entity| app.world().get_entity(entity).is_ok())
+            .collect();
+        assert!(
+            survivors.is_empty(),
+            "detaching left {} of the prop's {} entities alive in the world",
+            survivors.len(),
+            tree.len(),
+        );
+    }
+
+    #[test]
+    fn a_prop_armed_with_the_gizmo_does_not_survive_a_body_rebuild_as_a_phantom() {
+        // **The in-app repro of #1077, as found.** Arming the in-world gizmo
+        // (#1062) detaches a worn prop from its joint — parentless is the
+        // gizmo's working state — and every gizmo commit writes the record,
+        // which is what schedules #1059's settle rebuild. When that rebuild
+        // lands, the old root and its joints despawn and every PARENTED prop
+        // dies through the cascade; the armed one has no ChildOf and
+        // survives, tracked by no ledger, while the fresh root dresses a
+        // duplicate. Detaching then removes the duplicate and the phantom
+        // keeps floating where the drag left it — "detaching items does not
+        // despawn them properly".
+        //
+        // The plain-detach test above passes with the sweep deleted, which is
+        // exactly why this one exists: the defect needs the gizmo AND the
+        // rebuild in the same scene.
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut app, prop) = dressed_app();
+
+        // Arm the gizmo: detach from the joint and float at a world pose,
+        // exactly as `attach_or_release_attachment` does it.
+        app.world_mut()
+            .entity_mut(prop)
+            .remove::<ChildOf>()
+            .insert(transform_gizmo_bevy::GizmoTarget::default());
+
+        // A rebuild lands: the old root is despawned and a fresh body is
+        // installed, exactly as `land_rigged_builds` does it.
+        let mut roots = app
+            .world_mut()
+            .query_filtered::<(Entity, &ChildOf), With<super::super::rigged::RiggedRoot>>();
+        let (old_root, child_of) = roots.single(app.world()).expect("one root");
+        let chassis = child_of.parent();
+        let stale = vec![old_root];
+        let avatar = built();
+        let mut take = Some(avatar);
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: bevy::prelude::Commands,
+                      mut meshes: bevy::prelude::ResMut<
+                    bevy::prelude::Assets<bevy::prelude::Mesh>,
+                >,
+                      mut materials: bevy::prelude::ResMut<
+                    bevy::prelude::Assets<bevy::prelude::StandardMaterial>,
+                >,
+                      mut images: bevy::prelude::ResMut<
+                    bevy::prelude::Assets<bevy::prelude::Image>,
+                >,
+                      mut bindposes: bevy::prelude::ResMut<
+                    bevy::prelude::Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
+                >| {
+                    let Some(avatar) = take.take() else { return };
+                    super::super::rigged::install_built_body(
+                        &mut commands,
+                        chassis,
+                        0.9,
+                        avatar,
+                        &stale,
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut bindposes,
+                    );
+                },
+            )
+            .expect("rebuild lands");
+
+        // The precondition IS the defect: the armed prop survived the cascade
+        // that killed the root it belonged to. Without this assert, a future
+        // where the gizmo stops detaching props would leave the sweep
+        // untested rather than unnecessary.
+        assert!(
+            app.world().get_entity(prop).is_ok(),
+            "the armed prop died with the root — the leak this test guards is gone and \
+             so is its reason to exist"
+        );
+
+        // The sync re-dresses the fresh root; the armed prop is exempt from
+        // the sweep while the gizmo holds it.
+        app.world_mut()
+            .run_system_once(sync_rigged_attachments)
+            .expect("re-dresses");
+        assert!(
+            app.world().get_entity(prop).is_ok(),
+            "the sweep took the prop out from under an armed gizmo"
+        );
+
+        // Release: the gizmo drops its markers (against a dead parent, the
+        // release path can only drop them — there is nothing to reattach to).
+        app.world_mut()
+            .entity_mut(prop)
+            .remove::<transform_gizmo_bevy::GizmoTarget>();
+        app.world_mut()
+            .run_system_once(sync_rigged_attachments)
+            .expect("sweeps");
+
+        assert!(
+            app.world().get_entity(prop).is_err(),
+            "the orphaned prop is still in the world after the gizmo released it — the \
+             phantom the owner saw"
+        );
+        // And exactly one prop remains: the fresh root's own dress.
+        let mut props = app
+            .world_mut()
+            .query_filtered::<Entity, With<AttachmentRoot>>();
+        assert_eq!(
+            props.iter(app.world()).count(),
+            1,
+            "the fresh body should wear exactly its one recorded prop"
+        );
     }
 
     #[test]

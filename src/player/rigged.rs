@@ -486,7 +486,7 @@ pub(super) fn land_rigged_builds(
 /// the chassis collider's bottom. Split from [`land_rigged_builds`] so a
 /// test can land a body it built itself, at whatever atlas it can afford.
 #[allow(clippy::too_many_arguments)]
-fn install_built_body(
+pub(super) fn install_built_body(
     commands: &mut Commands,
     chassis: Entity,
     offset: f32,
