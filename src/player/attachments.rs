@@ -149,6 +149,15 @@ pub(super) fn sync_rigged_attachments(
 ) {
     for orphan in &orphans {
         commands.entity(orphan).despawn();
+        // Routed through the caches bundle (#924): this system already
+        // carries `GeneratorCaches` inside `AvatarSpawnDeps`, and a sibling
+        // `ResMut<MetricsRegistry>` beside it is a B0002 aliasing panic at
+        // schedule build. Routine in small numbers during outfit editing
+        // (#1077's gizmo-across-a-rebuild); growth outside an editing
+        // session means a new path is orphaning props.
+        if let Some(metrics) = deps.caches.metrics.as_deref_mut() {
+            crate::diagnostics::samplers::attachment_orphan_swept(metrics);
+        }
     }
     for (root, child_of, body, joints, mut applied) in &mut roots {
         let chassis = child_of.parent();
@@ -338,6 +347,7 @@ mod tests {
         app.insert_resource(crate::world_builder::fresh_texture_cache());
         app.init_resource::<crate::world_builder::compile::CompiledWorld>();
         app.init_resource::<crate::world_builder::compile::CompileJob>();
+        app.init_resource::<crate::diagnostics::MetricsRegistry>();
         app.init_resource::<crate::diagnostics::SessionLog>();
         app.init_resource::<bevy::prelude::Time>();
 
@@ -553,6 +563,16 @@ mod tests {
             app.world().get_entity(prop).is_err(),
             "the orphaned prop is still in the world after the gizmo released it — the \
              phantom the owner saw"
+        );
+        // And the sweep counted what it did (#1078): a swept orphan outside
+        // an editing session is the signal a NEW leak path exists, so the
+        // counter has to actually count for the invariant to mean anything.
+        assert_eq!(
+            app.world()
+                .resource::<crate::diagnostics::MetricsRegistry>()
+                .counter_value(crate::diagnostics::names::RUNTIME_ATTACHMENT_ORPHANS_SWEPT_COUNT),
+            1,
+            "one swept orphan must count exactly once"
         );
         // And exactly one prop remains: the fresh root's own dress.
         let mut props = app

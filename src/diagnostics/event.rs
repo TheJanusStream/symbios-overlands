@@ -263,6 +263,14 @@ pub enum EventPayload {
     AvatarReseeded {
         seed: u64,
     },
+    /// One rigged avatar build landed (#1078): the kick-to-land wall time,
+    /// which atlas rung it ran at (#1059's draft/full ladder), and whether the
+    /// engine produced a body at all.
+    RiggedBuildCompleted {
+        atlas: u32,
+        duration_secs: f64,
+        ok: bool,
+    },
     /// All nine loading-gate resources are present.
     LoadingGateReady {
         elapsed_secs: f64,
@@ -532,6 +540,7 @@ impl EventPayload {
             | WorldCompileStarted { .. }
             | WorldCompileCompleted { .. }
             | AvatarReseeded { .. }
+            | RiggedBuildCompleted { .. }
             | LoadingGateReady { .. }
             | LoadingGateTransitionToInGame { .. }
             | LoadingGateWarning { .. }
@@ -619,7 +628,8 @@ impl EventPayload {
             | SplatTexturesCompleted { .. }
             | WorldCompileStarted { .. }
             | WorldCompileCompleted { .. }
-            | AvatarReseeded { .. } => Category::Generation,
+            | AvatarReseeded { .. }
+            | RiggedBuildCompleted { .. } => Category::Generation,
 
             AmbientBakeStarted { .. }
             | AmbientBakeCompleted { .. }
@@ -791,6 +801,14 @@ impl EventPayload {
                 format!("world compile done ({entity_count} entities) in {duration_secs:.1}s")
             }
             AvatarReseeded { seed } => format!("avatar reseeded (seed {seed})"),
+            RiggedBuildCompleted {
+                atlas,
+                duration_secs,
+                ok,
+            } => format!(
+                "rigged build {} at atlas {atlas} in {duration_secs:.2}s",
+                if *ok { "landed" } else { "FAILED" },
+            ),
             LoadingGateReady { elapsed_secs } => {
                 format!("loading gate ready ({elapsed_secs:.1}s)")
             }

@@ -151,6 +151,26 @@ pub fn avatar_rebuild_secs(m: &mut MetricsRegistry, secs: f64) {
     m.observe_hist(names::RUNTIME_AVATAR_REBUILD_MS, ms(secs));
 }
 
+/// One rigged avatar build landed, `secs` after its kick (#1078).
+pub fn rigged_build_secs(m: &mut MetricsRegistry, secs: f64) {
+    m.observe_hist(names::RUNTIME_RIGGED_BUILD_MS, ms(secs));
+}
+
+/// A rigged avatar build returned no body (#1078).
+pub fn rigged_build_failed(m: &mut MetricsRegistry) {
+    m.incr(names::RUNTIME_RIGGED_BUILD_FAIL_COUNT);
+}
+
+/// A frame on which some rigged body strained a contact (#1078).
+pub fn motion_strain_frame(m: &mut MetricsRegistry) {
+    m.incr(names::RUNTIME_MOTION_STRAIN_FRAME_COUNT);
+}
+
+/// One orphaned worn prop was swept (#1077).
+pub fn attachment_orphan_swept(m: &mut MetricsRegistry) {
+    m.incr(names::RUNTIME_ATTACHMENT_ORPHANS_SWEPT_COUNT);
+}
+
 /// A procedural material found its texture fingerprint already baked (#811).
 pub fn texture_cache_hit(m: &mut MetricsRegistry) {
     m.incr(names::RUNTIME_TEXTURE_CACHE_HIT_COUNT);

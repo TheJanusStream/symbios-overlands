@@ -71,6 +71,25 @@ pub const RUNTIME_TEXTURE_BIND_SLOTS: &str = "runtime.texture_bind_slots";
 /// bakes offloaded on wasm, what remains here is dominated by part meshing;
 /// a high histogram tail attributes the residual re-roll hitch.
 pub const RUNTIME_AVATAR_REBUILD_MS: &str = "runtime.avatar_rebuild.ms";
+/// Kick-to-land wall time (ms) of one rigged avatar build (#1078): the
+/// offloaded engine build plus its queue wait, which is exactly how long a
+/// peer stands as a naked capsule. On wasm, until #1061 routes this through
+/// gen-worker, the build itself runs on the main thread — so a high tail
+/// here is also the re-edit frame stall.
+pub const RUNTIME_RIGGED_BUILD_MS: &str = "runtime.rigged_build.ms";
+/// Rigged builds whose engine build returned no body (limbs overlapping at a
+/// joint). Each one is a record that renders as a bare chassis for everyone.
+pub const RUNTIME_RIGGED_BUILD_FAIL_COUNT: &str = "runtime.rigged_build.fail_count";
+/// Frames on which any rigged body had a contact its solver could not reach
+/// (#1078). Transients at speed extremes are normal; sustained growth during
+/// ordinary play means some body's goals have left its reach — the
+/// motion-health invariant the D pillar can watch.
+pub const RUNTIME_MOTION_STRAIN_FRAME_COUNT: &str = "runtime.motion_strain.frame_count";
+/// Worn props swept after being orphaned from every hierarchy (#1077): a
+/// body rebuild landed while the offset gizmo held the prop detached. Routine
+/// in small numbers during outfit editing; growth OUTSIDE an editing session
+/// means a new path is orphaning props.
+pub const RUNTIME_ATTACHMENT_ORPHANS_SWEPT_COUNT: &str = "runtime.attachment_orphans.swept_count";
 /// Procedural-material texture-cache hits at material build time — a
 /// fingerprint already baked, no bake dispatched. Together with
 /// [`RUNTIME_TEXTURE_CACHE_MISS_COUNT`], the health check for the

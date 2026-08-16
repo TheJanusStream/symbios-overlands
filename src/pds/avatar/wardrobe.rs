@@ -436,7 +436,16 @@ pub(crate) async fn fetch_avatar_profile_at(
         // is dropped at the seam (engine #51, overlands #1076); the rule and
         // its tests live upstream in `ProfileRecord::sanitize`, and this is
         // the one place overlands takes a profile off the network.
+        //
+        // Named when it happens (#1078), because the symptom is remote from
+        // the cause: the wearer shows everyone their fallback body, this
+        // client renders it without complaint, and nothing anywhere would
+        // have said why.
+        let had_pointer = profile.default_avatar.is_some();
         profile.sanitize();
+        if had_pointer && profile.default_avatar.is_none() {
+            warn!("{did}'s avatar profile named an invalid default-avatar record key — pointer dropped, wearing the fallback");
+        }
         profile
     }))
 }

@@ -148,6 +148,10 @@ pub(super) struct RiggedBuild {
     /// Vertical drop from chassis centre to the engine's ground plane,
     /// captured at kick time from the record's locomotion half.
     offset: f32,
+    /// When the build was kicked, in seconds since app start (#1078): the
+    /// land reports kick-to-land wall time, which is how long this chassis
+    /// stands as a naked capsule.
+    kicked_at: f64,
     task: bevy::tasks::Task<crate::offload::GenResult>,
 }
 
@@ -394,6 +398,7 @@ pub(super) fn kick_rigged_builds(
                     target,
                     atlas,
                     offset,
+                    kicked_at: now as f64,
                     task,
                 });
             }
@@ -426,14 +431,20 @@ pub(super) fn kick_rigged_builds(
 }
 
 /// Land finished builds: swap the skinned body in under its offset root.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn land_rigged_builds(
     mut commands: Commands,
+    time: Res<Time>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     mut builds: Query<(Entity, &mut RiggedBuild)>,
     roots: Query<(Entity, &ChildOf), With<RiggedRoot>>,
+    // Both optional, because headless embedders (the render tool, minimal
+    // test worlds) run this without the diagnostics plugin.
+    mut metrics: Option<ResMut<crate::diagnostics::MetricsRegistry>>,
+    mut session_log: Option<ResMut<crate::diagnostics::SessionLog>>,
 ) {
     use bevy::tasks::{block_on, futures_lite::future};
     for (chassis, mut build) in &mut builds {
@@ -458,6 +469,26 @@ pub(super) fn land_rigged_builds(
             record: build.target.clone(),
             atlas: build.atlas,
         });
+        // How long the chassis stood bodiless, and whether it got one (#1078).
+        // Reported before the failure branch so a doomed record is visible in
+        // the timeline rather than only in the warn.
+        let waited = (time.elapsed_secs_f64() - build.kicked_at).max(0.0);
+        if let Some(metrics) = metrics.as_deref_mut() {
+            crate::diagnostics::samplers::rigged_build_secs(metrics, waited);
+            if result.is_none() {
+                crate::diagnostics::samplers::rigged_build_failed(metrics);
+            }
+        }
+        if let Some(log) = session_log.as_deref_mut() {
+            log.info(
+                time.elapsed_secs_f64(),
+                crate::diagnostics::event::EventPayload::RiggedBuildCompleted {
+                    atlas: build.atlas,
+                    duration_secs: waited,
+                    ok: result.is_some(),
+                },
+            );
+        }
         let Some(avatar) = result else {
             warn!("a rigged avatar record described a body that could not be built");
             continue;
@@ -563,12 +594,17 @@ pub(super) fn drive_rigged_motion(
     chassis: Query<(&GlobalTransform, Option<&LinearVelocity>)>,
     locals: Query<(), With<LocalPlayer>>,
     avatar_editor: Option<Res<crate::ui::avatar::AvatarEditorState>>,
+    mut metrics: Option<ResMut<crate::diagnostics::MetricsRegistry>>,
 ) {
     let delta = time.delta_secs();
     if delta <= 0.0 {
         return;
     }
     let editing_offsets = avatar_editor.is_some_and(|state| state.holds_rig_at_rest());
+    // Whether ANY body strained a contact this frame (#1078) — a goal its
+    // solver could not reach. Counted per frame rather than per body so a
+    // crowd cannot inflate one defect, and read at the end of the loop.
+    let mut strained = false;
     for (entity, child_of, body, root, mut motion) in &mut bodies {
         if editing_offsets && locals.contains(child_of.parent()) {
             hold_at_rest(&mut commands, entity, body, &mut motion, delta);
@@ -863,6 +899,7 @@ pub(super) fn drive_rigged_motion(
                     ..Walk::at(motion.cycle)
                 }
                 .drive(rig, &mut pose, &gait, &stride, floor);
+                strained |= !walked.steps.straining.is_empty();
                 stance = walked.steps.stance;
                 // The stride travels with the gait, because the tail of the
                 // sequence needs it too: a turning body's ankles are turned to
@@ -905,6 +942,7 @@ pub(super) fn drive_rigged_motion(
                 // subtract.
                 if let Some(air) = motion.airborne {
                     let leapt = air.leap.drive(rig, &mut pose, air.elapsed, floor);
+                    strained |= !leapt.straining.is_empty();
                     if leapt.stage.is_grounded() {
                         stance = rig.ground_contacts();
                     } else {
@@ -939,7 +977,9 @@ pub(super) fn drive_rigged_motion(
         // wrong again (symbios-avatar #253). Gait only: the idle plants its
         // own feet inside `Idle::drive`, and a resting body has nothing down.
         if let Some((gait, stride)) = &walking {
-            Walk::at(motion.cycle).settle(rig, &mut pose, gait, stride, &stance, floor);
+            let walked =
+                Walk::at(motion.cycle).settle(rig, &mut pose, gait, stride, &stance, floor);
+            strained |= walked.straining() > 0;
         }
 
         // Inertialize source switches so a walk does not snap into a stand —
@@ -985,6 +1025,9 @@ pub(super) fn drive_rigged_motion(
         commands
             .entity(entity)
             .insert((AvatarPose(posed), AvatarClosure(closure)));
+    }
+    if strained && let Some(metrics) = metrics.as_deref_mut() {
+        crate::diagnostics::samplers::motion_strain_frame(metrics);
     }
 }
 
