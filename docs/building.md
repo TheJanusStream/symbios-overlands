@@ -85,10 +85,16 @@ sign-in works from a checkout as long as port 3456 is free.
 
 [`deploy.yml`](../.github/workflows/deploy.yml) pins the same version (#1075) —
 it used to install the CLI unpinned, which put the workflow one upstream
-release away from a broken deploy. The pin is a literal in the workflow and the
-crate version lives in `Cargo.lock`, so they can still drift apart: after a
-`wasm-bindgen` bump, update both. If a deploy starts producing glue that fails
-at `init`, check that pair first.
+release away from the CLI being *newer* than the crate. Note what the pin does
+and does not buy, because `Cargo.lock` is git-ignored: the CI checkout has no
+lockfile, so `cargo build` there resolves `wasm-bindgen` fresh to the newest
+semver-compatible release, while the CLI version is a hand-maintained literal
+in the workflow. The two are pinned together *today* (both 0.2.127) and drift
+apart on the next upstream release. Patch-level skew has been tolerated in
+practice across several deploys, so this is a latent risk rather than a
+standing breakage — but if a deploy starts producing glue that fails at
+`init`, check that pair first, and bump the workflow literal to whatever a
+fresh local resolve puts in `Cargo.lock`.
 
 ## Working against a sibling crate
 
