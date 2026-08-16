@@ -14,7 +14,7 @@ symbios-audio = "0.1"
 # The avatar engine, for `GenJob::AvatarBuild` (#1061). Bevy-free by design,
 # so the slim-worker constraint above holds; `serde-avatar` is what makes a
 # built body serialisable across the worker boundary (symbios-avatar#234).
-symbios-avatar = { path = "../../../symbios-avatar", features = ["serde-avatar"] }
+symbios-avatar = { version = "0.1", features = ["serde-avatar"] }
 serde = { version = "1", features = ["derive"] }
 # Encode the large RGBA / WAV byte buffers as compact msgpack `bin` blobs
 # instead of per-element integer arrays across the wasm worker boundary (the

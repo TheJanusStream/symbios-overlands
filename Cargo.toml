@@ -36,12 +36,13 @@ transform-gizmo-bevy = "0.9"
 # `symbios-avatar` is named directly so record/rig/socket types are reachable
 # without going through re-exports. `bevy_symbios_avatar` sits in the target
 # tables below, because the two targets want different clip features.
-symbios-avatar = { path = "../symbios-avatar" }
+symbios-avatar = "0.1"
 symbios = "1.5"
 symbios-turtle-3d = "0.5"
 symbios-shape = "0.3"
 bevy_symbios_shape = "0.6"
 symbios-tensor = "0.2"
+bevy_symbios_avatar = "0.1"
 gen-jobs = { path = "crates/gen-jobs" }
 avian3d = "0.6"
 fast-surface-nets = "0.2"
@@ -78,14 +79,12 @@ glam = "0.30"
 # source is the engine's procedural layer, so the 200 KiB baked archive is
 # neither embedded natively nor fetched on wasm. The `editor` default stays
 # on for both: bevy_egui 0.39 is already in the tree, so it costs nothing.
-bevy_symbios_avatar = { path = "../bevy_symbios_avatar" }
 tiny_http = "0.12"
 webbrowser = "1.0"
 arboard = "3"
 clap = { version = "4", features = ["derive"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-bevy_symbios_avatar = { path = "../bevy_symbios_avatar" }
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.2", features = ["js"] }
 web-sys = { version = "0.3", features = [
