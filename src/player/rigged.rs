@@ -51,7 +51,7 @@ use avian3d::prelude::LinearVelocity;
 use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 use bevy::prelude::*;
 use bevy_symbios_avatar::{AvatarBody as BuiltBody, AvatarClosure, AvatarPose, spawn_avatar};
-use symbios_avatar::anim::gesture;
+use symbios_avatar::anim::{gesture, transition};
 use symbios_avatar::{
     Avatar, Blink, Expression, Ground, Idle, Inertializer, Limb, Pose, Speed, Walk,
 };
@@ -128,6 +128,14 @@ pub(super) struct RiggedMotion {
     cycle: f32,
     source: MotionSource,
     last_position: Option<Vec3>,
+    /// The speed the gait was built from last frame, or `None` when the body
+    /// was not travelling.
+    ///
+    /// Kept so [`transition::carry_cycle`] has a `from` gait to map out of
+    /// (#1071). A [`Speed`] is one dimensionless number, so remembering the
+    /// speed rather than the gait keeps this component a value and rebuilds
+    /// the gait only on the frames a change of duty actually needs one.
+    gaiting: Option<Speed>,
     previous: Option<Pose>,
     current: Option<Pose>,
     transition: Option<Inertializer>,
@@ -172,6 +180,7 @@ impl Default for RiggedMotion {
             cycle: 0.0,
             source: MotionSource::Rest,
             last_position: None,
+            gaiting: None,
             previous: None,
             current: None,
             transition: None,
@@ -196,6 +205,47 @@ enum MotionSource {
     Gait,
     /// A one-shot emote riding over whatever else the body is doing (#1068).
     Gesture(Emote),
+}
+
+impl MotionSource {
+    /// Which of the engine's motion families this is, or `None` for the hold.
+    ///
+    /// **The blend question, asked the engine's way** (#1071, engine #247). A
+    /// blend joins two activities that share no clock; it is *not* for a body
+    /// moving along one axis, where the pose is already continuous and
+    /// inertializing it against itself only adds a decaying error to a motion
+    /// that had none. [`transition::Family::needs_blend`] is where that rule
+    /// lives.
+    ///
+    /// Every speed is one family, which is the whole point of the speed axis:
+    /// a walk becoming a run is a change of duty inside `Locomotion`, and the
+    /// discontinuity that really is there at that moment is the CLOCK's, fixed
+    /// by [`transition::carry_cycle`] rather than smeared by a blend.
+    ///
+    /// [`Self::Rest`] has no family and that is not an omission. It is a held
+    /// pose rather than a generator — the attachment-editing pin — so a change
+    /// into or out of it is a pose swap with no clock to be continuous with,
+    /// and it always blends. Answering `Family::Idle` instead would silently
+    /// stop the release from blending, and the idle it releases into is up to
+    /// a sway's amplitude away from the bind pose it was pinned at.
+    fn family(self) -> Option<transition::Family> {
+        match self {
+            MotionSource::Rest => None,
+            MotionSource::Idle => Some(transition::Family::Idle),
+            MotionSource::Gait => Some(transition::Family::Locomotion),
+            MotionSource::Gesture(_) => Some(transition::Family::Expressive),
+        }
+    }
+
+    /// Whether moving from `self` to `into` needs a blend at all.
+    fn needs_blend(self, into: Self) -> bool {
+        match (self.family(), into.family()) {
+            (Some(from), Some(into)) => from.needs_blend(into),
+            // A hold at either end: always, for the reason [`Self::family`]
+            // gives.
+            _ => self != into,
+        }
+    }
 }
 
 /// Start a build for every chassis whose resolved rigged record is not the
@@ -473,11 +523,55 @@ pub(super) fn drive_rigged_motion(
         // or slower; a generator asks the speed axis for the cadence the
         // stride it is about to take actually implies.
         let rig = &body.avatar.rig;
-        let (locomotion, cadence) = if planar < IDLE_BELOW {
-            (MotionSource::Idle, 0.0)
-        } else {
-            (MotionSource::Gait, Speed::new(rig, planar).cadence(rig))
+        // **The change of source is taken on the frame the world changes, and
+        // #1071's handoff wait is deliberately NOT here.** The governor's rule
+        // is that a transition should not begin while a contact is bearing
+        // weight, and should hold for the next handoff — where support is
+        // transferring anyway. Implemented and measured on a stop, it made
+        // this worse, and the sweep says why: the skid a stop costs is how far
+        // the blend must drag the PLANTED foot to reach the standing stance,
+        // and that is smallest at midstance, where the stance foot is already
+        // under the hip, and largest at a handoff, where the legs are at full
+        // split. Waiting for the handoff steers the body from the best moment
+        // to the worst.
+        //
+        // Measured, stopping from 1.4 m/s at every phase of the cycle, as the
+        // furthest a foot that was bearing weight then slid: 15.4 mm stopping
+        // near midstance and 203.0 at a handoff, worst 297.9 across the sweep;
+        // with the wait, the phases it engaged on went 131.2 mm to 351.3 and
+        // the worst rose to 351.3. See `a_stop_does_not_skate_further_than_it_
+        // already_does`, which ratchets the figure, and #1071 for the write-up.
+        let travelling = (planar >= IDLE_BELOW).then(|| Speed::new(rig, planar));
+        let (locomotion, cadence) = match travelling {
+            Some(speed) => (MotionSource::Gait, speed.cadence(rig)),
+            None => (MotionSource::Idle, 0.0),
         };
+
+        // **Carry the CYCLE across a change of gait, not the number** (#1071,
+        // engine #247). A cycle fraction means a different part of the step at
+        // a different duty: the duty falls all the way along the speed axis
+        // and STEPS at the walk-run transition, so a body that crosses it
+        // mid-stride hands 0.5 to a gait where 0.5 is a different moment, and
+        // a foot in mid-swing arrives planted. `phase_matched` maps it exactly
+        // — the leading contact keeps the part of the step it was actually in.
+        //
+        // Asked every frame rather than at a detected boundary, because there
+        // is no boundary to detect: the duty moves continuously as well as
+        // stepping, and where it has not moved the map is the identity to the
+        // bit. One `Gait` is rebuilt on the frames it has moved, which is a
+        // pair of two-element vectors beside a solve that allocates poses.
+        if let (Some(speed), Some(before)) = (travelling, motion.gaiting)
+            && before != speed
+        {
+            let into = speed.gait(rig);
+            let from = symbios_avatar::Gait {
+                duty: before.duty(),
+                ..into.clone()
+            };
+            motion.cycle = transition::carry_cycle(&from, &into, motion.cycle);
+        }
+        motion.gaiting = travelling;
+
         if !airborne {
             motion.cycle = (motion.cycle + delta * cadence).fract();
         }
@@ -545,7 +639,7 @@ pub(super) fn drive_rigged_motion(
                 // the legs taking it, and that ratio was pinned at pace 1.0 —
                 // it responds for free now, which is the whole of #239's
                 // complaint against this file.
-                let speed = Speed::new(rig, planar);
+                let speed = travelling.unwrap_or(Speed::STILL);
                 let gait = speed.gait(rig);
                 let stride = speed.stride(rig);
                 // The head of the engine's own drive sequence — step, arms,
@@ -594,8 +688,20 @@ pub(super) fn drive_rigged_motion(
             Walk::at(motion.cycle).settle(rig, &mut pose, gait, stride, &stance, floor);
         }
 
-        // Inertialize source switches so a jog does not snap into a stand.
-        if motion.source != source
+        // Inertialize source switches so a walk does not snap into a stand —
+        // but only where the two are different activities (#1071). Within
+        // locomotion the answer is no: see [`MotionSource::family`].
+        //
+        // **Measured, because the obvious simplification here is wrong.** A
+        // gesture looks like it should need no blend: every emote in the
+        // roster is a goal-space clip that begins and ends at the body's own
+        // rest offsets, so its POSITION is continuous at both ends. Its
+        // velocity is not. Sampled one frame in at 60 fps, a greeting has
+        // already moved a joint 74.5 mm and a refusal 101.9 — a seventh of
+        // the whole gesture's travel, in one frame — and the same at the far
+        // end. Dropping the blend there would put a visible snap on both ends
+        // of every emote.
+        if motion.source.needs_blend(source)
             && let (Some(previous), Some(current)) = (&motion.previous, &motion.current)
         {
             motion.transition = Some(Inertializer::start(
@@ -1038,6 +1144,369 @@ mod tests {
         }
         assert!(crest > f32::MIN, "the gait never drove the body");
         (split, crest)
+    }
+
+    /// Accelerates one body across the walk-run transition and reports the
+    /// largest single-frame step the leading contact took **through its own
+    /// step**, as a fraction of one.
+    ///
+    /// **Not a distance, and that is the point** (#1071). A foot legitimately
+    /// travels every frame, and at a run it travels a long way; millimetres
+    /// cannot separate a body moving fast from a body whose clock was
+    /// relabelled under it. What a change of gait must not do is move the
+    /// contact to a different part of its STEP, so the reading is taken on an
+    /// axis that does not move when the duty does — half for the stance, half
+    /// for the swing — which is exactly the quantity `phase_matched` preserves
+    /// and the quantity that jumps when nothing preserves it.
+    ///
+    /// Taken off `RiggedMotion::cycle` as the drive actually left it, under
+    /// the gait the drive actually built, so it measures this file rather than
+    /// a re-derivation of it.
+    fn worst_phase_step(from: f32, to: f32, seconds: f32, fps: f32) -> f32 {
+        let mut app = test_app();
+        let chassis = app
+            .world_mut()
+            .spawn((Transform::default(), GlobalTransform::default()))
+            .id();
+        let avatar = symbios_avatar::Avatar::build_with(
+            &engine_default_for_did("did:plc:transition-test"),
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                ..Default::default()
+            },
+        )
+        .expect("the seeded default engine body builds");
+        let mut built = Some(avatar);
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>| {
+                    let Some(avatar) = built.take() else {
+                        return;
+                    };
+                    install_built_body(
+                        &mut commands,
+                        chassis,
+                        0.9,
+                        avatar,
+                        &[],
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut bindposes,
+                    );
+                },
+            )
+            .expect("runs");
+        let mut roots = app.world_mut().query_filtered::<Entity, With<RiggedRoot>>();
+        let root = roots.single(app.world()).expect("one rigged root");
+        let rig = app
+            .world()
+            .get::<BuiltBody>(root)
+            .expect("the body landed")
+            .avatar
+            .rig
+            .clone();
+        let feet: Vec<usize> = [Limb::HindLeft, Limb::HindRight]
+            .into_iter()
+            .map(|limb| rig.in_zone(symbios_avatar::Zone::Extremity(limb))[0])
+            .collect();
+
+        let step_secs = 1.0 / fps;
+        let frames = (seconds / step_secs) as usize;
+        let mut moves: Vec<f32> = Vec::new();
+        let mut worst_detail = (0.0f32, 0.0f32, Vec3::ZERO, 0.0f32, false, 0.0f32);
+        let mut last_phase: Option<f32> = None;
+        let mut phase_jump = (0.0f32, 0.0f32, 0.0f32, false);
+        let mut before: Option<Vec<Vec3>> = None;
+        let mut at = Vec3::ZERO;
+        let mut crossed = (false, false);
+        for frame in 0..frames {
+            // A ramp in speed, integrated into a position the driver reads its
+            // own speed back off — the remote-peer path, and the one that
+            // exercises the transition without a velocity component to fake.
+            let pace = from + (to - from) * (frame as f32 / frames as f32);
+            at += Vec3::Z * (pace * step_secs);
+            let mut chassis_mut = app.world_mut().entity_mut(chassis);
+            *chassis_mut.get_mut::<Transform>().unwrap() = Transform::from_translation(at);
+            *chassis_mut.get_mut::<GlobalTransform>().unwrap() =
+                GlobalTransform::from_translation(at);
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_secs_f32(step_secs));
+            app.world_mut()
+                .run_system_once(drive_rigged_motion)
+                .expect("runs");
+            let motion = app.world().get::<RiggedMotion>(root).expect("motion state");
+            if motion.source != MotionSource::Gait {
+                continue;
+            }
+            let speed = Speed::new(&rig, pace);
+            crossed = (
+                crossed.0 || !speed.is_running(),
+                crossed.1 || speed.is_running(),
+            );
+            let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
+            let posed = pose.forward(&rig);
+            let now: Vec<Vec3> = feet.iter().map(|&joint| posed.positions[joint]).collect();
+            // Where the leading contact is in its OWN step, on an axis that
+            // does not move when the duty does: half for the stance, half for
+            // the swing. This is what a change of gait must not relabel.
+            let phase = match speed.gait(&rig).phase(0, motion.cycle) {
+                symbios_avatar::anim::gait::Phase::Stance(t) => t * 0.5,
+                symbios_avatar::anim::gait::Phase::Swing(t) => 0.5 + t * 0.5,
+            };
+            if let Some(was) = last_phase {
+                let ahead: f32 = (phase - was).rem_euclid(1.0);
+                if ahead > phase_jump.0 {
+                    phase_jump = (ahead, pace, speed.duty(), speed.is_running());
+                }
+            }
+            last_phase = Some(phase);
+            if let Some(prev) = &before {
+                let step = now
+                    .iter()
+                    .zip(prev)
+                    .map(|(now, before)| now.distance(*before))
+                    .fold(0.0f32, f32::max);
+                if step > worst_detail.0 {
+                    let which = now
+                        .iter()
+                        .zip(prev)
+                        .max_by(|a, b| a.0.distance(*a.1).total_cmp(&b.0.distance(*b.1)))
+                        .expect("two feet");
+                    worst_detail = (
+                        step,
+                        pace,
+                        (*which.0 - *which.1),
+                        speed.duty(),
+                        speed.is_running(),
+                        motion.cycle,
+                    );
+                }
+                moves.push(step);
+            }
+            before = Some(now);
+        }
+        assert!(
+            crossed.0 && crossed.1,
+            "the sweep never crossed the walk-run transition — it measured one gait"
+        );
+        assert!(moves.len() > 30, "too few samples to have a median");
+        let worst = moves.iter().copied().fold(0.0f32, f32::max);
+        let _ = (worst, worst_detail);
+        moves.sort_by(f32::total_cmp);
+        phase_jump.0
+    }
+
+    /// Walks a body up to speed, stops the chassis dead, and reports the
+    /// furthest a foot that was BEARING WEIGHT at that moment then slid
+    /// through the world, in metres.
+    ///
+    /// A planted contact is pinned to the ground: everything it does out here
+    /// is a skate. The chassis holds still after the stop, so the world and
+    /// the body's own frame differ by a constant and a foot's motion in one is
+    /// its motion in the other.
+    fn skid_through_a_stop(walk_frames: usize) -> (f32, f32, usize) {
+        let mut app = test_app();
+        let chassis = app
+            .world_mut()
+            .spawn((Transform::default(), GlobalTransform::default()))
+            .id();
+        let avatar = symbios_avatar::Avatar::build_with(
+            &engine_default_for_did("did:plc:stop-test"),
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                ..Default::default()
+            },
+        )
+        .expect("the seeded default engine body builds");
+        let mut built = Some(avatar);
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>| {
+                    let Some(avatar) = built.take() else {
+                        return;
+                    };
+                    install_built_body(
+                        &mut commands,
+                        chassis,
+                        0.9,
+                        avatar,
+                        &[],
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut bindposes,
+                    );
+                },
+            )
+            .expect("runs");
+        let mut roots = app.world_mut().query_filtered::<Entity, With<RiggedRoot>>();
+        let root = roots.single(app.world()).expect("one rigged root");
+        let rig = app
+            .world()
+            .get::<BuiltBody>(root)
+            .expect("the body landed")
+            .avatar
+            .rig
+            .clone();
+        let feet: Vec<usize> = [Limb::HindLeft, Limb::HindRight]
+            .into_iter()
+            .map(|limb| rig.in_zone(symbios_avatar::Zone::Extremity(limb))[0])
+            .collect();
+
+        const STEP_SECS: f32 = 1.0 / 60.0;
+        const PACE: f32 = 1.4;
+        let mut at = Vec3::ZERO;
+        let frame = |app: &mut App, at: Vec3| {
+            let mut chassis_mut = app.world_mut().entity_mut(chassis);
+            *chassis_mut.get_mut::<Transform>().unwrap() = Transform::from_translation(at);
+            *chassis_mut.get_mut::<GlobalTransform>().unwrap() =
+                GlobalTransform::from_translation(at);
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
+            app.world_mut()
+                .run_system_once(drive_rigged_motion)
+                .expect("runs");
+        };
+        for _ in 0..walk_frames {
+            at += Vec3::Z * (PACE * STEP_SECS);
+            frame(&mut app, at);
+        }
+        // Which feet are carrying the body at the instant it stops, and where
+        // they are. Asked of the gait the drive is actually running.
+        let motion = app.world().get::<RiggedMotion>(root).expect("motion");
+        assert_eq!(
+            motion.source,
+            MotionSource::Gait,
+            "the body must be walking"
+        );
+        let gait = Speed::new(&rig, PACE).gait(&rig);
+        let planted: Vec<usize> = gait
+            .limbs
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| gait.phase(*index, motion.cycle).is_stance())
+            .filter_map(|(_, limb)| {
+                [Limb::HindLeft, Limb::HindRight]
+                    .iter()
+                    .position(|which| which == limb)
+            })
+            .collect();
+        assert!(!planted.is_empty(), "a walking body has a foot down");
+        let ahead = gait.until_handoff(motion.cycle);
+        let mut held = 0usize;
+        let start: Vec<Vec3> = {
+            let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
+            let posed = pose.forward(&rig);
+            planted
+                .iter()
+                .map(|&foot| posed.positions[feet[foot]])
+                .collect()
+        };
+
+        // Now the chassis holds still. The foot that was down must stay where
+        // the ground is while the body works out that it has stopped.
+        let mut skid = 0.0f32;
+        for _ in 0..60 {
+            frame(&mut app, at);
+            if app
+                .world()
+                .get::<RiggedMotion>(root)
+                .expect("motion")
+                .source
+                == MotionSource::Gait
+            {
+                held += 1;
+            }
+            let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
+            let posed = pose.forward(&rig);
+            for (which, &foot) in planted.iter().enumerate() {
+                skid = skid.max(posed.positions[feet[foot]].distance(start[which]));
+            }
+        }
+        (skid, ahead, held)
+    }
+
+    #[test]
+    fn a_stop_does_not_skate_further_than_it_already_does() {
+        // **A ratchet on a known defect, not a claim that stopping is good**
+        // (#1071). A body that stops walking blends from mid-stride into a
+        // stand, and the blend drags the foot that was bearing weight — which
+        // is pinned to the ground, so every millimetre of it is a skate. How
+        // far depends entirely on WHEN in the step the body stopped: measured
+        // at 1.4 m/s across a whole cycle of stopping phases, 15.4 mm stopping
+        // near midstance and 297.9 mm at the worst phase.
+        //
+        // The fix #1071 proposed for this — hold the change until the next
+        // handoff — was implemented and measured and made it worse (351.3 mm),
+        // because a handoff is the moment the legs are at full split and so
+        // the furthest the planted foot has to travel. The real fix is the
+        // opposite moment and is written up on the issue. Until then this
+        // holds the line so the figure cannot quietly grow.
+        //
+        // Swept over a whole cycle's worth of stopping phases, because a
+        // single phase measures one point of a curve that varies by twenty
+        // to one — and the first version of this test did exactly that and
+        // read the same 203.2 mm with the wait in and with it out.
+        let worst = (100..=130)
+            .map(|frames| skid_through_a_stop(frames).0)
+            .fold(0.0f32, f32::max);
+        assert!(
+            worst < 0.32,
+            "a foot that was bearing weight slid {:.1} mm through a stop, against 297.9 mm \
+             measured when this was written",
+            worst * 1000.0
+        );
+    }
+
+    #[test]
+    fn crossing_the_walk_run_boundary_does_not_relabel_the_clock() {
+        // **#1071's item 3, and the defect it removes is invisible in a
+        // number and obvious in a body.** The duty falls all the way along
+        // the speed axis and STEPS at the transition — about 0.55 to 0.35 —
+        // so a cycle fraction handed across unchanged means a different part
+        // of the step on the other side, and a foot in mid-swing arrives
+        // planted. `transition::carry_cycle` maps it exactly.
+        //
+        // Asked the only way a discontinuity can be told from a fast motion:
+        // sample twice as finely and see whether the largest step halves.
+        // Measured on this body, accelerating 1.4 -> 3.2 m/s over three
+        // seconds, as the largest step the leading contact takes through its
+        // own step between two frames:
+        //
+        //   without the carry   0.121, 0.112, 0.108  at 60, 120, 240 fps
+        //   with it             0.050, 0.025, 0.013
+        //
+        // The first converges on a tenth of a step that no amount of sampling
+        // removes, at pace 1.72 m/s and duty 0.350 — the transition frame
+        // itself. The second is exactly the cadence and halves with it.
+        let steps: Vec<f32> = [60.0, 120.0, 240.0]
+            .into_iter()
+            .map(|fps| worst_phase_step(1.4, 3.2, 3.0, fps))
+            .collect();
+        // Six tenths rather than a half: halving is what a smooth motion does
+        // exactly, and the slack is for where two samplings straddle the peak
+        // differently.
+        for pair in steps.windows(2) {
+            assert!(
+                pair[1] <= pair[0] * 0.6,
+                "the leading contact's phase stepped {:.4} of a step and then {:.4} at twice \
+                 the frame rate — a step that does not halve when the sampling doubles is a \
+                 cliff, and the clock was relabelled under the body",
+                pair[0],
+                pair[1],
+            );
+        }
     }
 
     #[test]
