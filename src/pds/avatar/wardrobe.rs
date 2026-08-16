@@ -428,7 +428,17 @@ pub(crate) async fn fetch_avatar_profile_at(
 ) -> Result<Option<EngineProfileRecord>, FetchError> {
     let wire: Option<WireProfile> =
         get_record_value(client, pds, did, AVATAR_PROFILE_COLLECTION, "self").await?;
-    Ok(wire.map(|w| w.profile))
+    Ok(wire.map(|w| {
+        let mut profile = w.profile;
+        // The wire is another identity's PDS and nothing about the contents
+        // can be assumed. `defaultAvatar` in particular is dereferenced into
+        // an AT-URI by everything downstream of here, so an invalid pointer
+        // is dropped at the seam (engine #51, overlands #1076); the rule and
+        // its tests live upstream in `ProfileRecord::sanitize`, and this is
+        // the one place overlands takes a profile off the network.
+        profile.sanitize();
+        profile
+    }))
 }
 
 /// Upsert the identity's avatar profile (rkey = self). Overlands calls this

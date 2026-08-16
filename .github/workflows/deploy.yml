@@ -27,7 +27,11 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli
+        # Pinned to the wasm-bindgen version in Cargo.lock (#1075): the CLI
+        # refuses to process a wasm built with a different crate version, so
+        # an unpinned `cargo install` here breaks the deploy the day a new
+        # wasm-bindgen releases. Bump both together.
+        run: cargo install wasm-bindgen-cli --version 0.2.127
 
       - name: Install Binaryen (wasm-opt)
         run: |
