@@ -31,11 +31,6 @@ bevy_symbios_multiuser = "0.6"
 bevy_symbios_texture = { version = "0.9", features = ["egui"] }
 bevy_symbios_audio = { version = "0.2", features = ["egui"] }
 transform-gizmo-bevy = "0.9"
-# The rigged-avatar engine and its Bevy layer (epic #1054): sibling repos,
-# unpublished, path deps by design — overlands is where they are dogfooded.
-# `symbios-avatar` is named directly so record/rig/socket types are reachable
-# without going through re-exports. `bevy_symbios_avatar` sits in the target
-# tables below, because the two targets want different clip features.
 symbios-avatar = "0.1"
 symbios = "1.5"
 symbios-turtle-3d = "0.5"
@@ -75,10 +70,6 @@ url = "2"
 glam = "0.30"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# No `builtin-clips` on either target since #1067: every runtime motion
-# source is the engine's procedural layer, so the 200 KiB baked archive is
-# neither embedded natively nor fetched on wasm. The `editor` default stays
-# on for both: bevy_egui 0.39 is already in the tree, so it costs nothing.
 tiny_http = "0.12"
 webbrowser = "1.0"
 arboard = "3"

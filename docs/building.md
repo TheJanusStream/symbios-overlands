@@ -47,9 +47,10 @@ overland.
 
 ```bash
 rustup target add wasm32-unknown-unknown
-# Pin the CLI to the `wasm-bindgen` crate version in Cargo.lock (0.2.126 at
-# time of writing) — a skew between the two breaks the generated JS glue:
-cargo install wasm-bindgen-cli --version 0.2.126
+# Pin the CLI to the `wasm-bindgen` crate version in Cargo.lock (0.2.127) —
+# the CLI refuses a `.wasm` built against a different crate version, so a
+# skew between the two breaks the deploy. Bump both together.
+cargo install wasm-bindgen-cli --version 0.2.127
 
 # `--workspace` builds the app *and* the off-thread generation Web Worker
 # (the slim, no-Bevy `gen-worker`) for wasm in one pass.
@@ -82,9 +83,33 @@ instead of the hosted document, opens your system browser, and catches the
 redirect on a local listener at `http://127.0.0.1:3456/callback` — so native
 sign-in works from a checkout as long as port 3456 is free.
 
-(deploy.yml installs the wasm-bindgen CLI unpinned, so a fresh upstream release
-can put the workflow ahead of the lockfile; if a deploy starts producing glue
-that fails at `init`, check that pair first.)
+[`deploy.yml`](../.github/workflows/deploy.yml) pins the same version (#1075) —
+it used to install the CLI unpinned, which put the workflow one upstream
+release away from a broken deploy. The pin is a literal in the workflow and the
+crate version lives in `Cargo.lock`, so they can still drift apart: after a
+`wasm-bindgen` bump, update both. If a deploy starts producing glue that fails
+at `init`, check that pair first.
+
+## Working against a sibling crate
+
+Every `symbios-*` dependency is a published crates.io version, including the
+avatar pair (`symbios-avatar`, `bevy_symbios_avatar`) that shipped as path deps
+through epic #1054 and were published as 0.1.0 for this release (#1075). To
+develop one of them against overlands without publishing, add a temporary
+override to the workspace root `Cargo.toml` rather than editing the dependency
+tables:
+
+```toml
+[patch.crates-io]
+symbios-avatar = { path = "../symbios-avatar" }
+bevy_symbios_avatar = { path = "../bevy_symbios_avatar" }
+```
+
+Keep the patch out of any commit that is going to be deployed — it is invisible
+in the dependency list, and a build that resolves it will not reproduce
+anywhere else. `crates/gen-jobs` depends on `symbios-avatar` too (with the
+`serde-avatar` feature, for `GenJob::AvatarBuild`); a root `[patch.crates-io]`
+covers the whole workspace, so it needs no separate override.
 
 ## Tests and quality gates
 
@@ -137,12 +162,13 @@ around. Run `cargo test --test freeze_rigid_body -- --ignored` after an avian
 or Bevy bump — if it passes, the workaround can go.
 
 Note: [`.cargo/config.toml`](../.cargo/config.toml) pins `build.jobs = 6` —
-each integration-test file links a full Bevy binary, and an uncapped parallel
-link can exhaust RAM on smaller machines. Its comment still says "~15" binaries;
-there are 24 now. The pin was calibrated against fat-LTO links, so under
-`test-release` (1.67 GB a link rather than 8 GB) there is real headroom to raise
-it — deliberately left alone for now, since the profile fix already removed the
-pressure that made it necessary.
+each test target links a full Bevy binary, and an uncapped parallel link can
+exhaust RAM on smaller machines. It also carries the
+`getrandom_backend="wasm_js"` rustflag the wasm build needs: `symbios-avatar`
+pulls `getrandom` 0.3 transitively, 0.3 refuses to build for
+`wasm32-unknown-unknown` without a cfg naming its backend, and cargo configs do
+not propagate from a dependency to its dependents (#1055). A wasm build run
+from outside the repo root will not see either setting.
 
 ## Cargo features
 
@@ -179,6 +205,13 @@ cargo run --bin render -- --generator /tmp/x.json  # a dumped + edited Generator
 When more than one subject is given the highest-precedence one wins:
 `--generator` > `--room` > `--prim` > `--catalogue` > `--avatar`, with the
 no-render modes below running ahead of all of them.
+
+`--avatar` draws `Generator` trees, so since #1060 it covers the *vehicle*
+seeds only — boat, airship and skiff. A humanoid seed rolls a rigged
+`symbios-avatar` body with no tree to walk, and the tool refuses it by name
+rather than rendering an empty sheet; the sibling `bevy_symbios_avatar`
+viewer's own `--shot` capture is that body's instrument. `--family-seeds` will
+find you a vehicle seed to render.
 
 Sheets land in `/tmp/avatar-render/<label>.png`. `--out` replaces that whole
 path — it names a `.png` file rather than a directory, and its parent must

@@ -58,9 +58,12 @@ pub fn native_redirect_uri() -> String {
 pub const RELAY_SERVICE_LXM: &str = "network.symbios.overlands.signal";
 
 /// The granular OAuth scope requested at login (#736, supersedes
-/// `transition:generic`): write access to exactly the five Overlands
-/// record collections, plus the ability to mint relay service-auth
-/// tokens ([`RELAY_SERVICE_LXM`]) for any audience. Everything else the
+/// `transition:generic`): write access to exactly the collections this app
+/// writes — the five Overlands ones plus the avatar wardrobe trio, two of
+/// which sit under the cross-app `network.symbios.avatar.*` lexicons but
+/// still in the signed-in identity's own repo (#1054) — plus the ability to
+/// mint relay service-auth tokens ([`RELAY_SERVICE_LXM`]) for any audience.
+/// Everything else the
 /// app touches is unauthenticated (public AppView reads, `sync.getBlob`)
 /// or covered by the base `atproto` scope (`getSession`). Repo *reads*
 /// need no scope — the permission model's `action` vocabulary is

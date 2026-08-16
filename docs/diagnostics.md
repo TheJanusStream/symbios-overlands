@@ -104,8 +104,8 @@ rather than fatal, so a crashed-mid-write tail still analyzes.
   telemetry and are filtered out of the in-game Event Log.
 
 The full set of `kind` values (several dozen — `LoadingGate*`, `RecordFetch*`,
-`ItemOffer*`, `AvatarFetch*`, `Portal*`, `OutboundMessageOversize`,
-`RelayAuthRejected`, `InvariantViolation`, …) is the
+`ItemOffer*`, `AvatarFetch*`, `RiggedBuildCompleted`, `Portal*`,
+`OutboundMessageOversize`, `RelayAuthRejected`, `InvariantViolation`, …) is the
 `EventPayload` enum in [`src/diagnostics/event.rs`](../src/diagnostics/event.rs);
 that file is the authoritative schema.
 

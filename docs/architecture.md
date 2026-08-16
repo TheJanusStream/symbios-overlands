@@ -31,12 +31,17 @@ direct WebRTC mesh.
   (tensor-field road topology for urban themes),
   [`bevy_symbios_texture`](https://github.com/TheJanusStream/bevy_symbios_texture)
   (a 57-generator procedural material catalogue — 35 tileable PBR surfaces plus
-  22 alpha-masked cards, the particle sprites among them), and
+  22 alpha-masked cards, the particle sprites among them),
   [`bevy_symbios_audio`](https://github.com/TheJanusStream/bevy_symbios_audio)
-  (node-graph synthesis + step-sequencer mixdown). The generation algorithms
-  live in Bevy-free core crates (`symbios-ground`, `symbios-texture`,
-  `symbios-audio`, …); the `bevy_*` crates are thin plugin/upload wrappers —
-  which is what lets the wasm Web Worker link only the cores.
+  (node-graph synthesis + step-sequencer mixdown), and
+  [`symbios-avatar`](https://github.com/TheJanusStream/symbios-avatar)
+  (parametric rigged bodies: sculpting axes → skinned mesh + skeleton, and a
+  wholly procedural motion layer) behind its Bevy layer
+  [`bevy_symbios_avatar`](https://github.com/TheJanusStream/bevy_symbios_avatar).
+  The generation algorithms live in Bevy-free core crates (`symbios-ground`,
+  `symbios-texture`, `symbios-audio`, `symbios-avatar`, …); the `bevy_*` crates
+  are thin plugin/upload wrappers — which is what lets the wasm Web Worker link
+  only the cores.
 - **Networking:**
   [`bevy_symbios_multiuser`](https://github.com/TheJanusStream/bevy_symbios_multiuser)
   over WebRTC ([`matchbox`](https://github.com/johanhelsing/matchbox)) for the
@@ -91,18 +96,29 @@ task pools collapse to a single cooperative thread there, so an inline job would
 stall the frame). At most four workers are live at once and three are kept warm
 between jobs — spawning one per job cost 130 ms–1 s in worker creation, module
 fetch and wasm instantiation — and the wait queue has two lanes, so a
-latency-sensitive audio bake or heightmap never sits behind a flood of bulk
-texture bakes. Three job kinds route through it — the **heightmap**, the
-**audio bakes** (the room's ambient bed plus per-construct spatial audio), and
-the **texture bakes**: the terrain's four splat layers on every target, plus —
-on wasm — every construct / avatar / primitive material texture, which the
-upstream generator pool would otherwise bake on the render thread (identical
-requests coalesce onto one airborne job). Each job is a self-contained,
-serialisable `GenJob`
-whose pure `run()` is byte-identical on both backends, keeping progressive
-loading deterministic across peers. The worker links only the Bevy-free
-`symbios-*` cores, so its `.wasm` stays small — which is why the repo is a small
-Cargo workspace ([`crates/gen-jobs`](../crates/gen-jobs/) +
+latency-sensitive job never sits behind a flood of bulk texture bakes. Four job
+kinds route through it — the **heightmap**, the **audio bakes** (the room's
+ambient bed plus per-construct spatial audio), the **texture bakes** (the
+terrain's four splat layers on every target, plus — on wasm — every construct /
+avatar / primitive material texture, which the upstream generator pool would
+otherwise bake on the render thread; identical requests coalesce onto one
+airborne job), and the **avatar builds** (#1061: meshing one rigged body from
+its record, 68 ms at the draft atlas and 277 ms at full size). Three of the four
+ride the urgent lane — everything but the texture bakes, whose only cost is
+pop-in. Each job is a self-contained, serialisable `GenJob` whose pure `run()`
+is byte-identical on both backends, keeping progressive loading deterministic
+across peers.
+
+The avatar build is the one job whose *reason* for existing is wasm rather than
+throughput: native already had a real thread pool for it, but a browser
+`AsyncComputeTaskPool` runs on the main thread, so every body would otherwise
+be a dropped frame or several. It is also the only job whose result is not
+plain bytes — a built body crosses the worker boundary **drawable, not
+rebuildable**, under `symbios-avatar`'s `serde-avatar` feature.
+
+The worker links only the Bevy-free `symbios-*` cores, so its `.wasm` stays
+small — which is why the repo is a small Cargo workspace
+([`crates/gen-jobs`](../crates/gen-jobs/) +
 [`crates/gen-worker`](../crates/gen-worker/)), not a lone crate.
 
 ## Primitive faces and UV projection
@@ -168,6 +184,77 @@ scene"). In code: `with_face(kind, FaceKey::Top, material)` in the catalogue's
 [`pv_panel`](../src/catalogue/items/space_outpost/mod.rs), whose photovoltaic
 face and aluminium backsheet are one prim with one override.
 
+## Avatars: two body kinds
+
+An avatar record's `body` is a `$type`-tagged **open union** (epic #1054), the
+same shape its `locomotion` half already used. Which arm it lands on decides
+almost everything downstream:
+
+- **`#rigged`** — a parametric skinned body from the `symbios-avatar` engine.
+  Every seeded humanoid is one (#1060 deleted the primitive-built humanoid
+  outright), as is any body authored in the editor's Body tab.
+- **`#generator`** — the classic `Generator` tree, spawned by the avatar-side
+  spawner back through the world compiler's own primitive / L-system /
+  shape-grammar machinery. Post-#1060 this is the vehicle families: boat,
+  airship and skiff.
+- **Neither** — two marker variants that never appear on the wire. A record
+  published *before* the union has no `body` field at all, and is treated as
+  *no record*: the seeded default is synthesised, matching the record layer's
+  no-automatic-migration rule. A body kind from a *newer* client is honoured as
+  far as it can be — the peer renders a bare chassis — and is never
+  re-serialized, so an old client cannot round-trip somebody's future body into
+  nothing. The publish preflight refuses a record still carrying either.
+
+The physics half is untouched by the choice: both kinds hang under the same
+five locomotion presets, with the same colliders and controllers the record's
+`locomotion` field asks for.
+
+**A rigged body is stored by reference, across three collections.** Two of them
+are the *sibling project's* lexicons rather than overlands ones, because a body
+that is only your face in one application is not an identity:
+
+| Collection | Key | Holds |
+| --- | --- | --- |
+| `network.symbios.avatar.avatar` | tid | one engine record per wardrobe entry, many per identity |
+| `network.symbios.avatar.profile` | `self` | the identity's default-body pointer, kept in step with the worn body |
+| `network.symbios.overlands.avatar.attachment` | tid | one worn prop: an owned *copy* of a `Generator`, its rig socket, its offset |
+
+The overlands avatar record carries only record keys; the referenced records
+are fetched in the same pass and hang on a `serde(skip)` `resolved` field, so a
+peer resolves a body against its owner's PDS rather than trusting a copy
+embedded in a broadcast. An identity with a wardrobe but no overlands record
+spawns wearing its profile default instead of a seeded vehicle. Attachments are
+capped at 16 — a bound, not a budget: each reference is one PDS fetch on every
+peer that renders the wearer.
+
+**Building and wearing.** A chassis whose resolved record differs *by value*
+from what is standing under it kicks an `Avatar::build` through
+[`offload()`](#compute-offload), one in flight at a time, latest-wins — the
+guard the wasm path needs, where a dropped task does not cancel. Builds run on
+a two-rung atlas ladder: 256 px while the record is still moving under an
+editor, full size once it has been still for 0.8 s, so sculpting stays
+interactive without shipping a draft skin. The finished body lands under a
+child offset that puts the engine's ground plane (y = 0, at the feet) on the
+chassis collider's bottom. Props are then plain parenting: the Bevy layer
+spawns a real entity per rig joint, so a prop rides its joint through every
+motion for free — an identity offset lets the engine seat the prop just clear
+of the *measured* surface, an authored offset is taken verbatim.
+
+**Motion is computed, never played back.** There is no clip library, no clip
+fetch and no play-rate arithmetic anywhere in this path (#1067): the gait comes
+off a single dimensionless speed that decides stride, cadence, duty and the
+walk-run boundary; the idle, the leap, the swim, the goal-space gestures and
+the blinking are all engine layers posed from what the chassis is actually
+doing. Chat keywords reach four of those gestures — a greeting, a yes, a no and
+a bow — with no command syntax to learn ([`emote.rs`](../src/player/emote.rs)).
+The older cosmetic `AvatarGait` bobber still animates *generator* bodies and
+only those.
+
+Four metrics watch the subsystem (#1077, #1078): rigged build kick-to-land
+latency, builds that produced no body, frames where a body strained a contact
+its solver could not reach, and orphaned worn props swept. See
+[diagnostics.md](diagnostics.md).
+
 ## Data flow
 
 **Cold start (a fresh account):** DID → `fnv1a_64(did)` seeds a
@@ -179,10 +266,12 @@ identical on every peer that derives it. Authored values always win; the
 derivers only fill what's unset.
 
 **Load:** OAuth session → PDS record fetches (room / avatar / inventory, with
-capped retry) run alongside heightmap generation and the ambient bake → the
-world compiler (`src/world_builder/`) walks the record's `Generator` tree,
-spawning ECS entities per placement, time-sliced (~5 ms/frame) with cached
-geometry/materials so identical blueprints are baked once and instanced.
+capped retry; an avatar wearing a rigged body resolves its wardrobe and
+attachment records in the same pass) run alongside heightmap generation and the
+ambient bake → the world compiler (`src/world_builder/`) walks the record's
+`Generator` tree, spawning ECS entities per placement, time-sliced (~5 ms/frame)
+with cached geometry/materials so identical blueprints are baked once and
+instanced.
 
 **Edit loop:** every widget in the owner-only World Editor mutates the live
 `RoomRecord` in place → Bevy change detection triggers an incremental
@@ -192,8 +281,10 @@ PDS**.
 
 **Peer sync:** transforms stream on a fixed tick into per-peer jitter buffers;
 identity is verified against the relay-signed session map; avatar records are
-fetched from each peer's own PDS and compiled through the same world-builder
-path as the local avatar.
+fetched from each peer's own PDS and expanded by exactly the path the local
+avatar takes — the world-builder for a generator body, an offloaded engine
+build for a rigged one — so a peer is never rendered from a copy somebody
+broadcast.
 
 ## Project layout
 
@@ -207,10 +298,12 @@ generation cores shared with the wasm Web Worker.
   record per generator (lexicons `network.symbios.overlands.room` /
   `room.generator`, committed atomically via `applyWrites`), `AvatarRecord` as
   `…overlands.avatar`, and the inventory as one record per stashed item
-  (`…overlands.inventory.item`); plus the `Generator` / `Placement` /
-  `LocomotionConfig` open unions, fixed-point wrappers, per-variant
-  sanitisers, the publish-time record-size measurement and its budget, the
-  tagged avatar part-composition catalogue
+  (`…overlands.inventory.item`); the rigged body's own three collections
+  ([`avatar/wardrobe.rs`](../src/pds/avatar/wardrobe.rs), two of them under the
+  cross-app `network.symbios.avatar.*` lexicons); plus the `Generator` /
+  `Placement` / `LocomotionConfig` / `AvatarBody` open unions, fixed-point
+  wrappers, per-variant sanitisers, the publish-time record-size measurement
+  and its budget, the tagged avatar part-composition catalogue
   ([`avatar/parts/`](../src/pds/avatar/parts/)) that the seeded outfit deriver
   fills its slots from, the socio-political passes that age a built catalogue
   tree (a material finish driven by the room's prosperity/escalation dials, and
@@ -245,14 +338,21 @@ generation cores shared with the wasm Web Worker.
   serves rooms whose author added a `RoadNetwork` generator. A seeded urban
   theme gets a mini-settlement and a social gateway instead.
 - [`src/player/`](../src/player/) — the five locomotion presets (HoverBoat,
-  Humanoid, Airplane, Helicopter, Car), the avatar-side generator-tree spawner
-  that routes avatar nodes back through the world-builder's primitive /
-  L-system / shape-grammar machinery, avatar hot-swap on record edits, the
-  cosmetic idle/gait animation driven by the seeded `AvatarGait` (applied to
-  the visual root, never the physics body), portal interaction — plus the
-  shared ground-ray filter that hides every sensor volume, gateway veils and
-  portal cubes alike, from the suspension and jump-grounding casts, so a
-  walk-in zone never reads as ground — and fall-through respawn.
+  Humanoid, Airplane, Helicopter, Car) and both halves of the body that rides
+  them. The *generator* half: the avatar-side tree spawner that routes avatar
+  nodes back through the world-builder's primitive / L-system / shape-grammar
+  machinery ([`visuals.rs`](../src/player/visuals.rs)) and the cosmetic
+  idle/gait animation driven by the seeded `AvatarGait`
+  ([`gait.rs`](../src/player/gait.rs), applied to the visual root, never the
+  physics body). The *rigged* half: offloaded builds on the draft/full atlas
+  ladder and the procedural motion driver
+  ([`rigged.rs`](../src/player/rigged.rs)), worn props parented per rig joint
+  ([`attachments.rs`](../src/player/attachments.rs)) and the chat-keyword
+  gesture trigger ([`emote.rs`](../src/player/emote.rs)). Then avatar hot-swap
+  on record edits, portal interaction — plus the shared ground-ray filter that
+  hides every sensor volume, gateway veils and portal cubes alike, from the
+  suspension and jump-grounding casts, so a walk-in zone never reads as ground
+  — and fall-through respawn.
 - [`src/interaction/`](../src/interaction/) — the contact-effects framework: one
   per-frame classifier feeds independent water-wake / particle-burst /
   splat-stain / decal / audio channels, plus the always-on material-keyed
@@ -284,7 +384,9 @@ generation cores shared with the wasm Web Worker.
 - [`src/ui/`](../src/ui/) — the whole egui surface, not just a panel list.
   Panels: [login](../src/ui/login/), [chat](../src/ui/chat.rs),
   [people](../src/ui/people.rs) (with drag-to-gift),
-  [avatar editor](../src/ui/avatar/), [inventory](../src/ui/inventory/),
+  [avatar editor](../src/ui/avatar/) (Body — the engine's own sculpting axes
+  hosted in this window's chrome, plus the cross-app wardrobe — Attachments,
+  Visuals and Locomotion), [inventory](../src/ui/inventory/),
   [catalogue](../src/ui/catalogue.rs),
   [diagnostics](../src/ui/diagnostics.rs) (the 5-tab metrics/anomaly HUD),
   [settings](../src/ui/settings.rs), the
@@ -307,9 +409,14 @@ generation cores shared with the wasm Web Worker.
   clones, labelled, shared by the world and avatar editors on Ctrl+Z /
   Ctrl+Shift+Z.
 - [`src/oauth/`](../src/oauth/) — ATProto OAuth 2.0 + DPoP (WASM redirect /
-  native loopback) with granular scopes, token refresh, and the
-  periodically-refreshed relay service-auth token that underwrites the
-  relay-signed session map.
+  native loopback), token refresh, and the periodically-refreshed relay
+  service-auth token that underwrites the relay-signed session map. The
+  requested scope is granular rather than `transition:generic` (#736): one
+  `repo:` grant per written collection — derived at runtime from
+  `pds::WRITTEN_COLLECTIONS` so a new collection cannot ship unscoped, which is
+  exactly how the wardrobe trio did (#1065) — plus one `rpc:` grant for minting
+  relay service-auth tokens. Repo *reads* need no scope at all. The hosted copy
+  in `assets/client-metadata.json` must match, and an integration test says so.
 - [`src/seeded_defaults/`](../src/seeded_defaults/) — DID-seeded deterministic
   defaults, derived along two orthogonal axes: a natural *biome* and an
   artificial *theme*, plus continuous prosperity/escalation dials. Room side:
@@ -323,8 +430,11 @@ generation cores shared with the wasm Web Worker.
   monument standing beside it, a light
   theme accent nudged back onto the natural derivers (fog tint, particle mood),
   and the layered ambient soundtrack. Avatar side: one of four chassis families
-  (boat / airship / humanoid / skiff) plus its palette, body proportions, gait,
-  and a tagged outfit that the part catalogue assembles into geometry.
+  (boat / airship / humanoid / skiff) plus its palette, body proportions and
+  gait. The three vehicle families assemble their geometry from a tagged outfit
+  the part catalogue fills; the humanoid family short-circuits that pipeline
+  entirely (#1060) and rolls a seeded `symbios-avatar` engine record instead,
+  whose stature the locomotion capsule is then cut to.
 - [`src/catalogue/`](../src/catalogue/) — code-shipped read-only library of
   starter generator blueprints (~380 entries across 24 themes),
   organised by theme and structural role (landmark / secondary / prop / plant /
@@ -383,11 +493,12 @@ generation cores shared with the wasm Web Worker.
   worker crate that runs them off the main thread on the web.
 - [`src/render_tool/`](../src/render_tool/) +
   [`src/bin/render.rs`](../src/bin/render.rs) — a native-only headless tool:
-  contact-sheet renders through the real spawn path (`--avatar` / `--catalogue`
-  / `--prim` / `--room` / `--generator`, with `--ages` for a plant
-  age-progression grid), plus the no-render text modes — offline diagnostics
-  (`--analyze-session`, `--diff-sessions`, `--road-dump`), the survey/dump
-  tools (`--family-seeds`, `--outfit`, `--find-part`, `--dump`) and the content
+  contact-sheet renders through the real spawn path (`--avatar` — vehicle seeds
+  only, since a rigged body has no tree to walk — `--catalogue` / `--prim` /
+  `--room` / `--generator`, with `--ages` for a plant age-progression grid),
+  plus the no-render text modes — offline diagnostics (`--analyze-session`,
+  `--diff-sessions`, `--road-dump`), the survey/dump tools (`--family-seeds`,
+  `--outfit`, `--find-part`, `--dump`) and the content
   audits the overhaul loop runs on (`--room-census`, `--scatter-census`,
   `--settlement-drop`, `--foundation-audit`, `--gateway-fit`, plus
   `--scatter-plot`, which prints nothing and instead writes a plan-view PNG of

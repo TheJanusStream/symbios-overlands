@@ -41,10 +41,18 @@ editor as well as the world. A whole region — a house, a forest, a market
 square — becomes one named generator you can scatter, grid-array, or stash in
 your inventory.
 
-**Avatars are recipes too.** Your avatar is built from the same generator
-vocabulary, parented under one of five physics presets — `HoverBoat`,
-`Humanoid`, `Airplane`, `Helicopter` or `Car`. Visual and locomotion edits
-stream to peers as a live preview before you commit them.
+**Avatars are recipes too.** Your body is one of two kinds, and either rides
+one of five physics presets — `HoverBoat`, `Humanoid`, `Airplane`, `Helicopter`
+or `Car`. Vehicles — hover-boats, airships, land-skiffs — are generator trees
+built from the same vocabulary the world is. People are parametric skinned
+bodies from the `symbios-avatar` engine: a few dozen sculpting axes, no
+imported mesh, and every motion computed rather than played back — the walk,
+the run, the jump, the swim and the idle all fall out of what the body is
+doing. That body lives in a wardrobe on your PDS under a *cross-app* lexicon,
+so it is your face in any symbios application, not just this one, and you can
+hang up to sixteen props on it — anything from your inventory, pinned to a rig
+socket and nudged into place with an in-world gizmo. Visual and locomotion
+edits stream to peers as a live preview before you commit them.
 
 **Sound is procedural too.** Audio is a recipe slot, not a shipped asset: the
 room carries an ambient-bed slot and every construct can carry its own
@@ -67,7 +75,9 @@ spot in someone else's world.
 **Contact brings it to life.** Every avatar is classified against the surface
 beneath it each frame, and the contact drives a stack of effects: water wakes,
 dust bursts, stains baked into the terrain, fading decals, and spatial audio
-cues.
+cues. People gesture, too, with nothing to learn: say hello in chat and your
+avatar waves — there is no slash-command vocabulary, just four gestures the
+keywords of ordinary conversation reach for.
 
 **Persistence and gifting.** Inventories live on your PDS. Stash a custom-tuned
 tree or a whole region blueprint, carry it across the network, and drag it onto
@@ -94,7 +104,8 @@ landmark-link CLI flags, and the developer tooling.
 
 - [docs/architecture.md](docs/architecture.md) — how it's put together: the
   engine stack, the `symbios` procedural ecosystem, protocol safety, the
-  loading gate, compute offload, data flow, and the full module map.
+  loading gate, compute offload, per-face materials and UV projection, the two
+  avatar body kinds, data flow, and the full module map.
 - [docs/building.md](docs/building.md) — building & running (native + WASM),
   tests, and the headless render/analysis tooling.
 - [docs/diagnostics.md](docs/diagnostics.md) — the session log, the in-game
