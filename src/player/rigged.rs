@@ -51,9 +51,9 @@ use avian3d::prelude::LinearVelocity;
 use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 use bevy::prelude::*;
 use bevy_symbios_avatar::{AvatarBody as BuiltBody, AvatarClosure, AvatarPose, spawn_avatar};
-use symbios_avatar::anim::{gesture, transition};
+use symbios_avatar::anim::{Stage, gesture, transition};
 use symbios_avatar::{
-    Avatar, Blink, Expression, Ground, Idle, Inertializer, Limb, Pose, Speed, Walk,
+    Avatar, Blink, Expression, Ground, Idle, Inertializer, Leap, Limb, Pose, Speed, Walk,
 };
 
 use crate::interaction::locomotion::locomotion_total_height;
@@ -63,9 +63,31 @@ use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 
 /// Below this horizontal speed the body idles.
 const IDLE_BELOW: f32 = 0.3;
-/// Vertical speed past which a body is treated as airborne: the cycle holds
-/// and no foot is planted, so a fall does not march in mid-air.
-const AIRBORNE_VERTICAL: f32 = 3.5;
+/// Upward speed that can only be a launch, in m/s.
+///
+/// Nothing a body does on the ground pushes it up this fast — the humanoid
+/// preset's own jump is 450 N·s on 80 kg, which is 5.6 — and a walk on rough
+/// ground never approaches it. Deliberately well clear of both, because the
+/// cost of missing a launch is one frame of walk cycle and the cost of a false
+/// one is a body that tucks its legs while standing on a kerb.
+const LAUNCH_SPEED: f32 = 2.0;
+
+/// Downward speed past which a body has left the ground rather than walked
+/// down something, in m/s.
+///
+/// The other way into the air: a body that steps off a ledge never launches,
+/// and reaches this within about a fifth of a second of having nothing under
+/// it.
+const FALL_SPEED: f32 = 2.0;
+
+/// Vertical speed below which a body counts as no longer falling, in m/s.
+///
+/// **The landing edge, and the reason airborne has to be a state.** No
+/// instantaneous test can find it: at the apex of a jump the vertical speed is
+/// zero, which is the most airborne a body ever is. What cannot be confused
+/// with the apex is a body that HAS been falling and has stopped, because at
+/// the apex it is still on its way down.
+const SETTLE_SPEED: f32 = 0.5;
 /// How long a source switch blends, in seconds — the sibling viewer's own
 /// default transition.
 const BLEND_SECS: f32 = 0.15;
@@ -136,6 +158,10 @@ pub(super) struct RiggedMotion {
     /// speed rather than the gait keeps this component a value and rebuilds
     /// the gait only on the frames a change of duty actually needs one.
     gaiting: Option<Speed>,
+    /// The leap in progress, or `None` while the body is on the ground
+    /// (#1072).
+    airborne: Option<Airborne>,
+
     previous: Option<Pose>,
     current: Option<Pose>,
     transition: Option<Inertializer>,
@@ -152,6 +178,32 @@ pub(super) struct RiggedMotion {
     /// per-body rate limit. Kept across the gesture ending, which is the whole
     /// point: the cooldown outlives what it is limiting.
     gestured_at: Option<f32>,
+}
+
+/// A body that is off the ground, and the leap describing it (#1072).
+///
+/// **Built twice, and that is the shape of the problem rather than a
+/// hesitation.** The engine's [`Leap`] wants to know at the start how far it
+/// will fall, because the landing's depth and the flight's duration both come
+/// off it; here the physics chassis decides that after the fact. So this
+/// carries the leap the takeoff implied while the body is rising, and is
+/// replaced at touchdown by one built from the impact that actually arrived —
+/// which is the number the landing needs and the only one it needs.
+#[derive(Clone, Copy)]
+struct Airborne {
+    /// The leap being driven.
+    leap: Leap,
+    /// Seconds into it, on [`Leap`]'s own clock.
+    elapsed: f32,
+    /// Whether the body has begun falling, which is what makes the landing
+    /// edge findable — see [`SETTLE_SPEED`].
+    falling: bool,
+    /// The fastest the body has been travelling downward, in m/s, which at
+    /// touchdown is the impact the legs have to absorb.
+    impact: f32,
+    /// Whether the feet are back on the ground and this is playing out the
+    /// landing.
+    landed: bool,
 }
 
 /// An emote in progress on one body.
@@ -181,6 +233,7 @@ impl Default for RiggedMotion {
             source: MotionSource::Rest,
             last_position: None,
             gaiting: None,
+            airborne: None,
             previous: None,
             current: None,
             transition: None,
@@ -203,6 +256,8 @@ enum MotionSource {
     Idle,
     /// Travelling: the engine's procedural gait on the speed axis.
     Gait,
+    /// Off the ground on purpose or otherwise, and landing again (#1072).
+    Leap,
     /// A one-shot emote riding over whatever else the body is doing (#1068).
     Gesture(Emote),
 }
@@ -233,6 +288,7 @@ impl MotionSource {
             MotionSource::Rest => None,
             MotionSource::Idle => Some(transition::Family::Idle),
             MotionSource::Gait => Some(transition::Family::Locomotion),
+            MotionSource::Leap => Some(transition::Family::Jump),
             MotionSource::Gesture(_) => Some(transition::Family::Expressive),
         }
     }
@@ -504,17 +560,83 @@ pub(super) fn drive_rigged_motion(
         // Local chassis carry an avian velocity; remote peers are kinematic
         // playout, so their speed is read off the smoothed transform itself.
         let position = transform.translation();
+        // Signed, not a magnitude: which WAY a body is going vertically is the
+        // whole of the airborne state machine below, and `abs` threw it away.
         let (planar, vertical) = match velocity {
-            Some(v) => (Vec2::new(v.0.x, v.0.z).length(), v.0.y.abs()),
+            Some(v) => (Vec2::new(v.0.x, v.0.z).length(), v.0.y),
             None => {
                 let moved = motion
                     .last_position
                     .map_or(Vec3::ZERO, |last| (position - last) / delta);
-                (Vec2::new(moved.x, moved.z).length(), moved.y.abs())
+                (Vec2::new(moved.x, moved.z).length(), moved.y)
             }
         };
         motion.last_position = Some(position);
-        let airborne = vertical > AIRBORNE_VERTICAL;
+
+        // **Airborne is a state, and it has to be** (#1072). Every
+        // instantaneous test fails at the apex of a jump, where the vertical
+        // speed is zero and the body is as airborne as it ever gets — which is
+        // exactly what the old `|v_y| > 3.5` did, resuming the walk cycle and
+        // planting the feet at the top of every jump.
+        //
+        // Two ways in and one way out. A body launches when something pushes
+        // it up faster than the ground can, or falls when nothing is holding
+        // it up; it lands when a body that HAS been falling stops falling,
+        // which the apex cannot imitate because at the apex it is still on its
+        // way down.
+        let rig = &body.avatar.rig;
+        let launched = vertical > LAUNCH_SPEED;
+        let dropped = vertical < -FALL_SPEED;
+        match &mut motion.airborne {
+            None if launched || dropped => {
+                motion.airborne = Some(Airborne {
+                    // The launch the body actually left with. A step off a
+                    // ledge never launched, and `Leap::new(0.0)` is a fall
+                    // with no wind-up, which is the same type saying so.
+                    leap: Leap::new(vertical.max(0.0)),
+                    // Past the wind-up: this app has no anticipation to spend
+                    // on one — the impulse fires the fixed step after the key
+                    // — so the leap is joined at the instant its feet leave.
+                    elapsed: Leap::new(vertical.max(0.0)).wind_up(rig),
+                    falling: vertical < -SETTLE_SPEED,
+                    impact: vertical.min(0.0),
+                    landed: false,
+                });
+            }
+            Some(air) if !air.landed => {
+                air.elapsed += delta;
+                air.falling |= vertical < -SETTLE_SPEED;
+                air.impact = air.impact.min(vertical);
+                if air.falling && vertical >= -SETTLE_SPEED {
+                    // Touchdown. The leap is rebuilt from the arrival that
+                    // actually happened rather than the one predicted at
+                    // takeoff, and its clock is set to the head of the
+                    // landing — the only stage left to play.
+                    let dropped = air.impact * air.impact / (2.0 * 9.81);
+                    let leap = Leap::falling(dropped);
+                    air.leap = leap;
+                    air.elapsed = leap.wind_up(rig) + leap.flight();
+                    air.landed = true;
+                }
+            }
+            Some(air) => {
+                air.elapsed += delta;
+                // Leaving the ground again mid-landing is a new leap, not a
+                // continuation of this one.
+                if launched {
+                    motion.airborne = None;
+                }
+            }
+            None => {}
+        }
+        // A landing that has played out is over; the body stands up out of it.
+        if motion
+            .airborne
+            .is_some_and(|air| air.leap.stage_at(rig, air.elapsed) == Stage::Standing)
+        {
+            motion.airborne = None;
+        }
+        let airborne = motion.airborne.is_some();
 
         // Pick the source and its cycle rate. Standing is the engine's idle,
         // travelling is the gait — and the gait's cadence is **derived from
@@ -522,7 +644,6 @@ pub(super) fn drive_rigged_motion(
         // clip had one stride baked into it and could only be played faster
         // or slower; a generator asks the speed axis for the cadence the
         // stride it is about to take actually implies.
-        let rig = &body.avatar.rig;
         // **The change of source is taken on the frame the world changes, and
         // #1071's handoff wait is deliberately NOT here.** The governor's rule
         // is that a transition should not begin while a contact is bearing
@@ -542,9 +663,13 @@ pub(super) fn drive_rigged_motion(
         // the worst rose to 351.3. See `a_stop_does_not_skate_further_than_it_
         // already_does`, which ratchets the figure, and #1071 for the write-up.
         let travelling = (planar >= IDLE_BELOW).then(|| Speed::new(rig, planar));
-        let (locomotion, cadence) = match travelling {
-            Some(speed) => (MotionSource::Gait, speed.cadence(rig)),
-            None => (MotionSource::Idle, 0.0),
+        // A leap owns the legs for as long as it lasts: a body cannot be
+        // mid-stride and mid-air at once, and pretending otherwise is how a
+        // jump ends up with a walk cycle running underneath it (#1072).
+        let (locomotion, cadence) = match (motion.airborne, travelling) {
+            (Some(_), _) => (MotionSource::Leap, 0.0),
+            (None, Some(speed)) => (MotionSource::Gait, speed.cadence(rig)),
+            (None, None) => (MotionSource::Idle, 0.0),
         };
 
         // **Carry the CYCLE across a change of gait, not the number** (#1071,
@@ -660,6 +785,29 @@ pub(super) fn drive_rigged_motion(
                 // lands (engine #241).
                 walking = Some((gait, stride));
             }
+            MotionSource::Leap => {
+                // **The chassis owns the trajectory, so the flight's height is
+                // given back** (#1072). `Leap::drive` carries the root through
+                // the parabola itself, which is right for a body that owns its
+                // own root and wrong here: avian is already moving the physics
+                // capsule this body hangs off, and applying both flies it
+                // twice. The wind-up's and the landing's heights are KEPT —
+                // those are the legs compressing, which a capsule does not do.
+                //
+                // Taken off after the drive rather than by not asking for it,
+                // because the drive plants the contacts at the height it
+                // applied: in flight there is nothing to plant, so subtracting
+                // afterward is exact, and on the ground there is nothing to
+                // subtract.
+                if let Some(air) = motion.airborne {
+                    let leapt = air.leap.drive(rig, &mut pose, air.elapsed, floor);
+                    if leapt.stage.is_grounded() {
+                        stance = rig.ground_contacts();
+                    } else {
+                        pose.translation.y -= leapt.height;
+                    }
+                }
+            }
             // `locomotion` is never a gesture by construction — the gesture
             // is chosen below, from this.
             MotionSource::Gesture(_) => {}
@@ -677,7 +825,9 @@ pub(super) fn drive_rigged_motion(
         {
             clip.apply(rig, &mut pose, active.elapsed / EMOTE_SECS);
         }
-        if airborne {
+        // The leap keeps its own contacts: `Leap::drive` plants them itself
+        // during a wind-up or a landing, and in flight there are none.
+        if airborne && locomotion != MotionSource::Leap {
             stance.clear();
         }
         // The tail of the drive: settle the contacts, then roll the ankles, in
@@ -1844,6 +1994,161 @@ mod tests {
             .expect("runs");
         assert!(app.world().get::<AvatarPose>(root).is_some());
         assert!(app.world().get::<AvatarClosure>(root).is_some());
+    }
+
+    /// Drives one body through a whole jump on a chassis that moves the way
+    /// avian moves one — an impulse, then gravity — and reports what the
+    /// drawn body did: whether the walk cycle ever advanced in the air,
+    /// whether a foot was ever planted in the air, how far the lowest foot
+    /// rose at the apex, and whether the landing was ever reached.
+    fn jumped(launch: f32) -> (bool, bool, f32, bool) {
+        let mut app = test_app();
+        let chassis = app
+            .world_mut()
+            .spawn((Transform::default(), GlobalTransform::default()))
+            .id();
+        let avatar = symbios_avatar::Avatar::build_with(
+            &engine_default_for_did("did:plc:leap-test"),
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                ..Default::default()
+            },
+        )
+        .expect("the seeded default engine body builds");
+        let mut built = Some(avatar);
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>| {
+                    let Some(avatar) = built.take() else {
+                        return;
+                    };
+                    install_built_body(
+                        &mut commands,
+                        chassis,
+                        0.9,
+                        avatar,
+                        &[],
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut bindposes,
+                    );
+                },
+            )
+            .expect("runs");
+        let mut roots = app.world_mut().query_filtered::<Entity, With<RiggedRoot>>();
+        let root = roots.single(app.world()).expect("one rigged root");
+        let rig = app
+            .world()
+            .get::<BuiltBody>(root)
+            .expect("the body landed")
+            .avatar
+            .rig
+            .clone();
+        let feet: Vec<usize> = [Limb::HindLeft, Limb::HindRight]
+            .into_iter()
+            .map(|limb| rig.in_zone(symbios_avatar::Zone::Extremity(limb))[0])
+            .collect();
+
+        const STEP_SECS: f32 = 1.0 / 60.0;
+        const GRAVITY: f32 = 9.81;
+        // Walk in first, so the body is in a gait when it leaves the ground
+        // and the walk cycle has something to advance.
+        let mut at = Vec3::ZERO;
+        let frame = |app: &mut App, at: Vec3| {
+            let mut chassis_mut = app.world_mut().entity_mut(chassis);
+            *chassis_mut.get_mut::<Transform>().unwrap() = Transform::from_translation(at);
+            *chassis_mut.get_mut::<GlobalTransform>().unwrap() =
+                GlobalTransform::from_translation(at);
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
+            app.world_mut()
+                .run_system_once(drive_rigged_motion)
+                .expect("runs");
+        };
+        for _ in 0..90 {
+            at += Vec3::Z * (1.4 * STEP_SECS);
+            frame(&mut app, at);
+        }
+
+        // The jump: the chassis rises and falls under gravity, travelling
+        // forward all the while, and is caught at the height it left.
+        let mut vertical = launch;
+        let (mut marched, mut planted, mut highest, mut landed) = (false, false, f32::MIN, false);
+        let ground = at.y;
+        for _ in 0..600 {
+            vertical -= GRAVITY * STEP_SECS;
+            at += Vec3::new(0.0, vertical * STEP_SECS, 1.4 * STEP_SECS);
+            let caught = at.y <= ground;
+            if caught {
+                at.y = ground;
+                vertical = 0.0;
+            }
+            let before = app.world().get::<RiggedMotion>(root).expect("motion").cycle;
+            frame(&mut app, at);
+            let motion = app.world().get::<RiggedMotion>(root).expect("motion");
+            let source = motion.source;
+            let in_flight = motion
+                .airborne
+                .is_some_and(|air| !air.leap.stage_at(&rig, air.elapsed).is_grounded());
+            landed |= motion.airborne.is_some_and(|air| air.landed);
+            if in_flight {
+                marched |= (motion.cycle - before).abs() > 1e-6;
+                let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
+                let posed = pose.forward(&rig);
+                let lowest = feet
+                    .iter()
+                    .map(|&joint| posed.positions[joint].y)
+                    .fold(f32::MAX, f32::min);
+                highest = highest.max(lowest);
+                // A foot at the floor while the body is in the air is a foot
+                // the plant grabbed.
+                planted |= lowest.abs() < 1e-4;
+            }
+            // Once the body has landed and stood up, the jump is over.
+            if caught && source != MotionSource::Leap && landed {
+                break;
+            }
+        }
+        assert!(highest > f32::MIN, "the body never went airborne at all");
+        (marched, planted, highest, landed)
+    }
+
+    #[test]
+    fn a_body_in_the_air_does_not_march_or_plant_a_foot() {
+        // **#1072, and the apex is the whole of it.** This file called a body
+        // airborne when |v_y| exceeded 3.5 m/s, which is TRUE at launch, FALSE
+        // through the middle of the jump — at the apex the vertical speed is
+        // zero, which is the most airborne a body ever is — and true again on
+        // the way down. So the walk cycle resumed and the feet were planted at
+        // the top of every jump. Airborne had to become a state.
+        //
+        // Driven at the preset's own launch speed: 450 N·s of impulse on an
+        // 80 kg humanoid is 5.6 m/s, which is a 1.6 m apex and 1.15 s of
+        // flight — a long time to be marching.
+        let (marched, planted, highest, landed) = jumped(5.6);
+        assert!(
+            !marched,
+            "the walk cycle advanced while the body was in the air"
+        );
+        assert!(
+            !planted,
+            "a foot was planted on the floor while the body was in the air"
+        );
+        // The tuck: the engine draws the feet up a fifth of the leg's reach at
+        // mid-flight, so a foot at the apex sits well above where it stands.
+        assert!(
+            highest > 0.05,
+            "the feet never drew up under the body: the highest the lowest \
+             foot reached was {:.1} mm above the floor",
+            highest * 1000.0
+        );
+        assert!(landed, "the leap never reached its landing");
     }
 
     #[test]
