@@ -53,13 +53,15 @@ use bevy::prelude::*;
 use bevy_symbios_avatar::{AvatarBody as BuiltBody, AvatarClosure, AvatarPose, spawn_avatar};
 use symbios_avatar::anim::{Stage, gesture, transition};
 use symbios_avatar::{
-    Avatar, Blink, Expression, Ground, Idle, Inertializer, Leap, Limb, Pose, Speed, Walk,
+    Avatar, Blink, Expression, Ground, Idle, Inertializer, Leap, Limb, Pose, Speed, Swim, Walk,
 };
 
 use crate::interaction::locomotion::locomotion_total_height;
 use crate::pds::avatar::EngineAvatarRecord;
 use crate::player::emote::{Emote, EmoteRequest};
+use crate::player::humanoid::{WaterState, humanoid_water_state};
 use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
+use crate::water::WaterSurfaces;
 
 /// Below this horizontal speed the body idles.
 const IDLE_BELOW: f32 = 0.3;
@@ -79,6 +81,17 @@ const LAUNCH_SPEED: f32 = 2.0;
 /// and reaches this within about a fifth of a second of having nothing under
 /// it.
 const FALL_SPEED: f32 = 2.0;
+
+/// How far one stroke of a crawl carries the body, in its own lengths.
+///
+/// **One, and both ends of the stroke's clock are derived from it and from
+/// the engine.** `Swim` leaves the cadence to its caller on purpose — a tread
+/// and a crawl run the same loops and differ in how fast the caller advances
+/// them — so this is where the seconds are decided. A body covering its own
+/// length per cycle at the engine's own full effort ([`symbios_avatar::anim::swim::PRONE_AT`],
+/// 0.7 lengths a second) is stroking 0.7 times a second, which sits inside the
+/// 0.5 to 0.83 that competitive swimmers hold.
+const LENGTHS_PER_STROKE: f32 = 1.0;
 
 /// Vertical speed below which a body counts as no longer falling, in m/s.
 ///
@@ -258,6 +271,8 @@ enum MotionSource {
     Gait,
     /// Off the ground on purpose or otherwise, and landing again (#1072).
     Leap,
+    /// In deep water: treading, or crawling if travelling (#1074).
+    Swim,
     /// A one-shot emote riding over whatever else the body is doing (#1068).
     Gesture(Emote),
 }
@@ -289,6 +304,7 @@ impl MotionSource {
             MotionSource::Idle => Some(transition::Family::Idle),
             MotionSource::Gait => Some(transition::Family::Locomotion),
             MotionSource::Leap => Some(transition::Family::Jump),
+            MotionSource::Swim => Some(transition::Family::Swim),
             MotionSource::Gesture(_) => Some(transition::Family::Expressive),
         }
     }
@@ -539,7 +555,11 @@ fn rigged_root_transform(offset: f32) -> Transform {
 pub(super) fn drive_rigged_motion(
     mut commands: Commands,
     time: Res<Time>,
-    mut bodies: Query<(Entity, &ChildOf, &BuiltBody, &mut RiggedMotion), With<RiggedRoot>>,
+    water: Option<Res<WaterSurfaces>>,
+    mut bodies: Query<
+        (Entity, &ChildOf, &BuiltBody, &Transform, &mut RiggedMotion),
+        With<RiggedRoot>,
+    >,
     chassis: Query<(&GlobalTransform, Option<&LinearVelocity>)>,
     locals: Query<(), With<LocalPlayer>>,
     avatar_editor: Option<Res<crate::ui::avatar::AvatarEditorState>>,
@@ -549,7 +569,7 @@ pub(super) fn drive_rigged_motion(
         return;
     }
     let editing_offsets = avatar_editor.is_some_and(|state| state.holds_rig_at_rest());
-    for (entity, child_of, body, mut motion) in &mut bodies {
+    for (entity, child_of, body, root, mut motion) in &mut bodies {
         if editing_offsets && locals.contains(child_of.parent()) {
             hold_at_rest(&mut commands, entity, body, &mut motion, delta);
             continue;
@@ -585,35 +605,86 @@ pub(super) fn drive_rigged_motion(
         // which the apex cannot imitate because at the apex it is still on its
         // way down.
         let rig = &body.avatar.rig;
+
+        // **In deep water before anything else** (#1074). The rigged root is
+        // offset so `y = 0` is the chassis collider's bottom, which makes its
+        // own transform the body's half-height — the same figure the
+        // controller classifies with, so the animation and the physics cannot
+        // disagree about whether this body is swimming.
+        //
+        // Only `Swimming` animates as one: a wading body has its feet on the
+        // bottom and is walking, which is what the controller does with it too.
+        let half_height = -root.translation.y;
+        let swimming = water.as_ref().is_some_and(|water| {
+            matches!(
+                humanoid_water_state(
+                    position.y,
+                    Vec2::new(position.x, position.z),
+                    half_height * 2.0,
+                    water,
+                ),
+                WaterState::Swimming { .. }
+            )
+        });
+        // A body in the water is not falling, whatever its vertical speed says
+        // — and the preset swims upward at 1.8 m/s against a launch threshold
+        // of 2.0, which is close enough that a peer's smoothed transform would
+        // otherwise trip the leap.
+        if swimming {
+            motion.airborne = None;
+        }
+
         let launched = vertical > LAUNCH_SPEED;
         let dropped = vertical < -FALL_SPEED;
         match &mut motion.airborne {
+            None if swimming => {}
             None if launched || dropped => {
+                // **Always a symmetric leap, and never a drop** (#1073). The
+                // engine's `drop` says the floor arrived at is lower than the
+                // one left, and carries that difference in the pose for the
+                // whole landing — which is right for a body that owns its own
+                // root and catastrophic here, where the chassis has already
+                // carried it down: the two add, and the root goes underground
+                // by the entire fall height.
+                //
+                // `Leap::new(speed)` is the same leap with the trajectory left
+                // to the chassis. Built from the SPEED rather than the
+                // direction, so a body that walks off a ledge gets a flight of
+                // `2v/g` instead of the zero-length one `Leap::new(0.0)` has —
+                // whose stage machine divides by an epsilon and reports a
+                // landing from the first airborne frame, planting the feet in
+                // mid-air all the way down.
+                let leap = Leap::new(vertical.abs());
                 motion.airborne = Some(Airborne {
-                    // The launch the body actually left with. A step off a
-                    // ledge never launched, and `Leap::new(0.0)` is a fall
-                    // with no wind-up, which is the same type saying so.
-                    leap: Leap::new(vertical.max(0.0)),
+                    leap,
                     // Past the wind-up: this app has no anticipation to spend
                     // on one — the impulse fires the fixed step after the key
                     // — so the leap is joined at the instant its feet leave.
-                    elapsed: Leap::new(vertical.max(0.0)).wind_up(rig),
+                    elapsed: leap.wind_up(rig),
                     falling: vertical < -SETTLE_SPEED,
                     impact: vertical.min(0.0),
                     landed: false,
                 });
             }
             Some(air) if !air.landed => {
-                air.elapsed += delta;
+                // Held inside the flight, because physics decides how long a
+                // body is in the air and the leap only predicted it. A fall
+                // that outlasts its prediction holds at the end of the arc,
+                // where the tuck has returned to nothing and the legs are
+                // straight — which is what a body reaching for the ground
+                // does anyway.
+                let flight_ends = air.leap.wind_up(rig) + air.leap.flight();
+                air.elapsed = (air.elapsed + delta).min(flight_ends - f32::EPSILON);
                 air.falling |= vertical < -SETTLE_SPEED;
                 air.impact = air.impact.min(vertical);
                 if air.falling && vertical >= -SETTLE_SPEED {
                     // Touchdown. The leap is rebuilt from the arrival that
                     // actually happened rather than the one predicted at
                     // takeoff, and its clock is set to the head of the
-                    // landing — the only stage left to play.
-                    let dropped = air.impact * air.impact / (2.0 * 9.81);
-                    let leap = Leap::falling(dropped);
+                    // landing — the only stage left to play. Symmetric again,
+                    // so the depth is the impact's and the pose carries no
+                    // trajectory (#1073).
+                    let leap = Leap::new(air.impact.abs());
                     air.leap = leap;
                     air.elapsed = leap.wind_up(rig) + leap.flight();
                     air.landed = true;
@@ -666,10 +737,24 @@ pub(super) fn drive_rigged_motion(
         // A leap owns the legs for as long as it lasts: a body cannot be
         // mid-stride and mid-air at once, and pretending otherwise is how a
         // jump ends up with a walk cycle running underneath it (#1072).
-        let (locomotion, cadence) = match (motion.airborne, travelling) {
-            (Some(_), _) => (MotionSource::Leap, 0.0),
-            (None, Some(speed)) => (MotionSource::Gait, speed.cadence(rig)),
-            (None, None) => (MotionSource::Idle, 0.0),
+        // **The stroke's clock, which the engine leaves to its caller** — a
+        // tread and a crawl are the same loops at different rates, so the rate
+        // is where the difference actually lives (#1074). Both ends are
+        // derived: at speed one cycle carries the body [`LENGTHS_PER_STROKE`]
+        // of its own length, and at rest a tread sculls at the body's own
+        // pendulum frequency, `sqrt(g/L)/2pi`, which is the one rate a body of
+        // this size has without anybody choosing it. A giant sculls slower for
+        // the same reason it walks slower.
+        let stroke_rate = || {
+            let length = rig.extent().max(f32::EPSILON);
+            let tread = (9.81 / length).sqrt() / std::f32::consts::TAU;
+            (planar / (length * LENGTHS_PER_STROKE)).max(tread)
+        };
+        let (locomotion, cadence) = match (swimming, motion.airborne, travelling) {
+            (true, _, _) => (MotionSource::Swim, stroke_rate()),
+            (false, Some(_), _) => (MotionSource::Leap, 0.0),
+            (false, None, Some(speed)) => (MotionSource::Gait, speed.cadence(rig)),
+            (false, None, None) => (MotionSource::Idle, 0.0),
         };
 
         // **Carry the CYCLE across a change of gait, not the number** (#1071,
@@ -697,7 +782,7 @@ pub(super) fn drive_rigged_motion(
         }
         motion.gaiting = travelling;
 
-        if !airborne {
+        if !airborne || swimming {
             motion.cycle = (motion.cycle + delta * cadence).fract();
         }
 
@@ -784,6 +869,25 @@ pub(super) fn drive_rigged_motion(
                 // face where they were planted, and `roll_feet` is where that
                 // lands (engine #241).
                 walking = Some((gait, stride));
+            }
+            MotionSource::Swim => {
+                // **Nothing is added to `stance`**: a swimming body has
+                // nothing on the ground, and handing the footing tail a
+                // contact is what would drag its feet back down to a floor it
+                // is nowhere near.
+                //
+                // No vertical correction either, and that is worth saying
+                // beside the leap's, which needs one. `Swim` pitches the body
+                // by rotating the ROOT joint — the pelvis — and the pelvis
+                // sits about half a body height above the rigged root, which
+                // is where the chassis capsule's centre is. So a body going
+                // prone lies along the capsule rather than pivoting about its
+                // own feet.
+                Swim {
+                    cycle: motion.cycle,
+                    ..Swim::at(motion.cycle).toward(planar)
+                }
+                .drive(rig, &mut pose);
             }
             MotionSource::Leap => {
                 // **The chassis owns the trajectory, so the flight's height is
@@ -1996,12 +2100,28 @@ mod tests {
         assert!(app.world().get::<AvatarClosure>(root).is_some());
     }
 
+    /// What one driven jump did, read off the drawn body.
+    struct Jumped {
+        /// Whether the walk cycle ever advanced while the body was in flight.
+        marched: bool,
+        /// Whether a foot was ever at the floor while the body was in flight.
+        planted: bool,
+        /// How high the lowest foot got at the apex, in metres.
+        highest: f32,
+        /// Whether the landing was ever reached.
+        landed: bool,
+        /// How far the root sank below its standing height during the landing.
+        sank: f32,
+        /// How far the lowest foot went under the floor during the landing.
+        buried: f32,
+    }
+
     /// Drives one body through a whole jump on a chassis that moves the way
-    /// avian moves one — an impulse, then gravity — and reports what the
-    /// drawn body did: whether the walk cycle ever advanced in the air,
+    /// avian moves one — an impulse, then gravity, caught by a floor `ledge`
+    /// metres below the one it left — and reports what the drawn body did: whether the walk cycle ever advanced in the air,
     /// whether a foot was ever planted in the air, how far the lowest foot
     /// rose at the apex, and whether the landing was ever reached.
-    fn jumped(launch: f32) -> (bool, bool, f32, bool) {
+    fn jumped(launch: f32, ledge: f32) -> Jumped {
         let mut app = test_app();
         let chassis = app
             .world_mut()
@@ -2078,15 +2198,20 @@ mod tests {
 
         // The jump: the chassis rises and falls under gravity, travelling
         // forward all the while, and is caught at the height it left.
+        // The floor the body arrives on, which for a step off a ledge is
+        // below the one it left.
+        let landing_y = at.y - ledge;
         let mut vertical = launch;
         let (mut marched, mut planted, mut highest, mut landed) = (false, false, f32::MIN, false);
-        let ground = at.y;
+        // How far the drawn ROOT sank below where it stands, and how far the
+        // lowest foot went under the floor, once the body was back on it.
+        let (mut sank, mut buried) = (0.0f32, 0.0f32);
         for _ in 0..600 {
             vertical -= GRAVITY * STEP_SECS;
             at += Vec3::new(0.0, vertical * STEP_SECS, 1.4 * STEP_SECS);
-            let caught = at.y <= ground;
+            let caught = at.y <= landing_y;
             if caught {
-                at.y = ground;
+                at.y = landing_y;
                 vertical = 0.0;
             }
             let before = app.world().get::<RiggedMotion>(root).expect("motion").cycle;
@@ -2110,13 +2235,30 @@ mod tests {
                 // the plant grabbed.
                 planted |= lowest.abs() < 1e-4;
             }
+            if motion.airborne.is_some_and(|air| air.landed) {
+                let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
+                sank = sank.max(-pose.translation.y);
+                let posed = pose.forward(&rig);
+                let lowest = feet
+                    .iter()
+                    .map(|&joint| posed.positions[joint].y)
+                    .fold(f32::MAX, f32::min);
+                buried = buried.max(-lowest);
+            }
             // Once the body has landed and stood up, the jump is over.
             if caught && source != MotionSource::Leap && landed {
                 break;
             }
         }
         assert!(highest > f32::MIN, "the body never went airborne at all");
-        (marched, planted, highest, landed)
+        Jumped {
+            marched,
+            planted,
+            highest,
+            landed,
+            sank,
+            buried,
+        }
     }
 
     #[test]
@@ -2131,7 +2273,14 @@ mod tests {
         // Driven at the preset's own launch speed: 450 N·s of impulse on an
         // 80 kg humanoid is 5.6 m/s, which is a 1.6 m apex and 1.15 s of
         // flight — a long time to be marching.
-        let (marched, planted, highest, landed) = jumped(5.6);
+        let jump = jumped(5.6, 0.0);
+        let Jumped {
+            marched,
+            planted,
+            highest,
+            landed,
+            ..
+        } = jump;
         assert!(
             !marched,
             "the walk cycle advanced while the body was in the air"
@@ -2149,6 +2298,228 @@ mod tests {
             highest * 1000.0
         );
         assert!(landed, "the leap never reached its landing");
+    }
+
+    #[test]
+    fn a_landing_bends_the_legs_and_does_not_bury_the_body() {
+        // **#1073, reported as 'the landings end up underground' and it was.**
+        // A landing was built as `Leap::falling(drop)`, whose height carries
+        // `-drop` for the whole stage — because in the engine's model the body
+        // really is that much lower, having landed on a floor below the one it
+        // left. Here the chassis has already carried it down, so the two added
+        // and the root went under by the entire fall height: 1.6 m on the
+        // preset's own jump. The legs then could not reach up to the floor and
+        // the body stayed buried through the landing.
+        //
+        // Two readings, both of the symptom rather than of the arithmetic
+        // behind it: how far the ROOT sank, which must be a leg compressing
+        // and no more, and how far the lowest FOOT went under the floor, which
+        // must be nothing.
+        let jump = jumped(5.6, 0.0);
+        assert!(jump.landed, "the leap never reached its landing");
+        // The engine clamps a leg to `MAX_SQUASH` = 0.45 of its own reach, and
+        // this body's legs are about 0.9 m, so half a metre is past anything a
+        // landing can legitimately ask for and nowhere near the 1.6 m the bug
+        // produced.
+        assert!(
+            jump.sank < 0.5,
+            "the root sank {:.0} mm into the floor on landing — a leg compressing \
+             cannot account for that",
+            jump.sank * 1000.0,
+        );
+        assert!(
+            jump.buried < 0.01,
+            "a foot ended {:.0} mm under the floor on landing",
+            jump.buried * 1000.0,
+        );
+        // And the landing must actually be a landing: a body that absorbs
+        // nothing has not bent its legs at all.
+        assert!(
+            jump.sank > 0.02,
+            "the root sank {:.0} mm — the landing is not absorbing anything",
+            jump.sank * 1000.0,
+        );
+    }
+
+    #[test]
+    fn stepping_off_a_ledge_flies_before_it_lands() {
+        // The second defect in the same line (#1073). A body that walks off an
+        // edge never launches, and `Leap::new(0.0)` has a flight of
+        // `(0 + sqrt(0)) / g` — zero — so `stage_at` divided by an epsilon and
+        // reported a LANDING from the first airborne frame: feet planted in
+        // mid-air, all the way down. Built from the speed instead, a fall gets
+        // a real arc.
+        //
+        // Driven with no launch at all, which is the case the jump test cannot
+        // see because its launch is 5.6 m/s.
+        // Two metres down, and no push off the edge at all.
+        let fall = jumped(0.0, 2.0);
+        assert!(
+            !fall.planted,
+            "a foot was planted in mid-air while the body was falling"
+        );
+        assert!(
+            !fall.marched,
+            "the walk cycle advanced while the body was falling"
+        );
+        assert!(fall.landed, "the fall never reached its landing");
+        assert!(
+            fall.buried < 0.01,
+            "a foot ended {:.0} mm under the floor after a fall",
+            fall.buried * 1000.0,
+        );
+    }
+
+    /// Drives one body through deep water at `pace` and reports what the drawn
+    /// body did: whether a foot was ever planted, and how far the trunk was
+    /// pitched onto its front at the end.
+    ///
+    /// **No walk-cycle reading here, deliberately.** `RiggedMotion::cycle` is
+    /// the stroke's clock while a body is swimming, so it advancing proves
+    /// nothing either way; what says no gait ran is the source assertion
+    /// inside the loop and the planted foot below it.
+    ///
+    /// The pitch is read as the angle between the body's own long axis — root
+    /// to head on the posed skeleton — and the world's vertical, so it is a
+    /// property of the drawn body rather than a number handed back by the
+    /// thing under test.
+    fn swam(pace: f32) -> (bool, f32) {
+        let mut app = test_app();
+        // A pond whose surface is well above the body: a chassis at y = 0 with
+        // a 1.8 m capsule has its head at 0.9, so a surface at 5 m is
+        // unambiguously deep water.
+        app.insert_resource(crate::water::WaterSurfaces {
+            planes: vec![crate::water::WaterPlane {
+                world_from_local: Transform::from_xyz(0.0, 5.0, 0.0),
+                local_half_extents: Vec2::splat(200.0),
+                flow_strength: 0.0,
+                owner: crate::water::WaterPlane::NO_OWNER,
+            }],
+        });
+        let chassis = app
+            .world_mut()
+            .spawn((Transform::default(), GlobalTransform::default()))
+            .id();
+        let avatar = symbios_avatar::Avatar::build_with(
+            &engine_default_for_did("did:plc:swim-test"),
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                ..Default::default()
+            },
+        )
+        .expect("the seeded default engine body builds");
+        let mut built = Some(avatar);
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>| {
+                    let Some(avatar) = built.take() else {
+                        return;
+                    };
+                    install_built_body(
+                        &mut commands,
+                        chassis,
+                        0.9,
+                        avatar,
+                        &[],
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut bindposes,
+                    );
+                },
+            )
+            .expect("runs");
+        let mut roots = app.world_mut().query_filtered::<Entity, With<RiggedRoot>>();
+        let root = roots.single(app.world()).expect("one rigged root");
+        let rig = app
+            .world()
+            .get::<BuiltBody>(root)
+            .expect("the body landed")
+            .avatar
+            .rig
+            .clone();
+        let feet: Vec<usize> = [Limb::HindLeft, Limb::HindRight]
+            .into_iter()
+            .map(|limb| rig.in_zone(symbios_avatar::Zone::Extremity(limb))[0])
+            .collect();
+        let pelvis = rig
+            .joints
+            .iter()
+            .position(|joint| joint.parent.is_none())
+            .expect("a root joint");
+        let head = *rig
+            .in_zone(symbios_avatar::Zone::Head)
+            .first()
+            .expect("a head");
+
+        const STEP_SECS: f32 = 1.0 / 60.0;
+        let mut at = Vec3::ZERO;
+        let mut planted = false;
+        let mut pitch = 0.0f32;
+        for _ in 0..180 {
+            at += Vec3::Z * (pace * STEP_SECS);
+            let mut chassis_mut = app.world_mut().entity_mut(chassis);
+            *chassis_mut.get_mut::<Transform>().unwrap() = Transform::from_translation(at);
+            *chassis_mut.get_mut::<GlobalTransform>().unwrap() =
+                GlobalTransform::from_translation(at);
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
+            app.world_mut()
+                .run_system_once(drive_rigged_motion)
+                .expect("runs");
+            let motion = app.world().get::<RiggedMotion>(root).expect("motion");
+            assert_eq!(
+                motion.source,
+                MotionSource::Swim,
+                "a body under the surface must be swimming"
+            );
+            let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
+            let posed = pose.forward(&rig);
+            planted |= feet
+                .iter()
+                .any(|&joint| posed.positions[joint].y.abs() < 1e-4);
+            let along = posed.positions[head] - posed.positions[pelvis];
+            pitch = along
+                .normalize_or(Vec3::Y)
+                .dot(Vec3::Y)
+                .clamp(-1.0, 1.0)
+                .acos();
+        }
+        (planted, pitch.to_degrees())
+    }
+
+    #[test]
+    fn a_swimming_body_treads_at_rest_and_lies_down_to_travel() {
+        // **#1074.** The controller has had three water modes since the
+        // humanoid locomotion work and the animation layer knew about none of
+        // them: a body crossing a pond walked through it, striding at whatever
+        // its horizontal speed implied.
+        //
+        // The engine's swim is one axis from a tread to a crawl, so the claim
+        // worth guarding is that BOTH ends arrive: a body holding station
+        // hangs upright and sculls, and a travelling one lies along the water.
+        // A caller that pinned the effort would get one of the two and pass any
+        // test that only looked at the other.
+        let (planted, upright) = swam(0.0);
+        assert!(!planted, "a treading body planted a foot on the bottom");
+        // Full effort on this body is 0.7 of its length a second — about 1.2
+        // m/s — so 1.4 is comfortably prone.
+        let (_, prone) = swam(1.4);
+        assert!(
+            upright < 25.0,
+            "a body treading water hung {upright:.0} deg off vertical — a tread \
+             is upright"
+        );
+        assert!(
+            prone > 60.0,
+            "a body swimming at 1.4 m/s lay {prone:.0} deg off vertical — a \
+             crawl lies along the water"
+        );
     }
 
     #[test]
