@@ -1721,9 +1721,22 @@ mod tests {
         // skate — and it read the same 53.5 at every phase and under every
         // speed change, which is what a measurement of the wrong thing looks
         // like when the wrong thing is deterministic.
-        let feet: Vec<Vec<usize>> = [Limb::HindLeft, Limb::HindRight]
+        // **And the SOLE POINTS under them, not the joints themselves**
+        // (#1082). A sole joint sits above the sole it belongs to, so a foot
+        // pitching about a sole point still translates every joint over it:
+        // reading the joints billed that roll as a skate and left a flat 10 to
+        // 13 mm on every speed, against 3 mm for the points beneath them. This
+        // is the same trap the ankle correction above records, one level down.
+        // The sole point is the joint's rest position dropped to the ground
+        // plane the body was built standing on, carried into the pose by the
+        // ankle it hangs from — which is how `roll_feet` itself models a sole.
+        let feet: Vec<(usize, Vec<usize>)> = [Limb::HindLeft, Limb::HindRight]
             .into_iter()
-            .map(|limb| rig.extremity_joints(limb).split_off(1))
+            .filter_map(|limb| {
+                let joints = rig.extremity_joints(limb);
+                let (&ankle, sole) = (joints.first()?, joints.get(1..)?);
+                Some((ankle, sole.to_vec()))
+            })
             .collect();
 
         const STEP_SECS: f32 = 1.0 / 60.0;
@@ -1775,7 +1788,17 @@ mod tests {
             let posed = pose.forward(&rig);
             track.push(
                 feet.iter()
-                    .map(|sole| sole.iter().map(|&j| at + posed.positions[j]).collect())
+                    .map(|(ankle, sole)| {
+                        sole.iter()
+                            .map(|&joint| {
+                                let rest = rig.joints[joint].position;
+                                at + posed.positions[*ankle]
+                                    + posed.rotations[*ankle]
+                                        * (Vec3::new(rest.x, 0.0, rest.z)
+                                            - rig.joints[*ankle].position)
+                            })
+                            .collect()
+                    })
                     .collect(),
             );
             down.push(stance);
@@ -1803,7 +1826,7 @@ mod tests {
         const CLEARANCE: f32 = 0.005;
         let mut skate = 0.0f32;
         for which in 0..feet.len() {
-            for point in 0..feet[which].len() {
+            for point in 0..feet[which].1.len() {
                 let floor = track
                     .iter()
                     .map(|frame| frame[which][point].y)
@@ -1822,6 +1845,55 @@ mod tests {
             }
         }
         skate
+    }
+
+    /// How far a planted sole may slide at a constant speed, in metres.
+    ///
+    /// Eight millimetres. The swept figure is 1.4 to 4.1 and the defect this
+    /// guards against read 16.6 to 17.7 on the same instrument, so this sits
+    /// between the two rather than just above the passing number.
+    const STEADY_SKATE_CEILING: f32 = 0.008;
+
+    #[test]
+    fn a_walking_body_holds_its_planted_sole_at_every_pace() {
+        // **#278, and the acceptance is the CURVE rather than a figure.** The
+        // issue was filed on two speeds — 26.3 mm at 1.4 m/s against 0.8 at
+        // 0.7, thirty-three times the skate for twice the pace — and a pair
+        // cannot show a shape. Swept, the shape is a THRESHOLD between 1.0 and
+        // 1.2 m/s, which is neither the square nor the crouch the issue offered
+        // as candidates.
+        //
+        // Two things were wrong and they have to be told apart, because each
+        // accounts for about half of the filed number:
+        //
+        // ```text
+        //   m/s                       0.4   0.7   1.0   1.2   1.4   1.6   1.8
+        //   sole JOINTS, unfixed      1.4   0.9  12.7  28.3  25.3  29.4  25.8
+        //   sole POINTS, unfixed      1.5   0.9   2.0  16.6  17.5  17.1  17.7
+        //   sole POINTS, fixed        3.0   2.8   4.1   3.9   3.6   3.4   1.4
+        // ```
+        //
+        // The first row is what this file used to measure: a sole JOINT sits
+        // above the sole it belongs to, so a foot pitching about a point still
+        // translates every joint over it, and that added about ten millimetres
+        // at every speed (#1082). The second row is the defect itself. The
+        // third is with engine #278 landed — `Walk::settle` no longer rolls the
+        // ankles when it has not planted, which is what this file was asking
+        // for by driving the head with `footing: None` and settling separately.
+        //
+        // Swept rather than pinned at one pace, which is what the issue asked
+        // for: a guard at 1.4 alone would have passed throughout the defect's
+        // life at 0.7.
+        for metres in [0.4f32, 0.7, 1.0, 1.2, 1.4, 1.6, 1.8] {
+            let skate = skate_through_a_speed_change(120, metres, metres, 1);
+            assert!(
+                skate < STEADY_SKATE_CEILING,
+                "at a constant {metres} m/s a planted sole slid {:.1} mm, against a ceiling \
+                 of {:.1}",
+                skate * 1000.0,
+                STEADY_SKATE_CEILING * 1000.0
+            );
+        }
     }
 
     #[test]
