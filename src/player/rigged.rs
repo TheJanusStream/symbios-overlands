@@ -1608,6 +1608,23 @@ mod tests {
     /// the body's own frame differ by a constant and a foot's motion in one is
     /// its motion in the other.
     fn skid_through_a_stop(walk_frames: usize) -> (f32, f32, usize) {
+        skid_through_a_decelerating_stop(walk_frames, 0)
+    }
+
+    /// The same, with the chassis brought to rest over `ramp_frames` instead of
+    /// stopped dead.
+    ///
+    /// **Because a dead stop is a worst case no player produces.** The chassis
+    /// is physics-driven and decelerates, so `planar` falls through
+    /// `IDLE_BELOW` gradually and the gait's own stride shrinks with it on the
+    /// way down. Whether a hold is worth taking depends entirely on how fast
+    /// the body is still nominally travelling while it holds, so a governor
+    /// judged only against an instantaneous stop is judged against the one
+    /// profile that makes waiting maximally expensive.
+    fn skid_through_a_decelerating_stop(
+        walk_frames: usize,
+        ramp_frames: usize,
+    ) -> (f32, f32, usize) {
         let mut app = test_app();
         let chassis = app
             .world_mut()
@@ -1702,36 +1719,104 @@ mod tests {
         assert!(!planted.is_empty(), "a walking body has a foot down");
         let ahead = gait.until_handoff(motion.cycle);
         let mut held = 0usize;
+        // **World positions, not body-local ones** — `at` is added back in.
+        // With a dead stop the two differ by a constant and the distinction
+        // does not matter, which is why the original reading could omit it.
+        // The moment the chassis is still MOVING during the measurement (the
+        // deceleration ramp below), a foot correctly planted in the world
+        // travels backward in the body's frame at walking pace, and a
+        // body-local reading calls that a skate. It is not one.
         let start: Vec<Vec3> = {
             let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
             let posed = pose.forward(&rig);
             planted
                 .iter()
-                .map(|&foot| posed.positions[feet[foot]])
+                .map(|&foot| at + posed.positions[feet[foot]])
                 .collect()
         };
 
-        // Now the chassis holds still. The foot that was down must stay where
-        // the ground is while the body works out that it has stopped.
+        // Now the chassis stops. The foot that was down must stay where the
+        // ground is while the body works out that it has stopped.
+        //
+        // **Measured within a STANCE EPISODE, not from the stop instant**, and
+        // the distinction is the difference between a skate and a step. A
+        // planted foot is pinned, so everything it does is a skate — but a foot
+        // is only planted while the gait says it is. Under the deceleration
+        // ramp the body is still genuinely walking, so the foot this follows
+        // completes its stance and then SWINGS, and a reading taken from the
+        // stop instant counts that swing: the first version of the ramp read
+        // 753.6 mm at a half-second ramp, which is one stride length (731 mm)
+        // and not a defect at all.
+        //
+        // So displacement is reset every time the foot leaves the ground and
+        // measured afresh from where it next lands. At a dead stop there is
+        // exactly one episode and it begins at the stop, which is why the
+        // ratcheted figure is unchanged by this: the harness got stricter
+        // somewhere it was never exercised.
         let mut skid = 0.0f32;
-        for _ in 0..60 {
+        let mut anchor: Vec<Option<Vec3>> = planted.iter().map(|_| None).collect();
+        for (which, _) in planted.iter().enumerate() {
+            anchor[which] = Some(start[which]);
+        }
+        for held_frame in 0..60 {
+            // The deceleration ramp, linear in speed down to rest. Zero
+            // `ramp_frames` is the dead stop the ratchet is measured at.
+            if held_frame < ramp_frames {
+                let left = 1.0 - (held_frame as f32 + 0.5) / ramp_frames as f32;
+                at += Vec3::Z * (PACE * STEP_SECS * left);
+            }
             frame(&mut app, at);
-            if app
-                .world()
-                .get::<RiggedMotion>(root)
-                .expect("motion")
-                .source
-                == MotionSource::Gait
-            {
+            let motion = app.world().get::<RiggedMotion>(root).expect("motion");
+            if motion.source == MotionSource::Gait {
                 held += 1;
             }
+            // Whether each followed foot is bearing weight THIS frame, asked of
+            // the gait the drive is actually running rather than inferred from
+            // the foot's height. A body with no gait left is standing, and a
+            // standing foot is as pinned as a stance one — that is the interval
+            // the blend drags it through, and it is the whole reading.
+            let running = motion.gaiting.map(|speed| speed.gait(&rig));
+            let cycle = motion.cycle;
             let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
             let posed = pose.forward(&rig);
             for (which, &foot) in planted.iter().enumerate() {
-                skid = skid.max(posed.positions[feet[foot]].distance(start[which]));
+                let limb = [Limb::HindLeft, Limb::HindRight][foot];
+                let bearing = running.as_ref().is_none_or(|gait| {
+                    gait.limbs
+                        .iter()
+                        .position(|which| *which == limb)
+                        .is_none_or(|index| gait.phase(index, cycle).is_stance())
+                });
+                let world = at + posed.positions[feet[foot]];
+                if bearing {
+                    let from = *anchor[which].get_or_insert(world);
+                    skid = skid.max(world.distance(from));
+                } else {
+                    anchor[which] = None;
+                }
             }
         }
         (skid, ahead, held)
+    }
+
+    #[test]
+    #[ignore = "probe for engine #266: prints the stop-cost matrix, asserts nothing"]
+    fn probe_the_stop_cost_against_how_fast_the_body_stopped() {
+        for ramp in [0usize, 6, 15, 30] {
+            let worst = (100..=130)
+                .map(|frames| skid_through_a_decelerating_stop(frames, ramp).0)
+                .fold(0.0f32, f32::max);
+            let best = (100..=130)
+                .map(|frames| skid_through_a_decelerating_stop(frames, ramp).0)
+                .fold(f32::MAX, f32::min);
+            println!(
+                "ramp {:>2} frames ({:.2}s): worst {:.1} mm, best {:.1} mm",
+                ramp,
+                ramp as f32 / 60.0,
+                worst * 1000.0,
+                best * 1000.0
+            );
+        }
     }
 
     #[test]
