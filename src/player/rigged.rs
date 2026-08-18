@@ -793,6 +793,43 @@ pub(super) fn drive_rigged_motion(
             (false, None, None) => (MotionSource::Idle, 0.0),
         };
 
+        // **Hand the idle the stance the body arrived in** (#1071, engine
+        // #276), before anything below moves the clock or forgets the speed.
+        //
+        // Left to itself the idle solves every contact back to its REST
+        // position each frame, so a body that stops mid-stride drags the foot
+        // that was bearing its weight up to a third of a metre across the
+        // ground to close its stance. That is the skid this file has ratcheted
+        // since #1071, and it is not a transition-timing problem: waiting for a
+        // handoff and waiting for a midstance were both implemented here and
+        // both measured WORSE than stopping immediately, because a body that
+        // holds keeps striding while the chassis has already stopped.
+        //
+        // So the idle is told which contacts were carrying the body and where
+        // they were. It pins those and recovers them through its own weight
+        // shifts, which is the only way a foot moves without sliding.
+        //
+        // Read before the assignments below: `motion.gaiting` still holds the
+        // speed the body was travelling at, `motion.cycle` still reads the
+        // moment the last pose was DRAWN at, and `motion.source` still says
+        // what the body was doing. All three are overwritten within twenty
+        // lines.
+        if motion.source == MotionSource::Gait
+            && locomotion == MotionSource::Idle
+            && let Some(before) = motion.gaiting
+            && let Some(arrival) = motion.current.clone()
+        {
+            let gait = before.gait(rig);
+            let bearing: Vec<Limb> = gait
+                .limbs
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| gait.phase(*index, motion.cycle).is_stance())
+                .map(|(_, &limb)| limb)
+                .collect();
+            motion.idler.arrive(rig, &arrival, &bearing);
+        }
+
         // **Carry the CYCLE across a change of gait, not the number** (#1071,
         // engine #247). A cycle fraction means a different part of the step at
         // a different duty: the duty falls all the way along the speed axis
@@ -1611,6 +1648,208 @@ mod tests {
         skid_through_a_decelerating_stop(walk_frames, 0)
     }
 
+    /// How far a foot standing on the ground slides while the body CHANGES
+    /// SPEED without ever stopping, in metres.
+    ///
+    /// **The control is the whole instrument** (#277). A walking body slides
+    /// its feet a little at the best of times, so a figure from a decelerating
+    /// walk means nothing until the same body walking at a CONSTANT speed
+    /// through the same window has been read the same way. Pass `from == to`
+    /// for that control.
+    ///
+    /// The body never drops below `IDLE_BELOW`, so the idle never engages and
+    /// none of #276 is in the path: whatever this measures belongs to the gait.
+    fn skate_through_a_speed_change(
+        walk_frames: usize,
+        from: f32,
+        to: f32,
+        ramp_frames: usize,
+    ) -> f32 {
+        let mut app = test_app();
+        let chassis = app
+            .world_mut()
+            .spawn((Transform::default(), GlobalTransform::default()))
+            .id();
+        let avatar = symbios_avatar::Avatar::build_with(
+            &engine_default_for_did("did:plc:stop-test"),
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                ..Default::default()
+            },
+        )
+        .expect("the seeded default engine body builds");
+        let mut built = Some(avatar);
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>| {
+                    let Some(avatar) = built.take() else {
+                        return;
+                    };
+                    install_built_body(
+                        &mut commands,
+                        chassis,
+                        0.9,
+                        avatar,
+                        &[],
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut bindposes,
+                    );
+                },
+            )
+            .expect("runs");
+        let mut roots = app.world_mut().query_filtered::<Entity, With<RiggedRoot>>();
+        let root = roots.single(app.world()).expect("one rigged root");
+        let rig = app
+            .world()
+            .get::<BuiltBody>(root)
+            .expect("the body landed")
+            .avatar
+            .rig
+            .clone();
+        // **The SOLE joints, not the ankle** (#277). `extremity_joints` puts the
+        // joint the foot hangs from first and the sole points after it, and the
+        // ankle is the wrong point to ask: a planted foot rolls heel to toe
+        // through its stance, which translates the ankle horizontally while the
+        // sole under it has not moved at all. Asking the ankle read 53.5 mm on
+        // a body walking at a DEAD CONSTANT speed, which is the roll and not a
+        // skate — and it read the same 53.5 at every phase and under every
+        // speed change, which is what a measurement of the wrong thing looks
+        // like when the wrong thing is deterministic.
+        let feet: Vec<Vec<usize>> = [Limb::HindLeft, Limb::HindRight]
+            .into_iter()
+            .map(|limb| rig.extremity_joints(limb).split_off(1))
+            .collect();
+
+        const STEP_SECS: f32 = 1.0 / 60.0;
+        let mut at = Vec3::ZERO;
+        let frame = |app: &mut App, at: Vec3| {
+            let mut chassis_mut = app.world_mut().entity_mut(chassis);
+            *chassis_mut.get_mut::<Transform>().unwrap() = Transform::from_translation(at);
+            *chassis_mut.get_mut::<GlobalTransform>().unwrap() =
+                GlobalTransform::from_translation(at);
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
+            app.world_mut()
+                .run_system_once(drive_rigged_motion)
+                .expect("runs");
+        };
+        for _ in 0..walk_frames {
+            at += Vec3::Z * (from * STEP_SECS);
+            frame(&mut app, at);
+        }
+        let mut track: Vec<Vec<Vec<Vec3>>> = Vec::with_capacity(120);
+        let mut down: Vec<Vec<bool>> = Vec::with_capacity(120);
+        for step in 0..120 {
+            let speed = if step < ramp_frames {
+                let done = (step as f32 + 0.5) / ramp_frames as f32;
+                from + (to - from) * done
+            } else {
+                to
+            };
+            at += Vec3::Z * (speed * STEP_SECS);
+            frame(&mut app, at);
+            let motion = app.world().get::<RiggedMotion>(root).expect("motion");
+            let stance: Vec<bool> = {
+                let gait = motion.gaiting.map(|speed| speed.gait(&rig));
+                let cycle = motion.cycle;
+                [Limb::HindLeft, Limb::HindRight]
+                    .iter()
+                    .map(|limb| {
+                        gait.as_ref().is_some_and(|gait| {
+                            gait.limbs
+                                .iter()
+                                .position(|which| which == limb)
+                                .is_some_and(|index| gait.phase(index, cycle).is_stance())
+                        })
+                    })
+                    .collect()
+            };
+            let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
+            let posed = pose.forward(&rig);
+            track.push(
+                feet.iter()
+                    .map(|sole| sole.iter().map(|&j| at + posed.positions[j]).collect())
+                    .collect(),
+            );
+            down.push(stance);
+        }
+        assert_eq!(
+            app.world()
+                .get::<RiggedMotion>(root)
+                .expect("motion")
+                .source,
+            MotionSource::Gait,
+            "the body must still be walking, or this is measuring a stop"
+        );
+
+        // **Each sole point judged while IT is on the ground, against itself.**
+        // Two gates, because a stance foot is not one rigid thing: the gait
+        // says the FOOT is bearing, and each sole point's own height says
+        // whether that point is the one in contact right now. Contact transfers
+        // heel to toe through a stance, and a heel that lifts has moved without
+        // sliding — so a point is only asked to hold still while it is down.
+        //
+        // Per point against itself, never the lowest point of the moment: an
+        // argmin whose identity moves compares a heel against a toe, which is
+        // the reading `Walk::settle` records as a quarter of a metre of
+        // correction on flat ground where there were four millimetres.
+        const CLEARANCE: f32 = 0.005;
+        let mut skate = 0.0f32;
+        for which in 0..feet.len() {
+            for point in 0..feet[which].len() {
+                let floor = track
+                    .iter()
+                    .map(|frame| frame[which][point].y)
+                    .fold(f32::MAX, f32::min);
+                let mut anchor = None;
+                for (frame, stance) in track.iter().zip(&down) {
+                    let world = frame[which][point];
+                    if stance[which] && world.y - floor <= CLEARANCE {
+                        let from = *anchor.get_or_insert(world);
+                        skate =
+                            skate.max(Vec3::new(world.x - from.x, 0.0, world.z - from.z).length());
+                    } else {
+                        anchor = None;
+                    }
+                }
+            }
+        }
+        skate
+    }
+
+    #[test]
+    #[ignore = "probe for #277: does changing speed slide a planted foot"]
+    fn probe_whether_changing_speed_slides_a_planted_foot() {
+        // **Two controls, one per end speed** (#277). A ramp case ENDS at a
+        // different speed than it started, and the first run read a
+        // decelerating body as skating LESS than the steady one — which says
+        // nothing about changing speed and everything about ending up at
+        // 0.7 m/s. Without both controls the ramp columns are uninterpretable.
+        for walk in [100usize, 110, 120] {
+            let fast = skate_through_a_speed_change(walk, 1.4, 1.4, 1);
+            let slow = skate_through_a_speed_change(walk, 0.7, 0.7, 1);
+            let eased = skate_through_a_speed_change(walk, 1.4, 0.7, 15);
+            let quick = skate_through_a_speed_change(walk, 1.4, 0.7, 3);
+            let faster = skate_through_a_speed_change(walk, 0.7, 1.4, 3);
+            println!(
+                "walk {walk}: STEADY 1.4 {:.1} mm, 0.7 {:.1} | 1.4->0.7 slow {:.1} quick {:.1} \
+                 | 0.7->1.4 quick {:.1}",
+                fast * 1000.0,
+                slow * 1000.0,
+                eased * 1000.0,
+                quick * 1000.0,
+                faster * 1000.0
+            );
+        }
+    }
+
     /// The same, with the chassis brought to rest over `ramp_frames` instead of
     /// stopped dead.
     ///
@@ -1753,11 +1992,10 @@ mod tests {
         // exactly one episode and it begins at the stop, which is why the
         // ratcheted figure is unchanged by this: the harness got stricter
         // somewhere it was never exercised.
-        let mut skid = 0.0f32;
-        let mut anchor: Vec<Option<Vec3>> = planted.iter().map(|_| None).collect();
-        for (which, _) in planted.iter().enumerate() {
-            anchor[which] = Some(start[which]);
-        }
+        // **Collected, then judged**, because whether a foot was DOWN on a
+        // given frame is only knowable against the lowest that foot gets — and
+        // that is not known until the window is over. See the verdict below.
+        let mut track: Vec<Vec<Vec3>> = Vec::with_capacity(60);
         for held_frame in 0..60 {
             // The deceleration ramp, linear in speed down to rest. Zero
             // `ramp_frames` is the dead stop the ratchet is measured at.
@@ -1775,24 +2013,44 @@ mod tests {
             // the foot's height. A body with no gait left is standing, and a
             // standing foot is as pinned as a stance one — that is the interval
             // the blend drags it through, and it is the whole reading.
-            let running = motion.gaiting.map(|speed| speed.gait(&rig));
-            let cycle = motion.cycle;
             let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
             let posed = pose.forward(&rig);
-            for (which, &foot) in planted.iter().enumerate() {
-                let limb = [Limb::HindLeft, Limb::HindRight][foot];
-                let bearing = running.as_ref().is_none_or(|gait| {
-                    gait.limbs
-                        .iter()
-                        .position(|which| *which == limb)
-                        .is_none_or(|index| gait.phase(index, cycle).is_stance())
-                });
-                let world = at + posed.positions[feet[foot]];
-                if bearing {
-                    let from = *anchor[which].get_or_insert(world);
+            track.push(
+                planted
+                    .iter()
+                    .map(|&foot| at + posed.positions[feet[foot]])
+                    .collect(),
+            );
+        }
+
+        // **A foot ON THE GROUND may not move; a foot in the air may.** That is
+        // the whole definition of a skate, it is what a viewer actually sees,
+        // and it needs no bookkeeping from the drive — which is the point,
+        // because the drive's own answer changed underneath this harness. It
+        // used to be enough to ask the gait, treating a body with no gait left
+        // as standing on both feet. Since engine #276 an idle deliberately
+        // LIFTS an unweighted foot to step it home, and the old rule counted
+        // that step as a skate: it read 127 mm and rising across one recovery
+        // on a body doing exactly the right thing.
+        //
+        // Grounded is judged per foot against the lowest that foot reaches in
+        // the window, which is where it stands, rather than against a floor
+        // height this harness would have to be told.
+        const CLEARANCE: f32 = 0.005;
+        let mut skid = 0.0f32;
+        for which in 0..planted.len() {
+            let floor = track
+                .iter()
+                .map(|frame| frame[which].y)
+                .fold(f32::MAX, f32::min);
+            let mut anchor = Some(start[which]);
+            for frame in &track {
+                let world = frame[which];
+                if world.y - floor <= CLEARANCE {
+                    let from = *anchor.get_or_insert(world);
                     skid = skid.max(world.distance(from));
                 } else {
-                    anchor[which] = None;
+                    anchor = None;
                 }
             }
         }
@@ -1820,33 +2078,42 @@ mod tests {
     }
 
     #[test]
-    fn a_stop_does_not_skate_further_than_it_already_does() {
-        // **A ratchet on a known defect, not a claim that stopping is good**
-        // (#1071). A body that stops walking blends from mid-stride into a
-        // stand, and the blend drags the foot that was bearing weight — which
-        // is pinned to the ground, so every millimetre of it is a skate. How
-        // far depends entirely on WHEN in the step the body stopped: measured
-        // at 1.4 m/s across a whole cycle of stopping phases, 15.4 mm stopping
-        // near midstance and 297.9 mm at the worst phase.
+    fn a_stop_does_not_skate() {
+        // **This was a ratchet on a known defect and is now a guard on a fixed
+        // one** (#1071, engine #266 and #276). A body that stopped walking used
+        // to blend from mid-stride into a stand, dragging the foot that was
+        // bearing its weight — pinned to the ground, so every millimetre of it
+        // a skate. It depended entirely on WHEN in the step the body stopped:
+        // 15.4 mm near midstance and 297.9 mm at the worst phase.
         //
-        // The fix #1071 proposed for this — hold the change until the next
-        // handoff — was implemented and measured and made it worse (351.3 mm),
-        // because a handoff is the moment the legs are at full split and so
-        // the furthest the planted foot has to travel. The real fix is the
-        // opposite moment and is written up on the issue. Until then this
-        // holds the line so the figure cannot quietly grow.
+        // TWO FIXES WERE TRIED ON THE TRANSITION'S TIMING AND BOTH LOST. Hold
+        // the change until the next handoff: 351.3 mm. Hold it until the next
+        // midstance, which engine #266 proved is the moment the drag is
+        // identically zero: 322.2 mm. Neither can win, because a body that
+        // holds keeps striding while whatever stopped it has stopped — the WAIT
+        // IS ITSELF A SKATE, at about 1.23 m per cycle held on this body, and
+        // the best moment only saves 366 mm.
         //
-        // Swept over a whole cycle's worth of stopping phases, because a
-        // single phase measures one point of a curve that varies by twenty
-        // to one — and the first version of this test did exactly that and
-        // read the same 203.2 mm with the wait in and with it out.
+        // What fixed it was not a moment but a mechanism (engine #276): the
+        // idle is handed the stance the body arrived in, pins the contacts that
+        // were bearing weight, and steps them home one at a time on its own
+        // weight shifts — a foot only ever moving while it is unloaded and off
+        // the ground.
+        //
+        // Swept over a whole cycle's worth of stopping phases, because a single
+        // phase measures one point of a curve that varies by twenty to one —
+        // and the first version of this test did exactly that and read the same
+        // 203.2 mm with a wait in and with it out.
+        //
+        // Measured like for like under the current metric: 225.3 mm before the
+        // fix, 35.2 after.
         let worst = (100..=130)
             .map(|frames| skid_through_a_stop(frames).0)
             .fold(0.0f32, f32::max);
         assert!(
-            worst < 0.32,
-            "a foot that was bearing weight slid {:.1} mm through a stop, against 297.9 mm \
-             measured when this was written",
+            worst < 0.05,
+            "a foot standing on the ground slid {:.1} mm through a stop, against 35.2 mm \
+             measured when engine #276 landed and 225.3 before it",
             worst * 1000.0
         );
     }
