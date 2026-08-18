@@ -460,3 +460,162 @@ mod tests {
         assert_eq!(s, WaterState::Dry);
     }
 }
+
+// ---------------------------------------------------------------------------
+// How fast the chassis can actually change speed (engine #277)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod speed_change {
+    use super::*;
+    use crate::pds::AvatarRecord;
+    use crate::water::WaterSurfaces;
+    use bevy::ecs::system::RunSystemOnce;
+
+    /// The fixed step the drive systems run at.
+    const HZ: f64 = 64.0;
+
+    /// The speed the chassis reaches at each fixed step, in m/s, with `W`
+    /// held or released as `held` says.
+    ///
+    /// **Driven by [`apply_humanoid_walk`] itself**, not by a re-derivation
+    /// of its arithmetic, which is the whole point of it (engine #277). The
+    /// question that issue has to answer is how fast a *player* can change
+    /// speed, and a probe that reimplements the controller's exponential in
+    /// order to measure the controller's exponential answers nothing — this
+    /// crate has caught three such probes measuring their own arithmetic in
+    /// a month.
+    ///
+    /// Nothing here is stubbed but the world: no camera, so the controller
+    /// falls back to its own `Vec3::NEG_Z` forward; no water planes, so the
+    /// state is `Dry`; no queued jump, so the ground raycast never runs and
+    /// `ColliderTrees::default` is enough to satisfy `SpatialQuery`.
+    fn chassis_speeds(held: &[bool]) -> Vec<f32> {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<ButtonInput<KeyCode>>();
+        app.init_resource::<avian3d::collider_tree::ColliderTrees>();
+        app.init_resource::<JumpQueued>();
+        app.insert_resource(WaterSurfaces { planes: Vec::new() });
+        app.insert_resource(LiveAvatarRecord(AvatarRecord::wearing("3jzfcijpj2z2a")));
+        app.insert_resource(Time::<Fixed>::from_hz(HZ));
+        let chassis = app
+            .world_mut()
+            .spawn((
+                LocalPlayer,
+                HumanoidPreset,
+                LinearVelocity::default(),
+                Transform::default(),
+                GlobalTransform::default(),
+            ))
+            .id();
+
+        let mut speeds = Vec::with_capacity(held.len());
+        for &down in held {
+            {
+                let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+                if down {
+                    keys.press(KeyCode::KeyW);
+                } else {
+                    keys.release(KeyCode::KeyW);
+                }
+            }
+            app.world_mut()
+                .resource_mut::<Time<Fixed>>()
+                .advance_by(std::time::Duration::from_secs_f64(1.0 / HZ));
+            app.world_mut()
+                .run_system_once(apply_humanoid_walk)
+                .expect("the walk controller runs");
+            let velocity = app
+                .world()
+                .get::<LinearVelocity>(chassis)
+                .expect("the chassis has a velocity")
+                .0;
+            speeds.push(Vec3::new(velocity.x, 0.0, velocity.z).length());
+        }
+        speeds
+    }
+
+    /// The steepest speed change in a trajectory, in m/s², and the speed it
+    /// happened at.
+    fn steepest(speeds: &[f32]) -> (f32, f32) {
+        speeds
+            .windows(2)
+            .map(|pair| ((pair[1] - pair[0]).abs() * HZ as f32, pair[0]))
+            .fold(
+                (0.0, 0.0),
+                |worst, now| if now.0 > worst.0 { now } else { worst },
+            )
+    }
+
+    /// How fast a player can change speed, which is the question engine #277
+    /// had to answer before it could be worked or dropped.
+    ///
+    /// That issue guessed the chassis was physics-driven with damping and so
+    /// might never change speed abruptly enough to matter. It is not: the
+    /// controller assigns the horizontal velocity itself every fixed step, an
+    /// exponential lerp toward `walk_speed` while a key is held and an
+    /// exponential decay on release, at `acceleration` and `stop_damping`.
+    ///
+    /// Measured 2026-08-19 on the default record (walk_speed 4.0,
+    /// acceleration 12/s, stop_damping 20/s):
+    ///
+    /// ```text
+    ///   accelerating from rest, m/s   0.750 1.359 1.854 2.257 2.584 2.849 ...
+    ///   decelerating on release, m/s  2.926 2.141 1.566 1.146 0.838 0.613 ...
+    ///
+    ///   accelerate  steepest 39.0 m/s^2 — a 0.7 m/s change takes 0.018 s
+    ///   decelerate  steepest 50.3 m/s^2 — a 0.7 m/s change takes 0.014 s
+    /// ```
+    ///
+    /// Against the ramps #277's columns were taken on — 0.25 s over 0.7 m/s is
+    /// 2.8 m/s², 0.05 s is 14.0 — the real chassis produces 2.8x to 3.6x the
+    /// column filed as ABRUPT. A player crosses the whole walking band in two
+    /// frames. So the wontfix that issue offered itself is not available.
+    #[test]
+    #[ignore = "probe for engine #277: how fast can a player change speed"]
+    fn probe_how_fast_a_player_can_change_speed() {
+        // Held from rest, then released — the two extremes the controller
+        // offers, since every other input (strafe, turn, wading) changes the
+        // desired velocity by less than the whole of `walk_speed`.
+        let start: Vec<bool> = std::iter::repeat_n(true, 64).collect();
+        let stop: Vec<bool> = std::iter::repeat_n(true, 64)
+            .chain(std::iter::repeat_n(false, 64))
+            .collect();
+
+        let accelerating = chassis_speeds(&start);
+        let decelerating = chassis_speeds(&stop);
+
+        println!(
+            "accelerating from rest: {}",
+            accelerating
+                .iter()
+                .take(12)
+                .map(|speed| format!("{speed:.3}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        println!(
+            "decelerating on release: {}",
+            decelerating
+                .iter()
+                .skip(64)
+                .take(12)
+                .map(|speed| format!("{speed:.3}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+
+        for (name, speeds) in [
+            ("accelerate", &accelerating[..]),
+            ("decelerate", &decelerating[64..]),
+        ] {
+            let (rate, at) = steepest(speeds);
+            println!(
+                "{name}: steepest {rate:.1} m/s^2 at {at:.2} m/s — a 0.7 m/s change at that \
+                 rate takes {:.3} s",
+                0.7 / rate.max(f32::EPSILON)
+            );
+        }
+    }
+}
