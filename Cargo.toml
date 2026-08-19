@@ -31,13 +31,13 @@ bevy_symbios_multiuser = "0.6"
 bevy_symbios_texture = { version = "0.9", features = ["egui"] }
 bevy_symbios_audio = { version = "0.2", features = ["egui"] }
 transform-gizmo-bevy = "0.9"
-symbios-avatar = "0.1"
+symbios-avatar = "0.3"
 symbios = "1.5"
 symbios-turtle-3d = "0.5"
 symbios-shape = "0.3"
 bevy_symbios_shape = "0.6"
 symbios-tensor = "0.2"
-bevy_symbios_avatar = "0.1"
+bevy_symbios_avatar = "0.3"
 gen-jobs = { path = "crates/gen-jobs" }
 avian3d = "0.6"
 fast-surface-nets = "0.2"
@@ -139,18 +139,3 @@ inherits = "release"
 lto = false        # the ~25 minutes: 24 whole-program Bevy links
 codegen-units = 16 # was 1 — single-threaded optimization per binary
 strip = false      # a failing gate should still print a legible backtrace
-
-# **Local sources for the avatar crates, for the duration of the polish
-# iteration** (avatar milestone #8, 2026-08-18). The iteration lands engine
-# changes and their overlands adoption in the same sessions, so the app has to
-# build against a symbios-avatar that is not on crates.io yet. Both crates are
-# published before overlands deploys at the end of the epic, and this block
-# comes out in the same commit that bumps the version requirements above.
-#
-# Patching `symbios-avatar` alone would not be enough: `bevy_symbios_avatar`
-# depends on it too, and a patch redirects that edge as well — so the two are
-# built from one source tree rather than the app seeing the local engine and
-# the viewer crate seeing the published one.
-[patch.crates-io]
-symbios-avatar = { path = "../symbios-avatar" }
-bevy_symbios_avatar = { path = "../bevy_symbios_avatar" }
