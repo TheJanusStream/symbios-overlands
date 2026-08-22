@@ -227,9 +227,7 @@ fn short_junction_connector_keeps_both_hubs() {
     let mut degree = vec![0u32; 6];
     degree[0] = 3;
     degree[1] = 3;
-    for d in degree.iter_mut().skip(2) {
-        *d = 1;
-    }
+    degree[2..].fill(1);
     let trims = compute_truncations(&chains, |nd| degree[nd] >= 3, &dims);
     // The connector keeps at least the floor (not consumed).
     let surviving = 3.0 - (trims[0][0] + trims[0][1]);

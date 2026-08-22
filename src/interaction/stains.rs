@@ -280,9 +280,7 @@ pub fn update_stains(
         if residual < 1.0 / 255.0 {
             // Everything has faded below one quantisation step — zero
             // the shadow and go clean so the next idle frames are free.
-            for cell in &mut stains.shadow {
-                *cell = [0.0; 4];
-            }
+            stains.shadow.fill([0.0; 4]);
             stains.dirty = false;
         }
     }
