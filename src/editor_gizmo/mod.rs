@@ -453,7 +453,7 @@ fn pick_on_scene_click(
     };
     // Clicks on the toolbar or any editor window are UI interactions, not
     // a "click into the world" — leave the selection alone.
-    if ctx.is_pointer_over_area() {
+    if ctx.is_pointer_over_egui() {
         return;
     }
     // The click is starting (or continuing) a gizmo interaction — keep the

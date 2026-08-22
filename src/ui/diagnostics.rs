@@ -900,7 +900,7 @@ pub fn diagnostics_ui(
         .open(&mut open)
         .default_pos(pos)
         .default_size(size)
-        .constrain_to(ctx.available_rect())
+        .constrain_to(chrome.available_rect(ctx))
         .resizable(true)
         .collapsible(true)
         .show(ctx, |ui| {
@@ -1115,8 +1115,8 @@ mod tests {
     fn anomaly_section_renders_without_panicking() {
         fn render_once(reg: &InvariantRegistry) {
             let ctx = egui::Context::default();
-            let _ = ctx.run(egui::RawInput::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+                egui::CentralPanel::default().show(root, |ui| {
                     render_anomaly_section(ui, reg);
                 });
             });
@@ -1154,8 +1154,8 @@ mod tests {
         fn render_once(log: &SessionLog) {
             let mut toasts = crate::ui::toast::Toasts::default();
             let ctx = egui::Context::default();
-            let _ = ctx.run(egui::RawInput::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+                egui::CentralPanel::default().show(root, |ui| {
                     render_log_export_controls(ui, log, &mut toasts, 1.0);
                 });
             });
@@ -1184,8 +1184,8 @@ mod tests {
     fn overview_tab_renders_empty_and_populated_without_panicking() {
         fn render_once(m: &MetricsRegistry, reg: &InvariantRegistry) {
             let ctx = egui::Context::default();
-            let _ = ctx.run(egui::RawInput::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+                egui::CentralPanel::default().show(root, |ui| {
                     render_overview_tab(ui, m, reg);
                 });
             });
@@ -1216,8 +1216,8 @@ mod tests {
         fn render_once(tab: DiagTab, m: &MetricsRegistry, reg: &InvariantRegistry) {
             let ctx = egui::Context::default();
             let mut muted = crate::audio_mute::AudioMuted::default();
-            let _ = ctx.run(egui::RawInput::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+                egui::CentralPanel::default().show(root, |ui| {
                     render_health_tab(ui, tab, m, reg, &mut muted);
                 });
             });

@@ -1,6 +1,6 @@
 [package]
 name = "symbios-overlands"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 
 # The app is the workspace root; `crates/*` hold the compute-offload crates
@@ -18,28 +18,28 @@ members = ["crates/gen-jobs", "crates/gen-worker"]
 alloc-trace = []
 
 [dependencies]
-bevy = "0.18"
-bevy_egui = "0.39"
-egui_ltreeview = "0.6"
+bevy = "0.19"
+bevy_egui = "0.41"
+egui_ltreeview = "0.8"
 # No "bevy_egui" feature: its focus gate is all-or-nothing and privately
 # scheduled, which made right-drag dead over GUI windows. `camera.rs` owns
 # the equivalent gate with a right-button override instead (#702).
-bevy_panorbit_camera = "0.34"
-bevy_symbios = "0.7"
-bevy_symbios_ground = { version = "0.3", features = ["physics"] }
-bevy_symbios_multiuser = "0.6"
-bevy_symbios_texture = { version = "0.9", features = ["egui"] }
-bevy_symbios_audio = { version = "0.2", features = ["egui"] }
-transform-gizmo-bevy = "0.9"
-symbios-avatar = "0.3"
+bevy_panorbit_camera = "0.35"
+bevy_symbios = "0.8"
+bevy_symbios_ground = { version = "0.4", features = ["physics"] }
+bevy_symbios_multiuser = "0.7"
+bevy_symbios_texture = { version = "0.10", features = ["egui"] }
+bevy_symbios_audio = { version = "0.3", features = ["egui"] }
+transform-gizmo-bevy = "0.11"
+symbios-avatar = "0.4"
 symbios = "1.5"
-symbios-turtle-3d = "0.5"
-symbios-shape = "0.3"
-bevy_symbios_shape = "0.6"
-symbios-tensor = "0.2"
-bevy_symbios_avatar = "0.3"
+symbios-turtle-3d = "0.6"
+symbios-shape = "0.4"
+bevy_symbios_shape = "0.7"
+symbios-tensor = "0.3"
+bevy_symbios_avatar = "0.4"
 gen-jobs = { path = "crates/gen-jobs" }
-avian3d = "0.6"
+avian3d = "0.7"
 fast-surface-nets = "0.2"
 ndshape = "0.3"
 serde = { version = "1.0", features = ["derive"] }
@@ -65,9 +65,7 @@ proto-blue-api = "0.2"
 url = "2"
 
 [dev-dependencies]
-# Matches symbios-tensor's glam (0.30.10) so tests can hand-build a RoadGraph
-# with the same Vec2 type. Dev-only — never enters the production/wasm build.
-glam = "0.30"
+glam = "0.32"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tiny_http = "0.12"

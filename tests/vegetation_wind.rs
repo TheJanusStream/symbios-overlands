@@ -187,7 +187,7 @@ fn a_later_texture_bake_reaches_the_wind_material() {
     let baked: Handle<Image> = Handle::default();
     {
         let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
-        let mat = materials.get_mut(&source).expect("source still live");
+        let mut mat = materials.get_mut(&source).expect("source still live");
         mat.base_color_texture = Some(baked.clone());
         mat.alpha_mode = AlphaMode::Mask(0.5);
     }

@@ -360,7 +360,7 @@ pub fn mirror_wind_material_bases(
         else {
             continue;
         };
-        if let Some(mat) = wind_materials.get_mut(wind_id) {
+        if let Some(mut mat) = wind_materials.get_mut(wind_id) {
             mat.base = base;
         }
     }

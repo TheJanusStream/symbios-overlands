@@ -14,9 +14,9 @@
 //!
 //! * Every toolbar-managed window has a [`Slot`] — a default size plus
 //!   a horizontal [`SlotAnchor`] — and its default position is computed
-//!   from `ctx.available_rect()` (which the toolbar has already carved,
-//!   because the toolbar system is chained first) the first time it
-//!   opens. Social panels anchor right, diagnostics left, the big
+//!   from the panel-free rect the toolbar publishes as [`PanelFreeRect`]
+//!   (the toolbar system is chained first, so it is current by the time
+//!   any window asks) the first time it opens. Social panels anchor right, diagnostics left, the big
 //!   editors center-left.
 //! * A window opening while others are up staggers around them:
 //!   [`resolve_overlaps`] tries stacking below the open windows first
@@ -162,6 +162,18 @@ pub struct WindowLayout {
 /// windows stagger around. Deliberately separate from [`WindowLayout`]
 /// so the every-frame stamp writes don't re-arm the prefs save
 /// debounce forever.
+/// The viewport minus the top-level panels, published every frame by the
+/// toolbar — the one top-level panel — once it has laid itself out.
+///
+/// egui 0.35 panels carve the `Ui` they are shown into rather than the
+/// `Context`, so `ctx.available_rect()` is gone and the context no longer
+/// knows what the toolbar took. Window systems read this through
+/// [`WindowChrome::available_rect`] instead. `None` until the toolbar has
+/// run once (the login screen has no toolbar), when the whole content rect
+/// is the honest answer.
+#[derive(Resource, Default)]
+pub struct PanelFreeRect(pub Option<egui::Rect>);
+
 #[derive(Resource, Default)]
 pub struct LiveWindowRects {
     entries: HashMap<UiWindow, (u32, egui::Rect)>,
@@ -175,15 +187,24 @@ pub struct WindowChrome<'w> {
     layout: ResMut<'w, WindowLayout>,
     live: ResMut<'w, LiveWindowRects>,
     frame: Res<'w, FrameCount>,
+    free: Res<'w, PanelFreeRect>,
 }
 
 impl WindowChrome<'_> {
+    /// The rect windows may occupy: the viewport minus the toolbar, as the
+    /// toolbar published it this frame ([`PanelFreeRect`]), or the whole
+    /// content rect before the toolbar has run. The replacement for egui's
+    /// pre-0.35 `ctx.available_rect()`.
+    pub fn available_rect(&self, ctx: &egui::Context) -> egui::Rect {
+        self.free.0.unwrap_or_else(|| ctx.content_rect())
+    }
+
     /// Default position + size for `id`: the persisted rect when this
     /// machine has one, otherwise the slot default staggered around the
     /// currently-open windows. Cheap to call every frame — egui only
     /// consumes `default_pos`/`default_size` on a window's first show.
     pub fn place(&self, id: UiWindow, ctx: &egui::Context) -> (egui::Pos2, egui::Vec2) {
-        let avail = ctx.available_rect();
+        let avail = self.available_rect(ctx);
         if let Some(&[x, y, w, h]) = self.layout.rects.get(id.key()) {
             return (egui::pos2(x, y), egui::vec2(w, h));
         }

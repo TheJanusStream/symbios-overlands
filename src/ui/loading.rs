@@ -326,7 +326,16 @@ pub fn loading_ui(
         .iter()
         .any(|s| matches!(s, RowStatus::Retrying { .. }));
 
-    egui::CentralPanel::default().show(ctx, |ui| {
+    // egui 0.35 panels show into a `Ui`; a full-screen central panel draws
+    // into a screen-sized background layer (bevy_egui 0.41's pattern).
+    let mut viewport_ui = egui::Ui::new(
+        ctx.clone(),
+        "loading-viewport".into(),
+        egui::UiBuilder::new()
+            .layer_id(egui::LayerId::background())
+            .max_rect(ctx.viewport_rect()),
+    );
+    egui::CentralPanel::default().show(&mut viewport_ui, |ui| {
         ui.vertical_centered(|ui| {
             // Push the block toward the vertical centre without
             // `centered_and_justified` (which would stack the rows on

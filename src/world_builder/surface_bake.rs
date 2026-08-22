@@ -245,11 +245,11 @@ pub(super) fn poll_surface_bakes(
         }
 
         for target in &bake.targets {
-            if let Some(mat) = materials.get_mut(target) {
+            if let Some(mut mat) = materials.get_mut(target) {
                 mat.base_color_texture = Some(handles.albedo.clone());
                 mat.normal_map_texture = Some(handles.normal.clone());
                 mat.metallic_roughness_texture = Some(handles.roughness.clone());
-                apply_emissive_map(mat, handles.emissive.clone());
+                apply_emissive_map(&mut mat, handles.emissive.clone());
             }
             // A despawned target (rapid re-roll / editor drag) has simply
             // dropped its material; skipping it here lets the handle die.

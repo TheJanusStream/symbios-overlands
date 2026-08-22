@@ -14,7 +14,7 @@
 //! worker `.wasm` that links it stays slim instead of pulling Bevy.
 
 use serde::{Deserialize, Serialize};
-use symbios_audio::{bake, bake_sequence, samples_to_wav_bytes_pcm16, AudioPatch, SequenceRecipe};
+use symbios_audio::{AudioPatch, SequenceRecipe, bake, bake_sequence, samples_to_wav_bytes_pcm16};
 use symbios_ground::{
     DiamondSquare, FbmNoise, HeightMap, HydraulicErosion, TerrainGenerator, ThermalErosion,
     VoronoiTerracing,

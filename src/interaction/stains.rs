@@ -296,8 +296,8 @@ pub fn update_stains(
     if !(stamped || decayed) {
         return;
     }
-    if let Some(image) = images.get_mut(&stains.handle) {
-        stains.write_to(image);
+    if let Some(mut image) = images.get_mut(&stains.handle) {
+        stains.write_to(&mut image);
     }
 }
 

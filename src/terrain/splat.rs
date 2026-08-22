@@ -407,7 +407,7 @@ pub(super) fn apply_splat_textures(
     });
     let wm_handle = images.add(wm_image);
 
-    if let Some(mat) = materials.get_mut(&splat_mat.0) {
+    if let Some(mut mat) = materials.get_mut(&splat_mat.0) {
         mat.base.base_color = Color::WHITE;
         mat.base.perceptual_roughness = tcfg::splat::MATERIAL_ROUGHNESS;
         mat.base.metallic = tcfg::splat::MATERIAL_METALLIC;
@@ -525,7 +525,7 @@ pub(super) fn sync_moisture_water_level(
     if !stale {
         return;
     }
-    if let Some(mat) = materials.get_mut(&splat_mat.0) {
+    if let Some(mut mat) = materials.get_mut(&splat_mat.0) {
         mat.extension.uniforms.water_y = water_y;
         mat.extension.uniforms.moisture_strength = strength;
     }

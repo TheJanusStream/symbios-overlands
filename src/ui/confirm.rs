@@ -274,8 +274,8 @@ mod tests {
         let mut state: ConfirmState<&'static str> = ConfirmState::default();
         state.request("Reset?", "Replaces everything.", "Reset", "payload");
         let mut returned = None;
-        let _ = ctx.run(egui::RawInput::default(), |ctx| {
-            returned = state.show(ctx, "test");
+        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+            returned = state.show(root.ctx(), "test");
         });
         assert_eq!(returned, None);
         assert!(state.is_pending(), "unanswered modal must stay pending");
@@ -289,8 +289,10 @@ mod tests {
         let ctx = egui::Context::default();
         let mut draft = "existing".to_owned();
         let mut outcome = RenameOutcome::Cancelled;
-        let _ = ctx.run(egui::RawInput::default(), |ctx| {
-            outcome = rename_dialog(ctx, "Rename Item", "old", &mut draft, |s| s == "existing");
+        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+            outcome = rename_dialog(root.ctx(), "Rename Item", "old", &mut draft, |s| {
+                s == "existing"
+            });
         });
         assert_eq!(outcome, RenameOutcome::Open);
     }

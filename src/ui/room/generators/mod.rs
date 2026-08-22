@@ -284,11 +284,11 @@ pub(crate) fn draw_generators_tab(
     // and the apply step's "Save to Inventory" write). The detail panel
     // never touches inventory anymore — its inventory-child picker moved
     // into the row context menu in issue #159.
-    egui::SidePanel::left("generators_tree_panel")
+    egui::Panel::left("generators_tree_panel")
         .resizable(true)
-        .default_width(260.0)
-        .min_width(180.0)
-        .show_inside(ui, |ui| {
+        .default_size(260.0)
+        .min_size(180.0)
+        .show(ui, |ui| {
             tree::draw_tree_panel(
                 ui,
                 source,
@@ -306,7 +306,7 @@ pub(crate) fn draw_generators_tab(
             );
         });
 
-    egui::CentralPanel::default().show_inside(ui, |ui| {
+    egui::CentralPanel::default().show(ui, |ui| {
         detail::draw_detail_panel(
             ui,
             source,

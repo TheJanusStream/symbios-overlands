@@ -266,7 +266,7 @@ pub(crate) fn draw_audio_editor_window(
         .resizable(true)
         .default_size(size)
         .default_pos(pos)
-        .constrain_to(ctx.available_rect())
+        .constrain_to(chrome.available_rect(ctx))
         .show(ctx, |ui| {
             // The crate's editors return EditorResponse { changed,
             // rebake }; we treat `rebake` (a committed edit — drag ended

@@ -542,7 +542,7 @@ pub fn room_admin_ui(
             .resizable(true)
             .default_size(size)
             .default_pos(pos)
-            .constrain_to(ctx.available_rect())
+            .constrain_to(chrome.available_rect(ctx))
             .show(ctx, |ui| {
                 // Recovery banner — shown when the stored PDS record failed
                 // to decode and we're running on the synthesised default.
@@ -800,9 +800,9 @@ pub fn room_admin_ui(
                 // edge; the tab body then fills exactly what remains.
                 // Everything in here is fixed-height, which is what keeps
                 // the panel's reserve honest (see the re-roll block above).
-                egui::TopBottomPanel::bottom("world_editor_footer")
+                egui::Panel::bottom("world_editor_footer")
                     .resizable(false)
-                    .show_inside(ui, |ui| {
+                    .show(ui, |ui| {
                         // Publish / Revert to saved / Reset to default — the
                         // shared row + status line used by every editor
                         // (`ui::editable`). `dirty` is *derived* (the live

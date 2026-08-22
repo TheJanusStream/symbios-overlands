@@ -230,17 +230,17 @@ impl Plugin for TerrainPlugin {
                 (
                     heightmap::start_terrain_generation.run_if(
                         resource_exists::<LiveRoomRecord>
-                            .and(not(resource_exists::<TerrainTask>))
-                            .and(not(resource_exists::<FinishedHeightMap>)),
+                            .and_then(not(resource_exists::<TerrainTask>))
+                            .and_then(not(resource_exists::<FinishedHeightMap>)),
                     ),
                     splat::start_texture_tasks.run_if(
                         resource_exists::<LiveRoomRecord>
-                            .and(not(resource_exists::<TextureTasksStarted>)),
+                            .and_then(not(resource_exists::<TextureTasksStarted>)),
                     ),
                     heightmap::poll_terrain_task.run_if(resource_exists::<TerrainTask>),
                     heightmap::spawn_terrain_mesh.run_if(
                         resource_exists::<FinishedHeightMap>
-                            .and(not(resource_exists::<SplatMaterialHandle>)),
+                            .and_then(not(resource_exists::<SplatMaterialHandle>)),
                     ),
                     // Re-mesh roads from the existing heightmap whenever the
                     // road config or the heightmap changes — no terrain regen.
@@ -316,7 +316,7 @@ impl Plugin for TerrainPlugin {
                 Update,
                 lifecycle::cleanup_terrain.run_if(
                     in_state(AppState::Loading)
-                        .and(resource_exists::<crate::loading::AbortLoading>),
+                        .and_then(resource_exists::<crate::loading::AbortLoading>),
                 ),
             )
             // Re-rolling the login backdrop (#978) discards one demo world
@@ -331,7 +331,7 @@ impl Plugin for TerrainPlugin {
                     .before(crate::attract::reroll_attract_scene)
                     .run_if(
                         in_state(AppState::Login)
-                            .and(resource_exists::<crate::attract::AttractReroll>),
+                            .and_then(resource_exists::<crate::attract::AttractReroll>),
                     ),
             );
     }

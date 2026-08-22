@@ -421,7 +421,7 @@ pub fn avatar_ui(
             .open(&mut open)
             .default_pos(pos)
             .default_width(size.x)
-            .constrain_to(ctx.available_rect())
+            .constrain_to(chrome.available_rect(ctx))
             .resizable(true)
             .collapsible(true)
             .show(ctx, |ui| {
@@ -637,9 +637,9 @@ pub fn avatar_ui(
                 // exactly the space that remains. Everything in here is
                 // fixed-height, which is what keeps the panel's reserve
                 // honest (see the re-roll block above).
-                egui::TopBottomPanel::bottom("avatar_footer")
+                egui::Panel::bottom("avatar_footer")
                     .resizable(false)
-                    .show_inside(ui, |ui| {
+                    .show(ui, |ui| {
                         // The "Smooth remote peers" toggle moved to the
                         // Settings window (#857) — it's a client network
                         // preference, not part of the avatar record this

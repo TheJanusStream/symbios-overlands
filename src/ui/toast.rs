@@ -147,7 +147,7 @@ pub fn toast_ui(mut contexts: EguiContexts, mut toasts: ResMut<Toasts>, time: Re
             // Newest first, so fresh feedback lands where the eye
             // already is (directly under the toolbar).
             for toast in toasts.queue.iter().rev() {
-                egui::Frame::window(&ui.ctx().style()).show(ui, |ui| {
+                egui::Frame::window(&ui.ctx().global_style()).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         crate::ui::affordances::status_dot(
                             ui,

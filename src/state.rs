@@ -199,6 +199,7 @@ pub enum PublishStatus {
 /// `PublishFeedback`. One is registered per record in [`crate::run`]
 /// (`PublishFeedback<RoomRecord>`, `<AvatarRecord>`,
 /// `<InventoryRecord>`).
+#[derive(Resource)]
 pub struct PublishFeedback<R: Send + Sync + 'static> {
     pub status: PublishStatus,
     /// Throttled cache of the live record's serialized size, feeding the
@@ -227,8 +228,6 @@ impl<R: Send + Sync + 'static> Default for PublishFeedback<R> {
         }
     }
 }
-
-impl<R: Send + Sync + 'static> Resource for PublishFeedback<R> {}
 
 /// Present when the room-record fetch fell through to the default homeworld
 /// because the PDS response could not be decoded against the current

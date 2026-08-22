@@ -213,7 +213,7 @@ pub fn inventory_ui(
         .open(&mut open)
         .default_pos(pos)
         .default_size(size)
-        .constrain_to(ctx.available_rect())
+        .constrain_to(chrome.available_rect(ctx))
         .resizable(true)
         .collapsible(true)
         .show(ctx, |ui| {

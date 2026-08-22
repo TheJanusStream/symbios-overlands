@@ -186,7 +186,7 @@ pub fn handle_generator_drop(
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
-    if ctx.is_pointer_over_area() {
+    if ctx.is_pointer_over_egui() {
         return;
     }
 
@@ -377,7 +377,7 @@ pub fn preview_generator_drop(
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
-    if ctx.is_pointer_over_area() {
+    if ctx.is_pointer_over_egui() {
         return;
     }
     let Ok(window) = windows.single() else {

@@ -66,7 +66,7 @@ fn gate_camera_on_gui(
     let mut gui_wants = false;
     for mut ctx in contexts.iter_mut() {
         let ctx = ctx.get_mut();
-        gui_wants |= ctx.wants_pointer_input() || ctx.wants_keyboard_input();
+        gui_wants |= ctx.egui_wants_pointer_input() || ctx.egui_wants_keyboard_input();
     }
     let enable = mouse.any_pressed([MouseButton::Right, MouseButton::Middle])
         || (!gui_wants && !*prev_gui_wants);

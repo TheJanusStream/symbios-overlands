@@ -289,13 +289,13 @@ impl Plugin for AttractPlugin {
         .add_systems(
             Update,
             reroll_attract_scene
-                .run_if(in_state(AppState::Login).and(resource_exists::<AttractReroll>)),
+                .run_if(in_state(AppState::Login).and_then(resource_exists::<AttractReroll>)),
         )
         .add_systems(
             PostUpdate,
             drive_attract_camera
                 .before(PanOrbitCameraSystemSet)
-                .run_if(in_state(AppState::Login).and(resource_exists::<AttractScene>)),
+                .run_if(in_state(AppState::Login).and_then(resource_exists::<AttractScene>)),
         )
         .add_systems(OnExit(AppState::Login), end_attract_scene);
     }

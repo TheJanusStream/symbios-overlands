@@ -185,7 +185,7 @@ pub fn global_shortcuts(
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
-    let egui_wants_keyboard = ctx.wants_keyboard_input();
+    let egui_wants_keyboard = ctx.egui_wants_keyboard_input();
 
     // ── Esc: the back-out ladder ─────────────────────────────────────
     // While a text field is focused egui consumes Esc to release it;

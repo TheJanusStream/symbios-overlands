@@ -241,7 +241,7 @@ fn spawn_neutral_sun(commands: &mut Commands) {
     commands.spawn((
         DirectionalLight {
             illuminance: 11_000.0,
-            shadows_enabled: false,
+            shadow_maps_enabled: false,
             ..default()
         },
         Transform::from_xyz(3.0, 6.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
@@ -260,7 +260,7 @@ fn spawn_env_sun(commands: &mut Commands, env: &Environment) {
         DirectionalLight {
             color: srgb3(env.sun_color.0),
             illuminance: env.sun_illuminance.0.max(2_000.0),
-            shadows_enabled: false,
+            shadow_maps_enabled: false,
             ..default()
         },
         Transform::from_translation(pos).looking_at(Vec3::ZERO, Vec3::Y),

@@ -32,6 +32,10 @@ pub(super) struct CachedBuild<V> {
 /// the end of that pass (the executor retains against the job's
 /// touch-sets) so stale generators stop pinning their handles in the asset
 /// registries.
+// Derived rather than hand-implemented: since Bevy 0.19 `Resource` requires
+// `Component` (resources are entities), and the derive writes both impls with
+// the `Send + Sync + 'static` bounds on `K` and `V`.
+#[derive(Resource)]
 pub struct GeneratorCache<K, V> {
     pub(super) entries: HashMap<K, CachedBuild<V>>,
 }
@@ -42,13 +46,6 @@ impl<K, V> Default for GeneratorCache<K, V> {
             entries: HashMap::new(),
         }
     }
-}
-
-impl<K, V> Resource for GeneratorCache<K, V>
-where
-    K: Send + Sync + 'static,
-    V: Send + Sync + 'static,
-{
 }
 
 impl<K: Eq + Hash, V: Clone> GeneratorCache<K, V> {

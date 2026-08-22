@@ -162,7 +162,7 @@ pub(super) fn build_emitter_ramp(
         } else if let Some(albedo) = &procedural_albedo {
             // Procedural sprite: the albedo is already baked and uploaded, so
             // paint it straight onto this bucket's material.
-            if let Some(mat) = materials.get_mut(&handle) {
+            if let Some(mut mat) = materials.get_mut(&handle) {
                 mat.base_color_texture = Some(albedo.clone());
             }
         }

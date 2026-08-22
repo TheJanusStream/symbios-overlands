@@ -39,11 +39,11 @@ pub(super) fn draw_contact_effects_tab(
         *selected = None;
     }
 
-    egui::SidePanel::left("effects_list_panel")
+    egui::Panel::left("effects_list_panel")
         .resizable(true)
-        .default_width(260.0)
-        .min_width(180.0)
-        .show_inside(ui, |ui| {
+        .default_size(260.0)
+        .min_size(180.0)
+        .show(ui, |ui| {
             // Add action ABOVE the list (#825).
             if ui.button("+ Add recipe").clicked() {
                 let n = effects.recipes.len();
@@ -98,7 +98,7 @@ pub(super) fn draw_contact_effects_tab(
             }
         });
 
-    egui::CentralPanel::default().show_inside(ui, |ui| {
+    egui::CentralPanel::default().show(ui, |ui| {
         egui::ScrollArea::vertical()
             .id_salt("effect_detail")
             .auto_shrink([false, false])

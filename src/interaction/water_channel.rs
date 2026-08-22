@@ -69,7 +69,7 @@ pub fn feed_water_wakes(
             continue;
         }
 
-        let Some(mat) = water_materials.get_mut(&mat_ref.0) else {
+        let Some(mut mat) = water_materials.get_mut(&mat_ref.0) else {
             continue;
         };
         let uniforms = &mut mat.extension.uniforms;

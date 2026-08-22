@@ -423,7 +423,9 @@ mod tests {
             ResMut<Assets<StandardMaterial>>,
             ResMut<Assets<Image>>,
         )> = SystemState::new(&mut world);
-        let (mut commands, mut materials, mut images) = state.get_mut(&mut world);
+        let (mut commands, mut materials, mut images) = state
+            .get_mut(&mut world)
+            .expect("asset world resolves the builder params");
         let upstream_handle = build_procedural_material_async(
             &mut commands,
             &mut materials,

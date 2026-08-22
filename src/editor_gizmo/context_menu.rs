@@ -174,7 +174,7 @@ pub(super) fn detect_scene_right_click(
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
-    if ctx.is_pointer_over_area() {
+    if ctx.is_pointer_over_egui() {
         return;
     }
     // Never open mid-gizmo-drag (parity with the left-click picker).

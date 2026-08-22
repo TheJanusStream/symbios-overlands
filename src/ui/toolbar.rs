@@ -165,6 +165,7 @@ pub fn toolbar_ui(
     local_player_q: Query<&Transform, With<LocalPlayer>>,
     mut toasts: ResMut<crate::ui::toast::Toasts>,
     time: Res<Time>,
+    mut panel_free: ResMut<crate::ui::layout::PanelFreeRect>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -195,7 +196,18 @@ pub fn toolbar_ui(
     // own "In room (N)" header.
     let people_total = peers.iter().count() + session.is_some() as usize;
 
-    egui::TopBottomPanel::top("overlands-toolbar").show(ctx, |ui| {
+    // egui 0.35 shows panels into a `Ui`, not a `Context`: a top-level
+    // panel draws into a screen-sized background layer (bevy_egui 0.41's
+    // side_panel example). What the panel leaves of that layer is the rect
+    // every window constrains to, published below as `PanelFreeRect`.
+    let mut viewport_ui = egui::Ui::new(
+        ctx.clone(),
+        "overlands-viewport".into(),
+        egui::UiBuilder::new()
+            .layer_id(egui::LayerId::background())
+            .max_rect(ctx.viewport_rect()),
+    );
+    egui::Panel::top("overlands-toolbar").show(&mut viewport_ui, |ui| {
         ui.horizontal(|ui| {
             // Wordmark (#860): the product's name at the bar's left edge.
             // Non-interactive, accent-coloured, fixed width — the brand
@@ -371,6 +383,7 @@ pub fn toolbar_ui(
             });
         });
     });
+    panel_free.0 = Some(viewport_ui.available_rect_before_wrap());
 
     if panels_dirty {
         panels.set_changed();
@@ -620,7 +633,9 @@ pub fn controls_hint_ui(
     // no longer superimpose with the (also centered) offer modal.
     if panels.controls_seen {
         let (pos, _size) = chrome.place(crate::ui::layout::UiWindow::Controls, ctx);
-        window = window.default_pos(pos).constrain_to(ctx.available_rect());
+        window = window
+            .default_pos(pos)
+            .constrain_to(chrome.available_rect(ctx));
     } else {
         window = window.anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
     }

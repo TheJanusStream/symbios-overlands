@@ -418,7 +418,7 @@ pub(super) fn sync_road_appearance(
         let Some(set) = resolved.get(net.0) else {
             continue;
         };
-        if let Some(mat) = materials.get_mut(&handle.0) {
+        if let Some(mut mat) = materials.get_mut(&handle.0) {
             *mat = match kind {
                 RoadSurfaceKind::Deck => set[0].clone(),
                 RoadSurfaceKind::Structure => set[1].clone(),

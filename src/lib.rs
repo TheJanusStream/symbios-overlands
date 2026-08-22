@@ -277,6 +277,7 @@ pub fn run() {
         .init_resource::<ui::toolbar::UiPanels>()
         .init_resource::<ui::layout::WindowLayout>()
         .init_resource::<ui::layout::LiveWindowRects>()
+        .init_resource::<ui::layout::PanelFreeRect>()
         .init_resource::<loading::fetch::RecordFetchOutcomes>()
         .init_resource::<ui::diagnostics::DiagTab>()
         .init_resource::<ui::shortcuts::PublishShortcut>()
@@ -576,7 +577,7 @@ fn setup_lighting(
     commands.spawn((
         DirectionalLight {
             color: Color::srgb(sc[0], sc[1], sc[2]),
-            shadows_enabled: true,
+            shadow_maps_enabled: true,
             illuminance: config::lighting::ILLUMINANCE,
             ..default()
         },

@@ -88,7 +88,7 @@ pub(crate) fn apply_environment_state(
     let Fp3(sky_c) = env.sky_color;
     clear_color.0 = Color::srgb(sky_c[0], sky_c[1], sky_c[2]);
     for material_handle in skybox.iter() {
-        if let Some(mat) = std_materials.get_mut(&material_handle.0) {
+        if let Some(mut mat) = std_materials.get_mut(&material_handle.0) {
             mat.base_color = Color::srgb(sky_c[0], sky_c[1], sky_c[2]);
         }
     }
@@ -117,7 +117,7 @@ pub(crate) fn apply_environment_state(
     let crate::pds::Fp2(wind) = env.cloud_wind_dir;
     for (material_handle, mut transform) in cloud_layer.iter_mut() {
         transform.translation.y = env.cloud_height.0;
-        if let Some(mat) = cloud_materials.get_mut(&material_handle.0) {
+        if let Some(mut mat) = cloud_materials.get_mut(&material_handle.0) {
             mat.extension.uniforms.color = Vec4::new(cloud_c[0], cloud_c[1], cloud_c[2], 1.0);
             mat.extension.uniforms.shadow_color =
                 Vec4::new(cloud_sh[0], cloud_sh[1], cloud_sh[2], 1.0);

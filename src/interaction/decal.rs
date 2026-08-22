@@ -207,7 +207,7 @@ pub fn update_decals(
         decal.age += dt;
         let size = decal.size();
         xf.scale = Vec3::splat(size);
-        if let Some(mat) = materials.get_mut(&decal.material) {
+        if let Some(mut mat) = materials.get_mut(&decal.material) {
             mat.base_color.set_alpha(decal.alpha());
         }
     }

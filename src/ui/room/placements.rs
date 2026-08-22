@@ -146,11 +146,11 @@ pub(super) fn draw_placements_tab(
         *selected = None;
     }
 
-    egui::SidePanel::left("placements_list_panel")
+    egui::Panel::left("placements_list_panel")
         .resizable(true)
-        .default_width(260.0)
-        .min_width(180.0)
-        .show_inside(ui, |ui| {
+        .default_size(260.0)
+        .min_size(180.0)
+        .show(ui, |ui| {
             // Add actions ABOVE the list (#825).
             let anchor = anchor_xz(player_pose);
             ui.horizontal(|ui| {
@@ -247,7 +247,7 @@ pub(super) fn draw_placements_tab(
             }
         });
 
-    egui::CentralPanel::default().show_inside(ui, |ui| {
+    egui::CentralPanel::default().show(ui, |ui| {
         egui::ScrollArea::vertical()
             .id_salt("placement_detail")
             .auto_shrink([false, false])

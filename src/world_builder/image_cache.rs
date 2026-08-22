@@ -262,7 +262,7 @@ pub fn request_blob_image_filtered(
         // Cache hit — paint synchronously.
         Some(BlobImageEntry::Ready(img_handle)) => {
             let img = img_handle.clone();
-            if let Some(mat) = materials.get_mut(material) {
+            if let Some(mut mat) = materials.get_mut(material) {
                 mat.base_color_texture = Some(img);
             }
         }
@@ -362,7 +362,7 @@ pub fn poll_blob_image_tasks(
         });
         let img_handle = images.add(img);
         for mat_handle in pending {
-            if let Some(mat) = materials.get_mut(&mat_handle) {
+            if let Some(mut mat) = materials.get_mut(&mat_handle) {
                 mat.base_color_texture = Some(img_handle.clone());
             }
         }

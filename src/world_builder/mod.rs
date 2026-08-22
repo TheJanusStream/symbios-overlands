@@ -379,14 +379,14 @@ impl Plugin for WorldBuilderPlugin {
                     // compile one rendered frame behind its dependencies
                     // (#849) without gating in-game rebuilds.
                     compile::compile_room_record.run_if(
-                        any_with_component::<crate::terrain::TerrainMesh>.and(
+                        any_with_component::<crate::terrain::TerrainMesh>.and_then(
                             in_state(AppState::InGame)
-                                .or(resource_exists::<WorldCompileArmed>)
+                                .or_else(resource_exists::<WorldCompileArmed>)
                                 // The attract demo world (#897) compiles
                                 // directly: there is no loading screen in
                                 // `Login` for the one-frame arm delay to
                                 // protect.
-                                .or(resource_exists::<crate::attract::AttractScene>),
+                                .or_else(resource_exists::<crate::attract::AttractScene>),
                         ),
                     ),
                     compile::apply_environment_state,
