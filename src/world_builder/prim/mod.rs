@@ -984,7 +984,7 @@ mod tests {
                         pos.iter().map(|&i| radial_of(i, c)).sum::<f32>() / pos.len() as f32;
                     let period = std::f32::consts::TAU * mean_r.max(1e-5);
                     let mut checked = 0;
-                    for tri in idx.chunks_exact(3) {
+                    for tri in idx.as_chunks::<3>().0 {
                         if tri.iter().any(|&i| radial(i) < 0.25 * max_r) {
                             continue;
                         }
@@ -1569,7 +1569,7 @@ mod tests {
         };
         let idx: Vec<usize> = built.mesh.indices().expect("indices").iter().collect();
         let mut checked = 0;
-        for (t, tri) in idx.chunks_exact(3).enumerate() {
+        for (t, tri) in idx.as_chunks::<3>().0.iter().enumerate() {
             let face = built.faces.face_of(t as u32).expect("addressed");
             if !matches!(
                 face,

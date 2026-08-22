@@ -43,7 +43,7 @@ pub(crate) fn edge_line_mesh(src: &Mesh) -> Option<Mesh> {
     };
 
     let mut edges: HashSet<(u32, u32)> = HashSet::with_capacity(indices.len());
-    for tri in indices.chunks_exact(3) {
+    for tri in indices.as_chunks::<3>().0 {
         for (a, b) in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
             edges.insert((a.min(b), a.max(b)));
         }

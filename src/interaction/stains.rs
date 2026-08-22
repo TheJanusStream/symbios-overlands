@@ -158,7 +158,7 @@ impl StainsImage {
         let Some(data) = image.data.as_mut() else {
             return;
         };
-        for (px, cell) in data.chunks_exact_mut(4).zip(&self.shadow) {
+        for (px, cell) in data.as_chunks_mut::<4>().0.iter_mut().zip(&self.shadow) {
             px[0] = (cell[0] * 255.0) as u8;
             px[1] = (cell[1] * 255.0) as u8;
             px[2] = (cell[2] * 255.0) as u8;

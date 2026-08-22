@@ -14,7 +14,7 @@ use super::faces::{FaceSpans, PrimMesh};
 /// [`build_bevel_mesh`](super::prisms::build_bevel_mesh) emit correct normals
 /// without also hand-proving every triangle's index order.
 pub(super) fn orient_to_normals(pos: &[[f32; 3]], nor: &[[f32; 3]], idx: &mut [u32]) {
-    for tri in idx.chunks_exact_mut(3) {
+    for tri in idx.as_chunks_mut::<3>().0 {
         let (a, b, c) = (tri[0] as usize, tri[1] as usize, tri[2] as usize);
         let p0 = Vec3::from_array(pos[a]);
         let face = (Vec3::from_array(pos[b]) - p0).cross(Vec3::from_array(pos[c]) - p0);
@@ -92,7 +92,7 @@ pub(super) fn subdivide_flat(mesh: &mut Mesh, levels: u32) {
         let mut nn: Vec<[f32; 3]> = Vec::with_capacity(idx.len() * 2);
         let mut nu: Vec<[f32; 2]> = Vec::with_capacity(idx.len() * 2);
         let mut ni: Vec<u32> = Vec::with_capacity(idx.len() * 4);
-        for tri in idx.chunks_exact(3) {
+        for tri in idx.as_chunks::<3>().0 {
             let (a, b, c) = (tri[0] as usize, tri[1] as usize, tri[2] as usize);
             let base = np.len() as u32;
             // Corner verts 0,1,2 then edge midpoints ab=3, bc=4, ca=5.

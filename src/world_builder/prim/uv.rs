@@ -299,7 +299,7 @@ fn box_mapped(pos: &mut Vec<[f32; 3]>, nor: &mut Vec<[f32; 3]>, idx: &mut [u32])
     let mut out_nor: Vec<[f32; 3]> = Vec::with_capacity(out_pos.capacity());
     let mut out_uv: Vec<[f32; 2]> = Vec::with_capacity(out_pos.capacity());
     let mut slots: HashMap<(u32, u8), u32> = HashMap::with_capacity(pos.len());
-    for tri in idx.chunks_exact_mut(3) {
+    for tri in idx.as_chunks_mut::<3>().0 {
         let n = tri.iter().fold(Vec3::ZERO, |acc, &i| {
             acc + Vec3::from_array(nor[i as usize])
         });
@@ -359,7 +359,7 @@ fn cylindrical(pos: &mut Vec<[f32; 3]>, nor: &mut Vec<[f32; 3]>, idx: &mut [u32]
         .collect();
 
     let mut shifted: HashMap<u32, u32> = HashMap::new();
-    for tri in idx.chunks_exact_mut(3) {
+    for tri in idx.as_chunks_mut::<3>().0 {
         let max_u = tri
             .iter()
             .map(|&i| uv[i as usize][0])
@@ -424,7 +424,7 @@ mod tests {
         assert_eq!(uv.len(), pos.len());
         assert_eq!(nor.len(), pos.len());
         assert!(pos.len() > originals, "the seam quad split no vertices");
-        for tri in idx.chunks_exact(3) {
+        for tri in idx.as_chunks::<3>().0 {
             let us: Vec<f32> = tri.iter().map(|&i| uv[i as usize][0]).collect();
             let span = us.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
                 - us.iter().cloned().fold(f32::INFINITY, f32::min);

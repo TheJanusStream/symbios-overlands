@@ -215,7 +215,7 @@ pub(super) fn classify_by_normal(
     };
     let idx: Vec<usize> = indices.iter().collect();
     let mut table = FaceTable::default();
-    for tri in idx.chunks_exact(3) {
+    for tri in idx.as_chunks::<3>().0 {
         let n = tri.iter().fold(Vec3::ZERO, |acc, &i| {
             acc + nor
                 .get(i)

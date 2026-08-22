@@ -533,7 +533,7 @@ fn hub_fillet_faces_out() {
     let v = &parts.structure.vertices;
     let idx = &parts.structure.indices;
     assert!(!idx.is_empty(), "no fillet structure emitted");
-    for tri in idx.chunks_exact(3) {
+    for tri in idx.as_chunks::<3>().0 {
         let (a, b, c) = (v[tri[0] as usize], v[tri[1] as usize], v[tri[2] as usize]);
         let geo = cross(sub3(b, a), sub3(c, a));
         let mid = [
@@ -689,7 +689,7 @@ fn hub_fillet_winding_consistent_on_sloped_hub() {
     let idx = &parts.structure.indices;
     assert!(!idx.is_empty(), "no fillet structure emitted");
     let mut backwound = 0;
-    for tri in idx.chunks_exact(3) {
+    for tri in idx.as_chunks::<3>().0 {
         let (ia, ib, ic) = (tri[0] as usize, tri[1] as usize, tri[2] as usize);
         let geo = cross(sub3(v[ib], v[ia]), sub3(v[ic], v[ia]));
         // Average the three stored (outward) shading normals.
@@ -760,7 +760,7 @@ fn pilot_hub_fillets_are_wound_consistently() {
         "pilot grew no hub fillets"
     );
     let mut backwound = 0;
-    for tri in hub.structure.indices.chunks_exact(3) {
+    for tri in hub.structure.indices.as_chunks::<3>().0 {
         let (ia, ib, ic) = (tri[0] as usize, tri[1] as usize, tri[2] as usize);
         let geo = normalize(cross(sub3(v[ib], v[ia]), sub3(v[ic], v[ia])));
         let avg = normalize([
