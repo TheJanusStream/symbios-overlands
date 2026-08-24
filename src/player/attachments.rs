@@ -266,17 +266,44 @@ fn placements<'a>(
 
 /// The engine-seated default placement: the socket's anchor pushed outside
 /// the measured surface, expressed in the carrying joint's rest frame —
-/// which is the frame the joint entity's children live in.
+/// which is the frame the joint entity's children live in — and yawed so
+/// the item's authored **+Z face points out of the body** ([`outward_yaw`]).
 fn seated_default(
     socket: symbios_avatar::Socket,
     avatar: &symbios_avatar::Avatar,
     joint: usize,
 ) -> Transform {
     match socket.seat(&avatar.rig, &avatar.parts.surface, SEAT_MARGIN) {
-        Some(anchor) => {
-            Transform::from_translation(anchor.position - avatar.rig.joints[joint].position)
-        }
+        Some(anchor) => Transform {
+            translation: anchor.position - avatar.rig.joints[joint].position,
+            rotation: outward_yaw(socket),
+            ..Transform::default()
+        },
         None => Transform::default(),
+    }
+}
+
+/// The default-seat yaw that turns an item's authored `+Z` face out of the
+/// body — **the attachment authoring convention** (#1087): author a
+/// wearable with `+Z` as the side meant to be seen, and a default seat
+/// shows that side, whatever socket it lands on.
+///
+/// Per-socket rather than from the anchor, because a limb anchor's
+/// `direction` is the bone axis (down a thigh, along a forearm), not an
+/// outward normal. Engine body space has left `+X`, forward `+Z` (pinned
+/// by the engine's own side tests), so side sockets get a quarter turn and
+/// the rear sockets a half. Sockets with no unambiguous facing — the
+/// crown, the grips, the feet — stay unrotated; only yaw is ever applied,
+/// never pitch or roll, so nothing tips a hat. An *authored* offset (the
+/// gizmo's output) is always taken verbatim instead of this.
+fn outward_yaw(socket: symbios_avatar::Socket) -> Quat {
+    use std::f32::consts::{FRAC_PI_2, PI};
+    use symbios_avatar::Socket;
+    match socket {
+        Socket::LeftShoulder | Socket::LeftHip => Quat::from_rotation_y(FRAC_PI_2),
+        Socket::RightShoulder | Socket::RightHip => Quat::from_rotation_y(-FRAC_PI_2),
+        Socket::Back | Socket::Tail => Quat::from_rotation_y(PI),
+        _ => Quat::IDENTITY,
     }
 }
 
@@ -635,6 +662,36 @@ mod tests {
             Some(*hand_joint)
         );
         assert!((hand_tf.translation - Vec3::new(0.1, 0.2, 0.3)).length() < 1e-6);
+    }
+
+    /// The authoring convention: a default seat yaws the item's `+Z` face
+    /// out of the body — `+X` on the left side, `-Z` at the back — and
+    /// leaves facing-ambiguous sockets (crown, grips) unrotated. Caught
+    /// in the wild by the first wearable (#1087): a hip satchel authored
+    /// face-on-`+Z` wore with its flap toward the avatar's front.
+    #[test]
+    fn default_seats_yaw_the_authored_face_out_of_the_body() {
+        let avatar = built();
+        let face = |socket| {
+            let joint = symbios_avatar::Socket::joint(socket, &avatar.rig).expect("resolves");
+            seated_default(socket, &avatar, joint).rotation * Vec3::Z
+        };
+        assert!(
+            (face(symbios_avatar::Socket::LeftHip) - Vec3::X).length() < 1e-5,
+            "a left-hip seat faces the item +X (body left)"
+        );
+        assert!(
+            (face(symbios_avatar::Socket::RightHip) - Vec3::NEG_X).length() < 1e-5,
+            "a right-hip seat faces the item -X (body right)"
+        );
+        assert!(
+            (face(symbios_avatar::Socket::Back) - Vec3::NEG_Z).length() < 1e-5,
+            "a back seat faces the item away from the chest"
+        );
+        assert!(
+            (face(symbios_avatar::Socket::Crown) - Vec3::Z).length() < 1e-5,
+            "a crown seat never tips or spins the item"
+        );
     }
 
     /// The whole in-world offset editor (#1062) rests on one cross-crate

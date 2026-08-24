@@ -11,12 +11,13 @@
 //!
 //! # Authoring conventions
 //!
-//! * **Body scale, attach origin.** Author the tree at real worn size
-//!   around the point that should meet the body: the record's offset stays
-//!   identity, which is the sentinel for "let the engine seat it against
-//!   the measured surface" (`src/player/attachments.rs`). Children inherit
-//!   the root transform — assemble around the origin, never around a
-//!   world-space stand.
+//! * **Body scale, attach origin, face on `+Z`.** Author the tree at real
+//!   worn size around the point that should meet the body, with the side
+//!   meant to be seen on `+Z`: the record's offset stays identity, which
+//!   is the sentinel for "seat it against the measured surface and yaw
+//!   the `+Z` face out of the body" (`src/player/attachments.rs`,
+//!   `outward_yaw`). Children inherit the root transform — assemble
+//!   around the origin, never around a world-space stand.
 //! * **Small budgets.** These ride inside the avatar record's byte budget
 //!   and on a body whose triangle budget already has a known worst corner;
 //!   a wearable is a garnish, not a building. Slice #1092 adds the guard
