@@ -505,7 +505,9 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &wild_west::gateway::WildWestGateway,
     &wild_west::monument::WildWestMonument,
     // Attachments — wearable items (#1086); also placeable like any entry.
+    &attachments::banner::Sashimono,
     &attachments::circlet::Circlet,
+    &attachments::lantern::Lantern,
     &attachments::satchel::Satchel,
 ];
 
