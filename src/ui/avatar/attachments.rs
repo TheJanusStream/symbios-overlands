@@ -247,7 +247,7 @@ pub(super) fn draw_attachments_tab(
 /// attachment record at a minted TID, pushed onto both the resolved outfit
 /// and the record's reference list — the two halves that must move
 /// together, exactly as [`detach_at`] takes them off together.
-fn attach_to(
+pub(crate) fn attach_to(
     rig: &mut crate::pds::avatar::RiggedBody,
     item: crate::pds::Generator,
     socket: symbios_avatar::Socket,

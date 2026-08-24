@@ -296,7 +296,7 @@ fn by_theme(entries: &[&'static dyn CatalogueEntry]) -> Vec<CatNode> {
 }
 
 fn by_role(entries: &[&'static dyn CatalogueEntry]) -> Vec<CatNode> {
-    const ROLES: [StructureRole; 8] = [
+    const ROLES: [StructureRole; 9] = [
         StructureRole::Landmark,
         StructureRole::Secondary,
         StructureRole::Prop,
@@ -305,6 +305,7 @@ fn by_role(entries: &[&'static dyn CatalogueEntry]) -> Vec<CatNode> {
         StructureRole::Plant,
         StructureRole::Pattern,
         StructureRole::Tool,
+        StructureRole::Attachment,
     ];
     ROLES
         .iter()
@@ -332,12 +333,19 @@ fn by_role(entries: &[&'static dyn CatalogueEntry]) -> Vec<CatNode> {
 /// the precomputed leaf `total` alongside (#639).
 type NodeCache = Option<(BrowseMode, String, Vec<CatNode>, usize)>;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn catalogue_ui(
     mut contexts: EguiContexts,
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     mut chrome: crate::ui::layout::WindowChrome,
     mut browser: ResMut<CatalogueBrowser>,
     mut pending_drop: ResMut<PendingGeneratorDrop>,
+    // Wear wiring (#1087): mutated only on a Wear click, so the ResMut
+    // never dirties the live record from mere browsing (the guarded-dirty
+    // rule) — reads go through `as_ref()`.
+    mut live_avatar: Option<ResMut<crate::state::LiveAvatarRecord>>,
+    session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
+    mut undo_labels: ResMut<crate::ui::undo::PendingUndoLabels>,
     // Per-frame cache (#639): the node tree is a pure function of (mode,
     // search) over the `const ENTRIES`; rebuild only when those keys change.
     mut node_cache: Local<NodeCache>,
@@ -477,7 +485,13 @@ pub(crate) fn catalogue_ui(
                             .id_salt("catalogue_detail_scroll")
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
-                                detail_panel(ui, browser.selected.as_deref());
+                                detail_panel(
+                                    ui,
+                                    browser.selected.as_deref(),
+                                    live_avatar.as_mut(),
+                                    session.as_deref(),
+                                    &mut undo_labels,
+                                );
                             });
                     },
                 );
@@ -571,7 +585,13 @@ fn render_nodes(builder: &mut egui_ltreeview::TreeViewBuilder<'_, String>, nodes
     }
 }
 
-fn detail_panel(ui: &mut egui::Ui, selected: Option<&str>) {
+fn detail_panel(
+    ui: &mut egui::Ui,
+    selected: Option<&str>,
+    live_avatar: Option<&mut ResMut<crate::state::LiveAvatarRecord>>,
+    session: Option<&bevy_symbios_multiuser::auth::AtprotoSession>,
+    undo_labels: &mut crate::ui::undo::PendingUndoLabels,
+) {
     let Some(entry) = selected.and_then(by_slug) else {
         ui.add_space(8.0);
         ui.label(
@@ -622,6 +642,80 @@ fn detail_panel(ui: &mut egui::Ui, selected: Option<&str>) {
             ui.label(egui::RichText::new(slug).monospace().small());
             ui.end_row();
         });
+
+    if let Some(socket) = entry.wear_socket() {
+        ui.add_space(6.0);
+        ui.separator();
+        wear_row(ui, entry, socket, live_avatar, session, undo_labels);
+    }
+}
+
+/// The Wear affordance for a wearable entry (#1087): lands the built item
+/// on the local rigged avatar at the entry's default socket, through the
+/// same wardrobe path the avatar editor's Attachments tab uses — the
+/// 16-slot cap, undo ring, peer streaming and publish flow all see it as
+/// an ordinary attachment edit. Placement is untouched: the tree leaf
+/// stays the drag handle.
+fn wear_row(
+    ui: &mut egui::Ui,
+    entry: &'static dyn CatalogueEntry,
+    socket: symbios_avatar::Socket,
+    live_avatar: Option<&mut ResMut<crate::state::LiveAvatarRecord>>,
+    session: Option<&bevy_symbios_multiuser::auth::AtprotoSession>,
+    undo_labels: &mut crate::ui::undo::PendingUndoLabels,
+) {
+    use crate::pds::avatar::MAX_AVATAR_ATTACHMENTS;
+
+    let weak = crate::ui::theme::current(ui.ctx()).text_weak;
+    let hint = |ui: &mut egui::Ui, text: &str| {
+        ui.add_enabled(
+            false,
+            egui::Button::new(format!("Wear ({})", socket.name())),
+        );
+        ui.label(egui::RichText::new(text).small().color(weak));
+    };
+
+    let Some(session) = session else {
+        hint(ui, "Sign in to wear items.");
+        return;
+    };
+    let Some(live) = live_avatar else {
+        hint(ui, "No avatar loaded yet.");
+        return;
+    };
+    // Reads through `as_ref` — deref_mut would mark the record changed
+    // every frame the panel is open and re-broadcast the avatar for
+    // nothing (the guarded-dirty rule).
+    let worn = match live.as_ref().0.body.rigged_ref() {
+        Some(rig) => rig
+            .resolved
+            .as_ref()
+            .map_or(0, |resolved| resolved.attachments.len()),
+        None => {
+            hint(
+                ui,
+                "Vehicles carry no attachments — pilot a body to wear this.",
+            );
+            return;
+        }
+    };
+    if worn >= MAX_AVATAR_ATTACHMENTS {
+        hint(
+            ui,
+            "All 16 attachment slots are taken — detach something first.",
+        );
+        return;
+    }
+
+    if ui
+        .button(format!("Wear ({})", socket.name()))
+        .on_hover_text("Attach to your avatar at this socket; refine with the in-world gizmo.")
+        .clicked()
+        && let Some(rig) = live.0.body.rigged_mut()
+    {
+        crate::ui::avatar::attach_to(rig, entry.build(&session.did), socket, &session.did);
+        undo_labels.set_avatar(format!("wear {}", entry.name()));
+    }
 }
 
 #[cfg(test)]

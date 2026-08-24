@@ -40,10 +40,18 @@ pub enum CatalogueCategory {
     Plants,
     Patterns,
     Tools,
+    /// Wearables (#1086) — items that also land on an avatar rig socket.
+    Attachments,
 }
 
 impl CatalogueCategory {
-    pub const ALL: [Self; 4] = [Self::Buildings, Self::Plants, Self::Patterns, Self::Tools];
+    pub const ALL: [Self; 5] = [
+        Self::Buildings,
+        Self::Plants,
+        Self::Patterns,
+        Self::Tools,
+        Self::Attachments,
+    ];
 
     /// Display label shown as a section header in the catalogue
     /// window.
@@ -53,6 +61,7 @@ impl CatalogueCategory {
             Self::Plants => "Plants",
             Self::Patterns => "Patterns",
             Self::Tools => "Tools",
+            Self::Attachments => "Attachments",
         }
     }
 }
@@ -85,6 +94,11 @@ pub enum StructureRole {
     /// fallback. Never part of the settlement Landmark/Secondary/Prop
     /// pools.
     Gateway,
+    /// Wearable item (#1086) — an entry the catalogue offers to **wear**
+    /// on the local avatar (via [`CatalogueEntry::wear_socket`]) as well as
+    /// to place. Never part of any seeded settlement pool, and the only
+    /// role whose entries may be themeless by design.
+    Attachment,
     /// Owner-identity monument (#975) — the themed monument every seeded
     /// room stands beside its gateway, carrying the room owner's profile
     /// picture on a square panel
@@ -108,6 +122,7 @@ impl StructureRole {
             Self::Tool => "Tool",
             Self::Gateway => "Gateway",
             Self::Monument => "Monument",
+            Self::Attachment => "Attachment",
         }
     }
 
@@ -118,6 +133,7 @@ impl StructureRole {
             Self::Landmark | Self::Secondary | Self::Prop | Self::Gateway | Self::Monument => {
                 CatalogueCategory::Buildings
             }
+            Self::Attachment => CatalogueCategory::Attachments,
             Self::Plant => CatalogueCategory::Plants,
             Self::Pattern => CatalogueCategory::Patterns,
             Self::Tool => CatalogueCategory::Tools,
@@ -258,6 +274,21 @@ pub trait CatalogueEntry: Sync {
     /// returns a fresh deep-cloned tree — the parameter only changes
     /// what literal values populate it, never aliasing.
     fn build(&self, local_did: &str) -> Generator;
+
+    /// The rig socket this entry lands on when **worn** (#1086/#1087).
+    /// `Some` marks the entry wearable: the catalogue's detail panel offers
+    /// Wear beside the usual drag-to-place, and wearing writes the built
+    /// generator into the wardrobe as an
+    /// [`AttachmentRecord`](crate::pds::avatar::AttachmentRecord) at this
+    /// socket with an identity offset — the sentinel that lets the engine
+    /// seat the prop against the measured body surface. Wearable entries
+    /// use [`StructureRole::Attachment`] and the pairing is guard-tested in
+    /// [`items`]. Attachment-ness is overlands-only metadata: the avatar
+    /// engine stays attachment-agnostic, and a wearable entry remains
+    /// placeable in the world like any other item. Defaults to `None`.
+    fn wear_socket(&self) -> Option<symbios_avatar::Socket> {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -275,6 +306,8 @@ mod tests {
         assert_eq!(Pattern.category(), Patterns);
         assert_eq!(Tool.category(), Tools);
         assert_eq!(Gateway.category(), Buildings);
+        assert_eq!(Monument.category(), Buildings);
+        assert_eq!(Attachment.category(), Attachments);
     }
 
     /// Every `ThemeArchetype` a seeded room can be must resolve to exactly

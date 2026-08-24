@@ -15,6 +15,7 @@ use super::CatalogueEntry;
 pub mod alien_monolithic;
 pub mod alien_organic;
 pub mod ancient;
+pub mod attachments;
 pub mod civic;
 pub mod civic_campus;
 pub mod coastal_resort;
@@ -503,6 +504,8 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &suburban::monument::SuburbanMonument,
     &wild_west::gateway::WildWestGateway,
     &wild_west::monument::WildWestMonument,
+    // Attachments — wearable items (#1086); also placeable like any entry.
+    &attachments::satchel::Satchel,
 ];
 
 /// Resolve a slug to its entry. Returns `None` if the slug doesn't
@@ -693,6 +696,24 @@ mod tests {
                     e.slug()
                 );
             }
+        }
+    }
+
+    /// Wearability and the Attachment role travel together: `wear_socket()`
+    /// is what the Wear button keys on, `role()` is what the section and
+    /// the by-role browser key on — an entry with one but not the other
+    /// would be a wearable nobody can find, or a section row nobody can
+    /// wear.
+    #[test]
+    fn wearability_and_the_attachment_role_travel_together() {
+        use crate::catalogue::StructureRole;
+        for e in ENTRIES {
+            assert_eq!(
+                e.wear_socket().is_some(),
+                e.role() == StructureRole::Attachment,
+                "entry {}: wear_socket() and StructureRole::Attachment must                  agree",
+                e.slug()
+            );
         }
     }
 

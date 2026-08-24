@@ -33,6 +33,7 @@
 //!     [`AvatarRecord::default_for_did`] seed.
 
 mod attachments;
+pub(crate) use attachments::attach_to;
 mod body;
 mod locomotion;
 
