@@ -12,7 +12,13 @@ use bevy::prelude::*;
 use bevy::render::gpu_readback::{Readback, ReadbackComplete};
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 
+use bevy_symbios_avatar::{AvatarBody as BuiltBody, AvatarJoints, AvatarPose, spawn_avatar};
+use symbios_avatar::{Ground, Pose, Speed, Walk};
+
+use crate::pds::avatar::wardrobe::engine_default_for_seed;
+use crate::pds::avatar::{AttachmentRecord, ResolvedAttachment};
 use crate::pds::{Environment, Generator, Placement, RoomRecord, TransformData};
+use crate::player::attachments::{ensure_joint_visibility, placements};
 use crate::player::visuals::{AvatarSpawnDeps, spawn_visual_tree};
 use crate::world_builder::particles::{Particle, ParticleEmitterMarker};
 
@@ -24,7 +30,61 @@ pub(super) enum Subject {
     Single(Box<Generator>),
     Lineup(Vec<Generator>),
     Room(Box<RoomRecord>),
+    /// `--wear` (#1088): rigged bodies wearing one attachment. One grid row
+    /// per body seed × pose in [`WEAR_POSES`], the item engine-seated at
+    /// `socket` exactly as a worn identity-offset record is in-game.
+    Wear {
+        seeds: Vec<u64>,
+        item: Box<Generator>,
+        socket: symbios_avatar::Socket,
+    },
 }
+
+/// The pose set every `--wear` body is sheeted in: the rest stance, and two
+/// opposite extremes of a walk cycle — where a hip or hand item meets the
+/// swinging limbs. Deterministic (a gait pose is a pure function of its
+/// cycle), so sheets diff across runs. A supine sleep row is deliberately
+/// absent: sleeping is an overlands locomotion state driven by the live
+/// animator, not an engine pose this tool can evaluate statically.
+const WEAR_POSES: [WearPose; 3] = [WearPose::Rest, WearPose::Walk(0.15), WearPose::Walk(0.65)];
+
+/// Walking pace the walk rows are posed at, in metres per second.
+const WEAR_WALK_PACE: f32 = 1.4;
+
+/// Texture atlas for `--wear` bodies — the game's draft rung, because a
+/// sheet of N bodies at the full 1024 atlas is all cost and no judgement.
+const WEAR_ATLAS: u32 = 256;
+
+#[derive(Clone, Copy)]
+enum WearPose {
+    Rest,
+    Walk(f32),
+}
+
+impl WearPose {
+    /// Evaluate this pose against a built body's rig — [`Pose::rest`], or
+    /// the engine's own walk drive at a fixed cycle on a level floor (the
+    /// recipe `player::rigged` uses live, minus the per-frame state).
+    fn evaluate(self, rig: &symbios_avatar::Rig) -> Pose {
+        let mut pose = Pose::rest(rig);
+        if let Self::Walk(cycle) = self {
+            let speed = Speed::new(rig, WEAR_WALK_PACE);
+            let gait = speed.gait(rig);
+            let stride = speed.stride(rig);
+            Walk::at(cycle).drive(rig, &mut pose, &gait, &stride, |point| {
+                Some(Ground::level(Vec3::new(point.x, 0.0, point.z)))
+            });
+        }
+        pose
+    }
+}
+
+/// One worn prop waiting for its body's joints to exist: `spawn_avatar`
+/// inserts [`AvatarJoints`] at the command flush after [`setup`], so the
+/// dressing happens on the next frame in [`dress_wear_bodies`] — well inside
+/// the warm-up window.
+#[derive(Component)]
+pub(super) struct PendingWear(ResolvedAttachment);
 
 /// World-space X distance between `Lineup` slots. Far enough apart that no
 /// subject can bleed into a neighbouring slot's tiles, and the slot of a mesh
@@ -79,6 +139,7 @@ pub(super) fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut deps: AvatarSpawnDeps,
+    mut bindposes: ResMut<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
     job: Res<RenderJob>,
 ) {
     // Lighting / clear colour: neutral studio for a single subject, the room's
@@ -89,13 +150,14 @@ pub(super) fn setup(
             commands.insert_resource(ClearColor(srgb3(env.sky_color.0)));
             env.ambient_brightness.0.max(80.0)
         }
-        Subject::Single(_) | Subject::Lineup(_) => 600.0,
+        Subject::Single(_) | Subject::Lineup(_) | Subject::Wear { .. } => 600.0,
     };
 
     // One off-screen target + orbiting camera per tile: a row of the four
     // angles per lineup slot (a single subject is one slot).
     let rows = match &job.subject {
         Subject::Lineup(variants) => variants.len(),
+        Subject::Wear { seeds, .. } => seeds.len() * WEAR_POSES.len(),
         _ => 1,
     };
     let mut targets = Vec::with_capacity(rows * ANGLES.len());
@@ -151,6 +213,54 @@ pub(super) fn setup(
                 );
             }
         }
+        Subject::Wear {
+            seeds,
+            item,
+            socket,
+        } => {
+            spawn_neutral_sun(&mut commands);
+            for (row, (seed, pose_spec)) in seeds
+                .iter()
+                .flat_map(|&seed| WEAR_POSES.iter().map(move |&p| (seed, p)))
+                .enumerate()
+            {
+                let avatar = symbios_avatar::Avatar::build_with(
+                    &engine_default_for_seed(seed),
+                    &symbios_avatar::AvatarConfig {
+                        atlas: WEAR_ATLAS,
+                        ..Default::default()
+                    },
+                )
+                .unwrap_or_else(|| panic!("seeded body {seed} did not build"));
+                let pose = pose_spec.evaluate(&avatar.rig);
+                let mut worn = AttachmentRecord::new((**item).clone(), *socket);
+                worn.sanitize();
+                // The game's facing bridge: engine bodies face +Z, the
+                // orbit's "front" angle assumes -Z (`rigged_root_transform`).
+                let root = commands
+                    .spawn((
+                        Transform::from_xyz(row as f32 * SLOT_SPACING, 0.0, 0.0)
+                            .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+                        Visibility::default(),
+                        AvatarPose(pose),
+                        PendingWear(ResolvedAttachment {
+                            rkey: format!("wear-{row}"),
+                            record: worn,
+                        }),
+                    ))
+                    .id();
+                spawn_avatar(
+                    &mut commands,
+                    root,
+                    avatar,
+                    0.0,
+                    &mut meshes,
+                    &mut materials,
+                    &mut images,
+                    &mut bindposes,
+                );
+            }
+        }
         Subject::Room(record) => {
             spawn_env_sun(&mut commands, &record.environment);
             spawn_ground(&mut commands, &mut meshes, &mut materials);
@@ -163,6 +273,44 @@ pub(super) fn setup(
                 &mut deps,
             );
         }
+    }
+}
+
+/// Dress every `--wear` body whose joints have landed: the same
+/// `placements` seating the game uses (engine seat + outward yaw), the prop
+/// spawned under its carrying joint's entity through the avatar-mode visual
+/// pipeline. Runs every frame but each body is dressed once — the
+/// [`PendingWear`] component is the queue and is removed on the way out.
+pub(super) fn dress_wear_bodies(
+    mut commands: Commands,
+    pending: Query<(Entity, &BuiltBody, &AvatarJoints, &PendingWear)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+    mut deps: AvatarSpawnDeps,
+) {
+    for (root, body, joints, wear) in &pending {
+        ensure_joint_visibility(&mut commands, joints);
+        let desired = std::slice::from_ref(&wear.0);
+        for (joint, transform, attachment) in placements(&body.avatar, desired) {
+            let Some(&carrier) = joints.0.get(joint) else {
+                continue;
+            };
+            let prop = commands
+                .spawn((transform, Visibility::default(), ChildOf(carrier)))
+                .id();
+            spawn_visual_tree(
+                &mut commands,
+                prop,
+                &attachment.record.item,
+                &mut meshes,
+                &mut materials,
+                &mut images,
+                &mut deps,
+                false,
+            );
+        }
+        commands.entity(root).remove::<PendingWear>();
     }
 }
 

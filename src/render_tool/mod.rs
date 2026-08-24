@@ -114,6 +114,22 @@ struct Args {
     /// one gateway, or `all` for every one.
     #[arg(long)]
     gateway_fit: Option<String>,
+    /// Wear subject (#1088): a wearable catalogue slug (e.g. `satchel`),
+    /// rendered WORN on rigged seeded bodies — one grid row per body seed ×
+    /// pose (rest, walk at two opposite cycle extremes), four orbit angles
+    /// per row. The item is engine-seated at the entry's `wear_socket` with
+    /// the outward yaw, exactly as a fresh in-game Wear lands. Judging the
+    /// item as world decor stays `--catalogue`'s job.
+    #[arg(long)]
+    wear: Option<String>,
+    /// With `--wear`: how many seeded bodies to sheet (default 4).
+    #[arg(long, default_value_t = 4)]
+    wear_bodies: usize,
+    /// With `--wear`: override the socket (an engine socket name like
+    /// `left-hip`, `crown`, `back`) instead of the entry's own
+    /// `wear_socket` — the tool for "what would this look like elsewhere".
+    #[arg(long)]
+    wear_socket: Option<String>,
     /// Catalogue subject: an entry slug (e.g. `villa`, `bench`, `wizard_tower`).
     #[arg(long)]
     catalogue: Option<String>,
@@ -412,6 +428,11 @@ pub fn run() {
     .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::ZERO));
     // Resources + texture/material plugins the real spawn path reads.
     crate::world_builder::register_headless_spawn(&mut app);
+    // Rigged bodies for `--wear` (#1088): the engine's spawn/pose plugin
+    // (stateless, no game dependencies) and the one-shot dressing system
+    // that parents the worn prop once the joints exist.
+    app.add_plugins(bevy_symbios_avatar::AvatarPlugin);
+    app.add_systems(Update, headless::dress_wear_bodies);
     app.insert_resource(ClearColor(Color::srgb(0.52, 0.55, 0.70)))
         .insert_resource(RenderJob {
             subject,
@@ -484,6 +505,30 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
         return (
             Subject::Single(Box::new(Generator::from_kind(kind))),
             format!("prim-{}", tag.to_lowercase()),
+        );
+    }
+    if let Some(slug) = &args.wear {
+        let entry = crate::catalogue::by_slug(slug)
+            .unwrap_or_else(|| panic!("--wear {slug:?}: no catalogue entry with that slug"));
+        let socket = match &args.wear_socket {
+            Some(name) => symbios_avatar::Socket::from_name(name)
+                .unwrap_or_else(|| panic!("--wear-socket {name:?}: not an engine socket name")),
+            None => entry.wear_socket().unwrap_or_else(|| {
+                panic!(
+                    "--wear {slug:?}: entry is not wearable (no wear_socket()) — \
+                     pass --wear-socket to force one"
+                )
+            }),
+        };
+        assert!(args.wear_bodies > 0, "--wear-bodies must be at least 1");
+        let seeds = (0..args.wear_bodies as u64).collect();
+        return (
+            Subject::Wear {
+                seeds,
+                item: Box::new(entry.build("did:render:wear")),
+                socket,
+            },
+            format!("wear-{slug}-{}", socket.name()),
         );
     }
     if let Some(slug) = &args.catalogue {

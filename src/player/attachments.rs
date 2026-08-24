@@ -191,6 +191,7 @@ pub(super) fn sync_rigged_attachments(
 
         let is_local = locals.contains(chassis);
         let mut spawned = Vec::new();
+        ensure_joint_visibility(&mut commands, joints);
         for (joint, transform, attachment) in placements(&body.avatar, desired) {
             let Some(&carrier) = joints.0.get(joint) else {
                 continue;
@@ -236,7 +237,7 @@ pub(super) fn sync_rigged_attachments(
 /// Which joint carries each wearable attachment, and at what local
 /// transform. Pure — the whole placement decision, kept apart from the ECS
 /// so it can be tested against a real build without a world.
-fn placements<'a>(
+pub(crate) fn placements<'a>(
     avatar: &symbios_avatar::Avatar,
     desired: &'a [ResolvedAttachment],
 ) -> Vec<(usize, Transform, &'a ResolvedAttachment)> {
@@ -262,6 +263,19 @@ fn placements<'a>(
         out.push((joint, transform, attachment));
     }
     out
+}
+
+/// Give every joint entity the visibility components a worn prop's
+/// inheritance chain needs. The engine spawns joints as bare transforms —
+/// a rig is not a renderable — so parenting a `Visibility`-bearing prop
+/// under one is Bevy's B0004 (an `InheritedVisibility` child below a
+/// parent without it), warned at startup and undefined in behaviour.
+/// `insert_if_new` keeps whatever a joint already carries; a few dozen
+/// inserts per dress, only when an outfit actually changes.
+pub(crate) fn ensure_joint_visibility(commands: &mut Commands, joints: &AvatarJoints) {
+    for &joint in &joints.0 {
+        commands.entity(joint).insert_if_new(Visibility::default());
+    }
 }
 
 /// The engine-seated default placement: the socket's anchor pushed outside
