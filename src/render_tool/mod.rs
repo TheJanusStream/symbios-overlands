@@ -527,6 +527,7 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
                 seeds,
                 item: Box::new(entry.build("did:render:wear")),
                 socket,
+                fit: entry.wear_fit(),
             },
             format!("wear-{slug}-{}", socket.name()),
         );

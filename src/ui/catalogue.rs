@@ -713,7 +713,13 @@ fn wear_row(
         .clicked()
         && let Some(rig) = live.0.body.rigged_mut()
     {
-        crate::ui::avatar::attach_to(rig, entry.build(&session.did), socket, &session.did);
+        crate::ui::avatar::attach_to(
+            rig,
+            entry.build(&session.did),
+            socket,
+            &session.did,
+            entry.wear_fit(),
+        );
         undo_labels.set_avatar(format!("wear {}", entry.name()));
     }
 }

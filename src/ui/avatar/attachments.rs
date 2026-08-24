@@ -130,6 +130,17 @@ pub(super) fn draw_attachments_tab(
                                 }
                             });
                             outcome.changed |= offset_rows(ui, &mut attachment.record);
+                            // Fit is item metadata (#1089), shown so the
+                            // schema has a face in the editor — never edited
+                            // here: the declaration belongs to the catalogue
+                            // entry, and the computed scale to the body.
+                            if attachment.record.fit_band_mm != 0 {
+                                ui.small(format!(
+                                    "fitted: {} mm band, scaled to your head while the \
+                                     offset stays engine-seated",
+                                    attachment.record.fit_band_mm
+                                ));
+                            }
                             ui.horizontal(|ui| {
                                 if ui
                                     .button("Re-seat")
@@ -228,7 +239,9 @@ pub(super) fn draw_attachments_tab(
                     && let (Some(name), Some(socket)) = (state.pick_item.clone(), state.pick_socket)
                     && let Some(item) = inventory.generators.get(&name)
                 {
-                    attach_to(rig, item.clone(), socket, did);
+                    // An inventory item carries no catalogue identity, so no
+                    // fit declaration can be looked up for it — authored size.
+                    attach_to(rig, item.clone(), socket, did, None);
                     outcome.changed = true;
                     outcome.label = Some(format!("attach {name} at {}", socket.name()));
                 }
@@ -247,16 +260,22 @@ pub(super) fn draw_attachments_tab(
 /// attachment record at a minted TID, pushed onto both the resolved outfit
 /// and the record's reference list — the two halves that must move
 /// together, exactly as [`detach_at`] takes them off together.
+///
+/// `fit` is the catalogue entry's measurement-fit declaration (#1089),
+/// stamped onto the record so every client — peers included — scales the
+/// worn subtree from the wearer's measured body at dress time. `None`
+/// (every plain inventory attach) wears at authored size.
 pub(crate) fn attach_to(
     rig: &mut crate::pds::avatar::RiggedBody,
     item: crate::pds::Generator,
     socket: symbios_avatar::Socket,
     did: &str,
+    fit: Option<crate::catalogue::WearFit>,
 ) {
     let Some(resolved) = rig.resolved.as_mut() else {
         return;
     };
-    let mut worn = AttachmentRecord::new(item, socket);
+    let mut worn = AttachmentRecord::with_fit(item, socket, fit);
     worn.sanitize();
     let rkey = crate::pds::tid::tid_now(crate::seeded_defaults::fnv1a_64(did));
     resolved.attachments.push(ResolvedAttachment {
@@ -402,6 +421,7 @@ mod tests {
             Generator::default(),
             symbios_avatar::Socket::LeftHand,
             "did:plc:attach-test",
+            None,
         );
         let resolved = rig.resolved.as_ref().expect("resolved");
         assert_eq!(resolved.attachments.len(), 1);

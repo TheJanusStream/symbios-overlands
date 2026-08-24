@@ -505,6 +505,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &wild_west::gateway::WildWestGateway,
     &wild_west::monument::WildWestMonument,
     // Attachments — wearable items (#1086); also placeable like any entry.
+    &attachments::circlet::Circlet,
     &attachments::satchel::Satchel,
 ];
 
@@ -712,6 +713,14 @@ mod tests {
                 e.wear_socket().is_some(),
                 e.role() == StructureRole::Attachment,
                 "entry {}: wear_socket() and StructureRole::Attachment must                  agree",
+                e.slug()
+            );
+            // A fit declaration only means anything on a wearable (#1089):
+            // the fit is applied in the Wear path's dress-time placement,
+            // which an entry without a socket never reaches.
+            assert!(
+                e.wear_fit().is_none() || e.wear_socket().is_some(),
+                "entry {}: wear_fit() without wear_socket() is dead metadata",
                 e.slug()
             );
         }

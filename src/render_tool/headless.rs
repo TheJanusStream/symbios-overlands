@@ -37,6 +37,11 @@ pub(super) enum Subject {
         seeds: Vec<u64>,
         item: Box<Generator>,
         socket: symbios_avatar::Socket,
+        /// The entry's [`WearFit`](crate::catalogue::WearFit) declaration
+        /// (#1089), stamped onto the built record exactly as the in-game
+        /// Wear button stamps it — so the sheet shows the fitted sizes the
+        /// game would.
+        fit: Option<crate::catalogue::WearFit>,
     },
 }
 
@@ -217,6 +222,7 @@ pub(super) fn setup(
             seeds,
             item,
             socket,
+            fit,
         } => {
             spawn_neutral_sun(&mut commands);
             for (row, (seed, pose_spec)) in seeds
@@ -233,7 +239,7 @@ pub(super) fn setup(
                 )
                 .unwrap_or_else(|| panic!("seeded body {seed} did not build"));
                 let pose = pose_spec.evaluate(&avatar.rig);
-                let mut worn = AttachmentRecord::new((**item).clone(), *socket);
+                let mut worn = AttachmentRecord::with_fit((**item).clone(), *socket, *fit);
                 worn.sanitize();
                 // The game's facing bridge: engine bodies face +Z, the
                 // orbit's "front" angle assumes -Z (`rigged_root_transform`).

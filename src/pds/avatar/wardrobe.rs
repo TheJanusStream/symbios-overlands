@@ -51,6 +51,14 @@ use super::body::{ResolvedAttachment, ResolvedRig, RiggedBody};
 /// answer every open union here gives.
 const MAX_SOCKET_NAME_CHARS: usize = 32;
 
+/// Bounds a non-zero [`AttachmentRecord::fit_band_mm`] is clamped into.
+/// 50 mm is a doll's circlet and 1000 mm a barrel hoop — both absurd but
+/// harmlessly renderable; outside them the fit ratio itself becomes the
+/// attack (a 1 mm band inflates a prop ~180×).
+const MIN_FIT_BAND_MM: u32 = 50;
+/// See [`MIN_FIT_BAND_MM`].
+const MAX_FIT_BAND_MM: u32 = 1000;
+
 /// How many `listRecords` pages a wardrobe walk will fetch (100 records a
 /// page). A wardrobe past this is not a wardrobe, it is a DoS.
 const MAX_WARDROBE_LIST_PAGES: usize = 4;
@@ -75,6 +83,23 @@ pub struct AttachmentRecord {
     /// Quantised like every transform on the wire; identity elides.
     #[serde(default, skip_serializing_if = "TransformData::is_identity")]
     pub offset: TransformData,
+    /// Measurement-fit declaration (#1089), copied from the catalogue
+    /// entry's [`WearFit`](crate::catalogue::WearFit) at Wear time: the
+    /// item's **authored band inner diameter in whole millimetres**, which
+    /// each client fits to the wearer's measured brow circumference at
+    /// dress time (`src/player/attachments.rs`, `fit_scale`). Carried on
+    /// the record — not looked up — because a peer dresses from the wire
+    /// alone. `0` (elided) means no fit: the prop is worn at authored
+    /// size. Integer millimetres because atproto records hold no floats.
+    #[serde(default, rename = "fitBandMm", skip_serializing_if = "fit_elides")]
+    pub fit_band_mm: u32,
+}
+
+/// Serde elision for [`AttachmentRecord::fit_band_mm`]: `0` is "no fit"
+/// and stays off the wire, so every pre-#1089 record round-trips
+/// byte-identical.
+fn fit_elides(mm: &u32) -> bool {
+    *mm == 0
 }
 
 impl AttachmentRecord {
@@ -85,7 +110,20 @@ impl AttachmentRecord {
             item,
             socket: socket.name().into(),
             offset: TransformData::default(),
+            fit_band_mm: 0,
         }
+    }
+
+    /// [`Self::new`] carrying a catalogue entry's fit declaration (#1089).
+    /// `None` is exactly [`Self::new`]: worn at authored size.
+    pub fn with_fit(
+        item: Generator,
+        socket: symbios_avatar::Socket,
+        fit: Option<crate::catalogue::WearFit>,
+    ) -> Self {
+        let mut record = Self::new(item, socket);
+        record.fit_band_mm = fit.map_or(0, |fit| fit.band_mm());
+        record
     }
 
     /// The socket this attachment names, when this build knows it.
@@ -108,6 +146,13 @@ impl AttachmentRecord {
         self.offset.sanitize();
         self.offset.scale.0[1] = self.offset.scale.0[0];
         self.offset.scale.0[2] = self.offset.scale.0[0];
+        // A fit dimension off the wire is a divisor (`fit_scale` divides the
+        // measured head by it), so the non-zero floor is what keeps a hostile
+        // 1 mm band from scaling a prop 500× onto everyone's screen. Zero
+        // stays zero: it is the "no fit" sentinel, not a measurement.
+        if self.fit_band_mm != 0 {
+            self.fit_band_mm = self.fit_band_mm.clamp(MIN_FIT_BAND_MM, MAX_FIT_BAND_MM);
+        }
     }
 }
 
@@ -918,6 +963,54 @@ mod tests {
             back.extra.get("$type").and_then(|v| v.as_str()),
             Some(WARDROBE_COLLECTION)
         );
+    }
+
+    /// The #1089 fit field, in all three schema directions (the #211/#212
+    /// lesson: encode, decode, and absence each fail independently): a set
+    /// fit reaches the wire under its lexicon name, comes back through the
+    /// decoder, and a pre-fit record decodes to the "no fit" default with
+    /// nothing added to its wire form on the way back out.
+    #[test]
+    fn the_fit_dimension_survives_the_wire_in_all_three_directions() {
+        let mut record = AttachmentRecord::with_fit(
+            Generator::default(),
+            symbios_avatar::Socket::Crown,
+            Some(crate::catalogue::WearFit::HeadBand {
+                inner_diameter: 0.178,
+            }),
+        );
+        record.sanitize();
+        let json = serde_json::to_string(&record).expect("serializes");
+        assert!(json.contains("\"fitBandMm\":178"), "encode: {json}");
+        let back: AttachmentRecord = serde_json::from_str(&json).expect("decodes");
+        assert_eq!(back.fit_band_mm, 178, "decode");
+
+        // Absence: a record from before #1089 decodes as unfitted, and an
+        // unfitted record puts nothing new on the wire.
+        let plain = AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Crown);
+        let plain_json = serde_json::to_string(&plain).expect("serializes");
+        assert!(!plain_json.contains("fitBandMm"), "elides: {plain_json}");
+        let old: AttachmentRecord = serde_json::from_str(&plain_json).expect("decodes");
+        assert_eq!(old.fit_band_mm, 0, "an old record is worn at authored size");
+    }
+
+    #[test]
+    fn sanitize_bounds_a_hostile_fit_dimension_and_keeps_the_sentinel() {
+        // The field is a divisor: a 1 mm band would scale a prop ~180× onto
+        // every peer's screen. Zero must survive untouched — it is "no fit",
+        // not a small band.
+        let mut tiny = AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Crown);
+        tiny.fit_band_mm = 1;
+        tiny.sanitize();
+        assert_eq!(tiny.fit_band_mm, 50);
+        let mut huge = AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Crown);
+        huge.fit_band_mm = 40_000;
+        huge.sanitize();
+        assert_eq!(huge.fit_band_mm, 1000);
+        let mut unfitted =
+            AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Crown);
+        unfitted.sanitize();
+        assert_eq!(unfitted.fit_band_mm, 0);
     }
 
     #[test]

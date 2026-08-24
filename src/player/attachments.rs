@@ -19,6 +19,12 @@
 //!     [`symbios_avatar::Socket::seat`] pushes the socket's anchor outside
 //!     the *measured* surface, so a first attach lands visible on every
 //!     body instead of embedded in a chest ([`SEAT_MARGIN`] of air);
+//!   - an identity offset **with a fit declaration** (#1089) → the prop is
+//!     seated on the measured body itself: origin on the head axis at the
+//!     measured hat line, subtree scaled uniformly so the declared band
+//!     diameter matches the wearer's brow circumference ([`fitted_seat`],
+//!     [`hat_line`]); an unmeasurable head falls back to the plain seat at
+//!     authored size;
 //!   - an authored offset → taken verbatim, in the joint's rest-pose frame,
 //!     with the uniform scale the record's sanitiser enforced.
 //!
@@ -39,6 +45,17 @@ use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 
 /// Air left between a default-seated prop's origin and the skin, in metres.
 const SEAT_MARGIN: f32 = 0.02;
+
+/// Height samples walked between the eye line and the dome cap when hunting
+/// the hat line ([`hat_line`]). The vault's perimeter varies
+/// slowly in height — [`symbios_avatar::face::Skull`] itself holds a
+/// handful of bands — so a dense scan buys nothing.
+const HAT_LINE_STEPS: usize = 16;
+
+/// Azimuth samples the perimeter polygon is summed over. At 64 the chord
+/// shortfall of a circle is under 0.1%, far inside the wire's own
+/// millimetre quantisation.
+const HAT_LINE_AZIMUTHS: usize = 64;
 
 /// The root entity of one worn prop, a child of its rig joint's entity.
 #[derive(Component)]
@@ -242,6 +259,10 @@ pub(crate) fn placements<'a>(
     desired: &'a [ResolvedAttachment],
 ) -> Vec<(usize, Transform, &'a ResolvedAttachment)> {
     let mut out = Vec::new();
+    // One head measurement dresses the whole outfit: `Skull::measure` walks
+    // the full body mesh, so it runs at most once per dress, and only when
+    // something worn actually declares a fit.
+    let mut measured: Option<Option<HatLine>> = None;
     for attachment in desired {
         let Some(socket) = attachment.record.socket() else {
             info!(
@@ -256,13 +277,146 @@ pub(crate) fn placements<'a>(
             continue;
         };
         let transform = if attachment.record.offset.is_identity() {
-            seated_default(socket, avatar, joint)
+            let fitted = (attachment.record.fit_band_mm != 0)
+                .then(|| {
+                    let hat = (*measured.get_or_insert_with(|| hat_line(avatar)))?;
+                    let scale = fit_scale(Some(hat.circumference), attachment.record.fit_band_mm)?;
+                    Some(fitted_seat(&hat, avatar, socket, joint, scale))
+                })
+                .flatten();
+            fitted.unwrap_or_else(|| seated_default(socket, avatar, joint))
         } else {
+            // An authored offset — the gizmo's or the numeric editor's — is
+            // always taken verbatim, fit included: arming the gizmo on a
+            // fitted prop commits the then-current scale into the offset,
+            // so manual control keeps the size the wearer saw.
             transform_from_data(&attachment.record.offset)
         };
         out.push((joint, transform, attachment));
     }
     out
+}
+
+/// The uniform worn-subtree scale a fit declaration asks for (#1089): the
+/// wearer's measured brow circumference as an equivalent-circle diameter,
+/// over the item's authored band inner diameter. `None` — no measurement,
+/// or no fit declared — is the authored-size fallback, deliberately quiet:
+/// a creature head or an unmeasurable body wears the prop exactly as a
+/// pre-fit client would.
+pub(crate) fn fit_scale(circumference: Option<f32>, fit_band_mm: u32) -> Option<f32> {
+    if fit_band_mm == 0 {
+        return None;
+    }
+    let authored = fit_band_mm as f32 / 1000.0;
+    let fitted = circumference? / std::f32::consts::PI / authored;
+    fitted.is_finite().then_some(fitted)
+}
+
+/// The measured hat line of one built head: what a fitted headband seats
+/// against. Heights are head-local metres (relative to the head joint), the
+/// unit every [`symbios_avatar::face::Skull`] profile speaks.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct HatLine {
+    /// The head joint the measurement is anchored to.
+    pub(crate) head: usize,
+    /// Horizontal perimeter of the vault at the hat line, metres.
+    pub(crate) circumference: f32,
+    /// Height of the hat line above the head joint, metres.
+    pub(crate) height: f32,
+}
+
+/// The seat of a **fitted** headband (#1089): the prop origin lands on the
+/// head's vertical axis at the measured hat line, with the fit scale
+/// applied uniformly.
+///
+/// Deliberately NOT [`symbios_avatar::Socket::seat`]: the generic seat
+/// pushes an anchor *out of* the body so a first-attach prop is visible —
+/// measured on the crown it lands 8–9 cm **forward** of the head axis
+/// (the horizontal-push rule with a straight-up anchor), which is right
+/// for a pendant and wrong for a band that must encircle the head. A
+/// fitted band's authoring convention is therefore: the band circles the
+/// **origin**, in the X–Z plane, at `y = 0` — and this seat puts that
+/// origin exactly where the measurement says the band belongs.
+fn fitted_seat(
+    hat: &HatLine,
+    avatar: &symbios_avatar::Avatar,
+    socket: symbios_avatar::Socket,
+    joint: usize,
+    scale: f32,
+) -> Transform {
+    let world = avatar.rig.joints[hat.head].position + Vec3::Y * hat.height;
+    Transform {
+        translation: world - avatar.rig.joints[joint].position,
+        rotation: outward_yaw(socket),
+        scale: Vec3::splat(scale),
+    }
+}
+
+/// The wearer's hat line — where it sits and how far round it is — measured
+/// from the built body through the engine's public measure surface.
+///
+/// The hat line is found the way a hatter finds it: the largest horizontal
+/// perimeter of the cranial vault between the eye line and the dome's cap —
+/// the line that runs just above the brow ridge and around the occiput.
+/// Hunted rather than pinned to a landmark because the vault's widest line
+/// moves with the head-breadth and face-length axes, and a band seated
+/// anywhere narrower would slide down to it anyway.
+///
+/// Instruments, all public engine API: [`symbios_avatar::face::Skull`]
+/// measures the built head (the same measured-not-planned argument as
+/// `rig::Surface` — the mesh sits well inside the node radius);
+/// [`symbios_avatar::Canon`] hands back the eye line so its constant is not
+/// copied here (its docs record how copies drift); `Skull::surface_at`
+/// answers "where is the surface at this height, in this direction", and
+/// the perimeter is that polygon's length. The scan stops one band short of
+/// the crown: the top band is closed to a pole and a perimeter there is
+/// noise, not a hat line.
+///
+/// `None` for a body with no measurable head — hair never counts, the
+/// engine measures the bare skull — and the caller falls back to authored
+/// size. The eye-line ruler ignores its `EyeParams` argument for the
+/// landmark read here (only pupil spacing reads it), so the default params
+/// are not a guess smuggled in.
+pub(crate) fn hat_line(avatar: &symbios_avatar::Avatar) -> Option<HatLine> {
+    let skull = symbios_avatar::face::Skull::measure(&avatar.parts.body, &avatar.rig)?;
+    let canon =
+        symbios_avatar::Canon::measure(&avatar.rig, &skull, &symbios_avatar::EyeParams::default());
+    let floor = canon.level;
+    let (_, crown) = skull.throat_and_crown();
+    let ceiling = crown - skull.crown_band();
+    if ceiling <= floor {
+        return None;
+    }
+    let mut best: Option<(f32, f32)> = None;
+    for step in 0..=HAT_LINE_STEPS {
+        let height = floor + (ceiling - floor) * step as f32 / HAT_LINE_STEPS as f32;
+        let perimeter = perimeter_at(&skull, height);
+        if best.is_none_or(|(widest, _)| perimeter > widest) {
+            best = Some((perimeter, height));
+        }
+    }
+    let (circumference, height) = best?;
+    (circumference > f32::EPSILON && circumference.is_finite()).then_some(HatLine {
+        head: skull.head,
+        circumference,
+        height,
+    })
+}
+
+/// The head's horizontal perimeter at one height: the closed polygon of
+/// [`symbios_avatar::face::Skull::surface_at`] samples around the full
+/// turn. Engine-space (`glam`) arithmetic throughout — every sample shares
+/// the height, so each chord is horizontal by construction.
+fn perimeter_at(skull: &symbios_avatar::face::Skull, height: f32) -> f32 {
+    let mut total = 0.0;
+    let mut prev = skull.surface_at(height, 0.0);
+    for step in 1..=HAT_LINE_AZIMUTHS {
+        let azimuth = std::f32::consts::TAU * step as f32 / HAT_LINE_AZIMUTHS as f32;
+        let next = skull.surface_at(height, azimuth);
+        total += (next - prev).length();
+        prev = next;
+    }
+    total
 }
 
 /// Give every joint entity the visibility components a worn prop's
@@ -867,6 +1021,111 @@ mod tests {
             "an animated-frame commit must not accidentally agree; got {} vs {}",
             wrong.translation,
             offset.translation
+        );
+    }
+
+    /// The measurement-fit guard (#1089): across seeded bodies the computed
+    /// fit scale exists, stays in a wearable range, and actually *varies* —
+    /// a fit that answers the same number on every head is an authored
+    /// constant wearing a measurement's name. And the scale is not just
+    /// computed but applied: the worn transform out of [`placements`]
+    /// carries it uniformly.
+    #[test]
+    fn the_fit_scale_tracks_head_sizes_across_seeds() {
+        use crate::pds::avatar::wardrobe::engine_default_for_seed;
+
+        // The circlet's own declaration, straight from the registry so this
+        // guard moves when the authored band does.
+        let fit = crate::catalogue::by_slug("circlet")
+            .expect("the circlet is registered")
+            .wear_fit()
+            .expect("the fit hero declares a fit");
+        let band_mm = fit.band_mm();
+
+        let mut scales = Vec::new();
+        for seed in [0u64, 1, 2, 5, 7] {
+            let avatar = symbios_avatar::Avatar::build_with(
+                &engine_default_for_seed(seed),
+                &symbios_avatar::AvatarConfig {
+                    atlas: 128,
+                    ..Default::default()
+                },
+            )
+            .unwrap_or_else(|| panic!("seeded body {seed} builds"));
+            let hat = hat_line(&avatar)
+                .unwrap_or_else(|| panic!("seed {seed}: a humanoid head measures"));
+            assert!(
+                (0.3..1.2).contains(&hat.circumference),
+                "seed {seed}: brow circumference {} is not a head's",
+                hat.circumference
+            );
+            let scale = fit_scale(Some(hat.circumference), band_mm)
+                .unwrap_or_else(|| panic!("seed {seed}: a measured head fits"));
+            assert!(
+                (0.5..2.0).contains(&scale),
+                "seed {seed}: fit scale {scale} is outside the wearable range \
+                 — either the measurement or the authored diameter is off"
+            );
+            scales.push((seed, scale));
+
+            // And placements() applies it: a fitted identity-offset record
+            // dresses at exactly that uniform scale, seated on the head's
+            // own axis at the hat line — NOT at the generic crown seat,
+            // which stands 8–9 cm forward of the head (the render finding
+            // that produced `fitted_seat`) — while an unfitted one keeps
+            // the authored size at the generic seat.
+            let mut fitted =
+                AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Crown);
+            fitted.fit_band_mm = band_mm;
+            let plain = AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Crown);
+            let outfit = [worn(fitted), worn(plain)];
+            let placed = placements(&avatar, &outfit);
+            assert_eq!(placed.len(), 2);
+            assert!(
+                (placed[0].1.scale - Vec3::splat(scale)).length() < 1e-5,
+                "seed {seed}: worn scale {:?} is not the computed fit {scale}",
+                placed[0].1.scale
+            );
+            let joint = placed[0].0;
+            let expected = avatar.rig.joints[hat.head].position + Vec3::Y * hat.height
+                - avatar.rig.joints[joint].position;
+            assert!(
+                (placed[0].1.translation - expected).length() < 1e-5,
+                "seed {seed}: a fitted band seats at {:?}, expected the hat line {expected:?}",
+                placed[0].1.translation
+            );
+            assert_eq!(
+                placed[1].1.scale,
+                Vec3::ONE,
+                "seed {seed}: an unfitted prop must keep its authored size"
+            );
+            assert!(
+                (placed[1].1.translation - placed[0].1.translation).length() > 0.02,
+                "seed {seed}: the generic seat and the fitted seat should differ — \
+                 if they agree, `fitted_seat` has stopped earning its existence"
+            );
+        }
+        let (min, max) = scales.iter().fold((f32::MAX, f32::MIN), |(lo, hi), s| {
+            (lo.min(s.1), hi.max(s.1))
+        });
+        assert!(
+            max / min > 1.05,
+            "the fit scale is flat across seeds ({scales:?}) — it is not measuring the head"
+        );
+    }
+
+    /// The quiet fallbacks: no fit declared, and no measurement to fit to.
+    /// Both wear at authored size, neither is an error — a pre-#1089 record
+    /// and a creature head must dress exactly as they always did.
+    #[test]
+    fn the_fit_falls_back_to_authored_size() {
+        assert_eq!(fit_scale(Some(0.56), 0), None, "no fit declared");
+        assert_eq!(fit_scale(None, 178), None, "no measurable head");
+        let snug = fit_scale(Some(std::f32::consts::PI * 0.178), 178)
+            .expect("a measured head and a declared fit scale");
+        assert!(
+            (snug - 1.0).abs() < 1e-4,
+            "a head whose equivalent diameter equals the authored band wears at 1.0, got {snug}"
         );
     }
 

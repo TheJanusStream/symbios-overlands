@@ -156,6 +156,44 @@ pub struct Footprint {
     pub min_spawn_dist: f32,
 }
 
+/// A measurement-fit declaration on a wearable entry (#1089): which body
+/// measurement the worn subtree is scaled to match, and the authored
+/// dimension that measurement replaces. The scale is uniform and computed at
+/// dress time from the wearer's *built* body (`src/player/attachments.rs`,
+/// `fit_scale`), so the same record fits every head it lands on; the
+/// authored size stays what world placement and the decor sheets show, and
+/// what a body whose measurement is unavailable falls back to.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum WearFit {
+    /// A band encircling the head at the hat line — a circlet, a crown, a
+    /// hat brim. `inner_diameter` is the authored band's inner diameter in
+    /// metres; worn, the subtree is scaled so that diameter matches the
+    /// wearer's brow circumference / π (the equivalent-circle diameter of
+    /// the head's widest line above the eyes).
+    ///
+    /// **Authoring convention: the band circles the origin**, in the X–Z
+    /// plane at `y = 0`, ornament rising above it — because the fitted
+    /// seat places the attach origin on the head's axis at the measured
+    /// hat line (`src/player/attachments.rs`, `fitted_seat`), not at the
+    /// generic engine crown seat (which stands well forward of the head).
+    HeadBand {
+        /// Authored inner diameter of the band, metres.
+        inner_diameter: f32,
+    },
+}
+
+impl WearFit {
+    /// The wire form of the fit dimension: the authored band inner diameter
+    /// in whole millimetres, the unit
+    /// [`AttachmentRecord`](crate::pds::avatar::AttachmentRecord) carries
+    /// (atproto records hold no floats). `0` is the wire's "no fit".
+    pub fn band_mm(&self) -> u32 {
+        match self {
+            Self::HeadBand { inner_diameter } => (inner_diameter.max(0.0) * 1000.0).round() as u32,
+        }
+    }
+}
+
 /// Every entry of `role` tagged with `theme`, in registry order. The
 /// seeded settlement deriver builds its landmark / secondary / prop
 /// pools from this rather than a hardcoded slug list, so dropping a
@@ -287,6 +325,17 @@ pub trait CatalogueEntry: Sync {
     /// engine stays attachment-agnostic, and a wearable entry remains
     /// placeable in the world like any other item. Defaults to `None`.
     fn wear_socket(&self) -> Option<symbios_avatar::Socket> {
+        None
+    }
+
+    /// The measurement-fit this entry declares when **worn** (#1089).
+    /// `Some` means the worn subtree is scaled uniformly at dress time so
+    /// the declared authored dimension matches the wearer's measured body
+    /// (see [`WearFit`]); the Wear path copies the declaration onto the
+    /// [`AttachmentRecord`](crate::pds::avatar::AttachmentRecord) so peers
+    /// dress the same fit from the wire. Meaningless without
+    /// [`Self::wear_socket`]. Defaults to `None` — worn at authored size.
+    fn wear_fit(&self) -> Option<WearFit> {
         None
     }
 }
