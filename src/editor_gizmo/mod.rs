@@ -582,18 +582,12 @@ fn pick_on_scene_click(
     }
 
     // A scene click that did NOT land on the avatar takes the avatar
-    // editor's selection away — same cross-editor mutex direction as
-    // before #702. Armed face picking is aiming at *something*; a miss
-    // must not close the panel it is aimed from.
-    if avatar_state.has_visuals_selection() && !face_pick.armed {
-        avatar_state.clear_visuals_selection();
-    }
-    // Same for a worn prop (#1062) — a click into empty scene drops the
-    // offset gizmo. Face picking never aims at a prop, so it does not gate
-    // this one.
-    if avatar_state.has_attachment_selection() {
-        avatar_state.clear_attachment_selection();
-    }
+    // editor's selections away — same cross-editor mutex direction as
+    // before #702, and the World editor's own click-to-deselect. One
+    // helper for the visuals row, the worn prop (#1062) and the part
+    // (#1098, missing here until #1103 — a miss used to leave the part
+    // gizmo up); the face-pick exemption lives inside it.
+    avatar_state.release_on_scene_miss(face_pick.armed);
 
     // Picking needs the editor open in a room the user owns (the same
     // gate the editor window itself renders under). In every other

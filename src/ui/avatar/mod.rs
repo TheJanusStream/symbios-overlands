@@ -141,10 +141,10 @@ pub struct AvatarEditorState {
     default_cache: Option<(String, AvatarRecord)>,
     /// Mirror of this frame's "Avatar window is open and un-collapsed"
     /// state, written by [`avatar_ui`] so non-UI systems can read it
-    /// without reaching into egui. The gait pause keys on this (#741):
-    /// the whole editing session should show the avatar at rest, not just
-    /// the moments a row is selected. Collapsing the window deliberately
-    /// counts as closed — tuck the panel away to preview the live sway.
+    /// without reaching into egui. Since #1103 the freeze gates no longer
+    /// key on it — only on an aimed gizmo — but it still decides when the
+    /// selections are released ([`Self::release_hidden_selections`]):
+    /// collapsing the window counts as closed.
     window_visible: bool,
     /// Set for one frame when an in-world pick (#823) selects a visuals
     /// node. On the next Visuals-tab draw the tree grabs keyboard focus
@@ -234,19 +234,22 @@ impl AvatarEditorState {
     }
 
     /// True while the local rigged body must be pinned to its **bind pose**
-    /// (#1062): the whole Attachments tab authors offsets in the carrying
-    /// joint's rest frame — the numeric rows no less than the gizmo — so an
-    /// animated body would have the owner aiming at a pose no offset can
-    /// express. Read by [`crate::player`]'s rigged motion driver.
+    /// (#1062): an attachment offset lives in the carrying joint's rest
+    /// frame, so a gizmo aimed at a worn prop — or at one of its parts
+    /// (#1098) — must be aimed at a body in that pose, or the owner would
+    /// be dragging against a pose no offset can express. Read by
+    /// [`crate::player`]'s rigged motion driver.
     ///
-    /// Wider than the selection alone so that picking a prop out of the
-    /// scene does not snap the body mid-gesture: opening the tab settles it
-    /// first. A selection surviving a tab switch (the close-frame gap) still
-    /// holds, exactly as [`Self::holds_avatar_still`] does for visuals.
+    /// Exactly the two attachment-side gizmo selections and nothing wider
+    /// (#1103, owner direction): the tab being open is not a hold — the
+    /// numeric rows work against an animating body, because their
+    /// arithmetic never reads the pose — and the World editor sets the
+    /// precedent: still only while a gizmo is aimed. The hold therefore
+    /// ends the instant the selection does, and every release path
+    /// ([`Self::release_hidden_selections`], [`Self::release_on_scene_miss`])
+    /// clears the part selection along with the whole-prop one.
     pub fn holds_rig_at_rest(&self) -> bool {
-        (self.window_visible && self.selected_tab == AvatarTab::Attachments)
-            || self.has_attachment_selection()
-            || self.has_part_selection()
+        self.has_attachment_selection() || self.has_part_selection()
     }
 
     /// Select a worn prop from an in-world scene pick (#1062), the
@@ -355,17 +358,80 @@ impl AvatarEditorState {
     }
 
     /// True whenever the local avatar should be held perfectly still for
-    /// editing: the window is open (un-collapsed) *or* a visuals row is
-    /// selected during the close-frame gap. This is the wide gate the whole
-    /// editing session keys on — the cosmetic gait/sway hold
-    /// (`player::gait::animate_avatar_gait`) *and* the full-body chassis
-    /// freeze (`player::freeze_local_avatar_while_editing`, which also stops
-    /// falling-physics and the passive movers) — so the avatar shows at rest
-    /// for the whole session, not just the moments a row is selected (#814).
-    /// Collapsing the window resumes the live animation *and* physics for
-    /// previewing.
+    /// editing: **a gizmo is aimed at it or at something it wears** — a
+    /// visuals row, a worn prop, or a part of one. This is the gate the
+    /// cosmetic gait/sway hold (`player::gait::animate_avatar_gait`) *and*
+    /// the full-body chassis freeze (`player::freeze_local_avatar_while_editing`,
+    /// which also stops falling-physics and the passive movers) key on.
+    ///
+    /// Selection-scoped by owner direction (#1103), reversing #814's
+    /// window-wide hold: with the editor open and nothing aimed the body
+    /// walks, sways and falls live — the World editor's contract, where a
+    /// region asset is only pinned while its gizmo is up. The close-frame
+    /// gap is covered from the other side: every path that hides the panel
+    /// releases the selections ([`Self::release_hidden_selections`]), so a
+    /// closed window never holds. A lingering selection still holds until
+    /// that release runs, so a drag released as the window goes cannot
+    /// land against a moving chassis.
     pub fn holds_avatar_still(&self) -> bool {
-        self.window_visible || self.has_visuals_selection()
+        self.has_gizmo_selection()
+    }
+
+    /// True while any of the three avatar-side gizmo selections is live
+    /// (visuals row, worn prop, worn-prop part) — the one question the
+    /// freeze gates and the release paths ask.
+    pub fn has_gizmo_selection(&self) -> bool {
+        self.has_visuals_selection() || self.has_attachment_selection() || self.has_part_selection()
+    }
+
+    /// Drop every gizmo selection at once. The parts editor stays open
+    /// (like a World-editor tab, it remembers where it was); only the aim
+    /// goes, and with it the freeze and the bind-pose hold.
+    pub fn clear_gizmo_selections(&mut self) {
+        if self.has_visuals_selection() {
+            self.clear_visuals_selection();
+        }
+        self.clear_attachment_selection();
+        self.clear_part_selection();
+    }
+
+    /// The end-of-frame release rules (#1103), applied by [`avatar_ui`]
+    /// after the window has drawn (or not): a selection only persists
+    /// while the panel showing it is visible.
+    ///
+    /// * Window hidden or collapsed → every gizmo selection goes, so the
+    ///   gizmo detaches and the chassis / bind-pose holds release — the
+    ///   World editor's close contract. Before this, the part selection
+    ///   (#1098) survived the close and kept both holds engaged.
+    /// * Off the Visuals tab → the visuals row goes (the editor never
+    ///   gizmo-edits Locomotion or Body).
+    /// * Off the Attachments tab → the worn-prop and part selections go
+    ///   with it (#1062).
+    pub fn release_hidden_selections(&mut self, window_visible: bool) {
+        if !window_visible {
+            self.clear_gizmo_selections();
+        }
+        if self.selected_tab != AvatarTab::Visuals && self.has_visuals_selection() {
+            self.clear_visuals_selection();
+        }
+        if self.selected_tab != AvatarTab::Attachments {
+            self.clear_attachment_selection();
+            self.clear_part_selection();
+        }
+    }
+
+    /// A left-click into the scene that hit nothing of the local avatar's
+    /// (#1103, the World editor's contract): the worn-prop and part gizmos
+    /// always let go; the visuals row lets go unless face picking is
+    /// armed, because an armed pick is aiming at *something* and a miss
+    /// must not close the panel it is aimed from. Face picking never aims
+    /// at a prop, so it does not gate those.
+    pub fn release_on_scene_miss(&mut self, face_pick_armed: bool) {
+        if self.has_visuals_selection() && !face_pick_armed {
+            self.clear_visuals_selection();
+        }
+        self.clear_attachment_selection();
+        self.clear_part_selection();
     }
 
     /// Drop the visuals selection — used when switching tabs, collapsing
@@ -941,7 +1007,7 @@ pub fn avatar_ui(
                                     return;
                                 };
                                 ui.horizontal(|ui| {
-                                    if ui.button("← Worn items").clicked() {
+                                    if ui.button("⬅ Worn items").clicked() {
                                         *editing_parts = None;
                                         *attachment_part = None;
                                         *part_selected_generator = None;
@@ -1160,27 +1226,13 @@ pub fn avatar_ui(
         &mut chrome,
     );
 
-    // Collapse-deselect: if the window is hidden or collapsed and we still
-    // hold a visuals selection, drop it so the gizmo can detach. Mirrors
-    // the room editor's tab-switch clear, which serves the same role
-    // (selection only persists while the panel showing it is visible).
-    if !window_visible_with_body && editor.has_visuals_selection() {
-        editor.clear_visuals_selection();
-    }
-    if !window_visible_with_body && editor.has_attachment_selection() {
-        editor.clear_attachment_selection();
-    }
-
-    // Tab-switch clear: the avatar editor doesn't gizmo-edit Locomotion,
-    // so leaving the Visuals tab also drops the selection.
-    if editor.selected_tab != AvatarTab::Visuals && editor.has_visuals_selection() {
-        editor.clear_visuals_selection();
-    }
-    // Same rule for worn props (#1062): the offset gizmo belongs to the
-    // Attachments tab and goes with it.
-    if editor.selected_tab != AvatarTab::Attachments && editor.has_attachment_selection() {
-        editor.clear_attachment_selection();
-    }
+    // Collapse-deselect + tab-switch clear (#1103): a selection only
+    // persists while the panel showing it is visible, so the gizmo can
+    // detach and the freeze / bind-pose holds release. One helper for all
+    // three selections — the part selection (#1098) used to be missing
+    // here, which left its gizmo aimed and the body held after the window
+    // closed.
+    editor.release_hidden_selections(window_visible_with_body);
 
     // Cross-editor mutex: when this frame's avatar selection rose from
     // None → Some, drop the room editor's selection so only one gizmo is
@@ -1427,27 +1479,123 @@ pub fn poll_publish_avatar_tasks(
 mod tests {
     use super::*;
 
-    /// The editing hold must engage whenever the window is open — not only
-    /// when a visuals row is selected. Both the cosmetic gait/sway hold and
-    /// the full-body chassis freeze (which stops falling-physics and the
-    /// passive movers) key on this, so a narrow selection-only gate lets the
-    /// avatar keep falling/drifting the moment no row is picked (#814).
+    /// #1103 (owner direction, reversing #814): the chassis freeze and the
+    /// gait/sway hold engage only while a gizmo is aimed at the avatar or
+    /// at something it wears — never merely because the window is open.
+    /// Each of the three selections holds; an open window with nothing
+    /// aimed does not.
     #[test]
-    fn holds_avatar_still_covers_the_whole_open_session_not_just_selection() {
+    fn the_freeze_holds_only_while_a_gizmo_is_aimed() {
         let mut state = AvatarEditorState::default();
-        // Window shut, nothing selected: live physics/animation run.
         assert!(!state.holds_avatar_still());
 
-        // Window open, no row selected: still held (the #814 fix — this was
-        // the case that previously left the chassis falling).
         state.window_visible = true;
-        assert!(!state.has_visuals_selection());
-        assert!(state.holds_avatar_still());
+        assert!(
+            !state.holds_avatar_still(),
+            "an open window with nothing aimed leaves the body live"
+        );
 
-        // Window collapsed but a row lingers during the close-frame gap.
+        state.select_from_scene_pick(vec![0]);
+        assert!(state.holds_avatar_still(), "a visuals row holds");
+        state.select_attachment_from_scene_pick(String::from("3jzfcijpj2z2a"));
+        assert!(state.holds_avatar_still(), "a worn prop holds");
+        state.select_attachment_part_from_scene_pick(String::from("3jzfcijpj2z2a"), vec![1]);
+        assert!(state.holds_avatar_still(), "a worn-prop part holds");
+
+        // A selection lingering into the close-frame gap still holds, so a
+        // drag released as the window goes lands against a still chassis.
         state.window_visible = false;
-        state.selected_prim_path = Some(vec![0]);
         assert!(state.holds_avatar_still());
+        state.release_hidden_selections(false);
+        assert!(!state.holds_avatar_still());
+    }
+
+    /// #1103 bug 1, reproduced: closing (or collapsing) the Avatar window
+    /// while a worn item's PART is selected left the gizmo aimed and the
+    /// bind pose held, because the collapse-deselect only knew about the
+    /// visuals and whole-prop selections. The release must leave no gizmo
+    /// target and no hold behind, for every selection kind.
+    #[test]
+    fn closing_the_window_releases_every_gizmo_selection() {
+        let room = crate::ui::room::RoomEditorState::default();
+        let rkey = String::from("3jzfcijpj2z2a");
+        let selections: [fn(&mut AvatarEditorState, &str); 3] = [
+            |s, _| s.select_from_scene_pick(vec![0]),
+            |s, k| s.select_attachment_from_scene_pick(k.to_string()),
+            |s, k| s.select_attachment_part_from_scene_pick(k.to_string(), vec![0]),
+        ];
+        for select in selections {
+            let mut state = AvatarEditorState {
+                window_visible: true,
+                ..Default::default()
+            };
+            select(&mut state, &rkey);
+            assert_ne!(
+                crate::editor_gizmo::determine_active_target(&room, &state),
+                crate::editor_gizmo::ActiveTarget::None,
+                "the selection aims a gizmo"
+            );
+
+            state.window_visible = false;
+            state.release_hidden_selections(false);
+            assert_eq!(
+                crate::editor_gizmo::determine_active_target(&room, &state),
+                crate::editor_gizmo::ActiveTarget::None,
+                "closing the window detaches the gizmo"
+            );
+            assert!(!state.holds_avatar_still(), "the chassis freeze released");
+            assert!(!state.holds_rig_at_rest(), "the bind pose released");
+        }
+    }
+
+    /// #1103 bug 3, reproduced: a left-click into empty scene while a
+    /// worn item's part was selected kept the part gizmo up — the miss
+    /// path cleared the other two selections only. Also pins the
+    /// face-pick exemption, which protects the visuals row alone.
+    #[test]
+    fn a_scene_miss_releases_the_prop_and_part_gizmos() {
+        let rkey = String::from("3jzfcijpj2z2a");
+        let mut state = AvatarEditorState::default();
+        state.select_attachment_part_from_scene_pick(rkey.clone(), vec![0]);
+        state.release_on_scene_miss(false);
+        assert!(!state.has_part_selection(), "the part gizmo let go");
+        assert!(!state.holds_rig_at_rest());
+        assert_eq!(
+            state.editing_parts(),
+            Some(rkey.as_str()),
+            "the parts editor stays open, like a World-editor tab"
+        );
+
+        state.select_attachment_from_scene_pick(rkey.clone());
+        state.release_on_scene_miss(true);
+        assert!(
+            !state.has_attachment_selection(),
+            "face picking never aims at a prop"
+        );
+
+        state.select_from_scene_pick(vec![0]);
+        state.release_on_scene_miss(true);
+        assert!(
+            state.has_visuals_selection(),
+            "an armed face pick keeps its row"
+        );
+        state.release_on_scene_miss(false);
+        assert!(!state.has_visuals_selection());
+    }
+
+    /// Leaving the Attachments tab drops the part selection with the
+    /// whole-prop one (#1103): a gizmo belongs to the tab that shows it.
+    #[test]
+    fn leaving_the_attachments_tab_drops_the_part_gizmo() {
+        let mut state = AvatarEditorState {
+            window_visible: true,
+            ..Default::default()
+        };
+        state.select_attachment_part_from_scene_pick(String::from("3jzfcijpj2z2a"), vec![0]);
+        state.selected_tab = AvatarTab::Body;
+        state.release_hidden_selections(true);
+        assert!(!state.has_part_selection());
+        assert!(!state.holds_rig_at_rest());
     }
 
     /// #1062: the two avatar-side gizmo targets are mutually exclusive, and
@@ -1474,29 +1622,30 @@ mod tests {
         assert!(state.has_visuals_selection());
     }
 
-    /// #1062: an attachment offset is stored in its carrying joint's rest
-    /// frame, so the whole Attachments tab — numeric rows included — is
-    /// authored against a body held at its bind pose. Narrower than
-    /// `holds_avatar_still` on purpose: the other three tabs still show a
-    /// live idle.
+    /// #1062 → #1103: an attachment offset is stored in its carrying
+    /// joint's rest frame, so a gizmo aimed at a worn prop or one of its
+    /// parts pins the body to its bind pose — and only then. The tab
+    /// being open is not a hold (owner direction), and a visuals-row gizmo
+    /// never is.
     #[test]
-    fn the_bind_pose_hold_covers_the_attachments_tab_and_nothing_else() {
+    fn the_bind_pose_hold_follows_the_prop_and_part_gizmos_only() {
         let mut state = AvatarEditorState {
             window_visible: true,
             ..Default::default()
         };
-        assert!(!state.holds_rig_at_rest(), "the Body tab shows a live body");
-
         state.selected_tab = AvatarTab::Attachments;
-        assert!(state.holds_rig_at_rest());
+        assert!(!state.holds_rig_at_rest(), "an open tab is not a hold");
 
-        // A selection surviving the close-frame gap still holds, so a drag
-        // released as the window goes cannot land against a moving pose.
-        state.window_visible = false;
-        state.selected_tab = AvatarTab::Visuals;
-        assert!(!state.holds_rig_at_rest());
-        state.selected_attachment = Some(String::from("3jzfcijpj2z2a"));
-        assert!(state.holds_rig_at_rest());
+        state.select_attachment_from_scene_pick(String::from("3jzfcijpj2z2a"));
+        assert!(state.holds_rig_at_rest(), "a whole-prop gizmo holds");
+        state.select_attachment_part_from_scene_pick(String::from("3jzfcijpj2z2a"), vec![0]);
+        assert!(state.holds_rig_at_rest(), "a part gizmo holds");
+
+        state.select_from_scene_pick(vec![0]);
+        assert!(
+            !state.holds_rig_at_rest(),
+            "a visuals gizmo is not a bind-pose hold"
+        );
     }
 
     /// #823: a scene pick must land the full row-click state — selection

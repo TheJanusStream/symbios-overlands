@@ -314,3 +314,166 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod glyph_coverage_tests {
+    use super::*;
+
+    /// The charmaps of every face the proportional family falls back
+    /// through, in the order the app installs them (Noto Sans first, egui's
+    /// embedded tail after, no CJK).
+    struct BaseAtlas {
+        faces: Vec<std::sync::Arc<egui::FontData>>,
+    }
+
+    impl BaseAtlas {
+        fn new() -> Self {
+            let defs = build_font_definitions(None);
+            let faces = defs.families[&egui::FontFamily::Proportional]
+                .iter()
+                .map(|name| defs.font_data[name].clone())
+                .collect();
+            Self { faces }
+        }
+
+        /// Whether some face in the chain owns a glyph for `c` — the exact
+        /// question epaint's face resolution asks per character.
+        ///
+        /// Deliberately NOT `Fonts::has_glyph`: in epaint 0.35 that compares
+        /// the *face* a char resolves to against the face that owns `�`, so
+        /// every glyph Noto Sans (our primary, which has U+FFFD) carries —
+        /// arrows, ⚠, ✔ — reports as missing. Nor a laid-out galley: its
+        /// atlas rects are not a tofu signature. The charmap is.
+        fn draws(&self, c: char) -> bool {
+            use skrifa::MetadataProvider;
+            self.faces.iter().any(|face| {
+                let font = skrifa::FontRef::from_index(&face.font, face.index)
+                    .expect("a bundled face parses");
+                font.charmap().map(c).is_some()
+            })
+        }
+    }
+
+    /// The contents of every `"…"` string literal in `source`, with
+    /// `//` comments stripped first. A deliberately small lexer: it only
+    /// has to find the characters a label can carry, and a mis-lexed
+    /// literal costs coverage, never a false failure.
+    fn string_literals(source: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for line in source.lines() {
+            let code = line.split("//").next().unwrap_or("");
+            let mut chars = code.chars().peekable();
+            while let Some(c) = chars.next() {
+                if c != '"' {
+                    continue;
+                }
+                let mut literal = String::new();
+                loop {
+                    match chars.next() {
+                        None | Some('"') => break,
+                        Some('\\') => {
+                            // Keep escapes opaque; only the raw glyphs matter.
+                            chars.next();
+                        }
+                        Some(other) => literal.push(other),
+                    }
+                }
+                out.push(literal);
+            }
+        }
+        out
+    }
+
+    /// Every non-ASCII glyph a UI label can show must exist in the base
+    /// font set (#1105): the Attachments tab's "◈ Drag in world" shipped a
+    /// code point neither Noto Sans nor egui's embedded faces carry, and
+    /// it rendered as tofu in-world — nothing at build time can see a
+    /// missing glyph, so this walks `src/ui/**` and asks the real font
+    /// atlas. CJK is exempt because it is the lazily-loaded fallback's
+    /// job ([`needs_cjk`]).
+    #[test]
+    fn every_ui_label_glyph_is_in_the_base_font_set() {
+        let ui_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui");
+        let mut sources = Vec::new();
+        let mut stack = vec![ui_root];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("src/ui is readable") {
+                let path = entry.expect("dir entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    sources.push(path);
+                }
+            }
+        }
+        assert!(!sources.is_empty(), "the walk found no UI sources");
+
+        let atlas = BaseAtlas::new();
+        let mut missing = Vec::new();
+        for path in sources {
+            let source = std::fs::read_to_string(&path).expect("UI source is readable");
+            for literal in string_literals(&source) {
+                for c in literal.chars() {
+                    if c.is_ascii() || needs_cjk(&c.to_string()) {
+                        continue;
+                    }
+                    if !atlas.draws(c) {
+                        missing.push(format!(
+                            "{} U+{:04X} in {}",
+                            c,
+                            u32::from(c),
+                            path.strip_prefix(env!("CARGO_MANIFEST_DIR"))
+                                .unwrap_or(&path)
+                                .display()
+                        ));
+                    }
+                }
+            }
+        }
+        missing.sort();
+        missing.dedup();
+        assert!(
+            missing.is_empty(),
+            "UI label glyphs the bundled fonts cannot draw (tofu in-world):\n  {}",
+            missing.join("\n  ")
+        );
+    }
+
+    /// The check itself must be able to tell a drawn glyph from tofu:
+    /// plain Latin and a Noto Sans symbol draw, a private-use code point
+    /// no face carries does not. Without this the coverage walk could
+    /// pass by comparing nothing.
+    #[test]
+    fn the_atlas_probe_separates_drawn_glyphs_from_tofu() {
+        let atlas = BaseAtlas::new();
+        assert!(atlas.draws('a'));
+        assert!(atlas.draws('Ж'), "Noto Sans carries Cyrillic");
+        assert!(
+            atlas.draws('✔'),
+            "the emoji tail carries the #861 checkmark"
+        );
+        assert!(!atlas.draws('✓'), "U+2713 is the #861 tofu");
+        assert!(!atlas.draws('\u{E000}'), "a private-use code point is tofu");
+        assert!(
+            !atlas.draws('◈'),
+            "U+25C8 is the #1105 tofu; if a font now carries it, drop this line"
+        );
+        // Plain arrows are not emoji, so the emoji faces skip them and Noto
+        // Sans has none; the toolbar's key hints were tofu until #1105.
+        assert!(!atlas.draws('←'));
+    }
+
+    /// Probe for authoring: which candidate icon glyphs the base set can
+    /// actually draw. Run with `--no-capture` to read the table; kept as
+    /// a test so the answer stays checkable when the font set changes.
+    #[test]
+    fn candidate_icon_glyphs_report_their_coverage() {
+        let atlas = BaseAtlas::new();
+        for c in [
+            '⌖', '◇', '◆', '⊕', '✥', '⬚', '⇔', '⤡', '✋', '⬌', '↔', '⊞', '⊹', '⟐', '◎', '⬅', '➡',
+            '⬆', '⬇', '◀', '▶', '▲', '▼', '❐', '❏', '⎘', '📋', '➕', '✚',
+        ] {
+            eprintln!("{c} U+{:04X}: {}", u32::from(c), atlas.draws(c));
+        }
+    }
+}

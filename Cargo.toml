@@ -66,6 +66,10 @@ url = "2"
 
 [dev-dependencies]
 glam = "0.32"
+# The font parser epaint 0.35 reads faces with (already in the graph): the
+# UI glyph-coverage guard asks each bundled face's charmap directly, because
+# epaint's `has_glyph` compares faces, not glyphs (#1105).
+skrifa = "0.42.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tiny_http = "0.12"

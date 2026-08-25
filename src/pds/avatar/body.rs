@@ -192,6 +192,30 @@ impl AvatarBody {
         }
     }
 
+    /// This body with nothing worn: the part of it that decides what the
+    /// chassis's visual children look like (#1104). The rigged variant
+    /// keeps its wardrobe reference and resolved engine record but drops
+    /// both attachment lists; every other variant is returned verbatim.
+    ///
+    /// `player::hotswap::rebuild_local_visuals` compares snapshots of this
+    /// to decide whether a record change owes a visual respawn: worn props
+    /// are dressed by `player::attachments::sync_rigged_attachments` from
+    /// the record directly, so an attachment-only edit must never tear the
+    /// body down.
+    pub fn sans_attachments(&self) -> Self {
+        match self {
+            Self::Rigged(body) => {
+                let mut stripped = body.clone();
+                stripped.attachments.clear();
+                if let Some(resolved) = stripped.resolved.as_mut() {
+                    resolved.attachments.clear();
+                }
+                Self::Rigged(stripped)
+            }
+            other => other.clone(),
+        }
+    }
+
     /// Whether this is the pre-#1056 no-field marker.
     pub fn is_absent(&self) -> bool {
         matches!(self, Self::Absent)

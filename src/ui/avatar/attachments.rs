@@ -112,10 +112,10 @@ pub(super) fn draw_attachments_tab(
                             // same contract a visuals tree row has. Clicking
                             // the armed row again drops the gizmo.
                             if ui
-                                .selectable_label(is_selected, "◈ Drag in world")
+                                .selectable_label(is_selected, "⌖ Drag in world")
                                 .on_hover_text(
                                     "aim the in-world gizmo at this prop — the body holds \
-                                     its bind pose while the tab is open, because the \
+                                     its bind pose while the gizmo is up, because the \
                                      offset is stored in the joint's rest frame",
                                 )
                                 .clicked()

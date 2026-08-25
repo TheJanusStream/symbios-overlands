@@ -281,23 +281,21 @@ pub(super) fn attach_gait_animation(
 /// preset hot-swap or a remote record hot-swap — so its fresh visual root
 /// spawns unanimated and no offset lingers.
 ///
-/// While the local player's Avatar editor window is open (or, belt and
-/// braces, a visuals row is still selected during the close-frame gap),
+/// While a gizmo is aimed at the local player's avatar or at something it
+/// wears ([`crate::ui::avatar::AvatarEditorState::holds_avatar_still`]),
 /// its gait pauses and the visual root is held at the authored rest pose
-/// (#737, widened to the whole window by #741). Sway is time-based, so it
-/// would keep oscillating right through the physics freeze — moving every
-/// part of the avatar *except* the gizmo-detached prim being edited, and
-/// drifting the parent transforms the drag commit's world→local
-/// conversion reads. Selection-scoped pausing wasn't enough (#741): the
-/// sway ran again the moment a row was deselected or the selection moved
-/// between rows, so the rendered pose shifted under the editor between
-/// edits while the record's transforms stayed put — rest pose now holds
-/// for the whole editing session, walking bounce included. Snapping to
-/// the base pose (rather than holding the mid-sway offset) means the
-/// owner edits the avatar in its neutral stance; collapsing the window
-/// (not just closing it) resumes the live animation for previewing.
-/// Per-entity rather than a `run_if` so remote peers keep swaying while
-/// the owner edits.
+/// (#737). Sway is time-based, so it would keep oscillating right through
+/// the physics freeze — moving every part of the avatar *except* the
+/// gizmo-detached prim being edited, and drifting the parent transforms
+/// the drag commit's world→local conversion reads. #741/#814 had widened
+/// the hold to the whole open window so the pose could not shift between
+/// two edits; #1103 (owner direction) returned it to the aimed gizmo, the
+/// World editor's contract, with the chassis freeze narrowed in step so
+/// the two never disagree. Snapping to the base pose (rather than holding
+/// the mid-sway offset) means the owner edits the avatar in its neutral
+/// stance; dropping the selection resumes the live animation for
+/// previewing. Per-entity rather than a `run_if` so remote peers keep
+/// swaying while the owner edits.
 #[allow(clippy::type_complexity)]
 pub(super) fn animate_avatar_gait(
     time: Res<Time>,

@@ -567,7 +567,7 @@ pub(super) fn draw_primitive_blob_group(
                     e.blend = Fp(b);
                     *dirty = true;
                 }
-                if ui.button("⧉").on_hover_text("Duplicate").clicked() {
+                if ui.button("⎘").on_hover_text("Duplicate").clicked() {
                     duplicate = Some(i);
                 }
                 if crate::ui::affordances::remove_button(ui, "Remove this element").clicked() {

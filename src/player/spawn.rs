@@ -99,6 +99,11 @@ pub(super) fn spawn_local_player(
         &mut avatar_deps,
         true,
     );
+    // What was just painted (#1104), so the first record edit compares
+    // against it instead of respawning unconditionally.
+    commands
+        .entity(entity)
+        .insert(super::hotswap::AppliedLocalBody::painted(&live.0.body));
 }
 
 /// Preset-independent components of the local chassis root, shared by the

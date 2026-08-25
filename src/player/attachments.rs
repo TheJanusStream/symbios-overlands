@@ -114,17 +114,32 @@ impl LocalAttachment {
 /// What is currently worn on this rigged body, kept on the [`RiggedRoot`]
 /// entity — deliberately, because a body rebuild replaces that entity and a
 /// fresh root therefore re-dresses from the record without any bookkeeping.
+///
+/// Per prop (#1104): each worn record beside the entity it was spawned as,
+/// so an edit to one prop replaces that prop alone and the rest of the
+/// outfit stands untouched.
 #[derive(Component, Default)]
 pub(super) struct AttachmentsApplied {
-    applied: Vec<ResolvedAttachment>,
-    spawned: Vec<Entity>,
+    worn: Vec<(ResolvedAttachment, Entity)>,
+}
+
+impl AttachmentsApplied {
+    /// The prop entities currently worn, in record order.
+    #[cfg(test)]
+    pub(super) fn spawned(&self) -> Vec<Entity> {
+        self.worn.iter().map(|(_, prop)| *prop).collect()
+    }
 }
 
 /// Dress every rigged body whose worn set differs from its record's.
 ///
 /// Runs after [`super::rigged::land_rigged_builds`] in the Build set, so a
-/// body landed this frame is dressed this frame. Both directions of change
-/// are one path: despawn what was worn, spawn what the record says now.
+/// body landed this frame is dressed this frame. A per-prop diff (#1104):
+/// a worn record equal by value to one already standing keeps its entity;
+/// anything the record no longer says is despawned; anything new — or
+/// changed, since a changed record is a new one — is spawned. Whole-outfit
+/// replacement was the old behaviour and made every offset nudge blink the
+/// entire loadout.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(super) fn sync_rigged_attachments(
     mut commands: Commands,
@@ -202,19 +217,38 @@ pub(super) fn sync_rigged_attachments(
             continue;
         };
 
-        if applied.as_ref().is_some_and(|worn| worn.applied == desired) {
+        let already_worn: Vec<&ResolvedAttachment> = applied
+            .as_ref()
+            .map(|worn| worn.worn.iter().map(|(record, _)| record).collect())
+            .unwrap_or_default();
+        if already_worn.len() == desired.len()
+            && already_worn.iter().zip(desired).all(|(a, b)| *a == b)
+        {
             continue;
         }
+        // Keep every standing prop the record still describes verbatim;
+        // despawn the rest. A record edit changes the value, so an edited
+        // prop is "gone" here and "new" below — replaced, alone.
+        let mut kept: Vec<(ResolvedAttachment, Entity)> = Vec::new();
         if let Some(worn) = applied.as_mut() {
-            for &prop in &worn.spawned {
-                commands.entity(prop).despawn();
+            for (record, prop) in worn.worn.drain(..) {
+                if desired.contains(&record) && !kept.iter().any(|(k, _)| *k == record) {
+                    kept.push((record, prop));
+                } else {
+                    commands.entity(prop).despawn();
+                }
             }
         }
+        let to_spawn: Vec<ResolvedAttachment> = desired
+            .iter()
+            .filter(|attachment| !kept.iter().any(|(k, _)| k == *attachment))
+            .cloned()
+            .collect();
 
         let is_local = locals.contains(chassis);
-        let mut spawned = Vec::new();
+        let mut spawned = kept;
         ensure_joint_visibility(&mut commands, joints);
-        for (joint, transform, attachment) in placements(&body.avatar, desired) {
+        for (joint, transform, attachment) in placements(&body.avatar, &to_spawn) {
             let Some(&carrier) = joints.0.get(joint) else {
                 continue;
             };
@@ -252,12 +286,19 @@ pub(super) fn sync_rigged_attachments(
                 false,
                 is_local.then_some(attachment.rkey.as_str()),
             );
-            spawned.push(prop);
+            spawned.push((attachment.clone(), prop));
         }
-        commands.entity(root).insert(AttachmentsApplied {
-            applied: desired.to_vec(),
-            spawned,
+        // Record order, so the equality fast-path above compares like with
+        // like next frame.
+        spawned.sort_by_key(|(record, _)| {
+            desired
+                .iter()
+                .position(|d| d == record)
+                .unwrap_or(usize::MAX)
         });
+        commands
+            .entity(root)
+            .insert(AttachmentsApplied { worn: spawned });
     }
 }
 
@@ -497,7 +538,7 @@ fn transform_from_data(t: &crate::pds::TransformData) -> Transform {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::pds::avatar::wardrobe::{AttachmentRecord, engine_default_for_did};
     use crate::pds::types::Fp3;
@@ -523,8 +564,8 @@ mod tests {
 
     /// A world with every resource the spawn path reaches, one local chassis
     /// wearing one resolved crown, and the built body installed — the stage
-    /// both #1077 tests play on.
-    fn dressed_app() -> (bevy::app::App, Entity) {
+    /// both #1077 tests play on, and `hotswap`'s #1104 guard.
+    pub(in crate::player) fn dressed_app() -> (bevy::app::App, Entity) {
         use bevy::ecs::system::RunSystemOnce;
 
         let mut app = bevy::app::App::new();
@@ -822,6 +863,76 @@ mod tests {
             props.iter(app.world()).count(),
             1,
             "the fresh body should wear exactly its one recorded prop"
+        );
+    }
+
+    /// #1104: an edit to one worn prop replaces that prop alone. A second
+    /// prop is worn, the crown's offset is nudged, and after the sync the
+    /// second prop is the same entity it was while the crown is a new one.
+    /// Before the per-prop diff the whole outfit was despawned and
+    /// respawned on any change.
+    #[test]
+    fn an_attachment_edit_respawns_only_the_edited_prop() {
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut app, crown) = dressed_app();
+
+        // Wear a second prop.
+        {
+            let mut live = app
+                .world_mut()
+                .resource_mut::<crate::state::LiveAvatarRecord>();
+            let rig = live.0.body.rigged_mut().expect("rigged");
+            let resolved = rig.resolved.as_mut().expect("resolved");
+            resolved.attachments.push(ResolvedAttachment {
+                rkey: String::from("3jzfcijpj2z2b"),
+                record: AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Back),
+            });
+        }
+        app.world_mut()
+            .run_system_once(sync_rigged_attachments)
+            .expect("dresses the second prop");
+        let mut roots = app
+            .world_mut()
+            .query_filtered::<&AttachmentsApplied, With<RiggedRoot>>();
+        let worn_before = roots.single(app.world()).expect("one root").spawned();
+        assert_eq!(worn_before.len(), 2);
+        assert_eq!(
+            worn_before[0], crown,
+            "the crown kept its entity through a wear"
+        );
+        let back = worn_before[1];
+
+        // Nudge the crown's offset — the gizmo commit's write.
+        {
+            let mut live = app
+                .world_mut()
+                .resource_mut::<crate::state::LiveAvatarRecord>();
+            let rig = live.0.body.rigged_mut().expect("rigged");
+            let resolved = rig.resolved.as_mut().expect("resolved");
+            resolved.attachments[0].record.offset.translation = Fp3([0.0, 0.05, 0.0]);
+        }
+        app.world_mut()
+            .run_system_once(sync_rigged_attachments)
+            .expect("re-dresses the crown");
+        let worn_after = roots.single(app.world()).expect("one root").spawned();
+        assert_eq!(worn_after.len(), 2);
+        assert_ne!(worn_after[0], crown, "the edited crown is a fresh prop");
+        assert!(
+            app.world().get_entity(crown).is_err(),
+            "the old crown is gone"
+        );
+        assert_eq!(
+            worn_after[1], back,
+            "the untouched back piece kept its entity"
+        );
+        assert!(app.world().get_entity(back).is_ok());
+        let mut props = app
+            .world_mut()
+            .query_filtered::<Entity, With<AttachmentRoot>>();
+        assert_eq!(
+            props.iter(app.world()).count(),
+            2,
+            "no phantom, no duplicate"
         );
     }
 

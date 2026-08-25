@@ -299,13 +299,14 @@ impl Plugin for PlayerPlugin {
 /// The actual full-body freeze lives in
 /// [`freeze_local_avatar_while_editing`], which parks the chassis with a
 /// full axis lock, and the cosmetic sway hold lives in
-/// [`gait::animate_avatar_gait`] — both keyed on the deliberately wider
-/// [`AvatarEditorState::holds_avatar_still`] gate (window open, not just
-/// row selected: #737/#741/#814). The input gates here stay
-/// selection-scoped on purpose: the drive systems have non-physics side
-/// effects (gait state, jump triggers) that only need suppressing while a
-/// row is actively being edited, and the freeze already neutralizes any
-/// movement they would cause once the window is open.
+/// [`gait::animate_avatar_gait`] — both keyed on
+/// [`AvatarEditorState::holds_avatar_still`], which since #1103 is true
+/// exactly while a gizmo is aimed at the avatar or something it wears
+/// (visuals row, worn prop, worn-prop part). This input gate is narrower
+/// still — the visuals row only — because the drive systems have
+/// non-physics side effects (gait state, jump triggers) that only need
+/// suppressing while a row is actively being edited, and the freeze
+/// already neutralizes any movement they would cause under a prop gizmo.
 fn avatar_visuals_row_selected(avatar_editor: Option<Res<AvatarEditorState>>) -> bool {
     avatar_editor
         .map(|e| e.has_visuals_selection())
@@ -327,25 +328,26 @@ pub(super) struct VisualsEditFreeze {
     prior_locked_axes: Option<LockedAxes>,
 }
 
-/// Hold the local player's chassis fully frozen for the whole avatar
-/// editing session — whenever the Avatar window is open, or a visuals row
-/// is selected during the close-frame gap ([`AvatarEditorState::holds_avatar_still`]):
-/// lock every axis, zero gravity, and re-zero momentum each frame until
-/// the editor releases. Freezing the chassis (rather than just gating the
-/// drive systems) stops the passive movers too — suspension, buoyancy,
-/// gravity/falling, slope creep — so the avatar holds its exact pose
-/// during the edit, even mid-air. That matters for correctness as well as
-/// ergonomics: the drag commit's world→local conversion reads the parent
-/// chassis's `GlobalTransform`, which must be stable while the gizmo is
-/// attached.
+/// Hold the local player's chassis fully frozen while a gizmo is aimed
+/// at the avatar or at something it wears
+/// ([`AvatarEditorState::holds_avatar_still`]): lock every axis, zero
+/// gravity, and re-zero momentum each frame until the selection releases.
+/// Freezing the chassis (rather than just gating the drive systems) stops
+/// the passive movers too — suspension, buoyancy, gravity/falling, slope
+/// creep — so the avatar holds its exact pose during the edit, even
+/// mid-air. That matters for correctness as well as ergonomics: the drag
+/// commit's world→local conversion reads the parent chassis's
+/// `GlobalTransform`, which must be stable while the gizmo is attached.
 ///
 /// The gate matches the cosmetic gait/sway hold in
-/// [`gait::animate_avatar_gait`] (#814): both key on the window being
-/// open, not just the moments a row is selected. Previously this freeze
-/// was selection-scoped, so merely opening the editor without picking a
-/// row left the chassis falling and drifting under live physics while the
-/// visual root's internal sway was held — the whole body still
-/// translated. Collapsing the window resumes physics for previewing.
+/// [`gait::animate_avatar_gait`]: both key on the same selection-scoped
+/// gate, so physics and sway agree. #814 had widened both to "window
+/// open" because a selection-scoped freeze under a window-wide sway hold
+/// left the body translating while its sway was pinned; #1103 (owner
+/// direction — the World editor's contract, pinned only under a gizmo)
+/// narrowed both together, which keeps them consistent the other way
+/// round. Every path that hides the window releases the selections, so a
+/// closed editor never holds.
 ///
 /// Deliberately NOT `RigidBodyDisabled` (#740): in avian 0.6 an
 /// insert/remove cycle of `RigidBodyDisabled` on a body with touching

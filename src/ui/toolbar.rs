@@ -449,11 +449,11 @@ const ON_FOOT_ROWS: &[ControlRow] = &[
 ];
 const BOAT_ROWS: &[ControlRow] = &[
     ControlRow {
-        keys: "W / S  or  ↑ / ↓",
+        keys: "W / S  or  ⬆ / ⬇",
         action: "drive forward / reverse",
     },
     ControlRow {
-        keys: "A / D  or  ← / →",
+        keys: "A / D  or  ⬅ / ➡",
         action: "steer",
     },
     ControlRow {
@@ -463,11 +463,11 @@ const BOAT_ROWS: &[ControlRow] = &[
 ];
 const SKIFF_ROWS: &[ControlRow] = &[
     ControlRow {
-        keys: "W / S  or  ↑ / ↓",
+        keys: "W / S  or  ⬆ / ⬇",
         action: "throttle / reverse",
     },
     ControlRow {
-        keys: "A / D  or  ← / →",
+        keys: "A / D  or  ⬅ / ➡",
         action: "steer (on the ground)",
     },
     ControlRow {
@@ -477,11 +477,11 @@ const SKIFF_ROWS: &[ControlRow] = &[
 ];
 const AIRSHIP_ROWS: &[ControlRow] = &[
     ControlRow {
-        keys: "W / S  or  ↑ / ↓",
+        keys: "W / S  or  ⬆ / ⬇",
         action: "fly forward / back",
     },
     ControlRow {
-        keys: "A / D  or  ← / →",
+        keys: "A / D  or  ⬅ / ➡",
         action: "yaw (turn)",
     },
     ControlRow {
@@ -495,11 +495,11 @@ const AIRSHIP_ROWS: &[ControlRow] = &[
 ];
 const AIRPLANE_ROWS: &[ControlRow] = &[
     ControlRow {
-        keys: "W / S  or  ↑ / ↓",
+        keys: "W / S  or  ⬆ / ⬇",
         action: "pitch down / up",
     },
     ControlRow {
-        keys: "A / D  or  ← / →",
+        keys: "A / D  or  ⬅ / ➡",
         action: "roll",
     },
     ControlRow {

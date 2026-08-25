@@ -63,6 +63,53 @@ fn timed_spawn_avatar_visuals(
 #[derive(Component)]
 pub(super) struct AppliedAvatar(AvatarRecord);
 
+/// The body the local chassis's visual children were last painted for,
+/// with nothing worn ([`crate::pds::AvatarBody::sans_attachments`]) —
+/// the local twin of [`AppliedAvatar`] (#1104).
+///
+/// [`rebuild_local_visuals`] used to respawn on *every* `LiveAvatarRecord`
+/// change, and [`visuals::spawn_avatar_visuals`] clears every chassis child
+/// — the rigged body's root included — so a worn prop's offset nudge tore
+/// the whole body down; the rigged pipeline then saw no root, kicked an
+/// async build, and the avatar was gone until it landed. Worn props are
+/// dressed from the record by `attachments::sync_rigged_attachments`, so
+/// they never needed the body respawned. Lives on the chassis (not a
+/// `Local`) so a fresh chassis — room travel, respawn — carries no
+/// snapshot and paints from scratch.
+#[derive(Component)]
+pub(super) struct AppliedLocalBody(crate::pds::AvatarBody);
+
+impl AppliedLocalBody {
+    /// The snapshot for a chassis whose children were just painted from
+    /// `body` — stamped by every local paint site (first spawn, the
+    /// locomotion hot-swap, and the visuals rebuild itself).
+    pub(super) fn painted(body: &crate::pds::AvatarBody) -> Self {
+        Self(body.sans_attachments())
+    }
+}
+
+/// Whether a record change owes the chassis a visual respawn through
+/// [`visuals::spawn_avatar_visuals`] (#1104): nothing painted yet, a
+/// body-kind change, or a generator tree that differs from the one
+/// painted. Two rigged bodies never do — that path spawns nothing for
+/// them, and the rigged pipeline (`rigged::kick_rigged_builds`) already
+/// compares the engine record itself and replaces the standing root only
+/// once the new build has landed, so a body edit no longer shows a naked
+/// capsule in between either.
+fn needs_visual_respawn(
+    applied: Option<&crate::pds::AvatarBody>,
+    live_sans_attachments: &crate::pds::AvatarBody,
+) -> bool {
+    use crate::pds::AvatarBody;
+    match applied {
+        None => true,
+        Some(AvatarBody::Rigged(_)) if matches!(live_sans_attachments, AvatarBody::Rigged(_)) => {
+            false
+        }
+        Some(applied) => applied != live_sans_attachments,
+    }
+}
+
 /// Request flag set when the local player's locomotion needs to be
 /// rebuilt on the main thread. This exists because Avian components
 /// cannot be added/removed from `Query`-held mutable borrows — we have
@@ -144,6 +191,9 @@ pub(super) fn apply_local_locomotion_rebuild(
             &mut avatar_deps,
             true,
         );
+        commands
+            .entity(entity)
+            .insert(AppliedLocalBody::painted(&live.0.body));
         commands.entity(entity).remove::<NeedsLocomotionRebuild>();
     }
 }
@@ -189,7 +239,7 @@ pub(super) fn rebuild_local_visuals(
     mut commands: Commands,
     live: Res<LiveAvatarRecord>,
     players: Query<
-        (Entity, Option<&Children>),
+        (Entity, Option<&Children>, Option<&AppliedLocalBody>),
         (
             With<LocalPlayer>,
             Or<(
@@ -207,8 +257,24 @@ pub(super) fn rebuild_local_visuals(
     if !live.is_changed() {
         return;
     }
-    despawn_orphan_avatar_visuals(&mut commands, &orphan_visuals);
-    for (entity, children) in players.iter() {
+    let live_body = live.0.body.sans_attachments();
+    for (entity, children, applied) in players.iter() {
+        // Attachment-only edits, and rigged-to-rigged body edits, owe no
+        // respawn here (#1104): the props and the skinned body each have
+        // their own diff-driven pipeline. The snapshot still advances so
+        // the next comparison is against what is actually painted.
+        if !needs_visual_respawn(applied.map(|a| &a.0), &live_body) {
+            if applied.is_none_or(|a| a.0 != live_body) {
+                commands
+                    .entity(entity)
+                    .insert(AppliedLocalBody::painted(&live.0.body));
+            }
+            continue;
+        }
+        despawn_orphan_avatar_visuals(&mut commands, &orphan_visuals);
+        commands
+            .entity(entity)
+            .insert(AppliedLocalBody::painted(&live.0.body));
         timed_spawn_avatar_visuals(
             &mut commands,
             entity,
@@ -301,5 +367,100 @@ pub(super) fn lift_player_above_new_ground(
         pos.y = min_y;
         lin_vel.0 = Vec3::ZERO;
         ang_vel.0 = Vec3::ZERO;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pds::AvatarBody;
+    use crate::pds::avatar::wardrobe::engine_default_for_did;
+
+    fn rigged(seed: &str) -> AvatarBody {
+        let mut body = AvatarBody::rigged("3jzfcijpj2z2a");
+        if let Some(rig) = body.rigged_mut() {
+            rig.resolved = Some(crate::pds::avatar::ResolvedRig {
+                body: engine_default_for_did(seed),
+                attachments: Vec::new(),
+            });
+        }
+        body
+    }
+
+    /// The respawn decision (#1104), case by case: a fresh chassis paints;
+    /// two rigged bodies never respawn through the generator path, even
+    /// when the engine record differs (the rigged pipeline owns that); a
+    /// generator body respawns exactly when its tree changed; a kind
+    /// change always respawns.
+    #[test]
+    fn a_visual_respawn_is_owed_only_for_generator_or_kind_changes() {
+        let gen_a = AvatarBody::generator(crate::pds::Generator::default());
+        let gen_b = {
+            let mut g = crate::pds::Generator::default();
+            g.transform.translation = crate::pds::types::Fp3([1.0, 0.0, 0.0]);
+            AvatarBody::generator(g)
+        };
+        assert!(needs_visual_respawn(None, &rigged("did:plc:a")));
+        assert!(needs_visual_respawn(None, &gen_a));
+        assert!(!needs_visual_respawn(
+            Some(&rigged("did:plc:a")),
+            &rigged("did:plc:a")
+        ));
+        assert!(
+            !needs_visual_respawn(Some(&rigged("did:plc:a")), &rigged("did:plc:b")),
+            "a rigged body edit is the rigged pipeline's to land"
+        );
+        assert!(!needs_visual_respawn(Some(&gen_a), &gen_a));
+        assert!(needs_visual_respawn(Some(&gen_a), &gen_b));
+        assert!(needs_visual_respawn(Some(&gen_a), &rigged("did:plc:a")));
+        assert!(needs_visual_respawn(Some(&rigged("did:plc:a")), &gen_a));
+    }
+
+    /// #1104 bug 2, reproduced in-app: a worn prop's offset nudge used to
+    /// flip `LiveAvatarRecord`'s change tick into a whole-body respawn —
+    /// `spawn_avatar_visuals` clears every chassis child, the rigged root
+    /// included — so the avatar vanished until the async rebuild landed.
+    /// After the edit the standing root must be the same entity.
+    #[test]
+    fn an_attachment_only_edit_keeps_the_rigged_body_standing() {
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut app, _crown) = super::super::attachments::tests::dressed_app();
+        let mut roots = app
+            .world_mut()
+            .query_filtered::<(Entity, &ChildOf), With<super::super::rigged::RiggedRoot>>();
+        let (root, child_of) = roots.single(app.world()).expect("one root");
+        let chassis = child_of.parent();
+        // What the spawn path stamps when it paints the chassis.
+        let painted = {
+            let live = app.world().resource::<LiveAvatarRecord>();
+            AppliedLocalBody::painted(&live.0.body)
+        };
+        app.world_mut().entity_mut(chassis).insert(painted);
+
+        // The gizmo commit's write: one offset, nothing else.
+        {
+            let mut live = app.world_mut().resource_mut::<LiveAvatarRecord>();
+            let rig = live.0.body.rigged_mut().expect("rigged");
+            let resolved = rig.resolved.as_mut().expect("resolved");
+            resolved.attachments[0].record.offset.translation =
+                crate::pds::types::Fp3([0.0, 0.05, 0.0]);
+        }
+        app.world_mut()
+            .run_system_once(rebuild_local_visuals)
+            .expect("the rebuild system runs");
+
+        assert!(
+            app.world().get_entity(root).is_ok(),
+            "the rigged root was torn down by an attachment-only edit"
+        );
+        let (root_after, _) = roots.single(app.world()).expect("still one root");
+        assert_eq!(root_after, root, "the body kept its entity");
+
+        // The snapshot advanced with the record, so the next comparison is
+        // against what stands (a second identical run is a no-op too).
+        app.world_mut()
+            .run_system_once(rebuild_local_visuals)
+            .expect("runs again");
+        assert!(app.world().get_entity(root).is_ok());
     }
 }
