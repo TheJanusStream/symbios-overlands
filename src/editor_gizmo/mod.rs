@@ -100,7 +100,9 @@ use transform_gizmo_bevy::{GizmoOrientation, GizmoTarget};
 use crate::state::AppState;
 use crate::ui::avatar::AvatarEditorState;
 use crate::ui::room::{EditorTab, RoomEditorState};
-use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimFaceGroup, PrimMarker};
+use crate::world_builder::{
+    AttachmentPrim, AvatarVisualPrim, PlacementMarker, PrimFaceGroup, PrimMarker,
+};
 
 /// Owner-facing toggle for how the gizmo's drag axes are oriented.
 ///
@@ -269,6 +271,12 @@ pub(crate) enum ActiveTarget {
     /// record of its own — no path can reach it — and its drag frame is the
     /// carrying joint's rest frame rather than the record root's.
     Attachment,
+    /// A PART of a worn prop (#1098): a node inside the attachment
+    /// record's item tree, addressed by `(rkey, path)` through
+    /// [`AttachmentPrim`]. Dragged
+    /// and committed exactly like an avatar visual part — detach to world,
+    /// reparent against the original parent — into that record's tree.
+    AttachmentPart,
 }
 
 pub(crate) fn determine_active_target(
@@ -287,7 +295,9 @@ pub(crate) fn determine_active_target(
     // one-frame race; attachments win it because the body is being held at
     // its bind pose for them and a visuals gizmo would read against a pose
     // the record does not describe.
-    if avatar.has_attachment_selection() {
+    if avatar.has_part_selection() {
+        ActiveTarget::AttachmentPart
+    } else if avatar.has_attachment_selection() {
         ActiveTarget::Attachment
     } else if avatar.has_visuals_selection() {
         ActiveTarget::Avatar
@@ -429,12 +439,13 @@ fn pick_on_scene_click(
     parents: Query<&ChildOf>,
     mut room_state: ResMut<RoomEditorState>,
     mut avatar_state: ResMut<AvatarEditorState>,
-    (mut blob_ctx, blob_proxies, global_tfs, avatar_prims, worn_props): (
+    (mut blob_ctx, blob_proxies, global_tfs, avatar_prims, worn_props, part_prims): (
         ResMut<blob::BlobEditContext>,
         Query<&blob::proxy::BlobElementProxy>,
         Query<&GlobalTransform>,
         Query<&AvatarVisualPrim>,
         Query<&crate::player::attachments::LocalAttachment>,
+        Query<&AttachmentPrim>,
     ),
     (mut face_pick, face_groups, meshes, time): (
         ResMut<face_pick::FacePick>,
@@ -526,9 +537,25 @@ fn pick_on_scene_click(
     // peer's outfit is never selectable.
     if panels.avatar {
         let mut cursor_entity = hit_entity;
+        // A part of a worn prop (#1098) is the deepest marker on the path;
+        // it wins only while that prop's PARTS editor is open — otherwise
+        // a click on a worn prop still selects the whole prop (its offset
+        // gizmo), which is what a player adjusting fit expects.
+        let mut part_hit: Option<AttachmentPrim> = None;
         while let Some(entity) = cursor_entity {
+            if part_hit.is_none()
+                && let Ok(part) = part_prims.get(entity)
+                && avatar_state.editing_parts() == Some(part.rkey.as_str())
+            {
+                part_hit = Some(part.clone());
+            }
             if let Ok(worn) = worn_props.get(entity) {
-                avatar_state.select_attachment_from_scene_pick(worn.rkey.clone());
+                match part_hit.take() {
+                    Some(part) => {
+                        avatar_state.select_attachment_part_from_scene_pick(part.rkey, part.path);
+                    }
+                    None => avatar_state.select_attachment_from_scene_pick(worn.rkey.clone()),
+                }
                 if room_state.has_selection() {
                     room_state.clear_selection();
                 }

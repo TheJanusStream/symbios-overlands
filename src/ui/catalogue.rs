@@ -344,8 +344,15 @@ pub(crate) fn catalogue_ui(
     // never dirties the live record from mere browsing (the guarded-dirty
     // rule) — reads go through `as_ref()`.
     mut live_avatar: Option<ResMut<crate::state::LiveAvatarRecord>>,
+    // The inventory is the wear surface (#1096): the catalogue copies a
+    // vanilla item into it. Same guarded-dirty discipline — the stash's
+    // dirty state is derived live-vs-stored, so a deref_mut on click is
+    // all that ever happens.
+    mut live_inventory: Option<ResMut<crate::state::LiveInventoryRecord>>,
     session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
     mut undo_labels: ResMut<crate::ui::undo::PendingUndoLabels>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    time: Res<Time>,
     // Per-frame cache (#639): the node tree is a pure function of (mode,
     // search) over the `const ENTRIES`; rebuild only when those keys change.
     mut node_cache: Local<NodeCache>,
@@ -488,9 +495,12 @@ pub(crate) fn catalogue_ui(
                                 detail_panel(
                                     ui,
                                     browser.selected.as_deref(),
+                                    live_inventory.as_mut(),
                                     live_avatar.as_mut(),
                                     session.as_deref(),
                                     &mut undo_labels,
+                                    &mut toasts,
+                                    time.elapsed_secs_f64(),
                                 );
                             });
                     },
@@ -585,12 +595,16 @@ fn render_nodes(builder: &mut egui_ltreeview::TreeViewBuilder<'_, String>, nodes
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn detail_panel(
     ui: &mut egui::Ui,
     selected: Option<&str>,
+    live_inventory: Option<&mut ResMut<crate::state::LiveInventoryRecord>>,
     live_avatar: Option<&mut ResMut<crate::state::LiveAvatarRecord>>,
     session: Option<&bevy_symbios_multiuser::auth::AtprotoSession>,
     undo_labels: &mut crate::ui::undo::PendingUndoLabels,
+    toasts: &mut crate::ui::toast::Toasts,
+    now: f64,
 ) {
     let Some(entry) = selected.and_then(by_slug) else {
         ui.add_space(8.0);
@@ -638,90 +652,166 @@ fn detail_panel(
             let fp = entry.footprint();
             row(ui, "Clearance", format!("{:.1} m", fp.clearance));
             row(ui, "Spawn dist", format!("{:.0} m", fp.min_spawn_dist));
+            // Wearability up front (#1096): the socket it lands on and, for
+            // a fitted item, that it sizes itself — the category's
+            // flagship property, visible before anything is worn.
+            if let Some(socket) = entry.wear_socket() {
+                row(ui, "Worn at", socket.name().to_string());
+                if let Some(fit) = entry.wear_fit() {
+                    let text = match fit {
+                        crate::catalogue::WearFit::HeadBand { inner_diameter } => format!(
+                            "sizes itself to the wearer's head ({:.0} mm band authored)",
+                            inner_diameter * 1000.0
+                        ),
+                    };
+                    row(ui, "Fit", text);
+                }
+            }
             ui.label(egui::RichText::new("Slug").strong());
             ui.label(egui::RichText::new(slug).monospace().small());
             ui.end_row();
         });
 
-    if let Some(socket) = entry.wear_socket() {
-        ui.add_space(6.0);
-        ui.separator();
-        wear_row(ui, entry, socket, live_avatar, session, undo_labels);
-    }
+    ui.add_space(6.0);
+    ui.separator();
+    inventory_row(
+        ui,
+        entry,
+        live_inventory,
+        live_avatar,
+        session,
+        undo_labels,
+        toasts,
+        now,
+    );
 }
 
-/// The Wear affordance for a wearable entry (#1087): lands the built item
-/// on the local rigged avatar at the entry's default socket, through the
-/// same wardrobe path the avatar editor's Attachments tab uses — the
-/// 16-slot cap, undo ring, peer streaming and publish flow all see it as
-/// an ordinary attachment edit. Placement is untouched: the tree leaf
-/// stays the drag handle.
-fn wear_row(
+/// The inventory row (#1096): **Copy to inventory**, and for a wearable
+/// entry **Copy to inventory & wear**. The catalogue is a source of
+/// vanilla items; the inventory is what the player owns and customises,
+/// and the one surface things are worn and taken off from — so the
+/// catalogue never dresses the body directly any more. "& wear" is the
+/// two steps in one click: the copy lands in the stash under the entry's
+/// name (uniquified), then that stash item is worn, so the worn prop
+/// carries its provenance and Save-to-inventory has somewhere to go.
+/// Placement is untouched: the tree leaf stays the drag handle.
+#[allow(clippy::too_many_arguments)]
+fn inventory_row(
     ui: &mut egui::Ui,
     entry: &'static dyn CatalogueEntry,
-    socket: symbios_avatar::Socket,
+    live_inventory: Option<&mut ResMut<crate::state::LiveInventoryRecord>>,
     live_avatar: Option<&mut ResMut<crate::state::LiveAvatarRecord>>,
     session: Option<&bevy_symbios_multiuser::auth::AtprotoSession>,
     undo_labels: &mut crate::ui::undo::PendingUndoLabels,
+    toasts: &mut crate::ui::toast::Toasts,
+    now: f64,
 ) {
     use crate::pds::avatar::MAX_AVATAR_ATTACHMENTS;
+    use crate::pds::inventory::WearMeta;
 
     let weak = crate::ui::theme::current(ui.ctx()).text_weak;
     let hint = |ui: &mut egui::Ui, text: &str| {
-        ui.add_enabled(
-            false,
-            egui::Button::new(format!("Wear ({})", socket.name())),
-        );
         ui.label(egui::RichText::new(text).small().color(weak));
     };
+    let wearable = entry.wear_socket();
 
     let Some(session) = session else {
-        hint(ui, "Sign in to wear items.");
+        ui.add_enabled(false, egui::Button::new("Copy to inventory"));
+        hint(ui, "Sign in to own items.");
         return;
     };
-    let Some(live) = live_avatar else {
-        hint(ui, "No avatar loaded yet.");
+    let Some(inventory) = live_inventory else {
+        ui.add_enabled(false, egui::Button::new("Copy to inventory"));
+        hint(ui, "Your inventory has not loaded yet.");
         return;
     };
-    // Reads through `as_ref` — deref_mut would mark the record changed
-    // every frame the panel is open and re-broadcast the avatar for
-    // nothing (the guarded-dirty rule).
-    let worn = match live.as_ref().0.body.rigged_ref() {
-        Some(rig) => rig
-            .resolved
-            .as_ref()
-            .map_or(0, |resolved| resolved.attachments.len()),
-        None => {
+    // Reads through `as_ref` — deref_mut would count as an edit every
+    // frame the panel is open (the guarded-dirty rule).
+    let cap = crate::config::state::MAX_INVENTORY_ITEMS;
+    let count = inventory.as_ref().0.generators.len();
+    if count >= cap {
+        ui.add_enabled(false, egui::Button::new("Copy to inventory"));
+        hint(
+            ui,
+            &format!("Inventory full ({cap}/{cap}) — remove something first."),
+        );
+        return;
+    }
+
+    // Where the copy would go — shown so "& wear" is not a surprise.
+    let name = crate::ui::room::widgets::unique_key(&inventory.as_ref().0.generators, entry.name());
+    let copy = |inventory: &mut ResMut<crate::state::LiveInventoryRecord>| -> String {
+        let meta = wearable.map(|socket| WearMeta::for_entry(socket, entry.wear_fit()));
+        inventory
+            .0
+            .put_item(name.clone(), entry.build(&session.did), meta);
+        name.clone()
+    };
+
+    ui.horizontal(|ui| {
+        if ui
+            .button("Copy to inventory")
+            .on_hover_text(format!("Add a copy to your inventory as \"{name}\""))
+            .clicked()
+        {
+            let saved = copy(inventory);
+            toasts.success(format!("Copied to inventory as \"{saved}\"."), now);
+            return;
+        }
+        let Some(socket) = wearable else {
+            return;
+        };
+        // "& wear" needs a body to dress; the reasons it cannot are the
+        // same ones the old Wear button gave, as a disabled hint.
+        let Some(live) = live_avatar else {
+            ui.add_enabled(false, egui::Button::new("Copy to inventory & wear"));
+            hint(ui, "No avatar loaded yet.");
+            return;
+        };
+        let worn = match live.as_ref().0.body.rigged_ref() {
+            Some(rig) => rig
+                .resolved
+                .as_ref()
+                .map_or(0, |resolved| resolved.attachments.len()),
+            None => {
+                ui.add_enabled(false, egui::Button::new("Copy to inventory & wear"));
+                hint(
+                    ui,
+                    "Vehicles carry no attachments — pilot a body to wear this.",
+                );
+                return;
+            }
+        };
+        if worn >= MAX_AVATAR_ATTACHMENTS {
+            ui.add_enabled(false, egui::Button::new("Copy to inventory & wear"));
             hint(
                 ui,
-                "Vehicles carry no attachments — pilot a body to wear this.",
+                "All 16 attachment slots are taken — take something off first.",
             );
             return;
         }
-    };
-    if worn >= MAX_AVATAR_ATTACHMENTS {
-        hint(
-            ui,
-            "All 16 attachment slots are taken — detach something first.",
-        );
-        return;
-    }
-
-    if ui
-        .button(format!("Wear ({})", socket.name()))
-        .on_hover_text("Attach to your avatar at this socket; refine with the in-world gizmo.")
-        .clicked()
-        && let Some(rig) = live.0.body.rigged_mut()
-    {
-        crate::ui::avatar::attach_to(
-            rig,
-            entry.build(&session.did),
-            socket,
-            &session.did,
-            entry.wear_fit(),
-        );
-        undo_labels.set_avatar(format!("wear {}", entry.name()));
-    }
+        if ui
+            .button("Copy to inventory & wear")
+            .on_hover_text(format!(
+                "Add a copy to your inventory as \"{name}\" and wear it at the {} socket",
+                socket.name()
+            ))
+            .clicked()
+        {
+            let saved = copy(inventory);
+            if let Some(record) =
+                crate::ui::avatar::record_for_inventory_item(&inventory.as_ref().0, &saved)
+                && let Some(rig) = live.0.body.rigged_mut()
+            {
+                crate::ui::avatar::attach_record(rig, record, &session.did);
+                undo_labels.set_avatar(format!("wear {saved}"));
+                toasts.success(
+                    format!("Wearing \"{saved}\" — it is in your inventory to adjust or take off."),
+                    now,
+                );
+            }
+        }
+    });
 }
 
 #[cfg(test)]

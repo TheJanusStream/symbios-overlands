@@ -37,7 +37,7 @@ use transform_gizmo_bevy::GizmoTarget;
 use crate::config::ui::selection_highlight as cfg;
 use crate::ui::avatar::AvatarEditorState;
 use crate::ui::room::{EditorTab, RoomEditorState};
-use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
+use crate::world_builder::{AttachmentPrim, AvatarVisualPrim, PlacementMarker, PrimMarker};
 
 use super::blob::BlobEditContext;
 use super::{ActiveTarget, GizmoDetachedPrim, GizmoFramePref, determine_active_target};
@@ -59,6 +59,7 @@ pub(super) fn draw_selection_highlight(
     )>,
     avatar_prim_query: Query<(Entity, &AvatarVisualPrim)>,
     worn_props: Query<(Entity, &crate::player::attachments::LocalAttachment)>,
+    part_prims: Query<(Entity, &AttachmentPrim)>,
     placement_query: Query<(Entity, &PlacementMarker)>,
     children: Query<&Children>,
     bounds_query: Query<(&Aabb, &GlobalTransform)>,
@@ -179,6 +180,24 @@ pub(super) fn draw_selection_highlight(
             // has exactly one instance in the world.
             for (entity, worn) in worn_props.iter() {
                 if worn.rkey == rkey {
+                    draw_subtree_box(
+                        &mut gizmos,
+                        entity,
+                        selected,
+                        frame_of(entity),
+                        &children,
+                        &bounds_query,
+                    );
+                }
+            }
+        }
+        ActiveTarget::AttachmentPart => {
+            let Some((rkey, path)) = avatar_state.attachment_part() else {
+                return;
+            };
+            // Local-only and unique by (record, path) — one match.
+            for (entity, marker) in part_prims.iter() {
+                if marker.rkey == rkey && marker.path == path {
                     draw_subtree_box(
                         &mut gizmos,
                         entity,

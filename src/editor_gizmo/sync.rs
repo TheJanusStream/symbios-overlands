@@ -15,7 +15,7 @@ use crate::pds::generator::BlobShape;
 use crate::player::attachments::LocalAttachment;
 use crate::ui::avatar::AvatarEditorState;
 use crate::ui::room::{EditorTab, RoomEditorState};
-use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
+use crate::world_builder::{AttachmentPrim, AvatarVisualPrim, PlacementMarker, PrimMarker};
 
 use super::blob::{BlobEditContext, proxy::BlobElementProxy};
 use super::{ActiveTarget, GizmoDetachedPrim, GizmoFramePref, determine_active_target};
@@ -70,7 +70,7 @@ pub(super) fn sync_gizmo_selection(
     // attachment record rkey rather than by a path into a visuals tree, and
     // `rigged_bodies` is the rig each one hangs off — needed because a
     // prop's frame is its joint's REST frame, which only the rig knows.
-    (detached_query, global_tf, attachment_query, rigged_bodies): (
+    (detached_query, global_tf, attachment_query, rigged_bodies, part_query): (
         Query<&GizmoDetachedPrim>,
         Query<&GlobalTransform>,
         Query<(
@@ -83,6 +83,16 @@ pub(super) fn sync_gizmo_selection(
             Option<&ChildOf>,
         )>,
         Query<&bevy_symbios_avatar::AvatarBody>,
+        // Parts of worn props (#1098): the same detach-to-world machinery
+        // as avatar visual prims, addressed by `(rkey, path)`.
+        Query<(
+            Entity,
+            &AttachmentPrim,
+            &GlobalTransform,
+            Has<GizmoTarget>,
+            Has<GizmoDetachedPrim>,
+            Option<&ChildOf>,
+        )>,
     ),
     camera_query: Query<&GlobalTransform, With<Camera3d>>,
     // Any entity still carrying gizmo state a deselect would need to tear down.
@@ -276,6 +286,20 @@ pub(super) fn sync_gizmo_selection(
         None
     };
 
+    // Part of a worn prop (#1098): unique by `(rkey, path)` — the markers
+    // ride only the local body's props, one instance each.
+    let target_part = if target_proxy.is_some() {
+        None
+    } else if active == ActiveTarget::AttachmentPart {
+        avatar_state.attachment_part().and_then(|(rkey, path)| {
+            part_query.iter().find_map(|(entity, marker, ..)| {
+                (marker.rkey == rkey && marker.path == path).then_some(entity)
+            })
+        })
+    } else {
+        None
+    };
+
     // --- Placements (room only) --------------------------------------------
     let want_placement_gizmo =
         active == ActiveTarget::Room && room_state.selected_tab == EditorTab::Placements;
@@ -331,6 +355,13 @@ pub(super) fn sync_gizmo_selection(
         gizmo_options.gizmo_modes = prim_modes(is_root);
     } else if target_attachment.is_some() {
         gizmo_options.gizmo_modes = attachment_modes();
+    } else if target_part.is_some() {
+        // A worn item's root translates through its OFFSET (the whole-prop
+        // gizmo); inside the tree the root rule is the visuals tree's.
+        let is_root = avatar_state
+            .attachment_part()
+            .is_some_and(|(_, path)| path.is_empty());
+        gizmo_options.gizmo_modes = prim_modes(is_root);
     }
 
     // --- Room prims (attach / detach + parent baking) ----------------------
@@ -352,6 +383,22 @@ pub(super) fn sync_gizmo_selection(
     // --- Avatar prims (same machinery, separate query) ---------------------
     for (entity, _marker, gt, has_gizmo, is_detached, child_of) in avatar_prim_query.iter() {
         let is_target = target_avatar_prim == Some(entity);
+        attach_or_release_prim(
+            &mut commands,
+            entity,
+            is_target,
+            has_gizmo,
+            is_detached,
+            gt,
+            child_of,
+            &detached_query,
+            &global_tf,
+        );
+    }
+
+    // --- Parts of worn props (#1098, same machinery as avatar prims) ------
+    for (entity, _marker, gt, has_gizmo, is_detached, child_of) in part_query.iter() {
+        let is_target = target_part == Some(entity);
         attach_or_release_prim(
             &mut commands,
             entity,
@@ -466,20 +513,18 @@ fn prim_modes(is_root: bool) -> EnumSet<GizmoMode> {
     modes
 }
 
-/// Mode set for a worn prop (#1062): translate and rotate freely, but only
-/// the **uniform** scale handle.
-///
-/// Not a stylistic restriction — [`crate::pds::AttachmentRecord::sanitize`]
-/// forces the offset's scale uniform on every write, because a prop is
-/// instanced under an animated joint and a non-uniform scale there shears
-/// every nested emitter and sub-assembly inside it. Offering per-axis
-/// handles would let a drag be silently thrown away by the sanitiser, which
-/// is exactly the failure `placement_modes` exists to avoid.
+/// Mode set for a worn prop (#1062, widened by #1095): the full triad —
+/// translate, rotate and per-axis scale — exactly what a region placement
+/// gets. [`crate::pds::AttachmentRecord::sanitize`] keeps each scale axis
+/// as dragged (it used to collapse them to one, and the gizmo hid the
+/// per-axis handles so no drag could be thrown away); the worn item is
+/// edited with a placement's tools now, shear risk and all, because that
+/// is the judgement a placement already leaves to its author.
 fn attachment_modes() -> EnumSet<GizmoMode> {
     let mut modes = EnumSet::new();
     modes.insert_all(GizmoMode::all_translate());
     modes.insert_all(GizmoMode::all_rotate());
-    modes.insert(GizmoMode::ScaleUniform);
+    modes.insert_all(GizmoMode::all_scale());
     modes
 }
 

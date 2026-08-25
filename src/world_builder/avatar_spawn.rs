@@ -67,6 +67,10 @@ pub fn spawn_avatar_visuals_subtree(
     record: &RoomRecord,
     current_room: Option<&CurrentRoomDid>,
     is_local: bool,
+    // The attachment record this tree is a worn prop of (#1098): every
+    // node then carries an `AttachmentPrim` marker instead of the local
+    // avatar's visuals-path marker. `None` for body visuals.
+    attachment: Option<&str>,
 ) {
     // Touch-sets are scratch state for the room compiler's GC pass at
     // the end of compile_room_record. Avatar spawning doesn't run
@@ -133,6 +137,7 @@ pub fn spawn_avatar_visuals_subtree(
         placement_index: crate::water::WaterPlane::NO_OWNER,
         avatar_mode: true,
         local_avatar_mode: is_local,
+        attachment_rkey: attachment.map(str::to_string),
     };
 
     // The visuals root carries its own transform — which the spawner

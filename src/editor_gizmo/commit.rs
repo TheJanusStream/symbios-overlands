@@ -11,7 +11,7 @@ use crate::pds::{Fp3, Fp4, Generator, Placement, RoomRecord, TransformData};
 use crate::player::attachments::LocalAttachment;
 use crate::state::LiveAvatarRecord;
 use crate::ui::room::RoomEditorState;
-use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
+use crate::world_builder::{AttachmentPrim, AvatarVisualPrim, PlacementMarker, PrimMarker};
 
 use super::GizmoDetachedPrim;
 use super::blob::proxy::BlobElementProxy;
@@ -146,6 +146,59 @@ pub(super) fn commit_avatar_drag(
     commit_transform_at_path(visuals, &marker.path, new_local)
 }
 
+/// Commit a finished drag of a PART of a worn prop (#1098) into that
+/// attachment record's item tree — the avatar-visuals commit with the
+/// tree looked up by record key. The part detached to world like a prim
+/// and reparents against its original parent (the prop root or an
+/// ancestor part), so nothing here touches the joint's rest frame: that
+/// is the whole-prop offset's business.
+#[allow(clippy::type_complexity)]
+pub(super) fn commit_attachment_part_drag(
+    active_entity: Entity,
+    part_query: &Query<
+        (
+            Entity,
+            &mut Transform,
+            &AttachmentPrim,
+            &GizmoTarget,
+            Option<&GizmoDetachedPrim>,
+        ),
+        (
+            Without<PlacementMarker>,
+            Without<PrimMarker>,
+            Without<AvatarVisualPrim>,
+            Without<BlobElementProxy>,
+            Without<LocalAttachment>,
+        ),
+    >,
+    global_tf: &Query<&GlobalTransform>,
+    record: &mut LiveAvatarRecord,
+) -> bool {
+    let Ok((_e, transform, marker, _t, detached)) = part_query.get(active_entity) else {
+        return false;
+    };
+    let transform = *transform;
+    let Some(new_local) = resolve_committed_local(&transform, detached, global_tf) else {
+        return false;
+    };
+    let Some(resolved) = record
+        .0
+        .body
+        .rigged_mut()
+        .and_then(|rig| rig.resolved.as_mut())
+    else {
+        return false;
+    };
+    let Some(worn) = resolved
+        .attachments
+        .iter_mut()
+        .find(|a| a.rkey == marker.rkey)
+    else {
+        return false;
+    };
+    commit_transform_at_path(&mut worn.record.item, &marker.path, new_local)
+}
+
 /// Commit a finished drag of a worn prop (#1062) into the resolved
 /// attachment's `offset`. Returns `true` when the record was mutated.
 ///
@@ -168,12 +221,10 @@ pub(super) fn commit_avatar_drag(
 /// seeing the pose they are authoring for, not about making this arithmetic
 /// come out right.
 ///
-/// Scale lands through [`crate::pds::AttachmentRecord::sanitize`], which
-/// forces it uniform — a prop is instanced under an animated joint by one
-/// scale, and a non-uniform one shears every nested sub-assembly inside it.
-/// The gizmo only offers the uniform handle (see `sync::attachment_modes`),
-/// so the sanitiser is a backstop against a non-uniform parent chain rather
-/// than something a drag can trip.
+/// Scale lands through [`crate::pds::AttachmentRecord::sanitize`] per
+/// axis (#1095): the gizmo offers the full scale triad (see
+/// `sync::attachment_modes`) and the record keeps what was dragged,
+/// exactly as a region placement does.
 #[allow(clippy::type_complexity)]
 pub(super) fn commit_attachment_drag(
     active_entity: Entity,

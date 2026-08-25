@@ -151,6 +151,7 @@ pub(crate) fn compile_room_record(
             placement_index: WaterPlane::NO_OWNER,
             avatar_mode: false,
             local_avatar_mode: false,
+            attachment_rkey: None,
         };
 
         loop {

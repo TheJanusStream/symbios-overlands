@@ -293,6 +293,16 @@ pub fn spawn_generator(
                 .insert(crate::world_builder::AvatarVisualPrim {
                     path: path.to_vec(),
                 });
+        } else if let Some(rkey) = ctx.attachment_rkey.as_ref() {
+            // One of the local player's worn props (#1098): the part
+            // marker keyed by its attachment record, so the parts editor
+            // can select, pick and drag nodes of the worn copy.
+            ctx.commands
+                .entity(e)
+                .insert(crate::world_builder::AttachmentPrim {
+                    rkey: rkey.clone(),
+                    path: path.to_vec(),
+                });
         }
         // Recurse into the children list, parenting each child entity to
         // this node's generated entity so the hierarchy mirrors the

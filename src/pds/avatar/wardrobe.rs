@@ -93,6 +93,14 @@ pub struct AttachmentRecord {
     /// size. Integer millimetres because atproto records hold no floats.
     #[serde(default, rename = "fitBandMm", skip_serializing_if = "fit_elides")]
     pub fit_band_mm: u32,
+    /// The inventory item this was worn from (#1096), by name — the
+    /// provenance "Save to inventory" writes back to, and what lets the
+    /// Inventory window show an item as worn. `None` for a prop attached
+    /// from a bare generator (a legacy attach, a gift never stashed). A
+    /// name that no longer exists in the stash is not an error: saving
+    /// then creates the item afresh under that name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 /// Serde elision for [`AttachmentRecord::fit_band_mm`]: `0` is "no fit"
@@ -100,6 +108,29 @@ pub struct AttachmentRecord {
 /// byte-identical.
 fn fit_elides(mm: &u32) -> bool {
     *mm == 0
+}
+
+/// The shared clamp for the three fields an attachment record and an
+/// inventory item's [`WearMeta`](crate::pds::inventory::WearMeta) both
+/// carry (#1096): socket name length, the fit dimension's divisor floor
+/// and ceiling, and the offset transform. One function so the two wire
+/// forms can never drift apart in what they accept.
+pub fn sanitize_wear_fields(
+    socket: &mut String,
+    fit_band_mm: &mut u32,
+    offset: &mut TransformData,
+) {
+    if socket.chars().count() > MAX_SOCKET_NAME_CHARS {
+        *socket = socket.chars().take(MAX_SOCKET_NAME_CHARS).collect();
+    }
+    offset.sanitize();
+    // A fit dimension off the wire is a divisor (`fit_scale` divides the
+    // measured head by it), so the non-zero floor is what keeps a hostile
+    // 1 mm band from scaling a prop 500× onto everyone's screen. Zero
+    // stays zero: it is the "no fit" sentinel, not a measurement.
+    if *fit_band_mm != 0 {
+        *fit_band_mm = (*fit_band_mm).clamp(MIN_FIT_BAND_MM, MAX_FIT_BAND_MM);
+    }
 }
 
 impl AttachmentRecord {
@@ -111,6 +142,7 @@ impl AttachmentRecord {
             socket: socket.name().into(),
             offset: TransformData::default(),
             fit_band_mm: 0,
+            source: None,
         }
     }
 
@@ -126,6 +158,37 @@ impl AttachmentRecord {
         record
     }
 
+    /// An attachment worn **from the inventory** (#1096): the item's own
+    /// wear metadata — socket, fit, the offset it was last saved with —
+    /// and its name as provenance. The socket string is taken verbatim so
+    /// a stash entry from a newer client degrades to "kept, not worn",
+    /// exactly as a record off the wire does.
+    pub fn from_inventory(
+        name: &str,
+        item: Generator,
+        meta: &crate::pds::inventory::WearMeta,
+    ) -> Self {
+        Self {
+            lex_type: AVATAR_ATTACHMENT_COLLECTION.into(),
+            item,
+            socket: meta.socket.clone(),
+            offset: meta.offset.clone(),
+            fit_band_mm: meta.fit_band_mm,
+            source: Some(name.to_string()),
+        }
+    }
+
+    /// The wear metadata a save-back to the inventory writes (#1096): the
+    /// record's socket, fit and offset — its whole placement — so wearing
+    /// the saved item again reproduces this exact look.
+    pub fn wear_meta(&self) -> crate::pds::inventory::WearMeta {
+        crate::pds::inventory::WearMeta {
+            socket: self.socket.clone(),
+            fit_band_mm: self.fit_band_mm,
+            offset: self.offset.clone(),
+        }
+    }
+
     /// The socket this attachment names, when this build knows it.
     pub fn socket(&self) -> Option<symbios_avatar::Socket> {
         symbios_avatar::Socket::from_name(&self.socket)
@@ -133,25 +196,24 @@ impl AttachmentRecord {
 
     /// Clamp every numeric field, exactly as the room and avatar records do.
     ///
-    /// The offset's scale is forced **uniform** (all three components take
-    /// the sanitised X): a prop is instanced under an animated joint by one
-    /// uniform scale, and a non-uniform scale smuggled through a record
-    /// would shear every nested emitter and sub-assembly inside it — the
-    /// authoring rule the catalogue already works to.
+    /// The offset is a **full transform** (#1095): translation, a free
+    /// rotation and per-axis scale, clamped exactly like a region
+    /// placement's. It used to be forced uniform in scale on the argument
+    /// that a non-uniform scale under an animated joint shears nested
+    /// sub-assemblies — which is true, and equally true of a region asset's
+    /// placement, where the editor has always offered the triad and left
+    /// the judgement to the author. A worn item is edited with the same
+    /// tools as a placed one now, so it gets the same freedom.
     pub fn sanitize(&mut self) {
-        if self.socket.chars().count() > MAX_SOCKET_NAME_CHARS {
-            self.socket = self.socket.chars().take(MAX_SOCKET_NAME_CHARS).collect();
-        }
         sanitize_avatar_visuals(&mut self.item);
-        self.offset.sanitize();
-        self.offset.scale.0[1] = self.offset.scale.0[0];
-        self.offset.scale.0[2] = self.offset.scale.0[0];
-        // A fit dimension off the wire is a divisor (`fit_scale` divides the
-        // measured head by it), so the non-zero floor is what keeps a hostile
-        // 1 mm band from scaling a prop 500× onto everyone's screen. Zero
-        // stays zero: it is the "no fit" sentinel, not a measurement.
-        if self.fit_band_mm != 0 {
-            self.fit_band_mm = self.fit_band_mm.clamp(MIN_FIT_BAND_MM, MAX_FIT_BAND_MM);
+        sanitize_wear_fields(&mut self.socket, &mut self.fit_band_mm, &mut self.offset);
+        if let Some(source) = self.source.as_mut()
+            && source.chars().count() > crate::config::state::MAX_INVENTORY_NAME_CHARS
+        {
+            *source = source
+                .chars()
+                .take(crate::config::state::MAX_INVENTORY_NAME_CHARS)
+                .collect();
         }
     }
 }
@@ -926,16 +988,25 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_forces_the_offset_scale_uniform() {
-        // A non-uniform scale under an animated joint shears every nested
-        // sub-assembly — the one-uniform-scale authoring rule, enforced at
-        // the record boundary rather than trusted to editors.
+    fn sanitize_keeps_a_per_axis_offset_scale() {
+        // Full transform parity with a region placement (#1095): the
+        // sanitiser clamps each axis but no longer collapses them to one —
+        // the editor offers the triad and the author owns the judgement.
         let mut record = AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Crown);
         record.offset.scale = Fp3([2.0, 5.0, 0.5]);
         record.sanitize();
-        let scale = record.offset.scale.0;
-        assert_eq!(scale[1], scale[0]);
-        assert_eq!(scale[2], scale[0]);
+        assert_eq!(record.offset.scale.0, [2.0, 5.0, 0.5]);
+        // And still clamps: a zero or negative axis is not a scale.
+        record.offset.scale = Fp3([0.0, -3.0, f32::NAN]);
+        record.sanitize();
+        assert!(
+            record
+                .offset
+                .scale
+                .0
+                .iter()
+                .all(|s| *s > 0.0 && s.is_finite())
+        );
     }
 
     #[test]
@@ -992,6 +1063,49 @@ mod tests {
         assert!(!plain_json.contains("fitBandMm"), "elides: {plain_json}");
         let old: AttachmentRecord = serde_json::from_str(&plain_json).expect("decodes");
         assert_eq!(old.fit_band_mm, 0, "an old record is worn at authored size");
+    }
+
+    /// The #1096 provenance field in all three schema directions, plus the
+    /// inventory round trip it exists for: worn from a stash item, the
+    /// record carries the item's socket / fit / offset and its name; saved
+    /// back, `wear_meta()` reproduces the metadata exactly.
+    #[test]
+    fn a_record_worn_from_the_inventory_carries_its_provenance_and_round_trips() {
+        use crate::pds::inventory::WearMeta;
+        let meta = WearMeta {
+            socket: String::from("crown"),
+            fit_band_mm: 178,
+            offset: TransformData {
+                translation: Fp3([0.0, 0.05, 0.0]),
+                ..Default::default()
+            },
+        };
+        let mut record =
+            AttachmentRecord::from_inventory("Gilded Circlet", Generator::default(), &meta);
+        record.sanitize();
+        assert_eq!(record.socket(), Some(symbios_avatar::Socket::Crown));
+        assert_eq!(
+            record.wear_meta(),
+            meta,
+            "save-back reproduces the wear metadata"
+        );
+
+        let json = serde_json::to_string(&record).expect("serializes");
+        assert!(
+            json.contains("\"source\":\"Gilded Circlet\""),
+            "encode: {json}"
+        );
+        let back: AttachmentRecord = serde_json::from_str(&json).expect("decodes");
+        assert_eq!(back.source.as_deref(), Some("Gilded Circlet"), "decode");
+
+        let plain = AttachmentRecord::new(Generator::default(), symbios_avatar::Socket::Crown);
+        let plain_json = serde_json::to_string(&plain).expect("serializes");
+        assert!(!plain_json.contains("source"), "elides: {plain_json}");
+        let old: AttachmentRecord = serde_json::from_str(&plain_json).expect("decodes");
+        assert_eq!(
+            old.source, None,
+            "a record with no provenance stays that way"
+        );
     }
 
     #[test]

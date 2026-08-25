@@ -25,21 +25,23 @@
 //!     diameter matches the wearer's brow circumference ([`fitted_seat`],
 //!     [`hat_line`]); an unmeasurable head falls back to the plain seat at
 //!     authored size;
-//!   - an authored offset → taken verbatim, in the joint's rest-pose frame,
-//!     with the uniform scale the record's sanitiser enforced.
+//!   - an authored offset → taken verbatim, in the joint's rest-pose frame:
+//!     a full transform, per-axis scale included (#1095).
 //!
-//! Props spawn through [`spawn_visual_tree`] — the same avatar-mode pipeline
-//! as generator bodies, colliders and room tags suppressed — always with
-//! `is_local = false`: `AvatarVisualPrim` paths index into a record's own
-//! `visuals` tree, which an attachment is not part of. The owner's own props
-//! instead carry [`LocalAttachment`], the identity the numeric editor
-//! (#1059) and the in-world offset gizmo (#1062) address them by.
+//! Props spawn through [`spawn_attachment_tree`] — the same avatar-mode
+//! pipeline as generator bodies, colliders and room tags suppressed — always
+//! with `is_local = false`: `AvatarVisualPrim` paths index into a record's
+//! own `visuals` tree, which an attachment is not part of. The owner's own
+//! props instead carry [`LocalAttachment`] on their root, the identity the
+//! numeric editor (#1059) and the in-world offset gizmo (#1062) address them
+//! by, and an `AttachmentPrim` on every node (#1098) so their PARTS can be
+//! edited like a region asset's.
 
 use bevy::prelude::*;
 use bevy_symbios_avatar::{AvatarBody as BuiltBody, AvatarJoints};
 
 use super::rigged::RiggedRoot;
-use super::visuals::{AvatarSpawnDeps, spawn_visual_tree};
+use super::visuals::{AvatarSpawnDeps, spawn_attachment_tree};
 use crate::pds::avatar::ResolvedAttachment;
 use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 
@@ -84,6 +86,9 @@ pub(crate) struct LocalAttachment {
     /// The [`RiggedRoot`] the joint hierarchy hangs off — the entity whose
     /// `GlobalTransform` places the rig's rest frame in the world.
     pub(crate) rigged_root: Entity,
+    /// The record's inventory provenance (#1097), so the scene menu can
+    /// name the prop and offer Save-to-inventory without a record lookup.
+    pub(crate) source: Option<String>,
 }
 
 impl LocalAttachment {
@@ -230,9 +235,13 @@ pub(super) fn sync_rigged_attachments(
                     rkey: attachment.rkey.clone(),
                     joint,
                     rigged_root: root,
+                    source: attachment.record.source.clone(),
                 });
             }
-            spawn_visual_tree(
+            // `is_local = false` always (a prop is not a visuals-tree
+            // node); the owner's own props get `AttachmentPrim` part
+            // markers instead (#1098), keyed by their record.
+            spawn_attachment_tree(
                 &mut commands,
                 prop,
                 &attachment.record.item,
@@ -241,6 +250,7 @@ pub(super) fn sync_rigged_attachments(
                 &mut images,
                 &mut deps,
                 false,
+                is_local.then_some(attachment.rkey.as_str()),
             );
             spawned.push(prop);
         }
@@ -613,6 +623,41 @@ mod tests {
         (app, prop)
     }
 
+    /// The parts editor's addressing contract (#1098): every node of the
+    /// LOCAL player's worn prop carries an `AttachmentPrim` keyed by its
+    /// record, with the item root at the empty path — so a tree row, a
+    /// scene pick and a gizmo target all resolve to the same entity.
+    #[test]
+    fn a_local_props_parts_carry_attachment_prim_markers() {
+        let (mut app, prop) = dressed_app();
+        let mut parts = app
+            .world_mut()
+            .query::<(Entity, &crate::world_builder::AttachmentPrim, &ChildOf)>();
+        let found: Vec<(Entity, crate::world_builder::AttachmentPrim, Entity)> = parts
+            .iter(app.world())
+            .map(|(e, marker, child_of)| (e, marker.clone(), child_of.parent()))
+            .collect();
+        assert!(
+            !found.is_empty(),
+            "the worn prop's nodes carry part markers"
+        );
+        assert!(
+            found
+                .iter()
+                .all(|(_, marker, _)| marker.rkey == "3jzfcijpj2z2a"),
+            "every marker names the prop's record: {found:?}"
+        );
+        let roots: Vec<_> = found
+            .iter()
+            .filter(|(_, marker, _)| marker.path.is_empty())
+            .collect();
+        assert_eq!(roots.len(), 1, "exactly one item root");
+        assert_eq!(
+            roots[0].2, prop,
+            "the item root hangs directly off the prop root that carries LocalAttachment"
+        );
+    }
+
     /// The full dress-and-detach cycle through the REAL system (#1077): the
     /// record loses the prop and the sync must take every entity it spawned
     /// back out of the world.
@@ -957,6 +1002,7 @@ mod tests {
                 rkey: String::from("3jzfcijpj2z2a"),
                 joint,
                 rigged_root: root,
+                source: None,
             };
             let claimed = worn
                 .rest_frame(&body.avatar, &root_world)
@@ -995,6 +1041,7 @@ mod tests {
             rkey: String::from("3jzfcijpj2z2a"),
             joint,
             rigged_root: Entity::PLACEHOLDER,
+            source: None,
         };
         let root_world = GlobalTransform::from(
             Transform::from_xyz(-3.0, 0.4, 8.0).with_rotation(Quat::from_rotation_y(-0.7)),

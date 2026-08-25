@@ -139,6 +139,120 @@ pub fn open_people_for_gift_drag(
     }
 }
 
+/// The inventory is the wear surface (#1096): everything a Wear / Take off
+/// click on a row needs, bundled to stay under Bevy's 16-parameter system
+/// ceiling. The avatar record is mutated only on a click (guarded-dirty);
+/// the editor state carries the detach queue the publish bundle drains.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct WearSurface<'w> {
+    live_avatar: Option<ResMut<'w, crate::state::LiveAvatarRecord>>,
+    avatar_editor: ResMut<'w, crate::ui::avatar::AvatarEditorState>,
+    undo_labels: ResMut<'w, crate::ui::undo::PendingUndoLabels>,
+    toasts: ResMut<'w, crate::ui::toast::Toasts>,
+}
+
+/// A Wear / Take off click on an inventory row (#1096), applied after the
+/// list has released its borrow of the stash.
+enum WearAction {
+    Wear(String),
+    TakeOff(String),
+}
+
+/// The Wear / Take off buttons for a wearable row. Which one shows is
+/// the item's worn state on the live avatar; reasons a body cannot be
+/// dressed render as a disabled button with the reason on hover, the same
+/// vocabulary the catalogue uses.
+fn wear_buttons(
+    ui: &mut egui::Ui,
+    name: &str,
+    socket: &str,
+    action: &mut Option<WearAction>,
+    live_avatar: Option<&crate::state::LiveAvatarRecord>,
+) {
+    let Some(live) = live_avatar else {
+        ui.add_enabled(false, egui::Button::new("Wear").small())
+            .on_disabled_hover_text("No avatar loaded yet.");
+        return;
+    };
+    let Some(rig) = live.0.body.rigged_ref() else {
+        ui.add_enabled(false, egui::Button::new("Wear").small())
+            .on_disabled_hover_text("Vehicles carry no attachments — pilot a body to wear this.");
+        return;
+    };
+    if crate::ui::avatar::is_worn_from(rig, name) {
+        if ui
+            .small_button("Take off")
+            .on_hover_text("Take this item off your avatar")
+            .clicked()
+        {
+            *action = Some(WearAction::TakeOff(name.to_string()));
+        }
+        return;
+    }
+    let worn = rig
+        .resolved
+        .as_ref()
+        .map_or(0, |resolved| resolved.attachments.len());
+    let cap = crate::pds::avatar::MAX_AVATAR_ATTACHMENTS;
+    if worn >= cap {
+        ui.add_enabled(false, egui::Button::new("Wear").small())
+            .on_disabled_hover_text(format!(
+                "All {cap} attachment slots are taken — take something off first."
+            ));
+        return;
+    }
+    if ui
+        .small_button("Wear")
+        .on_hover_text(format!("Wear this item at the {socket} socket"))
+        .clicked()
+    {
+        *action = Some(WearAction::Wear(name.to_string()));
+    }
+}
+
+/// Dress or undress the live avatar from an inventory row (#1096). Both
+/// halves of the wardrobe record move together through the avatar
+/// editor's own helpers, the undo ring gets a label, and detached records
+/// join the editor's delete queue so the next publish tidies them up.
+#[allow(clippy::too_many_arguments)]
+fn apply_wear_action(
+    action: WearAction,
+    inventory: &InventoryRecord,
+    live_avatar: Option<&mut crate::state::LiveAvatarRecord>,
+    avatar_editor: &mut crate::ui::avatar::AvatarEditorState,
+    did: &str,
+    undo_labels: &mut crate::ui::undo::PendingUndoLabels,
+    toasts: &mut crate::ui::toast::Toasts,
+    now: f64,
+) {
+    let Some(live) = live_avatar else {
+        return;
+    };
+    let Some(rig) = live.0.body.rigged_mut() else {
+        return;
+    };
+    match action {
+        WearAction::Wear(name) => {
+            let Some(record) = crate::ui::avatar::record_for_inventory_item(inventory, &name)
+            else {
+                toasts.warn(format!("\"{name}\" is not wearable."), now);
+                return;
+            };
+            if crate::ui::avatar::attach_record(rig, record, did).is_some() {
+                undo_labels.set_avatar(format!("wear {name}"));
+            }
+        }
+        WearAction::TakeOff(name) => {
+            let mut detached = Vec::new();
+            let taken = crate::ui::avatar::take_off_source(rig, &name, &mut detached);
+            if taken > 0 {
+                avatar_editor.queue_attachment_deletes(detached);
+                undo_labels.set_avatar(format!("take off {name}"));
+            }
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn inventory_ui(
     mut contexts: EguiContexts,
@@ -156,7 +270,14 @@ pub fn inventory_ui(
     time: Res<Time>,
     mut publish_shortcut: ResMut<crate::ui::shortcuts::PublishShortcut>,
     recovery: Option<Res<crate::state::InventoryRecordRecovery>>,
+    mut wear: WearSurface,
 ) {
+    let WearSurface {
+        live_avatar,
+        avatar_editor,
+        undo_labels,
+        toasts,
+    } = &mut wear;
     let (Some(live), Some(stored), Some(session), Some(refresh_ctx)) =
         (live.as_mut(), stored, session, refresh_ctx)
     else {
@@ -194,11 +315,9 @@ pub fn inventory_ui(
                 state.renaming_generator = None;
             }
             crate::ui::confirm::RenameOutcome::Renamed(applied) => {
-                if applied != old_name
-                    && let Some(g) = live.0.generators.remove(&old_name)
-                {
-                    live.0.generators.insert(applied, g);
-                }
+                // Through the record's own rename so wear metadata (#1096)
+                // travels with the item.
+                live.0.rename_item(&old_name, applied);
                 state.renaming_generator = None;
             }
         }
@@ -279,6 +398,7 @@ pub fn inventory_ui(
                 .max_height(list_height)
                 .show(ui, |ui| {
                     let mut to_remove: Option<String> = None;
+                    let mut wear_action: Option<WearAction> = None;
                     let mut names: Vec<String> = live.0.generators.keys().cloned().collect();
                     // Case-insensitive (#841): plain `sort()` put "Zebra"
                     // before "apple".
@@ -304,6 +424,11 @@ pub fn inventory_ui(
                                 .get(&name)
                                 .map(|g| g.kind_tag())
                                 .unwrap_or("?");
+                            // Wearables say so, and where (#1096).
+                            let kind_tag = match live.0.wear.get(&name) {
+                                Some(meta) => format!("{kind_tag} · wearable, {}", meta.socket),
+                                None => kind_tag.to_string(),
+                            };
                             if is_placeable {
                                 // The ⠿ handle + grab cursor make the row
                                 // read as draggable (#832) — it used to be
@@ -377,12 +502,37 @@ pub fn inventory_ui(
                                         state.renaming_generator =
                                             Some((name.clone(), name.clone()));
                                     }
+                                    // Wear / Take off (#1096) for items that
+                                    // carry wear metadata.
+                                    if let Some(meta) = live.0.wear.get(&name) {
+                                        wear_buttons(
+                                            ui,
+                                            &name,
+                                            meta.socket.as_str(),
+                                            &mut wear_action,
+                                            live_avatar.as_deref(),
+                                        );
+                                    }
                                 },
                             );
                         });
                     }
+                    // Applied after the list so the borrow of `live` the rows
+                    // hold is released before the avatar record is dressed.
+                    if let Some(action) = wear_action.take() {
+                        apply_wear_action(
+                            action,
+                            &live.0,
+                            live_avatar.as_deref_mut(),
+                            avatar_editor.as_mut(),
+                            &session.did,
+                            undo_labels.as_mut(),
+                            toasts.as_mut(),
+                            time.elapsed_secs_f64(),
+                        );
+                    }
                     if let Some(name) = to_remove {
-                        live.0.generators.remove(&name);
+                        live.0.remove_item(&name);
                     }
                 });
 

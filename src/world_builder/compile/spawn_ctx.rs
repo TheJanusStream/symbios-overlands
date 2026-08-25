@@ -257,6 +257,13 @@ pub struct SpawnCtx<'a, 'wc, 'sc, 'wq, 'sq> {
     /// local player's visuals tree without also picking up remote peers'
     /// avatars (whose visuals are not locally editable).
     pub(crate) local_avatar_mode: bool,
+    /// `Some(rkey)` when the tree being spawned is one of the LOCAL
+    /// player's worn props (#1098): every node then carries an
+    /// [`AttachmentPrim`](crate::world_builder::AttachmentPrim) keyed by
+    /// that attachment record, the worn-item twin of the visuals-path
+    /// marker. Implies `avatar_mode`; never combined with
+    /// `local_avatar_mode` (a prop is not a visuals-tree node).
+    pub(crate) attachment_rkey: Option<String>,
 }
 
 impl SpawnCtx<'_, '_, '_, '_, '_> {

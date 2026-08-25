@@ -241,6 +241,56 @@ impl GeneratorTreeSource for AvatarVisualsTreeSource<'_> {
     }
 }
 
+/// `GeneratorTreeSource` adapter for one worn item's tree (#1098): the
+/// attachment record's `item` generator under its record key as the root
+/// name, so the tree-view keys `(rkey, path)` match the
+/// [`AttachmentPrim`](crate::world_builder::AttachmentPrim) markers the
+/// spawned prop carries. Single-root, primitives-only — the same
+/// vocabulary as the avatar visuals tree, because a worn item is
+/// sanitised with the same avatar rules.
+pub(crate) struct AttachmentTreeSource<'a> {
+    pub(crate) rkey: String,
+    pub(crate) item: &'a mut Generator,
+}
+
+impl<'a> AttachmentTreeSource<'a> {
+    pub(crate) fn new(rkey: &str, item: &'a mut Generator) -> Self {
+        Self {
+            rkey: rkey.to_string(),
+            item,
+        }
+    }
+}
+
+impl GeneratorTreeSource for AttachmentTreeSource<'_> {
+    fn root_names(&self) -> Vec<String> {
+        vec![self.rkey.clone()]
+    }
+    fn get_root(&self, name: &str) -> Option<&Generator> {
+        (name == self.rkey).then_some(&*self.item)
+    }
+    fn get_root_mut(&mut self, name: &str) -> Option<&mut Generator> {
+        (name == self.rkey).then_some(&mut *self.item)
+    }
+    fn allow_multiple_roots(&self) -> bool {
+        false
+    }
+    fn add_root(&mut self, _prefix: &str, _generator: Generator) -> Option<String> {
+        None
+    }
+    fn remove_root(&mut self, _name: &str) -> Option<Generator> {
+        // A worn item's root IS the item; taking it off is the Attachments
+        // tab's job, not a tree delete.
+        None
+    }
+    fn allowed_kinds_for_root(&self) -> &'static [&'static str] {
+        AVATAR_KINDS
+    }
+    fn allowed_kinds_for_child(&self) -> &'static [&'static str] {
+        AVATAR_KINDS
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_generators_tab(
     ui: &mut egui::Ui,
@@ -368,4 +418,37 @@ fn sweep_root_refs(record: &mut RoomRecord, deleted_root: &str) {
         Placement::Unknown => true,
     });
     record.traits.remove(deleted_root);
+}
+
+#[cfg(test)]
+mod attachment_source_tests {
+    use super::*;
+
+    /// The worn-item source is single-root under the record key (#1098):
+    /// that key is what the spawned `AttachmentPrim` markers carry, so the
+    /// tree's `(root, path)` ids and the scene's markers agree by name.
+    #[test]
+    fn the_attachment_source_is_single_root_under_its_record_key() {
+        let mut item = Generator::default_cuboid();
+        item.children.push(Generator::default_cuboid());
+        let mut source = AttachmentTreeSource::new("3jzfcijpj2z2a", &mut item);
+        assert_eq!(source.root_names(), vec!["3jzfcijpj2z2a".to_string()]);
+        assert!(source.get_root("3jzfcijpj2z2a").is_some());
+        assert!(source.get_root("other").is_none());
+        assert!(!source.allow_multiple_roots());
+        assert!(
+            source.add_root("x", Generator::default_cuboid()).is_none(),
+            "a worn item has exactly one root"
+        );
+        assert!(
+            source.remove_root("3jzfcijpj2z2a").is_none(),
+            "taking an item off is not a tree delete"
+        );
+        source
+            .get_root_mut("3jzfcijpj2z2a")
+            .expect("root")
+            .children
+            .push(Generator::default_cuboid());
+        assert_eq!(item.children.len(), 2, "edits land on the worn copy");
+    }
 }

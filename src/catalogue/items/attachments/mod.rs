@@ -2,12 +2,15 @@
 //!
 //! Every entry here is a normal catalogue item that *additionally* declares
 //! a [`wear_socket`](crate::catalogue::CatalogueEntry::wear_socket): the
-//! catalogue's detail panel offers **Wear** beside the usual drag-to-place,
-//! and wearing writes the built generator into the wardrobe as an
+//! catalogue's detail panel offers **Copy to inventory & wear** beside the
+//! usual drag-to-place (#1096 — the inventory is the wear surface; the
+//! copy carries the entry's socket and fit as
+//! [`WearMeta`](crate::pds::inventory::WearMeta), and wearing it writes an
 //! [`AttachmentRecord`](crate::pds::avatar::AttachmentRecord) at that
-//! socket. Attachment-ness is overlands-only metadata — the avatar engine
-//! stays attachment-agnostic (owner decision, 2026-08-23), and every entry
-//! remains placeable in the world like any other inventory item.
+//! socket with the item's name as provenance). Attachment-ness is
+//! overlands-only metadata — the avatar engine stays attachment-agnostic
+//! (owner decision, 2026-08-23), and every entry remains placeable in the
+//! world like any other inventory item.
 //!
 //! # Authoring conventions
 //!

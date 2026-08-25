@@ -33,7 +33,10 @@
 //!     [`AvatarRecord::default_for_did`] seed.
 
 mod attachments;
-pub(crate) use attachments::attach_to;
+pub(crate) use attachments::{
+    attach_record, is_worn_from, record_for_inventory_item, save_worn_to_inventory, take_off_rkey,
+    take_off_source,
+};
 mod body;
 mod locomotion;
 
@@ -51,7 +54,9 @@ use crate::ui::editable::{
     RecordAction, SeedAction, pin_axis_row, publish_status_line, save_load_reset_row, seed_row,
 };
 use crate::ui::room::RoomEditorState;
-use crate::ui::room::generators::{AvatarVisualsTreeSource, GenNodeId, draw_generators_tab};
+use crate::ui::room::generators::{
+    AttachmentTreeSource, AvatarVisualsTreeSource, GenNodeId, draw_generators_tab,
+};
 
 use locomotion::draw_locomotion_tab;
 
@@ -168,6 +173,28 @@ pub struct AvatarEditorState {
     /// when that save lands — a failed publish keeps the queue so the next
     /// attempt still tidies up.
     pending_attachment_deletes: Vec<String>,
+    /// Which worn prop's PARTS editor is open in the Attachments tab
+    /// (#1098), by record key: the tab then shows that item's generator
+    /// tree — the region-asset editor over the worn copy — instead of the
+    /// worn list. `None` = the list.
+    editing_parts: Option<String>,
+    /// The selected PART of a worn item (#1098): `(rkey, path into the
+    /// item tree)`. Its own selection, distinct from `selected_attachment`
+    /// (the whole prop's offset gizmo) and the visuals selection — one
+    /// gizmo target at a time, so setting any one of the three clears the
+    /// other two.
+    attachment_part: Option<(String, Vec<usize>)>,
+    /// Tree-view state for the parts editor — separate from the visuals
+    /// tree's so a body's expanded rows survive editing a prop.
+    part_tree_state: egui_ltreeview::TreeViewState<GenNodeId>,
+    /// Destructive-op confirms for the parts editor (#838 machinery).
+    part_tree_confirms: crate::ui::room::generators::TreeConfirms,
+    /// One-shot focus request for the parts tree after a scene pick.
+    pending_part_focus: bool,
+    /// The parts editor's selected root/path mirror, in the shape
+    /// [`draw_generators_tab`] wants (`selected_generator` is the rkey).
+    part_selected_generator: Option<String>,
+    part_selected_path: Option<Vec<usize>>,
 }
 
 impl AvatarEditorState {
@@ -193,6 +220,19 @@ impl AvatarEditorState {
         self.selected_attachment = None;
     }
 
+    /// Queue detached attachment records for deletion by the next publish
+    /// (#1096): the Inventory window's Take off and the scene menu detach
+    /// outside this editor, and their records must still be tidied up by
+    /// the same bundle. Clears the selection if it named one of them.
+    pub(crate) fn queue_attachment_deletes(&mut self, rkeys: impl IntoIterator<Item = String>) {
+        for rkey in rkeys {
+            if self.selected_attachment.as_deref() == Some(rkey.as_str()) {
+                self.selected_attachment = None;
+            }
+            self.pending_attachment_deletes.push(rkey);
+        }
+    }
+
     /// True while the local rigged body must be pinned to its **bind pose**
     /// (#1062): the whole Attachments tab authors offsets in the carrying
     /// joint's rest frame — the numeric rows no less than the gizmo — so an
@@ -206,6 +246,7 @@ impl AvatarEditorState {
     pub fn holds_rig_at_rest(&self) -> bool {
         (self.window_visible && self.selected_tab == AvatarTab::Attachments)
             || self.has_attachment_selection()
+            || self.has_part_selection()
     }
 
     /// Select a worn prop from an in-world scene pick (#1062), the
@@ -215,11 +256,96 @@ impl AvatarEditorState {
     /// it. The visuals selection goes, because only one gizmo target exists.
     pub fn select_attachment_from_scene_pick(&mut self, rkey: String) {
         self.selected_tab = AvatarTab::Attachments;
+        // The whole-prop selection lives on the worn LIST; a parts editor
+        // that happens to be open steps aside.
+        self.editing_parts = None;
+        self.clear_part_selection();
         self.selected_attachment = Some(rkey);
         self.pending_attachment_focus = true;
         if self.has_visuals_selection() {
             self.clear_visuals_selection();
         }
+    }
+
+    /// Land the editor on the Body tab (#1097) — the scene menu's "Edit
+    /// avatar" on one's own rigged body, which has no visuals node to
+    /// select. Drops every selection so no gizmo is left aimed.
+    pub fn open_body_tab(&mut self) {
+        self.selected_tab = AvatarTab::Body;
+        self.selected_attachment = None;
+        self.clear_part_selection();
+        if self.has_visuals_selection() {
+            self.clear_visuals_selection();
+        }
+    }
+
+    /// The worn prop whose parts editor is open (#1098).
+    pub fn editing_parts(&self) -> Option<&str> {
+        self.editing_parts.as_deref()
+    }
+
+    /// Open the parts editor on a worn prop (#1098): the Attachments tab
+    /// comes forward showing that item's tree, with the item ROOT selected
+    /// so a gizmo is aimed immediately. The whole-prop offset selection
+    /// goes — one gizmo target at a time.
+    pub fn open_parts_editor(&mut self, rkey: String) {
+        self.selected_tab = AvatarTab::Attachments;
+        self.editing_parts = Some(rkey.clone());
+        self.select_attachment_part(rkey, Vec::new());
+    }
+
+    /// Back from the parts editor to the worn list. Drops the part
+    /// selection with it.
+    pub fn close_parts_editor(&mut self) {
+        self.editing_parts = None;
+        self.clear_part_selection();
+    }
+
+    /// The selected part of a worn item, `(rkey, path)`.
+    pub fn attachment_part(&self) -> Option<(&str, &[usize])> {
+        self.attachment_part
+            .as_ref()
+            .map(|(rkey, path)| (rkey.as_str(), path.as_slice()))
+    }
+
+    pub fn has_part_selection(&self) -> bool {
+        self.attachment_part.is_some()
+    }
+
+    /// Select a part of a worn item (#1098) — from the parts tree or a
+    /// scene pick. Clears the other two gizmo selections and mirrors the
+    /// choice into the tree-view state so the row highlights.
+    pub fn select_attachment_part(&mut self, rkey: String, path: Vec<usize>) {
+        self.selected_attachment = None;
+        if self.has_visuals_selection() {
+            self.clear_visuals_selection();
+        }
+        for depth in 0..path.len() {
+            self.part_tree_state
+                .set_openness(GenNodeId::child(rkey.clone(), path[..depth].to_vec()), true);
+        }
+        self.part_tree_state
+            .set_selected(vec![GenNodeId::child(rkey.clone(), path.clone())]);
+        self.part_selected_generator = Some(rkey.clone());
+        self.part_selected_path = Some(path.clone());
+        self.attachment_part = Some((rkey, path));
+    }
+
+    /// A scene pick on a part of a worn item (#1098): opens that prop's
+    /// parts editor if it is not already open, selects the part, and arms
+    /// the one-shot tree focus.
+    pub fn select_attachment_part_from_scene_pick(&mut self, rkey: String, path: Vec<usize>) {
+        self.selected_tab = AvatarTab::Attachments;
+        self.editing_parts = Some(rkey.clone());
+        self.select_attachment_part(rkey, path);
+        self.pending_part_focus = true;
+    }
+
+    pub fn clear_part_selection(&mut self) {
+        self.attachment_part = None;
+        self.part_selected_generator = None;
+        self.part_selected_path = None;
+        self.part_tree_state.set_selected(Vec::new());
     }
 
     /// True while the Avatar window is open with its body visible (as of
@@ -323,6 +449,7 @@ impl AvatarEditorState {
         // Only one gizmo target at a time — the visuals/attachment mutex is
         // the intra-editor twin of the room/avatar one.
         self.selected_attachment = None;
+        self.clear_part_selection();
         let root = AvatarVisualsTreeSource::ROOT_NAME.to_string();
         self.selected_generator = Some(root.clone());
         self.selected_prim_path = Some(path.clone());
@@ -482,6 +609,13 @@ pub fn avatar_ui(
                     pending_attachment_deletes,
                     selected_attachment,
                     pending_attachment_focus,
+                    editing_parts,
+                    attachment_part,
+                    part_tree_state,
+                    part_tree_confirms,
+                    pending_part_focus,
+                    part_selected_generator,
+                    part_selected_path,
                     ..
                 } = &mut *editor;
 
@@ -785,19 +919,112 @@ pub fn avatar_ui(
                     }
                     AvatarTab::Attachments => {
                         ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
+                            // The parts editor (#1098): the region-asset
+                            // tree editor over one worn item's copy. Shown
+                            // in place of the worn list while a prop is
+                            // opened for parts; a prop taken off meanwhile
+                            // drops the editor back to the list.
+                            if let Some(rkey) = editing_parts.clone() {
+                                let worn_item = live_mut
+                                    .0
+                                    .body
+                                    .rigged_mut()
+                                    .and_then(|rig| rig.resolved.as_mut())
+                                    .and_then(|resolved| {
+                                        resolved.attachments.iter_mut().find(|a| a.rkey == rkey)
+                                    });
+                                let Some(worn) = worn_item else {
+                                    *editing_parts = None;
+                                    *attachment_part = None;
+                                    *part_selected_generator = None;
+                                    *part_selected_path = None;
+                                    return;
+                                };
+                                ui.horizontal(|ui| {
+                                    if ui.button("← Worn items").clicked() {
+                                        *editing_parts = None;
+                                        *attachment_part = None;
+                                        *part_selected_generator = None;
+                                        *part_selected_path = None;
+                                        part_tree_state.set_selected(Vec::new());
+                                    }
+                                    let what = worn
+                                        .record
+                                        .source
+                                        .clone()
+                                        .unwrap_or_else(|| format!("prop {}", worn.rkey));
+                                    ui.label(
+                                        egui::RichText::new(format!("Parts of {what}")).strong(),
+                                    );
+                                });
+                                if editing_parts.is_none() {
+                                    return;
+                                }
+                                let mut source =
+                                    AttachmentTreeSource::new(&rkey, &mut worn.record.item);
+                                let request_focus = std::mem::take(pending_part_focus);
+                                draw_generators_tab(
+                                    ui,
+                                    &mut source,
+                                    part_selected_generator,
+                                    part_selected_path,
+                                    part_tree_state,
+                                    request_focus,
+                                    renaming_unused,
+                                    inventory.as_deref_mut(),
+                                    audio_editor,
+                                    &grammar_diag,
+                                    &mut widget_changed,
+                                    &mut blob_ctx.selected_element,
+                                    part_tree_confirms,
+                                    &mut toasts,
+                                    time.elapsed_secs_f64(),
+                                    &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
+                                    None,
+                                    &mut face_pick,
+                                );
+                                // The tree's selection IS the gizmo target:
+                                // mirror it (a tree click picks a part; a
+                                // cleared tree drops the gizmo).
+                                *attachment_part = match (
+                                    part_selected_generator.as_ref(),
+                                    part_selected_path.as_ref(),
+                                ) {
+                                    (Some(root), Some(path)) if *root == rkey => {
+                                        Some((rkey.clone(), path.clone()))
+                                    }
+                                    _ => None,
+                                };
+                                if attachment_part.is_some() {
+                                    *selected_attachment = None;
+                                }
+                                return;
+                            }
                             let outcome = attachments::draw_attachments_tab(
                                 ui,
                                 &mut live_mut.0,
-                                inventory.as_deref().map(|live| &live.0),
+                                inventory.as_deref_mut(),
                                 attachments_state,
                                 pending_attachment_deletes,
                                 session.as_ref().map(|s| s.did.as_str()),
                                 selected_attachment,
                                 std::mem::take(pending_attachment_focus),
+                                &mut toasts,
+                                time.elapsed_secs_f64(),
                             );
                             widget_changed |= outcome.changed;
                             if let Some(label) = outcome.label {
                                 undo_labels.set_avatar(label);
+                            }
+                            if let Some(rkey) = outcome.open_parts {
+                                // Open on the item ROOT so a gizmo is aimed
+                                // at once; the whole-prop selection yields.
+                                *selected_attachment = None;
+                                part_tree_state.set_selected(vec![GenNodeId::root(rkey.clone())]);
+                                *part_selected_generator = Some(rkey.clone());
+                                *part_selected_path = Some(Vec::new());
+                                *attachment_part = Some((rkey.clone(), Vec::new()));
+                                *editing_parts = Some(rkey);
                             }
                         });
                     }

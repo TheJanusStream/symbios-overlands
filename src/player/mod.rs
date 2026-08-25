@@ -76,6 +76,7 @@ pub(crate) use portal::begin_portal_travel;
 pub use preset::{
     AirplanePreset, CarPreset, HelicopterPreset, HoverBoatPreset, HumanoidPreset, VehicleChassis,
 };
+pub(crate) use rigged::RiggedRoot;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;

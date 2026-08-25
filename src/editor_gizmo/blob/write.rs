@@ -193,9 +193,10 @@ pub(crate) fn commit_blob_element_drag(
             info.duplicate,
         ),
         // A worn prop's generator tree lives in its own attachment record,
-        // which has no blob-element editing session (#1062) — the target
-        // kind can never reach here rather than being unimplemented.
-        ActiveTarget::Attachment | ActiveTarget::None => None,
+        // which has no blob-element editing session (#1062; the parts
+        // editor of #1098 does not open one either) — the target kind can
+        // never reach here rather than being unimplemented.
+        ActiveTarget::Attachment | ActiveTarget::AttachmentPart | ActiveTarget::None => None,
     }
 }
 

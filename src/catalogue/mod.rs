@@ -315,9 +315,10 @@ pub trait CatalogueEntry: Sync {
 
     /// The rig socket this entry lands on when **worn** (#1086/#1087).
     /// `Some` marks the entry wearable: the catalogue's detail panel offers
-    /// Wear beside the usual drag-to-place, and wearing writes the built
-    /// generator into the wardrobe as an
-    /// [`AttachmentRecord`](crate::pds::avatar::AttachmentRecord) at this
+    /// **Copy to inventory & wear** beside the usual drag-to-place (#1096),
+    /// the copy carries this socket as its
+    /// [`WearMeta`](crate::pds::inventory::WearMeta), and wearing it writes
+    /// an [`AttachmentRecord`](crate::pds::avatar::AttachmentRecord) at this
     /// socket with an identity offset — the sentinel that lets the engine
     /// seat the prop against the measured body surface. Wearable entries
     /// use [`StructureRole::Attachment`] and the pairing is guard-tested in

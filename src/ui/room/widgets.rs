@@ -38,7 +38,7 @@ pub(super) fn ypr_degrees_to_quat(ypr: [f32; 3]) -> [f32; 4] {
 /// re-derives its angles from whatever the quat currently is. Near the
 /// ±90° pitch fold the displayed yaw/roll pair can re-canonicalise
 /// (Euler ambiguity); the underlying rotation stays exact.
-pub(super) fn euler_rotation_row(
+pub(crate) fn euler_rotation_row(
     ui: &mut egui::Ui,
     label: &str,
     rotation: &mut Fp4,
@@ -370,7 +370,7 @@ pub(super) fn draw_asset_reference_editor(
     }
 }
 
-pub(super) fn unique_key<T>(map: &std::collections::HashMap<String, T>, prefix: &str) -> String {
+pub(crate) fn unique_key<T>(map: &std::collections::HashMap<String, T>, prefix: &str) -> String {
     let mut n = 0;
     loop {
         let key = if n == 0 {

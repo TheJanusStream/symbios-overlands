@@ -97,6 +97,29 @@ pub fn spawn_visual_tree(
     deps: &mut AvatarSpawnDeps,
     is_local: bool,
 ) {
+    spawn_attachment_tree(
+        commands, chassis, visuals, meshes, materials, images, deps, is_local, None,
+    );
+}
+
+/// [`spawn_visual_tree`] for a worn prop (#1098): `attachment` names the
+/// attachment record the tree belongs to, and every spawned node then
+/// carries an [`AttachmentPrim`](crate::world_builder::AttachmentPrim)
+/// marker so the part can be tree-selected, scene-picked and gizmo-dragged
+/// like a region asset's. Pass `None` for a peer's outfit — their records
+/// are not editable here — which makes this exactly [`spawn_visual_tree`].
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_attachment_tree(
+    commands: &mut Commands,
+    chassis: Entity,
+    visuals: &crate::pds::Generator,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
+    deps: &mut AvatarSpawnDeps,
+    is_local: bool,
+    attachment: Option<&str>,
+) {
     // The avatar spawner's `record` parameter is unused on every reachable
     // dispatch arm — the sanitiser strips Terrain / Water / Portal upstream, and
     // that Water arm is the only `ctx.record` reader — so a single shared
@@ -127,5 +150,6 @@ pub fn spawn_visual_tree(
         empty_record,
         deps.current_room.as_deref(),
         is_local,
+        attachment,
     );
 }

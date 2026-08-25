@@ -311,6 +311,20 @@ pub struct AvatarVisualPrim {
     pub path: Vec<usize>,
 }
 
+/// Marker on every node of one of the LOCAL player's worn props (#1098):
+/// the attachment record it belongs to and the path into that record's
+/// item tree — the worn-item twin of [`AvatarVisualPrim`], so a part of a
+/// worn item can be tree-selected, scene-picked and gizmo-dragged exactly
+/// like a part of a region asset. Peers' outfits omit it (their records
+/// are not editable here), so a query for it is implicitly local-scoped.
+#[derive(Component, Clone, Debug, PartialEq, Eq)]
+pub struct AttachmentPrim {
+    /// The attachment record's key.
+    pub rkey: String,
+    /// Child-index chain into the record's `item` tree; empty = the root.
+    pub path: Vec<usize>,
+}
+
 /// Marker on the single **root** entity of an avatar's spawned visuals tree
 /// (the one direct chassis child the whole generator tree hangs from) —
 /// local and remote alike. Carries the root's authored local transform so

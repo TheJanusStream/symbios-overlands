@@ -22,8 +22,16 @@
 //!   old "make asset → make placement → drag it off the origin" sequence into
 //!   one click.
 //!
-//! Everything except **Select part** is owner-only; the avatar entry works
-//! for visitors too (it edits their avatar record, not the room).
+//! * **Worn item** (#1097) — right-clicking one of your OWN worn props:
+//!   **Edit worn item** (Avatar editor, Attachments tab, that row selected
+//!   with the gizmo armed), **Re-seat**, **Save to inventory**, **Take
+//!   off**. Right-clicking your own rigged body: **Edit avatar** (Body
+//!   tab) and **Wear from inventory…**, a submenu of your wearable stash
+//!   items. Like Select part, these work in ANY room — they edit your
+//!   avatar and inventory records, never the room.
+//!
+//! Everything except the avatar entries is owner-only; those work for
+//! visitors too (they edit the visitor's own records, not the room).
 //!
 //! **Right-button conflict.** Camera orbit is bound to the right mouse button
 //! (`camera::gate_camera_on_gui`, `bevy_panorbit_camera`), so the menu cannot
@@ -48,7 +56,11 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use transform_gizmo_bevy::GizmoTarget;
 
 use crate::pds::{Fp, Fp3, Fp4, Generator, Placement, RoomRecord, TransformData};
-use crate::state::{CurrentRoomDid, LiveInventoryRecord, LiveRoomRecord};
+use crate::player::RiggedRoot;
+use crate::player::attachments::LocalAttachment;
+use crate::state::{
+    CurrentRoomDid, LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord, LocalPlayer,
+};
 use crate::terrain::TerrainMesh;
 use crate::ui::avatar::AvatarEditorState;
 use crate::ui::catalogue::catalogue_menu;
@@ -92,6 +104,34 @@ pub(super) struct SceneContextMenu {
     /// "Select part" entry — available in ANY room, ownership is
     /// irrelevant for one's own avatar.
     avatar_prim: Option<Vec<usize>>,
+    /// One of the player's own worn props under the cursor (#1097): its
+    /// record key and inventory provenance. Only the local body's props
+    /// carry [`LocalAttachment`], so a peer's outfit never lands here.
+    worn: Option<WornHit>,
+    /// The click landed on the player's own RIGGED body (#1097) — a
+    /// [`RiggedRoot`] whose chassis is the [`LocalPlayer`]. Drives "Edit
+    /// avatar" and "Wear from inventory…".
+    own_body: bool,
+}
+
+/// A worn prop under the cursor: what the menu needs to act on it.
+#[derive(Clone, Debug)]
+struct WornHit {
+    rkey: String,
+    source: Option<String>,
+    /// The part of the prop under the cursor (#1098): its path into the
+    /// record's item tree, when the hit landed on a marked node.
+    part: Option<Vec<usize>>,
+}
+
+/// The avatar-side hits the detector looks for (#1097), bundled to stay
+/// under Bevy's 16-parameter system ceiling.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(super) struct AvatarHits<'w, 's> {
+    worn_props: Query<'w, 's, &'static LocalAttachment>,
+    part_prims: Query<'w, 's, &'static crate::world_builder::AttachmentPrim>,
+    rigged_roots: Query<'w, 's, &'static ChildOf, With<RiggedRoot>>,
+    local_players: Query<'w, 's, (), With<LocalPlayer>>,
 }
 
 /// The action a menu click selected, applied after the popup releases its
@@ -115,6 +155,23 @@ enum MenuChoice {
     DeleteItem,
     /// Remove the enclosing placement.
     DeletePlacement,
+    /// Open the Avatar editor's Attachments tab on the clicked worn prop,
+    /// gizmo armed (#1097).
+    EditWorn,
+    /// Open the worn prop's PARTS editor — its generator tree — on the
+    /// exact part under the cursor (#1098).
+    EditWornPart,
+    /// Zero the worn prop's offset so the engine re-seats it.
+    ReseatWorn,
+    /// Write the worn prop back to the inventory (its source item, or a
+    /// new one).
+    SaveWornToInventory,
+    /// Detach the worn prop; its record joins the publish delete queue.
+    TakeOffWorn,
+    /// Open the Avatar editor's Body tab (#1097).
+    EditAvatar,
+    /// Wear the named inventory item (#1097).
+    WearFromInventory(String),
     Create {
         prefix: String,
         // Boxed: a built `Generator` (esp. a Shape-grammar / L-system
@@ -141,6 +198,7 @@ pub(super) fn detect_scene_right_click(
     avatar_prims: Query<&AvatarVisualPrim>,
     parents: Query<&ChildOf>,
     terrain: Query<(), With<TerrainMesh>>,
+    avatar_hits: AvatarHits,
     mut menu: ResMut<SceneContextMenu>,
 ) {
     let cursor_now = windows.single().ok().and_then(|w| w.cursor_position());
@@ -224,9 +282,19 @@ pub(super) fn detect_scene_right_click(
     let mut picked_prim: Option<PrimMarker> = None;
     let mut picked_placement: Option<usize> = None;
     let mut picked_avatar: Option<Vec<usize>> = None;
+    let mut picked_worn: Option<WornHit> = None;
+    let mut picked_part: Option<Vec<usize>> = None;
+    let mut own_body = false;
     let mut is_terrain = false;
     let mut cursor_entity = Some(hit_entity);
     while let Some(entity) = cursor_entity {
+        // The deepest part marker on the path is the part under the cursor
+        // (#1098); it is attached to its prop once the prop is found.
+        if picked_part.is_none()
+            && let Ok(part) = avatar_hits.part_prims.get(entity)
+        {
+            picked_part = Some(part.path.clone());
+        }
         if picked_prim.is_none()
             && let Ok(marker) = prim_markers.get(entity)
         {
@@ -236,6 +304,24 @@ pub(super) fn detect_scene_right_click(
             && let Ok(marker) = avatar_prims.get(entity)
         {
             picked_avatar = Some(marker.path.clone());
+        }
+        // A worn prop (#1097): `LocalAttachment` sits on the prop's root,
+        // between its meshes and the rig joint. Only the local body's
+        // props carry it. The rigged body itself: a `RiggedRoot` whose
+        // chassis is the local player — a peer's rig has no such parent.
+        if picked_worn.is_none()
+            && let Ok(worn) = avatar_hits.worn_props.get(entity)
+        {
+            picked_worn = Some(WornHit {
+                rkey: worn.rkey.clone(),
+                source: worn.source.clone(),
+                part: picked_part.take(),
+            });
+        }
+        if let Ok(child_of) = avatar_hits.rigged_roots.get(entity)
+            && avatar_hits.local_players.contains(child_of.parent())
+        {
+            own_body = true;
         }
         if terrain.get(entity).is_ok() {
             is_terrain = true;
@@ -258,7 +344,12 @@ pub(super) fn detect_scene_right_click(
         picked_placement = None;
         is_terrain = false;
     }
-    if picked_prim.is_none() && picked_placement.is_none() && picked_avatar.is_none() && !is_terrain
+    if picked_prim.is_none()
+        && picked_placement.is_none()
+        && picked_avatar.is_none()
+        && picked_worn.is_none()
+        && !own_body
+        && !is_terrain
     {
         menu.open = false;
         return;
@@ -270,6 +361,8 @@ pub(super) fn detect_scene_right_click(
     menu.placement = picked_placement;
     menu.prim = picked_prim;
     menu.avatar_prim = picked_avatar;
+    menu.worn = picked_worn;
+    menu.own_body = own_body;
 }
 
 /// Egui-pass renderer + action applier for the armed [`SceneContextMenu`].
@@ -283,10 +376,16 @@ pub(super) fn scene_context_menu_ui(
     mut editor: ResMut<RoomEditorState>,
     mut avatar_editor: ResMut<AvatarEditorState>,
     mut room: Option<ResMut<LiveRoomRecord>>,
-    inventory: Option<Res<LiveInventoryRecord>>,
+    // Mutable for the two avatar-side writes (#1097): Save to inventory
+    // and Wear from inventory. Guarded-dirty: a menu click is the only
+    // deref_mut, and the stash's dirty state is derived live-vs-stored.
+    mut inventory: Option<ResMut<LiveInventoryRecord>>,
+    mut live_avatar: Option<ResMut<LiveAvatarRecord>>,
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
     mut undo_labels: ResMut<crate::ui::undo::PendingUndoLabels>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    time: Res<Time>,
 ) {
     if !menu.open {
         return;
@@ -296,13 +395,15 @@ pub(super) fn scene_context_menu_ui(
     // as the detector, re-checked here as the security boundary. "Select
     // part" targets the user's OWN avatar, so an avatar hit keeps the menu
     // alive without ownership (#824) — every room entry below additionally
-    // keys on `room_available`.
+    // keys on `room_available`. The worn-prop and own-body entries (#1097)
+    // are avatar hits too.
     let owns_room = matches!(
         (session.as_deref(), room_did.as_deref()),
         (Some(s), Some(r)) if s.did == r.0
     );
     let room_available = owns_room && room.is_some();
-    if !room_available && menu.avatar_prim.is_none() {
+    let avatar_hit = menu.avatar_prim.is_some() || menu.worn.is_some() || menu.own_body;
+    if !room_available && !avatar_hit {
         menu.open = false;
         return;
     }
@@ -321,11 +422,23 @@ pub(super) fn scene_context_menu_ui(
     };
     let picked_placement = if room_available { menu.placement } else { None };
     let picked_avatar = menu.avatar_prim.clone();
+    let picked_worn = menu.worn.clone();
+    let own_body = menu.own_body;
     let has_object = picked_prim.is_some() || picked_placement.is_some();
     let did = session
         .as_deref()
         .map(|s| s.did.clone())
         .unwrap_or_default();
+    // The wearable stash, sorted, for the "Wear from inventory…" submenu.
+    let wearables: Vec<String> = inventory
+        .as_deref()
+        .map(|inv| {
+            let mut names: Vec<String> = inv.0.wear.keys().cloned().collect();
+            names.sort_by_key(|name| name.to_lowercase());
+            names
+        })
+        .unwrap_or_default();
+    let now = time.elapsed_secs_f64();
 
     // Shared into every (nested) menu closure; drained after the popup returns.
     // The `RefCell` sidesteps capturing `&mut` in sibling closures — the same
@@ -347,6 +460,84 @@ pub(super) fn scene_context_menu_ui(
     .open_bool(&mut menu.open)
     .show(|ui| {
         ui.set_min_width(170.0);
+        // --- Worn prop (#1097) ------------------------------------------
+        if let Some(worn) = &picked_worn {
+            let what = worn.source.as_deref().unwrap_or("worn item");
+            if ui
+                .button(format!("Edit \"{what}\""))
+                .on_hover_text("Open the Avatar editor on this worn item, gizmo armed")
+                .clicked()
+            {
+                *chosen.borrow_mut() = Some(MenuChoice::EditWorn);
+                ui.close();
+            }
+            if worn.part.is_some()
+                && ui
+                    .button("Edit this part")
+                    .on_hover_text(
+                        "Open the item's part tree on the exact part under the cursor — \
+                         the region-asset editor, on your worn copy",
+                    )
+                    .clicked()
+            {
+                *chosen.borrow_mut() = Some(MenuChoice::EditWornPart);
+                ui.close();
+            }
+            if ui
+                .button("Re-seat")
+                .on_hover_text("Zero its offset — the engine seats it just outside the body again")
+                .clicked()
+            {
+                *chosen.borrow_mut() = Some(MenuChoice::ReseatWorn);
+                ui.close();
+            }
+            let save_label = match worn.source.as_deref() {
+                Some(source) => format!("Save to inventory as \"{source}\""),
+                None => String::from("Save to inventory"),
+            };
+            if ui
+                .add_enabled(inventory.is_some(), egui::Button::new(save_label))
+                .on_hover_text("Write it back — geometry, socket and offset — so wearing it again looks like this")
+                .clicked()
+            {
+                *chosen.borrow_mut() = Some(MenuChoice::SaveWornToInventory);
+                ui.close();
+            }
+            if crate::ui::affordances::danger_menu_button(ui, "Take off").clicked() {
+                *chosen.borrow_mut() = Some(MenuChoice::TakeOffWorn);
+                ui.close();
+            }
+            ui.separator();
+        }
+        // --- Own rigged body (#1097) ------------------------------------
+        if own_body {
+            if ui
+                .button("Edit avatar")
+                .on_hover_text("Open the Avatar editor on your body")
+                .clicked()
+            {
+                *chosen.borrow_mut() = Some(MenuChoice::EditAvatar);
+                ui.close();
+            }
+            if wearables.is_empty() {
+                ui.add_enabled(false, egui::Button::new("Wear from inventory…"))
+                    .on_disabled_hover_text(
+                        "Nothing wearable in your inventory — copy a wearable from the Catalogue",
+                    );
+            } else {
+                ui.menu_button("Wear from inventory…", |ui| {
+                    for name in &wearables {
+                        if ui.button(name).clicked() {
+                            *chosen.borrow_mut() = Some(MenuChoice::WearFromInventory(name.clone()));
+                            ui.close();
+                        }
+                    }
+                });
+            }
+            if picked_avatar.is_some() || has_object || room_available {
+                ui.separator();
+            }
+        }
         if picked_avatar.is_some() {
             if ui
                 .button("Select part")
@@ -474,6 +665,120 @@ pub(super) fn scene_context_menu_ui(
     menu.open = false;
 
     match choice {
+        MenuChoice::EditWorn => {
+            let Some(worn) = picked_worn else {
+                return;
+            };
+            panels.avatar = true;
+            avatar_editor.select_attachment_from_scene_pick(worn.rkey);
+            if editor.has_selection() {
+                editor.clear_selection();
+            }
+        }
+        MenuChoice::EditWornPart => {
+            let Some(worn) = picked_worn else {
+                return;
+            };
+            panels.avatar = true;
+            avatar_editor
+                .select_attachment_part_from_scene_pick(worn.rkey, worn.part.unwrap_or_default());
+            if editor.has_selection() {
+                editor.clear_selection();
+            }
+        }
+        MenuChoice::ReseatWorn => {
+            let (Some(worn), Some(live)) = (picked_worn, live_avatar.as_mut()) else {
+                return;
+            };
+            if let Some(resolved) = live
+                .0
+                .body
+                .rigged_mut()
+                .and_then(|rig| rig.resolved.as_mut())
+                && let Some(attachment) = resolved
+                    .attachments
+                    .iter_mut()
+                    .find(|a| a.rkey == worn.rkey)
+            {
+                attachment.record.offset = TransformData::default();
+                undo_labels.set_avatar("re-seat prop");
+            }
+        }
+        MenuChoice::SaveWornToInventory => {
+            let (Some(worn), Some(live), Some(inv)) =
+                (picked_worn, live_avatar.as_deref(), inventory.as_mut())
+            else {
+                return;
+            };
+            let Some(record) = live
+                .0
+                .body
+                .rigged_ref()
+                .and_then(|rig| rig.resolved.as_ref())
+                .and_then(|resolved| resolved.attachments.iter().find(|a| a.rkey == worn.rkey))
+                .map(|a| a.record.clone())
+            else {
+                return;
+            };
+            match crate::ui::avatar::save_worn_to_inventory(&record, &mut inv.0) {
+                Ok(name) => toasts.success(
+                    format!("Saved as \"{name}\" — wear it again from your inventory."),
+                    now,
+                ),
+                Err(reason) => toasts.warn(reason, now),
+            }
+        }
+        MenuChoice::TakeOffWorn => {
+            let (Some(worn), Some(live)) = (picked_worn, live_avatar.as_mut()) else {
+                return;
+            };
+            let Some(rig) = live.0.body.rigged_mut() else {
+                return;
+            };
+            let mut detached = Vec::new();
+            if crate::ui::avatar::take_off_rkey(rig, &worn.rkey, &mut detached) {
+                avatar_editor.queue_attachment_deletes(detached);
+                undo_labels.set_avatar(format!(
+                    "take off {}",
+                    worn.source.as_deref().unwrap_or("prop")
+                ));
+            }
+        }
+        MenuChoice::EditAvatar => {
+            panels.avatar = true;
+            avatar_editor.open_body_tab();
+            if editor.has_selection() {
+                editor.clear_selection();
+            }
+        }
+        MenuChoice::WearFromInventory(name) => {
+            let (Some(live), Some(inv)) = (live_avatar.as_mut(), inventory.as_deref()) else {
+                return;
+            };
+            let Some(record) = crate::ui::avatar::record_for_inventory_item(&inv.0, &name) else {
+                return;
+            };
+            let Some(rig) = live.0.body.rigged_mut() else {
+                return;
+            };
+            let worn = rig
+                .resolved
+                .as_ref()
+                .map_or(0, |resolved| resolved.attachments.len());
+            if worn >= crate::pds::avatar::MAX_AVATAR_ATTACHMENTS {
+                toasts.warn(
+                    format!(
+                        "All {} attachment slots are taken — take something off first.",
+                        crate::pds::avatar::MAX_AVATAR_ATTACHMENTS
+                    ),
+                    now,
+                );
+                return;
+            }
+            if crate::ui::avatar::attach_record(rig, record, &did).is_some() {
+                undo_labels.set_avatar(format!("wear {name}"));
+            }
+        }
         MenuChoice::SelectItem => {
             let Some(prim) = picked_prim else {
                 return;

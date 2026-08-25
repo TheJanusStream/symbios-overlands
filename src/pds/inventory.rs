@@ -33,6 +33,7 @@ use std::collections::HashMap;
 
 use super::generator::Generator;
 use super::sanitize::sanitize_generator;
+use super::types::TransformData;
 use super::xrpc::{FetchError, RepoWrite, XrpcError, decode_record_json, resolve_pds};
 use super::{INVENTORY_COLLECTION, INVENTORY_ITEM_COLLECTION};
 use bevy::prelude::*;
@@ -48,6 +49,72 @@ pub struct InventoryRecord {
     #[serde(rename = "$type")]
     pub lex_type: String,
     pub generators: HashMap<String, Generator>,
+    /// How the items that can be **worn** are worn (#1096), keyed by item
+    /// name exactly like [`Self::generators`]. An item with an entry here
+    /// offers Wear in the Inventory window; one without is plain decor.
+    /// Kept as a side table rather than folded into a per-item struct so
+    /// every existing reader of `generators` — drops, gifts, the room
+    /// editor's From-Inventory menu — stays untouched. Sanitize drops
+    /// entries whose item is gone.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub wear: HashMap<String, WearMeta>,
+}
+
+/// How an inventory item is worn (#1096): the socket it lands on, the
+/// measurement-fit it declares, and the offset it was last saved with —
+/// everything an [`AttachmentRecord`](super::avatar::AttachmentRecord)
+/// needs beyond the item itself, so wearing from the inventory reproduces
+/// the customised look exactly, and saving a worn item back writes the
+/// same three things.
+///
+/// The offset is the socket-relative transform (see the attachment
+/// record's `offset`); identity means "engine-seat me". Copied from a
+/// catalogue entry's `wear_socket()` / `wear_fit()` when the item is
+/// copied into the stash, then owned by the item.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct WearMeta {
+    /// Engine socket name ([`symbios_avatar::Socket::name`]).
+    pub socket: String,
+    /// Authored band inner diameter in whole millimetres; `0` = no fit.
+    #[serde(default, rename = "fitBandMm", skip_serializing_if = "fit_elides")]
+    pub fit_band_mm: u32,
+    /// Socket-relative offset, identity elided.
+    #[serde(default, skip_serializing_if = "TransformData::is_identity")]
+    pub offset: TransformData,
+}
+
+fn fit_elides(mm: &u32) -> bool {
+    *mm == 0
+}
+
+impl WearMeta {
+    /// Wear metadata for a fresh copy of a catalogue entry: its default
+    /// socket, its fit declaration, and the engine-seat sentinel offset.
+    pub fn for_entry(
+        socket: symbios_avatar::Socket,
+        fit: Option<crate::catalogue::WearFit>,
+    ) -> Self {
+        Self {
+            socket: socket.name().into(),
+            fit_band_mm: fit.map_or(0, |fit| fit.band_mm()),
+            offset: TransformData::default(),
+        }
+    }
+
+    /// The socket this metadata names, when this build knows it.
+    pub fn socket(&self) -> Option<symbios_avatar::Socket> {
+        symbios_avatar::Socket::from_name(&self.socket)
+    }
+
+    /// Clamp exactly as the attachment record clamps the same three fields
+    /// — the two share a wire vocabulary and must share bounds.
+    pub fn sanitize(&mut self) {
+        super::avatar::wardrobe::sanitize_wear_fields(
+            &mut self.socket,
+            &mut self.fit_band_mm,
+            &mut self.offset,
+        );
+    }
 }
 
 impl Default for InventoryRecord {
@@ -55,6 +122,7 @@ impl Default for InventoryRecord {
         Self {
             lex_type: INVENTORY_COLLECTION.into(),
             generators: HashMap::new(),
+            wear: HashMap::new(),
         }
     }
 }
@@ -90,6 +158,53 @@ impl InventoryRecord {
         for generator in self.generators.values_mut() {
             sanitize_generator(generator);
         }
+        // Wear metadata follows its item: an orphan entry names nothing
+        // wearable, and every kept one is clamped like an attachment.
+        let generators = &self.generators;
+        self.wear.retain(|name, _| generators.contains_key(name));
+        for meta in self.wear.values_mut() {
+            meta.sanitize();
+        }
+    }
+
+    /// Insert or replace an item together with its wear metadata (#1096) —
+    /// the one write path that keeps the side table in step. `None` makes
+    /// (or leaves) the item plain decor.
+    pub fn put_item(&mut self, name: String, generator: Generator, wear: Option<WearMeta>) {
+        match wear {
+            Some(meta) => {
+                self.wear.insert(name.clone(), meta);
+            }
+            None => {
+                self.wear.remove(&name);
+            }
+        }
+        self.generators.insert(name, generator);
+    }
+
+    /// Remove an item and its wear metadata together. Returns the item.
+    pub fn remove_item(&mut self, name: &str) -> Option<Generator> {
+        self.wear.remove(name);
+        self.generators.remove(name)
+    }
+
+    /// Rename an item, carrying its wear metadata across. A no-op when the
+    /// old name is missing or the new one is taken.
+    pub fn rename_item(&mut self, old: &str, new: String) -> bool {
+        if old == new || self.generators.contains_key(&new) {
+            return false;
+        }
+        let Some(generator) = self.generators.remove(old) else {
+            return false;
+        };
+        let wear = self.wear.remove(old);
+        self.put_item(new, generator, wear);
+        true
+    }
+
+    /// Whether the named item can be worn.
+    pub fn is_wearable(&self, name: &str) -> bool {
+        self.wear.contains_key(name)
     }
 }
 
@@ -104,14 +219,18 @@ pub struct InventoryItemRecord {
     /// (arbitrary user strings are not valid record keys).
     pub name: String,
     pub generator: Generator,
+    /// Wear metadata (#1096) when the item can be worn; absent for decor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wear: Option<WearMeta>,
 }
 
 impl InventoryItemRecord {
-    fn new(name: &str, generator: &Generator) -> Self {
+    fn new(name: &str, generator: &Generator, wear: Option<&WearMeta>) -> Self {
         Self {
             lex_type: INVENTORY_ITEM_COLLECTION.into(),
             name: name.into(),
             generator: generator.clone(),
+            wear: wear.cloned(),
         }
     }
 }
@@ -135,7 +254,11 @@ pub fn max_item_bytes(record: &InventoryRecord) -> Option<usize> {
         .generators
         .iter()
         .filter_map(|(name, generator)| {
-            super::record_size::serialized_record_bytes(&InventoryItemRecord::new(name, generator))
+            super::record_size::serialized_record_bytes(&InventoryItemRecord::new(
+                name,
+                generator,
+                record.wear.get(name),
+            ))
         })
         .max()
 }
@@ -163,10 +286,10 @@ struct ListedRecord {
 /// anything that does not decode as an [`InventoryItemRecord`]. Duplicate
 /// names keep the last occurrence in listRecords order (rkey order), which
 /// is deterministic.
-fn fold_listed_items(values: Vec<serde_json::Value>, into: &mut HashMap<String, Generator>) {
+fn fold_listed_items(values: Vec<serde_json::Value>, into: &mut InventoryRecord) {
     for value in values {
         if let Ok(item) = serde_json::from_value::<InventoryItemRecord>(value) {
-            into.insert(item.name, item.generator);
+            into.put_item(item.name, item.generator, item.wear);
         }
     }
 }
@@ -184,7 +307,7 @@ pub async fn fetch_inventory_record(
         .await
         .ok_or(FetchError::DidResolutionFailed)?;
 
-    let mut generators: HashMap<String, Generator> = HashMap::new();
+    let mut record = InventoryRecord::default();
     let mut cursor: Option<String> = None;
     for _ in 0..crate::config::state::MAX_INVENTORY_LIST_PAGES {
         let url = format!("{}/xrpc/com.atproto.repo.listRecords", pds);
@@ -210,7 +333,7 @@ pub async fn fetch_inventory_record(
         let empty_page = page.records.is_empty();
         fold_listed_items(
             page.records.into_iter().map(|r| r.value).collect(),
-            &mut generators,
+            &mut record,
         );
         cursor = page.cursor;
         if cursor.is_none() || empty_page {
@@ -218,11 +341,7 @@ pub async fn fetch_inventory_record(
         }
     }
 
-    if !generators.is_empty() {
-        let mut record = InventoryRecord {
-            lex_type: INVENTORY_COLLECTION.into(),
-            generators,
-        };
+    if !record.generators.is_empty() {
         record.sanitize();
         return Ok(Some(record));
     }
@@ -301,14 +420,15 @@ fn plan_item_writes(
     live_names.sort();
     for name in live_names {
         let generator = &live.generators[name];
+        let wear = live.wear.get(name);
         let (changed, exists) = match stored.generators.get(name) {
-            Some(old) => (old != generator, true),
+            Some(old) => (old != generator || stored.wear.get(name) != wear, true),
             None => (true, false),
         };
         if !changed {
             continue;
         }
-        let item = InventoryItemRecord::new(name, generator);
+        let item = InventoryItemRecord::new(name, generator, wear);
         super::record_size::preflight(&item, &format!("inventory item \"{name}\""))?;
         let value = serde_json::to_value(&item).map_err(|e| format!("serialize: {e}"))?;
         let write = if exists {
@@ -430,7 +550,8 @@ mod tests {
                     rkey: item_rkey("b_changed"),
                     value: serde_json::to_value(InventoryItemRecord::new(
                         "b_changed",
-                        &live.generators["b_changed"]
+                        &live.generators["b_changed"],
+                        None
                     ))
                     .unwrap(),
                 },
@@ -439,7 +560,8 @@ mod tests {
                     rkey: item_rkey("c_new"),
                     value: serde_json::to_value(InventoryItemRecord::new(
                         "c_new",
-                        &live.generators["c_new"]
+                        &live.generators["c_new"],
+                        None
                     ))
                     .unwrap(),
                 },
@@ -498,18 +620,84 @@ mod tests {
 
     #[test]
     fn fold_skips_foreign_records_and_keeps_last_duplicate() {
-        let good =
-            serde_json::to_value(InventoryItemRecord::new("a", &Generator::default_cuboid()))
-                .unwrap();
+        let good = serde_json::to_value(InventoryItemRecord::new(
+            "a",
+            &Generator::default_cuboid(),
+            None,
+        ))
+        .unwrap();
         let mut dup_gen = Generator::default_cuboid();
         dup_gen.transform.translation.0[1] = 3.0;
-        let dup = serde_json::to_value(InventoryItemRecord::new("a", &dup_gen)).unwrap();
+        let dup = serde_json::to_value(InventoryItemRecord::new("a", &dup_gen, None)).unwrap();
         let junk = serde_json::json!({"$type": "app.bsky.feed.post", "text": "hi"});
 
-        let mut map = HashMap::new();
-        fold_listed_items(vec![good, junk, dup], &mut map);
-        assert_eq!(map.len(), 1);
-        assert_eq!(map["a"].transform.translation.0[1], 3.0);
+        let mut record = InventoryRecord::default();
+        fold_listed_items(vec![good, junk, dup], &mut record);
+        assert_eq!(record.generators.len(), 1);
+        assert_eq!(record.generators["a"].transform.translation.0[1], 3.0);
+    }
+
+    /// Wear metadata (#1096) in all three schema directions on the per-item
+    /// wire record, and the side-table invariants around it: an orphan is
+    /// swept on sanitize, a rename carries it across, and a wear-only edit
+    /// counts as a change the publish plan writes.
+    #[test]
+    fn wear_metadata_rides_the_item_record_and_follows_its_item() {
+        let meta = WearMeta {
+            socket: String::from("left-hip"),
+            fit_band_mm: 0,
+            offset: TransformData::default(),
+        };
+        let item = InventoryItemRecord::new("satchel", &Generator::default_cuboid(), Some(&meta));
+        let json = serde_json::to_string(&item).expect("serializes");
+        assert!(
+            json.contains("\"wear\":{\"socket\":\"left-hip\"}"),
+            "encode: {json}"
+        );
+        let back: InventoryItemRecord = serde_json::from_str(&json).expect("decodes");
+        assert_eq!(back.wear.as_ref(), Some(&meta), "decode");
+        let plain = InventoryItemRecord::new("box", &Generator::default_cuboid(), None);
+        let plain_json = serde_json::to_string(&plain).expect("serializes");
+        assert!(!plain_json.contains("wear"), "elides: {plain_json}");
+        let old: InventoryItemRecord = serde_json::from_str(&plain_json).expect("decodes");
+        assert_eq!(old.wear, None, "a pre-#1096 item is decor");
+
+        // Side table follows the item.
+        let mut record = InventoryRecord::default();
+        record.put_item(
+            String::from("satchel"),
+            Generator::default_cuboid(),
+            Some(meta.clone()),
+        );
+        record.wear.insert(String::from("ghost"), meta.clone());
+        record.sanitize();
+        assert!(
+            !record.wear.contains_key("ghost"),
+            "an orphan entry is swept"
+        );
+        assert!(record.rename_item("satchel", String::from("bag")));
+        assert!(record.is_wearable("bag") && !record.is_wearable("satchel"));
+        assert!(record.remove_item("bag").is_some());
+        assert!(record.wear.is_empty());
+
+        // A wear-only edit is a change to publish.
+        let stored = {
+            let mut r = InventoryRecord::default();
+            r.put_item(
+                String::from("s"),
+                Generator::default_cuboid(),
+                Some(meta.clone()),
+            );
+            r
+        };
+        let mut live = stored.clone();
+        assert!(plan_item_writes(&live, &stored, false).unwrap().is_empty());
+        live.wear.get_mut("s").unwrap().fit_band_mm = 178;
+        let writes = plan_item_writes(&live, &stored, false).unwrap();
+        assert!(
+            matches!(writes.as_slice(), [RepoWrite::Update { .. }]),
+            "a fit change alone must republish the item: {writes:?}"
+        );
     }
 
     #[test]
@@ -553,6 +741,7 @@ mod tests {
         let small = super::super::record_size::serialized_record_bytes(&InventoryItemRecord::new(
             "a",
             &record.generators["a"],
+            None,
         ))
         .unwrap();
         assert!(max > small);

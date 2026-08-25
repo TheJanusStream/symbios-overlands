@@ -11,13 +11,14 @@ use transform_gizmo_bevy::GizmoTarget;
 use crate::player::attachments::LocalAttachment;
 use crate::state::{LiveAvatarRecord, LiveRoomRecord};
 use crate::ui::room::RoomEditorState;
-use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
+use crate::world_builder::{AttachmentPrim, AvatarVisualPrim, PlacementMarker, PrimMarker};
 
 use super::blob::BlobEditContext;
 use super::blob::proxy::BlobElementProxy;
 use super::blob::write::{BlobDragInfo, commit_blob_element_drag};
 use super::commit::{
-    commit_attachment_drag, commit_avatar_drag, commit_room_drag, resolve_committed_local,
+    commit_attachment_drag, commit_attachment_part_drag, commit_avatar_drag, commit_room_drag,
+    resolve_committed_local,
 };
 use super::{ActiveTarget, DragState, GizmoDetachedPrim};
 
@@ -120,8 +121,29 @@ pub(super) fn manage_gizmo_drag(
     >,
     // The rigged bodies worn props hang off — the rig (for its rest joint
     // positions) and the root pose that puts the rest frame in the world.
-    rigged_bodies: Query<&bevy_symbios_avatar::AvatarBody>,
-    global_tf: Query<&GlobalTransform>,
+    // Bundled with the parts-of-worn-props query (#1098) to stay under the
+    // 16-parameter ceiling; that query's five `Without`s keep it disjoint
+    // from every other `&mut Transform` query above.
+    (rigged_bodies, global_tf, part_query): (
+        Query<&bevy_symbios_avatar::AvatarBody>,
+        Query<&GlobalTransform>,
+        Query<
+            (
+                Entity,
+                &mut Transform,
+                &AttachmentPrim,
+                &GizmoTarget,
+                Option<&GizmoDetachedPrim>,
+            ),
+            (
+                Without<PlacementMarker>,
+                Without<PrimMarker>,
+                Without<AvatarVisualPrim>,
+                Without<BlobElementProxy>,
+                Without<LocalAttachment>,
+            ),
+        >,
+    ),
     room_record: Option<ResMut<LiveRoomRecord>>,
     avatar_record: Option<ResMut<LiveAvatarRecord>>,
     // For the snapped-placement Y rebase at commit time (#701).
@@ -159,6 +181,14 @@ pub(super) fn manage_gizmo_drag(
         for (entity, _tf, _m, target, _d) in attachment_query.iter() {
             if target.is_active() {
                 active_target = Some((entity, ActiveTarget::Attachment));
+                break;
+            }
+        }
+    }
+    if active_target.is_none() {
+        for (entity, _tf, _m, target, _d) in part_query.iter() {
+            if target.is_active() {
+                active_target = Some((entity, ActiveTarget::AttachmentPart));
                 break;
             }
         }
@@ -347,7 +377,7 @@ pub(super) fn manage_gizmo_drag(
             // generator tree; a worn prop's tree lives in its own record and
             // has no element session, so this is unreachable rather than
             // unimplemented.
-            ActiveTarget::Attachment | ActiveTarget::None => None,
+            ActiveTarget::Attachment | ActiveTarget::AttachmentPart | ActiveTarget::None => None,
         };
         match landed.flatten() {
             // Keep the gizmo on the element the edit landed at — for a
@@ -424,6 +454,16 @@ pub(super) fn manage_gizmo_drag(
                 // the editor's widget debounce, so the change tick has to
                 // be set here for `sync_rigged_attachments` (re-dress) and
                 // `broadcast_avatar_state` (peer preview) to see it.
+                record.set_changed();
+            }
+        }
+        ActiveTarget::AttachmentPart => {
+            let Some(mut record) = avatar_record else {
+                return;
+            };
+            if commit_attachment_part_drag(active_entity, &part_query, &global_tf, &mut record) {
+                info!("Gizmo drag committed (worn item part). Re-dressing the body.");
+                undo_labels.set_avatar("move of worn item part");
                 record.set_changed();
             }
         }

@@ -40,7 +40,7 @@ mod publish;
 mod raw;
 mod shape;
 mod terrain;
-mod widgets;
+pub(crate) mod widgets;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;

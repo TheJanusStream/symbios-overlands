@@ -159,7 +159,7 @@ pub(super) struct RiggedBuild {
 /// [`crate::world_builder::AvatarVisualRoot`], so the procedural gait layer
 /// cannot see it.
 #[derive(Component)]
-pub(super) struct RiggedRoot;
+pub(crate) struct RiggedRoot;
 
 /// What the body was doing last frame, for cycle continuity and blends.
 #[derive(Component)]
