@@ -235,21 +235,34 @@ impl AvatarEditorState {
 
     /// True while the local rigged body must be pinned to its **bind pose**
     /// (#1062): an attachment offset lives in the carrying joint's rest
-    /// frame, so a gizmo aimed at a worn prop — or at one of its parts
-    /// (#1098) — must be aimed at a body in that pose, or the owner would
-    /// be dragging against a pose no offset can express. Read by
-    /// [`crate::player`]'s rigged motion driver.
+    /// frame, so a gizmo aimed at a **whole worn prop** is placed in that
+    /// frame and the body has to be in that pose for the two to coincide.
+    /// Read by [`crate::player`]'s rigged motion driver.
     ///
-    /// Exactly the two attachment-side gizmo selections and nothing wider
-    /// (#1103, owner direction): the tab being open is not a hold — the
-    /// numeric rows work against an animating body, because their
-    /// arithmetic never reads the pose — and the World editor sets the
-    /// precedent: still only while a gizmo is aimed. The hold therefore
-    /// ends the instant the selection does, and every release path
-    /// ([`Self::release_hidden_selections`], [`Self::release_on_scene_miss`])
-    /// clears the part selection along with the whole-prop one.
+    /// Exactly the whole-prop gizmo selection and nothing wider (#1103,
+    /// owner direction): the tab being open is not a hold — the numeric
+    /// rows work against an animating body, because their arithmetic never
+    /// reads the pose. A **part** selection is deliberately NOT here
+    /// (#1106): a part's transform is relative to its item root, which
+    /// rides the joint wherever it is, so snapping the body to rest under
+    /// a part that was just detached at its animated pose moved the parent
+    /// out from under it — selecting a part visibly shifted it. Parts hold
+    /// the pose as it stands instead: [`Self::holds_rig_pose`].
     pub fn holds_rig_at_rest(&self) -> bool {
-        self.has_attachment_selection() || self.has_part_selection()
+        self.has_attachment_selection()
+    }
+
+    /// True while the local rigged body must be held **exactly where it is**
+    /// (#1106): a gizmo is aimed at a part of a worn item. The part is
+    /// detached to world space at its current pose and committed back
+    /// against its parent's pose, so the parent must not move — but it may
+    /// stand in any pose at all. Selecting must never change a transform,
+    /// so this is a pause, not a re-pose: the driver skips the body and the
+    /// last pose stays applied. Read by [`crate::player`]'s rigged motion
+    /// driver, after [`Self::holds_rig_at_rest`] (a whole-prop selection
+    /// and a part selection are mutually exclusive, so the order is moot).
+    pub fn holds_rig_pose(&self) -> bool {
+        self.has_part_selection()
     }
 
     /// Select a worn prop from an in-world scene pick (#1062), the
@@ -1545,6 +1558,7 @@ mod tests {
             );
             assert!(!state.holds_avatar_still(), "the chassis freeze released");
             assert!(!state.holds_rig_at_rest(), "the bind pose released");
+            assert!(!state.holds_rig_pose(), "the pose hold released");
         }
     }
 
@@ -1622,30 +1636,45 @@ mod tests {
         assert!(state.has_visuals_selection());
     }
 
-    /// #1062 → #1103: an attachment offset is stored in its carrying
-    /// joint's rest frame, so a gizmo aimed at a worn prop or one of its
-    /// parts pins the body to its bind pose — and only then. The tab
-    /// being open is not a hold (owner direction), and a visuals-row gizmo
-    /// never is.
+    /// #1062 → #1103 → #1106: an attachment offset is stored in its
+    /// carrying joint's rest frame, so a gizmo aimed at a WHOLE worn prop
+    /// pins the body to its bind pose — and only then. A PART gizmo holds
+    /// the pose as it stands instead (selecting must not move anything);
+    /// the tab being open is not a hold (owner direction), and a
+    /// visuals-row gizmo is neither.
     #[test]
-    fn the_bind_pose_hold_follows_the_prop_and_part_gizmos_only() {
+    fn the_bind_pose_hold_follows_the_prop_gizmo_and_the_pose_hold_the_part_gizmo() {
         let mut state = AvatarEditorState {
             window_visible: true,
             ..Default::default()
         };
         state.selected_tab = AvatarTab::Attachments;
         assert!(!state.holds_rig_at_rest(), "an open tab is not a hold");
+        assert!(!state.holds_rig_pose());
 
         state.select_attachment_from_scene_pick(String::from("3jzfcijpj2z2a"));
-        assert!(state.holds_rig_at_rest(), "a whole-prop gizmo holds");
+        assert!(
+            state.holds_rig_at_rest(),
+            "a whole-prop gizmo pins the bind pose"
+        );
+        assert!(!state.holds_rig_pose());
+
         state.select_attachment_part_from_scene_pick(String::from("3jzfcijpj2z2a"), vec![0]);
-        assert!(state.holds_rig_at_rest(), "a part gizmo holds");
+        assert!(
+            !state.holds_rig_at_rest(),
+            "a part gizmo must NOT re-pose the body (#1106)"
+        );
+        assert!(
+            state.holds_rig_pose(),
+            "a part gizmo holds the pose as it stands"
+        );
 
         state.select_from_scene_pick(vec![0]);
         assert!(
             !state.holds_rig_at_rest(),
             "a visuals gizmo is not a bind-pose hold"
         );
+        assert!(!state.holds_rig_pose());
     }
 
     /// #823: a scene pick must land the full row-click state — selection

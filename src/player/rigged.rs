@@ -574,14 +574,22 @@ fn rigged_root_transform(offset: f32) -> Transform {
 
 /// Pose every built body from what its chassis is doing.
 ///
-/// **The attachment-editing hold (#1062).** An attachment offset is stored
-/// in its carrying joint's *rest* frame, so while the owner is authoring one
-/// — numerically or with the in-world gizmo — their own body is pinned to
-/// the bind pose and the whole editing session happens in the frame the
-/// record actually keeps. The pin is a hard snap, not an inertial blend: a
-/// body still settling would let a gizmo release land against a pose that is
-/// already gone. Peers are never held; neither is the local body outside
-/// that editor state.
+/// **The attachment-editing holds (#1062, #1106).** An attachment offset is
+/// stored in its carrying joint's *rest* frame, so while the owner has the
+/// in-world gizmo on a **whole worn prop** their own body is pinned to the
+/// bind pose and the drag happens in the frame the record actually keeps.
+/// The pin is a hard snap, not an inertial blend: a body still settling
+/// would let a gizmo release land against a pose that is already gone.
+///
+/// A gizmo on a **part** of a worn item holds the body **where it stands**
+/// instead: the part is detached at its current world pose and committed
+/// back against its parent's pose, which may be any pose so long as it does
+/// not move. Re-posing to rest here moved the parent out from under the
+/// freshly detached part — selecting visibly shifted it (#1106). The pose
+/// hold is a plain skip: nothing is inserted, so the last `AvatarPose`
+/// stays applied (the joint writer runs on `Changed<AvatarPose>` only) and
+/// the motion state resumes from exactly where it paused. Peers are never
+/// held; neither is the local body outside those editor states.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn drive_rigged_motion(
     mut commands: Commands,
@@ -600,7 +608,12 @@ pub(super) fn drive_rigged_motion(
     if delta <= 0.0 {
         return;
     }
-    let editing_offsets = avatar_editor.is_some_and(|state| state.holds_rig_at_rest());
+    let editing_offsets = avatar_editor
+        .as_deref()
+        .is_some_and(|state| state.holds_rig_at_rest());
+    let editing_parts = avatar_editor
+        .as_deref()
+        .is_some_and(|state| state.holds_rig_pose());
     // Whether ANY body strained a contact this frame (#1078) — a goal its
     // solver could not reach. Counted per frame rather than per body so a
     // crowd cannot inflate one defect, and read at the end of the loop.
@@ -608,6 +621,10 @@ pub(super) fn drive_rigged_motion(
     for (entity, child_of, body, root, mut motion) in &mut bodies {
         if editing_offsets && locals.contains(child_of.parent()) {
             hold_at_rest(&mut commands, entity, body, &mut motion, delta);
+            continue;
+        }
+        if editing_parts && locals.contains(child_of.parent()) {
+            // Held as it stands (#1106): no pose written, no state advanced.
             continue;
         }
         let Ok((transform, velocity)) = chassis.get(child_of.parent()) else {
@@ -3172,6 +3189,142 @@ mod tests {
         assert!(
             moved > 0,
             "the body was drawn in the same pose with and without the greeting"
+        );
+    }
+
+    /// **#1106, reproduced.** Selecting a PART of a worn item snapped the
+    /// body to the bind pose: the part had just been detached to world
+    /// space at its animated pose, so its parent moved out from under it
+    /// and the selection itself visibly shifted the part. A part selection
+    /// must hold the body exactly where it stands — the pose the driver
+    /// wrote last frame is the pose it leaves on the root, bit for bit —
+    /// while a whole-prop selection still pins the bind pose (#1062).
+    #[test]
+    fn selecting_a_part_holds_the_pose_as_it_stands() {
+        let mut app = test_app();
+        let chassis = app
+            .world_mut()
+            .spawn((
+                crate::state::LocalPlayer,
+                Transform::default(),
+                GlobalTransform::default(),
+            ))
+            .id();
+        let avatar = symbios_avatar::Avatar::build_with(
+            &engine_default_for_did("did:plc:part-hold-test"),
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                ..Default::default()
+            },
+        )
+        .expect("the seeded default engine body builds");
+        let mut built = Some(avatar);
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut meshes: ResMut<Assets<Mesh>>,
+                      mut materials: ResMut<Assets<StandardMaterial>>,
+                      mut images: ResMut<Assets<Image>>,
+                      mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>| {
+                    let Some(avatar) = built.take() else {
+                        return;
+                    };
+                    install_built_body(
+                        &mut commands,
+                        chassis,
+                        0.9,
+                        avatar,
+                        &[],
+                        &mut meshes,
+                        &mut materials,
+                        &mut images,
+                        &mut bindposes,
+                    );
+                },
+            )
+            .expect("runs");
+        let mut roots = app.world_mut().query_filtered::<Entity, With<RiggedRoot>>();
+        let root = roots.single(app.world()).expect("one rigged root");
+        let rig = app
+            .world()
+            .get::<BuiltBody>(root)
+            .expect("the body landed")
+            .avatar
+            .rig
+            .clone();
+
+        // Walk into a mid-stride pose, as the #1069 test does.
+        const STEP_SECS: f32 = 1.0 / 60.0;
+        const PACE: f32 = 1.3;
+        for frame in 0..90 {
+            let at = Vec3::Z * (PACE * STEP_SECS * frame as f32);
+            let mut chassis_mut = app.world_mut().entity_mut(chassis);
+            *chassis_mut.get_mut::<Transform>().unwrap() = Transform::from_translation(at);
+            *chassis_mut.get_mut::<GlobalTransform>().unwrap() =
+                GlobalTransform::from_translation(at);
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
+            app.world_mut()
+                .run_system_once(drive_rigged_motion)
+                .expect("runs");
+        }
+        let stride = app
+            .world()
+            .get::<AvatarPose>(root)
+            .expect("a pose")
+            .0
+            .clone();
+        let rest = Pose::rest(&rig);
+        let drift = |a: &Pose, b: &Pose| {
+            let (a, b) = (a.forward(&rig), b.forward(&rig));
+            a.positions
+                .iter()
+                .zip(&b.positions)
+                .map(|(p, q)| p.distance(*q))
+                .fold(0.0_f32, f32::max)
+        };
+        assert!(
+            drift(&stride, &rest) > 0.02,
+            "the walk must have taken the body away from rest for the hold to mean anything"
+        );
+
+        // Select a PART: the pose must not move by a single bit.
+        let mut editor = crate::ui::avatar::AvatarEditorState::default();
+        editor.select_attachment_part_from_scene_pick(String::from("3jzfcijpj2z2a"), vec![0]);
+        app.insert_resource(editor);
+        for _ in 0..30 {
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
+            app.world_mut()
+                .run_system_once(drive_rigged_motion)
+                .expect("runs");
+        }
+        let held = &app.world().get::<AvatarPose>(root).expect("a pose").0;
+        assert_eq!(
+            drift(held, &stride),
+            0.0,
+            "a part selection re-posed the body (max joint travel {} m) — the detached part \
+             was left behind by its own parent",
+            drift(held, &stride)
+        );
+
+        // A WHOLE-prop selection still pins the bind pose (#1062).
+        let mut editor = crate::ui::avatar::AvatarEditorState::default();
+        editor.select_attachment_from_scene_pick(String::from("3jzfcijpj2z2a"));
+        app.insert_resource(editor);
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
+        app.world_mut()
+            .run_system_once(drive_rigged_motion)
+            .expect("runs");
+        let pinned = &app.world().get::<AvatarPose>(root).expect("a pose").0;
+        assert_eq!(
+            drift(pinned, &rest),
+            0.0,
+            "the whole-prop hold is the bind pose"
         );
     }
 }
