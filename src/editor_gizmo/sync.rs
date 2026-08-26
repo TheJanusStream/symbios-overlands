@@ -292,9 +292,17 @@ pub(super) fn sync_gizmo_selection(
         None
     } else if active == ActiveTarget::AttachmentPart {
         avatar_state.attachment_part().and_then(|(rkey, path)| {
-            part_query.iter().find_map(|(entity, marker, ..)| {
-                (marker.rkey == rkey && marker.path == path).then_some(entity)
-            })
+            // A replaced prop's gizmo-detached part can outlive it for a
+            // frame (#1107) and matches the same `(rkey, path)` as the
+            // fresh one: prefer the candidate that is in a hierarchy (or in
+            // a live drag) over a bare orphan, which is the ghost.
+            part_query
+                .iter()
+                .filter(|(_, marker, ..)| marker.rkey == rkey && marker.path == path)
+                .max_by_key(|(_, _, _, _, is_detached, child_of)| {
+                    child_of.is_some() || *is_detached
+                })
+                .map(|(entity, ..)| entity)
         })
     } else {
         None

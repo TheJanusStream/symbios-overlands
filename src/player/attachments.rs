@@ -179,11 +179,48 @@ pub(super) fn sync_rigged_attachments(
         ),
         With<RiggedRoot>,
     >,
+    // Parts of worn props that hang off nothing (#1107). A part under the
+    // gizmo is detached from its prop exactly as a prop is detached from its
+    // joint (#1077), so replacing that prop — any record edit to it, a
+    // material change from the parts editor included — despawns the prop
+    // and every PARENTED node while the floating part survives as a ghost
+    // of the old geometry. Two answers: the replacement below despawns the
+    // record's own parentless parts in the same frame, and this sweep
+    // catches any other path — a part whose detached-from parent no longer
+    // exists cannot be committed (`resolve_committed_local` needs that
+    // parent's pose), so it is a ghost whether or not a gizmo still holds
+    // it. A live drag keeps its part: detached, but from a parent that is
+    // still there.
+    part_orphans: Query<
+        (
+            Entity,
+            &crate::world_builder::AttachmentPrim,
+            Option<&crate::editor_gizmo::GizmoDetachedPrim>,
+        ),
+        Without<ChildOf>,
+    >,
+    part_parents: Query<
+        (),
+        Or<(
+            With<AttachmentRoot>,
+            With<crate::world_builder::AttachmentPrim>,
+        )>,
+    >,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut deps: AvatarSpawnDeps,
 ) {
+    for (ghost, _, detached) in &part_orphans {
+        let drag_is_live = detached.is_some_and(|d| part_parents.contains(d.original_parent));
+        if drag_is_live {
+            continue;
+        }
+        commands.entity(ghost).despawn();
+        if let Some(metrics) = deps.caches.metrics.as_deref_mut() {
+            crate::diagnostics::samplers::attachment_orphan_swept(metrics);
+        }
+    }
     for orphan in &orphans {
         commands.entity(orphan).despawn();
         // Routed through the caches bundle (#924): this system already
@@ -236,6 +273,14 @@ pub(super) fn sync_rigged_attachments(
                     kept.push((record, prop));
                 } else {
                     commands.entity(prop).despawn();
+                    // Its gizmo-detached parts are not in the cascade
+                    // (#1107): take them with it, this frame, so the old
+                    // geometry never draws beside the new.
+                    for (ghost, marker, _) in &part_orphans {
+                        if marker.rkey == record.rkey {
+                            commands.entity(ghost).despawn();
+                        }
+                    }
                 }
             }
         }
@@ -933,6 +978,71 @@ pub(super) mod tests {
             props.iter(app.world()).count(),
             2,
             "no phantom, no duplicate"
+        );
+    }
+
+    /// **#1107, reproduced.** A part under the gizmo is detached from its
+    /// prop; editing that part (a material change from the parts editor)
+    /// replaces the prop, whose despawn cascade cannot reach the floating
+    /// part — the old geometry stayed in the world beside the new. After
+    /// the sync exactly the fresh prop's parts may exist, and the detached
+    /// one must be gone.
+    #[test]
+    fn editing_a_gizmo_held_part_leaves_no_ghost() {
+        use crate::world_builder::AttachmentPrim;
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut app, prop) = dressed_app();
+        let mut parts = app.world_mut().query::<(Entity, &AttachmentPrim)>();
+        let (root_part, _) = parts
+            .iter(app.world())
+            .find(|(_, marker)| marker.path.is_empty())
+            .expect("the item root carries a marker");
+        let before = parts.iter(app.world()).count();
+
+        // Arm the gizmo on the part, exactly as `attach_or_release_prim`
+        // does it: out of the hierarchy, remembering its parent.
+        app.world_mut()
+            .entity_mut(root_part)
+            .remove::<ChildOf>()
+            .insert((
+                crate::editor_gizmo::GizmoDetachedPrim {
+                    original_parent: prop,
+                },
+                transform_gizmo_bevy::GizmoTarget::default(),
+            ));
+
+        // The parts editor's edit: any change to the item tree.
+        {
+            let mut live = app
+                .world_mut()
+                .resource_mut::<crate::state::LiveAvatarRecord>();
+            let rig = live.0.body.rigged_mut().expect("rigged");
+            let resolved = rig.resolved.as_mut().expect("resolved");
+            resolved.attachments[0].record.item.transform.translation = Fp3([0.0, 0.1, 0.0]);
+        }
+        app.world_mut()
+            .run_system_once(sync_rigged_attachments)
+            .expect("replaces the prop");
+
+        assert!(
+            app.world().get_entity(root_part).is_err(),
+            "the gizmo-held part survived its prop's replacement — the ghost"
+        );
+        assert!(
+            app.world().get_entity(prop).is_err(),
+            "the old prop is gone"
+        );
+        assert_eq!(
+            parts.iter(app.world()).count(),
+            before,
+            "exactly the fresh prop's parts exist — no ghost, no duplicate"
+        );
+        let mut parented = app
+            .world_mut()
+            .query_filtered::<&ChildOf, With<AttachmentPrim>>();
+        assert!(
+            parented.iter(app.world()).count() == before,
+            "every remaining part hangs in the fresh prop's hierarchy"
         );
     }
 
