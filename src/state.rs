@@ -418,6 +418,9 @@ pub struct IncomingOfferDialog {
     pub sender_handle: String,
     pub item_name: String,
     pub generator: Generator,
+    /// The item's wear metadata (#1108) when the sender gifted a wearable,
+    /// already sanitised at the wire seam; `None` lands the gift as decor.
+    pub wear: Option<crate::pds::inventory::WearMeta>,
     /// Session-relative seconds the offer arrived; diagnostics entries and
     /// any future timeout logic key off this.
     pub arrived_at_secs: f64,

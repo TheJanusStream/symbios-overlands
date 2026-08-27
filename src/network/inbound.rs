@@ -485,6 +485,7 @@ pub(super) fn handle_incoming_messages(
                 target_did,
                 item_name,
                 generator_json,
+                wear_json,
             } => {
                 // Broadcast-with-address: only the peer whose DID matches
                 // `target_did` should act on the offer. Everyone else
@@ -605,6 +606,12 @@ pub(super) fn handle_incoming_messages(
                     continue;
                 };
                 crate::pds::sanitize_generator(&mut generator);
+                // Wear metadata (#1108) through the same clamp the inventory
+                // and attachment records share; a bad payload is decor.
+                let wear = OverlandsMessage::decode_item_offer_wear(&wear_json).map(|mut meta| {
+                    meta.sanitize();
+                    meta
+                });
 
                 // Non-placeable kinds (terrain / water / Unknown) never
                 // make sense as a gift — the sender UI already filters
@@ -646,6 +653,7 @@ pub(super) fn handle_incoming_messages(
                     sender_handle,
                     item_name,
                     generator,
+                    wear,
                     arrived_at_secs: now,
                 });
                 // Slam the gate shut for the rest of this frame so any

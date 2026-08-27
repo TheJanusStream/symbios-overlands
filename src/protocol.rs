@@ -73,11 +73,20 @@ pub enum OverlandsMessage {
     /// [`Self::ItemOfferResponse`] so the sender can correlate accept/decline
     /// outcomes with the originating drag. It only has to be unique within
     /// one sender's session.
+    ///
+    /// `wear_json` carries the item's wear metadata (#1108) — socket, fit
+    /// and saved offset, a JSON-serialised
+    /// [`WearMeta`](crate::pds::inventory::WearMeta) — so a gifted
+    /// wearable arrives wearable rather than as decor. Empty for plain
+    /// decor. JSON rather than a bincode `Option<WearMeta>` because the
+    /// offset's serializer elides default fields, which bincode cannot
+    /// round-trip (its decoder expects every field present).
     ItemOffer {
         offer_id: u64,
         target_did: String,
         item_name: String,
         generator_json: Vec<u8>,
+        wear_json: Vec<u8>,
     },
     /// Reply to an [`Self::ItemOffer`]. The `target_did` is the *sender* of
     /// the original offer so non-originators can drop the response on
@@ -159,11 +168,15 @@ impl OverlandsMessage {
     /// Package an [`ItemOffer`](Self::ItemOffer). Serialises the `Generator`
     /// blueprint as JSON for the same reason room/avatar updates do —
     /// bincode cannot stream `#[serde(tag = "$type")]` open unions.
+    ///
+    /// `wear` is the item's wear metadata when it is wearable (#1108);
+    /// `None` gifts plain decor.
     pub fn item_offer(
         offer_id: u64,
         target_did: String,
         item_name: String,
         generator: &Generator,
+        wear: Option<&crate::pds::inventory::WearMeta>,
     ) -> Self {
         Self::ItemOffer {
             offer_id,
@@ -172,6 +185,12 @@ impl OverlandsMessage {
             generator_json: serde_json::to_vec(generator).unwrap_or_else(|e| {
                 bevy::log::error!("Failed to serialize Generator for ItemOffer: {}", e);
                 Vec::new()
+            }),
+            wear_json: wear.map_or_else(Vec::new, |meta| {
+                serde_json::to_vec(meta).unwrap_or_else(|e| {
+                    bevy::log::error!("Failed to serialize WearMeta for ItemOffer: {}", e);
+                    Vec::new()
+                })
             }),
         }
     }
@@ -182,6 +201,23 @@ impl OverlandsMessage {
             Ok(g) => Some(g),
             Err(e) => {
                 bevy::log::warn!("Generator decode error: {}", e);
+                None
+            }
+        }
+    }
+
+    /// Decode the wear metadata of an `ItemOffer` (#1108): `None` for an
+    /// empty payload (decor) — and for a malformed one, which degrades the
+    /// gift to decor rather than refusing it, because the item itself is
+    /// intact and the metadata is a convenience the recipient can redo.
+    pub fn decode_item_offer_wear(bytes: &[u8]) -> Option<crate::pds::inventory::WearMeta> {
+        if bytes.is_empty() {
+            return None;
+        }
+        match serde_json::from_slice(bytes) {
+            Ok(meta) => Some(meta),
+            Err(e) => {
+                bevy::log::warn!("WearMeta decode error (gift lands as decor): {}", e);
                 None
             }
         }
@@ -217,5 +253,70 @@ impl OverlandsMessage {
                 None
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod item_offer_tests {
+    use super::*;
+    use crate::pds::inventory::WearMeta;
+
+    fn wear() -> WearMeta {
+        let mut meta = WearMeta::for_entry(symbios_avatar::Socket::Crown, None);
+        meta.fit_band_mm = 178;
+        meta.offset.translation = crate::pds::types::Fp3([0.0, 0.02, 0.0]);
+        meta
+    }
+
+    /// #1108: the wear metadata survives the whole wire path — JSON inside
+    /// the message, the message through bincode (the chunker's codec) —
+    /// and comes back equal, fit and offset included. Decor carries none.
+    #[test]
+    fn a_gifted_wearable_keeps_its_wear_metadata_across_the_wire() {
+        let offer = OverlandsMessage::item_offer(
+            7,
+            String::from("did:plc:recipient"),
+            String::from("circlet"),
+            &Generator::default(),
+            Some(&wear()),
+        );
+        let bytes = offer.to_chunk_bytes().expect("encodes");
+        let OverlandsMessage::ItemOffer {
+            generator_json,
+            wear_json,
+            ..
+        } = OverlandsMessage::from_chunk_bytes(&bytes).expect("decodes")
+        else {
+            panic!("not an ItemOffer");
+        };
+        assert!(OverlandsMessage::decode_item_offer(&generator_json).is_some());
+        assert_eq!(
+            OverlandsMessage::decode_item_offer_wear(&wear_json),
+            Some(wear()),
+            "socket, fit and offset all round-trip"
+        );
+
+        let decor = OverlandsMessage::item_offer(
+            8,
+            String::from("did:plc:recipient"),
+            String::from("bench"),
+            &Generator::default(),
+            None,
+        );
+        let OverlandsMessage::ItemOffer { wear_json, .. } = decor else {
+            panic!("not an ItemOffer");
+        };
+        assert!(wear_json.is_empty(), "decor ships no wear payload");
+        assert_eq!(OverlandsMessage::decode_item_offer_wear(&wear_json), None);
+    }
+
+    /// A malformed wear payload must not refuse the gift: the item is
+    /// intact, so it lands as decor.
+    #[test]
+    fn a_malformed_wear_payload_degrades_to_decor() {
+        assert_eq!(
+            OverlandsMessage::decode_item_offer_wear(b"{\"socket\": 12}"),
+            None
+        );
     }
 }

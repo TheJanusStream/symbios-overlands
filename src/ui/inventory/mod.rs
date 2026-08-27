@@ -802,3 +802,61 @@ pub fn choose_inventory_gift_key(
     }
     incoming_name.to_string()
 }
+
+/// Land an accepted gift in the stash (#1108): under
+/// [`choose_inventory_gift_key`]'s slot, through
+/// [`InventoryRecord::put_item`] so the wear side table stays in step — a
+/// gifted wearable is wearable from the Inventory window straight away,
+/// exactly as a catalogue copy would be; decor stays decor. Returns the key
+/// it landed under.
+pub fn store_accepted_gift(
+    inventory: &mut InventoryRecord,
+    incoming_name: &str,
+    generator: Generator,
+    wear: Option<crate::pds::inventory::WearMeta>,
+) -> String {
+    let key = choose_inventory_gift_key(&inventory.generators, incoming_name);
+    inventory.put_item(key.clone(), generator, wear);
+    key
+}
+
+#[cfg(test)]
+mod gift_tests {
+    use super::*;
+    use crate::pds::inventory::WearMeta;
+
+    /// #1108: before this, a gift went straight into `generators` and the
+    /// wear side table never heard of it — every gifted wearable arrived as
+    /// decor. The accept path must land wear metadata with the item, under
+    /// the collision-renamed key, and leave decor as decor.
+    #[test]
+    fn an_accepted_wearable_gift_is_wearable_and_decor_stays_decor() {
+        let mut inventory = InventoryRecord::default();
+        inventory.put_item(String::from("circlet"), Generator::default(), None);
+
+        let meta = WearMeta::for_entry(symbios_avatar::Socket::Crown, None);
+        let key = store_accepted_gift(
+            &mut inventory,
+            "circlet",
+            Generator::default(),
+            Some(meta.clone()),
+        );
+        assert_eq!(
+            key, "circlet_2",
+            "a taken name is suffixed, never coalesced"
+        );
+        assert!(
+            inventory.is_wearable(&key),
+            "the gifted wearable can be worn"
+        );
+        assert_eq!(inventory.wear.get(&key), Some(&meta));
+        assert!(
+            !inventory.is_wearable("circlet"),
+            "the existing decor stayed decor"
+        );
+
+        let key = store_accepted_gift(&mut inventory, "bench", Generator::default(), None);
+        assert_eq!(key, "bench");
+        assert!(!inventory.is_wearable("bench"));
+    }
+}

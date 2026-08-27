@@ -33,7 +33,7 @@ use crate::state::{
     SocialResonance,
 };
 use crate::ui::chat::AVATAR_ICON_PX;
-use crate::ui::inventory::{PeerDropTarget, PendingGeneratorDrop, choose_inventory_gift_key};
+use crate::ui::inventory::{PeerDropTarget, PendingGeneratorDrop};
 
 /// Log a `PeerMuteToggled` event (#635b). Shared by the three mute controls
 /// (this roster panel, the diagnostics-panel roster, and the offer dialog) so
@@ -315,7 +315,7 @@ pub fn people_ui(
 /// Renders the incoming-offer modal when [`IncomingOfferDialog`] is set
 /// and drives the Accept / Decline / Mute & Decline actions. On accept,
 /// the item is copied into the owner's live inventory under a
-/// collision-safe key (see [`choose_inventory_gift_key`]) and a publish
+/// collision-safe key (see [`crate::ui::inventory::store_accepted_gift`]) and a publish
 /// task is spawned immediately so the new item is on the PDS before the
 /// user closes the window — the user explicitly opted into "auto-publish
 /// on accept" for less-likely-to-lose-items behaviour.
@@ -499,8 +499,12 @@ pub fn incoming_offer_ui(
 
     if accepted {
         if let Some(live) = live_inventory.as_mut() {
-            let key = choose_inventory_gift_key(&live.0.generators, &dialog.item_name);
-            live.0.generators.insert(key, dialog.generator.clone());
+            crate::ui::inventory::store_accepted_gift(
+                &mut live.0,
+                &dialog.item_name,
+                dialog.generator.clone(),
+                dialog.wear.clone(),
+            );
             session_log.info(
                 now,
                 EventPayload::ItemOfferUserResponded {

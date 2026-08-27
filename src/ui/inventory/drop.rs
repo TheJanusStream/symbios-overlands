@@ -117,15 +117,26 @@ pub fn handle_generator_drop(
         let Some(sess) = session.as_deref() else {
             return;
         };
+        // The wear metadata rides along (#1108): from the stash's side
+        // table for an owned item, or minted from the catalogue entry's
+        // declaration for a vanilla one — the same two sources the local
+        // Copy-to-inventory / Wear flows read.
         let generator_opt = match source {
-            DropSource::Inventory => inventory
-                .as_ref()
-                .and_then(|inv| inv.0.generators.get(&name).cloned()),
-            DropSource::Catalogue => {
-                crate::catalogue::by_slug(&name).map(|entry| entry.build(&sess.did))
-            }
+            DropSource::Inventory => inventory.as_ref().and_then(|inv| {
+                inv.0
+                    .generators
+                    .get(&name)
+                    .cloned()
+                    .map(|generator| (generator, inv.0.wear.get(&name).cloned()))
+            }),
+            DropSource::Catalogue => crate::catalogue::by_slug(&name).map(|entry| {
+                let wear = entry.wear_socket().map(|socket| {
+                    crate::pds::inventory::WearMeta::for_entry(socket, entry.wear_fit())
+                });
+                (entry.build(&sess.did), wear)
+            }),
         };
-        let Some(generator) = generator_opt else {
+        let Some((generator, wear)) = generator_opt else {
             warn!("Peer-gift drop: source generator '{}' not found", name);
             return;
         };
@@ -146,7 +157,13 @@ pub fn handle_generator_drop(
             &mut sender,
             &mut session_log,
             now,
-            OverlandsMessage::item_offer(offer_id, target.did.clone(), name.clone(), &generator),
+            OverlandsMessage::item_offer(
+                offer_id,
+                target.did.clone(),
+                name.clone(),
+                &generator,
+                wear.as_ref(),
+            ),
         );
         session_log.info(
             now,
