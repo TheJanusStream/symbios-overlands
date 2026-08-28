@@ -129,6 +129,38 @@ cargo doc --no-deps --document-private-items           # docs (kept warning-free
 cargo check --workspace --target wasm32-unknown-unknown # app + worker still build for web
 ```
 
+Every one of those bare invocations covers `crates/gen-jobs` as well as the
+app, because `[workspace] default-members` names both (#1147). It did not
+until then: a non-virtual workspace selects the root package alone, so
+gen-jobs' eight tests — the determinism and worker-wire round trips that are
+the *only* check of the native/wasm byte-identical claim in `src/offload.rs`
+— ran in neither the local gate nor CI. If you add a crate under `crates/`
+and it has tests, add it to `default-members` or it is untested by default.
+
+One check is not a cargo subcommand:
+
+```bash
+cargo tree -i openssl   # must report only what proto-blue drags in, and no more
+```
+
+Overlands declares reqwest with `default-features = false, features =
+["rustls-tls"]`, but `proto-blue-common`/`-oauth`/`-xrpc` declare it *with*
+defaults, which unifies `default-tls` back into the graph — and reqwest picks
+native-tls whenever `default-tls` is present. So OpenSSL is linked and, until
+#1154, was the backend every native PDS and OAuth request actually used.
+`default_client` now calls `.use_rustls_tls()` explicitly, which fixes the
+runtime choice but not the graph: getting OpenSSL out needs proto-blue to
+declare `default-features = false` upstream. Run the line above after a
+dependency bump so a *new* path to native-tls is noticed rather than
+inherited. On wasm none of this applies — reqwest ignores TLS features there,
+which is why it went unseen for so long.
+
+The gate profile runs `debug-assertions` and `overflow-checks` **on**
+(#1147). `inherits = "release"` had turned both off, so the 16 `debug_assert!`
+sites in the crate never fired locally while CI's plain `cargo test` ran them
+in debug — two gates disagreeing about what the code asserts, with the weaker
+one being the one anybody runs.
+
 **Never run the full suite under plain `--release`** (#1064). `[profile.release]`
 is tuned for one artifact — the wasm bundle `wasm-bindgen` ships — and carries
 `lto = "fat"` with `codegen-units = 1`. `cargo test --release` inherits that, so
@@ -153,13 +185,21 @@ not optional. Without it the single live doctest in `src/diagnostics/anomaly/`
 stops being covered.
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `cargo fmt --all
--- --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` on
-every push and pull request — a stray blank line fails the build before a
-single test runs. `cargo doc` and the wasm check are local conventions CI does
-not cover, so run them yourself before pushing. The wasm check is deliberately
-`--workspace`: `--lib` alone would skip `gen-worker`'s binary target, and a
-break there surfaces only when the Pages deploy runs `wasm-bindgen` over a
+-- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` and the
+doc gate on every push and pull request — a stray blank line fails the build
+before a single test runs — plus a separate `wasm` job running the wasm32
+check. Both were local-only conventions before #1147, which meant they were
+the first two steps skipped on a busy day; the doc gate is where link rot gets
+caught, and the wasm check is the cheap half of the deploy.
+
+The wasm check is deliberately `--workspace` rather than riding on
+`default-members`: `--lib` alone would skip `gen-worker`'s binary target, and
+a break there surfaces only when the Pages deploy runs `wasm-bindgen` over a
 `.wasm` that was never built.
+
+CI does **not** pass `--locked`, and should not: `Cargo.lock` is untracked by
+decision (see `.gitignore`), so `--locked` would fail outright for want of a
+lockfile to honour.
 
 One test is `#[ignore]`d on purpose: `plain_rigid_body_disabled_cycle` in
 [`tests/freeze_rigid_body.rs`](../tests/freeze_rigid_body.rs) reproduces the

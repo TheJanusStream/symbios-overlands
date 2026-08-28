@@ -107,12 +107,19 @@ pub struct PendingAuth {
 
 /// `sessionStorage` key holding the serialized [`PendingAuth`] between the
 /// authorize-redirect and the callback parse on WASM.
-#[cfg(target_arch = "wasm32")]
+///
+/// Defined on every target although only the wasm-only `wasm` submodule
+/// reads it (#1147) — hence plain text rather than a link, since that
+/// module does not exist for rustdoc on native: browser
+/// storage is a flat map shared by every app on the origin, so the
+/// namespacing rule these keys follow is worth a test — and a test behind
+/// `cfg(target_arch = "wasm32")` is a test nothing runs, since the suite has
+/// no wasm runner. A `&str` costs nothing on native.
 pub const SESSION_STORAGE_KEY: &str = "symbios_overlands_pending_auth";
 
-/// `localStorage` key holding the serialized [`wasm::PersistedSession`]
+/// `localStorage` key holding the serialized `wasm::PersistedSession`
 /// across page reloads. Cleared on logout and on a refresh failure.
-#[cfg(target_arch = "wasm32")]
+/// Defined unconditionally for the reason on [`SESSION_STORAGE_KEY`].
 pub const PERSISTED_SESSION_KEY: &str = "symbios_overlands_session";
 
 /// WASM-only marker: this page load began as an *auth handoff* rather

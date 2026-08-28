@@ -8,6 +8,22 @@ edition = "2024"
 # workspace gives a shared lockfile, target dir, and feature unification.
 [workspace]
 members = ["crates/gen-jobs", "crates/gen-worker"]
+# Which packages a bare `cargo test` / `cargo clippy` / `cargo nextest run`
+# actually selects (#1147).
+#
+# Without this, a non-virtual workspace selects the root package alone — so
+# gen-jobs' tests ran in NO gate, local or CI. That is the crate carrying
+# `GenJob::run`, whose whole contract is that native and the wasm worker
+# produce byte-identical output; its determinism and msgpack round-trip
+# tests are the only checks of that claim, and a regression in either would
+# have shipped green to the Pages deploy.
+#
+# Stated as `default-members` rather than by adding `--workspace` to each
+# command, so the gate is correct by default instead of correct only when
+# someone remembers a flag. `gen-worker` stays out on purpose: it is a
+# wasm-only binary with nothing to test on native, and the wasm check
+# already says `--workspace` explicitly to cover it.
+default-members = [".", "crates/gen-jobs"]
 
 [features]
 # Native allocation tracer (#811): wraps the global allocator and prints a
@@ -112,7 +128,16 @@ web-sys = { version = "0.3", features = [
     "Location",
     "History",
 ] }
-wasm-bindgen = "0.2"
+# EXACT, and it must stay exact (#1152). The deploy installs
+# `wasm-bindgen-cli --version 0.2.127` as a literal, and the CLI refuses a
+# `.wasm` built by a crate outside its schema window — wasm-bindgen-shared
+# 0.2.127 declares SCHEMA_VERSION 0.2.122, so the window is 0.2.122..=0.2.127
+# today and closes at the next upstream schema bump. With `"0.2"` and an
+# untracked Cargo.lock, CI resolved the crate fresh on every run, so the day
+# upstream published past that window the deploy broke with no change to the
+# repo, on a push to main, with nobody watching. Pinning the crate exactly
+# means the crate and the CLI literal move in one diff or not at all.
+wasm-bindgen = "=0.2.127"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 gloo-timers = { version = "0.3", features = ["futures"] }
@@ -153,3 +178,13 @@ inherits = "release"
 lto = false        # the ~25 minutes: 24 whole-program Bevy links
 codegen-units = 16 # was 1 — single-threaded optimization per binary
 strip = false      # a failing gate should still print a legible backtrace
+# Inheriting `release` turned BOTH of these off, so the gate the owner
+# actually runs skipped every `debug_assert!` in the crate and let integer
+# overflow wrap silently — while CI's plain `cargo test` ran them in debug
+# (#1147). Two gates that disagree about what the code asserts is worse than
+# one weak gate: the local one is the one that gets run, and the CI one is
+# the one that gets doubted when they differ.
+#
+# Cheap at this opt-level, and the wasm deploy profile is untouched.
+debug-assertions = true
+overflow-checks = true

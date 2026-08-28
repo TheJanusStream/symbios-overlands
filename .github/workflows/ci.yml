@@ -20,12 +20,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # rust-toolchain.toml pins the channel + rustfmt/clippy components;
-      # the action just makes sure a matching toolchain is installed.
+      # Reads the pinned version out of rust-toolchain.toml (#1148) — that
+      # file is the single source of truth, and this action honours it,
+      # which `dtolnay/rust-toolchain@stable` did not: it installed whatever
+      # was newest and ignored the pin entirely.
+      #
+      # `cache: false` because the Swatinem step below already does it; two
+      # cache layers on one key fight each other.
       - name: Install Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt, clippy
+          cache: false
 
       # Bevy's default features link ALSA (bevy_audio), udev
       # (bevy_winit input enumeration) and Wayland (`wayland-sys`
@@ -51,5 +57,106 @@ jobs:
       # .cargo/config.toml caps build.jobs at 6 so the 24 statically
       # linked Bevy test binaries don't all link at once; the runner's
       # 16 GB is enough under that cap.
+      #
+      # `default-members` in Cargo.toml is what makes this cover gen-jobs;
+      # before #1147 the bare invocation selected the root package alone and
+      # the determinism carrier was tested nowhere.
       - name: Test
         run: cargo test
+
+      # The doc gate the sibling rust.yml files have had all along, and the
+      # one the memory notes call the 0-warnings rule. Link rot in private
+      # items is invisible to every other step here (#1147).
+      - name: Doc (deny warnings)
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --document-private-items
+
+  # Separate job: the wasm target needs no Bevy system packages and shares
+  # no cache with the native build, so running it beside `test` costs
+  # wall-clock nothing and catches the half of the deploy that used to fail
+  # only once Pages was already running (#1147).
+  #
+  # `--workspace`, not `default-members`: this is the one command that must
+  # also compile `gen-worker`'s binary target, which is where a break shows
+  # up as a `.wasm` that was never built.
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: wasm32-unknown-unknown
+          cache: false
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm
+
+      # `.cargo/config.toml` already carries the
+      # `getrandom_backend="wasm_js"` rustflag this needs.
+      - name: Check wasm32
+        run: cargo check --workspace --target wasm32-unknown-unknown
+
+  # Advisories, licences, banned duplicates and source registries (#1152).
+  #
+  # There was no supply-chain gate at all before this, over a ~985-package
+  # lockfile, for a client that speaks WebRTC to untrusted peers and holds
+  # DPoP keys. Its first local run found three live rustls-webpki
+  # vulnerabilities and a licence the allow-list did not cover — none of
+  # which anything here would have reported.
+  #
+  # `Cargo.lock` is untracked by decision, so the lockfile is generated here:
+  # this audits what CI would actually resolve and build, which is the honest
+  # thing to check when the manifest floats.
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate lockfile
+        run: cargo generate-lockfile
+
+      - name: cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+  # Non-blocking preview of the next toolchain (#1148).
+  #
+  # The pin above stops a Rust release reddening CI on its own schedule; this
+  # job is how the bump stops being a surprise anyway. It reports what the
+  # next `clippy -D warnings` will say and is allowed to fail, so a new lint
+  # is a thing to read rather than a thing that blocks a merge.
+  clippy-beta:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install beta toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: beta
+          components: clippy
+          cache: false
+
+      - name: Install Bevy system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: beta
+
+      - name: Clippy on beta (advisory)
+        run: cargo clippy --all-targets -- -D warnings

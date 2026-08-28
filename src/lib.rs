@@ -46,6 +46,14 @@
 // just to satisfy the lint would widen the real API surface, so we opt
 // out of the warning at the crate root instead.
 #![allow(rustdoc::private_intra_doc_links)]
+// This crate parses records, images and audio from strangers' PDSes and
+// speaks WebRTC to untrusted peers; none of that needs raw pointers, and
+// symbios-avatar is `forbid(unsafe_code)` for the same reason (#1152). The
+// single exception is the diagnostic allocator below, which cannot be
+// written safely — `GlobalAlloc` is an unsafe trait. `deny` rather than
+// `forbid` precisely so that one module can opt back in and be seen doing
+// it; a new `unsafe` anywhere else is a compile error.
+#![deny(unsafe_code)]
 
 use avian3d::PhysicsPlugins;
 use bevy::light::{CascadeShadowConfigBuilder, GlobalAmbientLight, NotShadowCaster};
@@ -55,6 +63,10 @@ use bevy::pbr::wireframe::WireframePlugin;
 use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
+// The crate's only `unsafe`: two `GlobalAlloc` implementations, which the
+// trait's own contract makes unsafe. Diagnostic-only and off by default
+// (the `alloc-trace` feature).
+#[allow(unsafe_code)]
 pub mod alloc_track;
 pub mod attract;
 pub mod audio_materials;
@@ -659,4 +671,52 @@ fn setup_lighting(
         NotShadowCaster,
         CloudLayer,
     ));
+}
+
+#[cfg(test)]
+mod gate_contract {
+    //! What the test profile itself must guarantee (#1147).
+    //!
+    //! These assert on the *build*, not on any behaviour of the crate, which
+    //! is unusual enough to be worth saying why. `[profile.test-release]`
+    //! inherits `release`, and inheriting it silently turned off the two
+    //! things a test build most needs: the crate's `debug_assert!`s and
+    //! integer overflow checks. Nothing failed as a result — the gate simply
+    //! stopped looking, and went on reporting green for two years of
+    //! commits. A configuration that can be weakened without anything going
+    //! red is exactly the kind that needs a test pointing at it.
+
+    /// The 16 `debug_assert!` sites in this crate are load-bearing —
+    /// geometry invariants that hold or the mesh is wrong — and they cost
+    /// nothing to leave on at this opt-level. This fails if
+    /// `debug-assertions` is dropped from `[profile.test-release]`, and it
+    /// fails if the suite is run under plain `--release`, which the build
+    /// docs forbid for unrelated reasons (#1064) but which would also
+    /// silently disarm every assertion here.
+    #[test]
+    fn the_test_profile_runs_this_crates_assertions() {
+        // A `const` block, so this fails at COMPILE time rather than at run
+        // time: a test binary built without assertions should not get as far
+        // as reporting a green suite with a red line in it.
+        const {
+            assert!(
+                cfg!(debug_assertions),
+                "tests are building with debug assertions OFF, so every \
+                 debug_assert! in the crate is inert — check \
+                 [profile.test-release] in Cargo.toml, and do not run the \
+                 suite under plain --release"
+            );
+        }
+    }
+
+    /// Overflow has no `cfg!`, so it is checked by causing one. A wrapping
+    /// subtraction in a mesh index or a vertex count produces a plausible
+    /// number and a wrong shape; panicking is how it gets found.
+    #[test]
+    #[should_panic(expected = "overflow")]
+    fn the_test_profile_traps_integer_overflow() {
+        // `black_box` so this is not const-folded into a compile error.
+        let zero: u32 = std::hint::black_box(0);
+        let _ = std::hint::black_box(zero - 1);
+    }
 }

@@ -232,13 +232,22 @@ fn native_redirect_uri_embeds_callback_port() {
     assert!(uri.ends_with("/callback"));
 }
 
-#[cfg(target_arch = "wasm32")]
 #[test]
-fn session_storage_key_is_nonempty_and_namespaced() {
-    // Session storage is a flat global map on WASM — keys need a
-    // project-specific prefix so we don't collide with unrelated apps
-    // hosted on the same origin. Only compiled for wasm targets, where
-    // the constant actually exists.
-    assert!(!oauth::SESSION_STORAGE_KEY.is_empty());
-    assert!(oauth::SESSION_STORAGE_KEY.contains("symbios"));
+fn browser_storage_keys_are_namespaced() {
+    // Browser storage is a flat map shared by every app on the origin, so
+    // these keys need a project-specific prefix or an unrelated page on the
+    // same host can clobber a pending auth or a persisted session.
+    //
+    // This used to be `#[cfg(target_arch = "wasm32")]`, which made it a test
+    // nothing ever ran — the suite has no wasm runner (#1147). The constants
+    // are now defined on every target so the rule is actually checked.
+    for key in [oauth::SESSION_STORAGE_KEY, oauth::PERSISTED_SESSION_KEY] {
+        assert!(!key.is_empty());
+        assert!(key.contains("symbios"), "{key} is not namespaced");
+    }
+    assert_ne!(
+        oauth::SESSION_STORAGE_KEY,
+        oauth::PERSISTED_SESSION_KEY,
+        "the pending-auth and persisted-session keys must not collide"
+    );
 }

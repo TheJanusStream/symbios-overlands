@@ -1136,8 +1136,33 @@ pub mod http {
         let builder = builder
             .timeout(REQUEST_TIMEOUT)
             .connect_timeout(CONNECT_TIMEOUT)
-            .redirect(redirect_policy());
-        builder.build().unwrap_or_default()
+            .redirect(redirect_policy())
+            // Name the TLS backend rather than letting feature unification
+            // pick it (#1154). The manifest asks for reqwest with
+            // `default-features = false, features = ["rustls-tls"]`, but
+            // proto-blue-common/oauth/xrpc depend on reqwest WITH defaults,
+            // which unifies `default-tls` back into the graph — and
+            // reqwest's `TlsBackend::default()` prefers native-tls whenever
+            // `default-tls` is present. So every native PDS and OAuth
+            // request went through OpenSSL while rustls sat linked and
+            // unused, and the manifest's stated posture was false on the
+            // one target where TLS features do anything (wasm ignores them
+            // entirely, which is why this went unseen).
+            //
+            // This makes the runtime choice explicit. It does not remove
+            // OpenSSL from the binary — that needs proto-blue to declare
+            // `default-features = false` upstream. `cargo tree -i openssl`
+            // is in the doc-verification checklist so its return is noticed.
+            .use_rustls_tls();
+        // Not `unwrap_or_default()`: that silently substituted
+        // `Client::new()` — no timeout, no redirect policy, and default-tls
+        // — for the client this function is entirely about configuring.
+        // A builder failure here is a broken build, not a runtime
+        // condition to paper over, and every caller of this is on a path
+        // where a silently unconfigured client is worse than a loud stop.
+        builder
+            .build()
+            .expect("HTTP client builder rejected its own configuration")
     }
 
     /// Follow at most three redirects, and never onto a scheme or host the
@@ -1536,5 +1561,45 @@ pub mod ui {
         /// mesh uses the authored resolution (≤48); the preview trades
         /// surface fidelity for a rebuild cheap enough to run mid-drag.
         pub const PREVIEW_MAX_RESOLUTION: u32 = 24;
+    }
+}
+
+#[cfg(test)]
+mod http_client_tests {
+    //! #1154: the shared client must actually carry the configuration this
+    //! module spends fifty lines describing.
+
+    /// The regression this closes is not a wrong value but a silent one.
+    /// `default_client` ended in `builder.build().unwrap_or_default()`, so
+    /// any builder failure produced `Client::new()` instead — no request
+    /// timeout, no redirect policy, and reqwest's default TLS backend,
+    /// which is the OpenSSL path this function exists to steer away from.
+    /// Every hardening choice above would have been discarded without a
+    /// word. Building must therefore succeed, and it must succeed on the
+    /// configuration as written.
+    #[test]
+    fn the_shared_client_builds_with_its_configuration_intact() {
+        // Panics rather than degrading if the builder ever rejects the
+        // combination of timeouts, redirect policy and rustls backend.
+        let client = super::http::default_client();
+        // A second build proves it is not a one-shot: every fetch site
+        // calls this per task.
+        let again = super::http::default_client();
+        drop((client, again));
+    }
+
+    /// `use_rustls_tls` is feature-gated in reqwest, so this is really a
+    /// compile-time assertion with a runtime shell: if someone resolves
+    /// #1154 the other way — dropping `rustls-tls` from the manifest and
+    /// accepting OpenSSL — this stops compiling rather than quietly
+    /// changing which TLS stack the client speaks.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn rustls_is_compiled_in_and_selectable() {
+        let built = reqwest::Client::builder().use_rustls_tls().build();
+        assert!(
+            built.is_ok(),
+            "the rustls backend must remain available to `default_client`"
+        );
     }
 }

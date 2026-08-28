@@ -2,6 +2,11 @@
 name = "gen-jobs"
 version = "0.1.0"
 edition = "2024"
+# Path-only member of the overlands workspace, never published to a registry
+# (#1152). Marking it explicitly is what lets the supply-chain gate skip the
+# licence check for it — the repository's Apache-2.0 LICENSE covers the
+# source either way; add a `license` field here if this is ever published.
+publish = false
 description = "Platform-agnostic, serialisable CPU generation jobs shared by the Symbios Overlands app (native AsyncComputeTaskPool backend) and the wasm Web Worker. Depends only on the Bevy-free symbios-* cores (ground / texture / audio / avatar), never the engine."
 
 [lib]
