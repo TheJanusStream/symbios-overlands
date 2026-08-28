@@ -30,6 +30,7 @@ mod material;
 mod particles;
 mod primitive;
 mod sign;
+pub(crate) use sign::is_fetchable_endpoint;
 mod terrain;
 mod transform;
 mod water;

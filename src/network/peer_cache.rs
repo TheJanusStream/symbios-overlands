@@ -99,14 +99,13 @@ pub(super) fn spawn_peer_avatar_fetch(
             let client = config::http::default_client();
             pds::fetch_avatar_record(&client, &did_for_fetch).await
         };
-        #[cfg(target_arch = "wasm32")]
-        {
-            fut.await
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            config::http::block_on(fut)
-        }
+        crate::config::http::run_or(
+            fut,
+            Err(pds::xrpc::FetchError::Network(config::http::timed_out(
+                "peer avatar record fetch",
+            ))),
+        )
+        .await
     });
     commands.spawn(PeerAvatarFetchTask {
         peer_id,
@@ -184,15 +183,44 @@ impl PeerRigResolveBackoff {
     }
 }
 
+/// When this peer last had a rigged-body resolution STARTED for it,
+/// whatever the outcome and whatever it was wearing (#1126).
+///
+/// Distinct from [`PeerRigResolveBackoff`], which is keyed by reference set
+/// and exists for references that *fail*. This one is unconditional and
+/// exists for references that succeed: it caps how often one peer can make
+/// every guest in the room fan out to hosts of its choosing.
+#[derive(Component)]
+pub(super) struct PeerRigResolveFloor {
+    started_at: f64,
+}
+
+impl PeerRigResolveFloor {
+    /// Whether this floor still bars a new resolution at `now`.
+    ///
+    /// Takes no reference set on purpose — see
+    /// [`config::network::RIG_RESOLVE_MIN_INTERVAL_SECS`]. A peer
+    /// alternating between two valid outfits presents a changed set on
+    /// every update, so any set-conditional test would wave it through.
+    fn holds(&self, now: f64) -> bool {
+        now - self.started_at < config::network::RIG_RESOLVE_MIN_INTERVAL_SECS
+    }
+}
+
 /// Start a resolution for every peer whose record is rigged but unresolved.
 pub(super) fn spawn_peer_rig_resolutions(
     mut commands: Commands,
-    peers: Query<(Entity, &RemotePeer, Option<&PeerRigResolveBackoff>)>,
+    peers: Query<(
+        Entity,
+        &RemotePeer,
+        Option<&PeerRigResolveBackoff>,
+        Option<&PeerRigResolveFloor>,
+    )>,
     inflight: Query<&PeerRigResolveTask>,
     time: Res<Time>,
 ) {
     let now = time.elapsed_secs_f64();
-    for (peer_entity, peer, backoff) in &peers {
+    for (peer_entity, peer, backoff, floor) in &peers {
         let Some(did) = peer.did.clone() else {
             continue;
         };
@@ -213,6 +241,12 @@ pub(super) fn spawn_peer_rig_resolutions(
         if backoff.is_some_and(|b| b.holds(rig, now)) {
             continue;
         }
+        // Per-peer rate floor (#1126), checked whether or not the reference
+        // set changed — a set-conditional check is precisely what a peer
+        // alternating between two valid outfits walks through.
+        if floor.is_some_and(|f| f.holds(now)) {
+            continue;
+        }
         let avatar_rkey = rig.avatar.clone();
         let attachment_rkeys = rig.attachments.clone();
         let (rkey_for_task, attachments_for_task) = (avatar_rkey.clone(), attachment_rkeys.clone());
@@ -229,14 +263,7 @@ pub(super) fn spawn_peer_rig_resolutions(
                 pds::avatar::wardrobe::resolve_rigged_body(&client, &pds, &did, &mut rig).await;
                 rig.resolved
             };
-            #[cfg(target_arch = "wasm32")]
-            {
-                fut.await
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                config::http::block_on(fut)
-            }
+            crate::config::http::run_or(fut, None).await
         });
         commands.spawn(PeerRigResolveTask {
             peer_id: peer.peer_id,
@@ -245,6 +272,11 @@ pub(super) fn spawn_peer_rig_resolutions(
             attachment_rkeys,
             task,
         });
+        // Stamped at START, not at completion: the cost this bounds is the
+        // fan-out itself, which is already spent by the time a result lands.
+        commands
+            .entity(peer_entity)
+            .insert(PeerRigResolveFloor { started_at: now });
     }
 }
 
@@ -429,6 +461,31 @@ mod tests {
                 100.0 + config::network::RIG_RESOLVE_RETRY_BASE_SECS
             ),
             "the wait elapses and the references are tried again"
+        );
+    }
+
+    /// #1126: the failure backoff above is keyed by reference set, which
+    /// does nothing against references that SUCCEED. Because `resolved` is
+    /// `#[serde(skip)]`, every live-preview update arrives unresolved, so a
+    /// peer alternating between two valid outfits made every guest in the
+    /// room re-run the whole fan-out — a DID document, a wardrobe record
+    /// and up to sixteen attachments — per round trip, to hosts of that
+    /// peer's choosing, on the shared IoTaskPool.
+    ///
+    /// The floor is therefore unconditional. The issue proposed "unless the
+    /// reference set changed since the last completed resolution", but that
+    /// is the exact condition the alternating case satisfies every time.
+    #[test]
+    fn a_peer_cannot_re_resolve_faster_than_the_floor_however_it_redresses() {
+        let floor = PeerRigResolveFloor { started_at: 100.0 };
+        assert!(floor.holds(100.5), "a redress moments later waits");
+        assert!(
+            floor.holds(100.0 + config::network::RIG_RESOLVE_MIN_INTERVAL_SECS - 0.001),
+            "still waiting right up to the interval"
+        );
+        assert!(
+            !floor.holds(100.0 + config::network::RIG_RESOLVE_MIN_INTERVAL_SECS),
+            "and the legitimate wearer's edit lands once it elapses"
         );
     }
 

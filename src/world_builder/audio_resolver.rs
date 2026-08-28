@@ -181,14 +181,7 @@ pub fn request_blob_audio(
             let source_for_task = key.clone();
             let task = pool.spawn(async move {
                 let fut = fetch_bytes_for(source_for_task);
-                #[cfg(target_arch = "wasm32")]
-                {
-                    fut.await
-                }
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    crate::config::http::block_on(fut)
-                }
+                crate::config::http::run_or(fut, None).await
             });
             commands.spawn(BlobAudioTask { key, task });
         }

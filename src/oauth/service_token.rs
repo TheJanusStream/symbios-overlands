@@ -131,14 +131,11 @@ pub fn schedule_service_token_refresh(
             }
             get_relay_service_auth(&session, &relay_host).await
         };
-        #[cfg(target_arch = "wasm32")]
-        {
-            fut.await
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::config::http::block_on(fut)
-        }
+        crate::config::http::run_or(
+            fut,
+            Err(crate::config::http::timed_out("relay service-auth token")),
+        )
+        .await
     });
     commands.spawn(ServiceTokenRefreshTask(task));
 }

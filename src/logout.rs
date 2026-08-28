@@ -63,6 +63,7 @@ pub(crate) fn cleanup_on_logout(
         mut lsystem_material,
         mut prim_mesh,
         mut prim_material,
+        mut egui_textures,
     ): (
         ResMut<crate::diagnostics::SessionLog>,
         ResMut<crate::diagnostics::MetricsRegistry>,
@@ -73,6 +74,9 @@ pub(crate) fn cleanup_on_logout(
         ResMut<crate::world_builder::LSystemMaterialCache>,
         ResMut<crate::world_builder::prim_cache::PrimMeshCache>,
         ResMut<crate::world_builder::prim_cache::PrimMaterialCache>,
+        // Rides in the tuple for the arity reason above; needed to release
+        // egui's strong handles on the profile images (#1125).
+        ResMut<bevy_egui::EguiUserTextures>,
     ),
     mut avatar_cache: ResMut<PeerAvatarCache>,
     mut bsky_cache: ResMut<BskyProfileCache>,
@@ -97,22 +101,23 @@ pub(crate) fn cleanup_on_logout(
         let metadata = ctx.server_metadata.clone();
         IoTaskPool::get()
             .spawn(async move {
+                // `run_or` rather than a hand-rolled cfg fork (#1129): it
+                // reuses the process-shared Tokio runtime on native and
+                // bounds the browser fetch on wasm. Revocation is
+                // best-effort by design, so a timeout is logged and the
+                // local state is cleared regardless — but an unbounded
+                // wait would leave this detached task alive for the rest
+                // of the page's life.
                 let fut = revoke_oauth_tokens(&session, &client, &metadata);
-                #[cfg(not(target_arch = "wasm32"))]
+                if let Err(e) = crate::config::http::run_or(
+                    fut,
+                    Err(bevy_symbios_multiuser::error::SymbiosError::AuthFailed(
+                        crate::config::http::timed_out("token revocation"),
+                    )),
+                )
+                .await
                 {
-                    // Reuses the process-shared Tokio runtime — see
-                    // `crate::config::http::block_on` — so logout's
-                    // best-effort token revocation no longer constructs
-                    // a one-shot runtime just to drop it again.
-                    if let Err(e) = crate::config::http::block_on(fut) {
-                        warn!("OAuth token revocation failed; clearing local state anyway: {e}");
-                    }
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    if let Err(e) = fut.await {
-                        warn!("OAuth token revocation failed; clearing local state anyway: {e}");
-                    }
+                    warn!("OAuth token revocation failed; clearing local state anyway: {e}");
                 }
             })
             .detach();
@@ -239,7 +244,13 @@ pub(crate) fn cleanup_on_logout(
     // Likewise for the bsky profile material cache — if the previous user
     // lingered on a peer's pfp we don't want to render it on someone else
     // after a DID collision.
-    bsky_cache.clear();
+    // Releasing egui's strong handles is what actually frees the profile
+    // images (#1125): `add_image` was given `EguiTextureHandle::Strong`, so
+    // clearing the map alone left every icon this session ever decoded
+    // resident for the life of the page.
+    for evicted in bsky_cache.clear() {
+        egui_textures.remove_image(&evicted.image);
+    }
     // The shared blob image cache holds `Handle<Image>` keyed by source
     // (URL / atproto blob / DID-pfp) across compile passes for both Sign
     // generators and Portal top-face pfps; same DID-collision argument

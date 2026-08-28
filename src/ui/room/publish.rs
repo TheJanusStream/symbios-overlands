@@ -11,6 +11,7 @@ use crate::diagnostics::event::{EventPayload, RecordKind};
 use crate::diagnostics::{MetricsRegistry, SessionLog};
 use crate::pds::{self, RoomRecord};
 use crate::state::{PublishFeedback, PublishStatus, StoredRoomRecord};
+use crate::ui::editable::poll_or_expire;
 
 /// Async task for publishing the room record to the owner's PDS. Carries the
 /// target `did` and the dispatch time so [`poll_publish_tasks`] can emit a typed
@@ -74,14 +75,7 @@ pub(crate) fn spawn_room_publish_task(
             let client = crate::config::http::default_client();
             pds::publish_room_record(&client, &session_clone, &refresh_clone, &record).await
         };
-        #[cfg(target_arch = "wasm32")]
-        {
-            fut.await
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::config::http::block_on(fut)
-        }
+        crate::config::http::run_or(fut, Err(crate::config::http::timed_out("room publish"))).await
     });
     commands.spawn(PublishRoomTask {
         task,
@@ -117,14 +111,7 @@ pub(super) fn spawn_reset_task(
             let client = crate::config::http::default_client();
             pds::reset_room_record(&client, &session_clone, &refresh_clone, &record).await
         };
-        #[cfg(target_arch = "wasm32")]
-        {
-            fut.await
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::config::http::block_on(fut)
-        }
+        crate::config::http::run_or(fut, Err(crate::config::http::timed_out("room reset"))).await
     });
     commands.spawn(ResetRoomTask {
         task,
@@ -156,9 +143,13 @@ pub fn poll_publish_tasks(
     time: Res<Time>,
 ) {
     for (entity, mut task) in publish_tasks.iter_mut() {
-        let Some(result) =
-            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
-        else {
+        let spawned_at = task.spawned_at;
+        let Some(result) = poll_or_expire(
+            &mut task.task,
+            spawned_at,
+            time.elapsed_secs_f64(),
+            "room publish",
+        ) else {
             continue;
         };
 
@@ -207,9 +198,13 @@ pub fn poll_publish_tasks(
         }
     }
     for (entity, mut task) in reset_tasks.iter_mut() {
-        let Some(result) =
-            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
-        else {
+        let spawned_at = task.spawned_at;
+        let Some(result) = poll_or_expire(
+            &mut task.task,
+            spawned_at,
+            time.elapsed_secs_f64(),
+            "room reset",
+        ) else {
             continue;
         };
 

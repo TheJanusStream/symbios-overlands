@@ -688,14 +688,11 @@ pub(crate) fn spawn_publish_inventory_task(
             )
             .await
         };
-        #[cfg(target_arch = "wasm32")]
-        {
-            fut.await
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::config::http::block_on(fut)
-        }
+        crate::config::http::run_or(
+            fut,
+            Err(crate::config::http::timed_out("inventory publish")),
+        )
+        .await
     });
     commands.spawn(PublishInventoryTask {
         task,
@@ -719,9 +716,13 @@ pub fn poll_publish_inventory_tasks(
     mut toasts: ResMut<crate::ui::toast::Toasts>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
-        let Some(result) =
-            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
-        else {
+        let spawned_at = task.spawned_at;
+        let Some(result) = crate::ui::editable::poll_or_expire(
+            &mut task.task,
+            spawned_at,
+            time.elapsed_secs_f64(),
+            "inventory publish",
+        ) else {
             continue;
         };
         commands.entity(entity).despawn();

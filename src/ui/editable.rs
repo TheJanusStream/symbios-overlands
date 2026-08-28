@@ -537,3 +537,105 @@ fn dice_seed(now_secs: f64, salt: u64) -> u64 {
     z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     z ^ (z >> 31)
 }
+
+/// Poll a publish task, or declare it dead if it has outlived
+/// [`crate::config::http::PUBLISH_TASK_DEADLINE`] (#1129).
+///
+/// `Some(Ok(_))`/`Some(Err(_))` is the task's own result; `Some(Err(_))`
+/// from an expiry is synthesised here. `None` means keep waiting.
+///
+/// Why an outside deadline when the request already has one: the in-task
+/// bound races a timer against the fetch, which covers a request that
+/// never settles. It does not cover a task that never gets polled to
+/// completion for some other reason, and the cost of being wrong is not a
+/// slow save — it is an editor pinned on `Publishing` forever, where Save
+/// is disabled and the unsaved-edits guard offers no way out. Freeing the
+/// editor on a stale task turns that trap back into an ordinary failure
+/// the owner can retry.
+///
+/// The task is dropped when this returns an expiry, which on wasm aborts
+/// the underlying fetch.
+pub fn poll_or_expire(
+    task: &mut bevy::tasks::Task<Result<(), String>>,
+    spawned_at: f64,
+    now: f64,
+    label: &str,
+) -> Option<Result<(), String>> {
+    if let Some(result) = futures_lite::future::block_on(futures_lite::future::poll_once(task)) {
+        return Some(result);
+    }
+    if now - spawned_at > crate::config::http::PUBLISH_TASK_DEADLINE.as_secs_f64() {
+        return Some(Err(crate::config::http::timed_out(label)));
+    }
+    None
+}
+
+#[cfg(test)]
+mod publish_deadline_tests {
+    use super::*;
+
+    /// A task that never resolves, standing in for a browser fetch that
+    /// connected and then went silent.
+    fn never_lands() -> bevy::tasks::Task<Result<(), String>> {
+        bevy::tasks::IoTaskPool::get_or_init(bevy::tasks::TaskPool::default)
+            .spawn(std::future::pending())
+    }
+
+    fn lands_ok() -> bevy::tasks::Task<Result<(), String>> {
+        bevy::tasks::IoTaskPool::get_or_init(bevy::tasks::TaskPool::default).spawn(async { Ok(()) })
+    }
+
+    /// The trap this closes (#1129): a stalled publish left the editor on
+    /// `PublishStatus::Publishing` forever — Save disabled, and the
+    /// unsaved-edits guard auto-entering a phase whose only button was
+    /// "Continue in background". The sequence was one request that
+    /// connected and never settled; on wasm nothing bounded it, and unlike
+    /// native there was no client timeout to end it.
+    #[test]
+    fn a_task_past_the_deadline_is_declared_failed() {
+        let mut task = never_lands();
+        let deadline = crate::config::http::PUBLISH_TASK_DEADLINE.as_secs_f64();
+
+        assert!(
+            poll_or_expire(&mut task, 0.0, deadline, "test").is_none(),
+            "at the deadline it is still waiting — the bound is exclusive"
+        );
+        let expired = poll_or_expire(&mut task, 0.0, deadline + 0.001, "test")
+            .expect("past the deadline the editor must be freed");
+        let message = expired.expect_err("expiry is a failure, not a success");
+        assert!(
+            message.contains("timed out"),
+            "the owner is told why, not just that Save came back: {message}"
+        );
+    }
+
+    /// The control, and the thing that would break if the deadline were
+    /// mistaken for a timeout on the request itself: a task that lands
+    /// normally reports its own result, whatever the clock says.
+    #[test]
+    fn a_landed_task_reports_its_own_result_however_old_it_is() {
+        let mut task = lands_ok();
+        // Wait for the pool WITHOUT going through `poll_or_expire` — asking
+        // it would race the deadline against the scheduler and make this
+        // test's own result depend on thread timing.
+        //
+        // `yield_now`, not a spin: the whole suite runs many processes at
+        // once, and a busy-wait that never gives up its slice starved the
+        // very worker it was waiting for. Bounded by the wall clock rather
+        // than an iteration count for the same reason — an iteration count
+        // means something different on a loaded machine.
+        let give_up_at = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !task.is_finished() && std::time::Instant::now() < give_up_at {
+            std::thread::yield_now();
+        }
+        assert!(task.is_finished(), "task never landed");
+
+        // A save that SUCCEEDED must not be rewritten into a failure just
+        // because the clock ran on: the deadline frees a stuck editor, it
+        // does not overrule a result that exists.
+        let far_future = crate::config::http::PUBLISH_TASK_DEADLINE.as_secs_f64() * 10.0;
+        let result = poll_or_expire(&mut task, 0.0, far_future, "test")
+            .expect("a finished task always yields its result");
+        assert!(result.is_ok(), "the task's own Ok must survive");
+    }
+}

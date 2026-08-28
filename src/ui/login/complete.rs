@@ -168,14 +168,8 @@ pub(super) fn spawn_complete_task(
                 spawn_yaw_deg: pending.target_yaw_deg,
             })
         };
-        #[cfg(target_arch = "wasm32")]
-        {
-            fut.await
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::config::http::block_on(fut)
-        }
+        crate::config::http::run_or(fut, Err(crate::config::http::timed_out("login completion")))
+            .await
     });
     commands.spawn(CompleteAuthTask(task));
 }

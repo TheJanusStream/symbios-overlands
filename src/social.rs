@@ -78,14 +78,7 @@ fn dispatch_resonance_queries(
         let pool = IoTaskPool::get();
         let task = pool.spawn(async move {
             let fut = query_resonance(local_did, remote);
-            #[cfg(target_arch = "wasm32")]
-            {
-                fut.await
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                crate::config::http::block_on(fut)
-            }
+            crate::config::http::run_or(fut, SocialResonance::Unknown).await
         });
         commands.entity(entity).insert(ResonanceFetchTask(task));
     }
@@ -306,14 +299,7 @@ pub fn request_mutuals(
     let pool = IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = fetch_mutuals(did);
-        #[cfg(target_arch = "wasm32")]
-        {
-            fut.await
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::config::http::block_on(fut)
-        }
+        crate::config::http::run_or(fut, Err(crate::config::http::timed_out("mutuals fetch"))).await
     });
     commands.spawn(MutualsFetchTask {
         owner_did: owner_did.to_string(),

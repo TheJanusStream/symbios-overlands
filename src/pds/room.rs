@@ -2016,7 +2016,9 @@ pub async fn fetch_room_record(
         // Inspect the error body before surfacing as PdsError — ATProto
         // signals "no such record" via 400 + `error: "RecordNotFound"` in
         // the body, and we must not treat that as a transient retry case.
-        let body = resp.text().await.unwrap_or_default();
+        // Capped (#1124): a room is fetched from its owner's PDS, which
+        // for a portal or gateway visit is a stranger's.
+        let body = super::xrpc::read_capped_text(resp).await;
         if let Ok(xrpc) = serde_json::from_str::<XrpcError>(&body)
             && let Some(err) = xrpc.error.as_deref()
             && (err == "RecordNotFound"
@@ -2168,7 +2170,7 @@ async fn room_self_exists(client: &reqwest::Client, pds: &str, did: &str) -> Res
     if status.as_u16() == 404 {
         return Ok(false);
     }
-    let body = resp.text().await.unwrap_or_default();
+    let body = super::xrpc::read_capped_text(resp).await;
     if body.contains("RecordNotFound") {
         return Ok(false);
     }

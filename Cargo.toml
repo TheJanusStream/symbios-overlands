@@ -47,7 +47,19 @@ serde = { version = "1.0", features = ["derive"] }
 # `wasmbind` backs the clock + local timezone with JS Date on wasm32
 # (std::time panics there — known gotcha).
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
-image = "0.25"
+# Only the decoders the app actually needs (#1153). Default features
+# compile all sixteen — including exr, tiff, gif and the rav1e AV1
+# encoder — and `decode_image_capped` sniffs format from magic bytes, so
+# every compiled decoder is reachable from an untrusted PDS blob or peer
+# avatar. The dimension cap bounds a pixel bomb, not decoder complexity.
+# Features are additive across the graph, so bevy_image's own png/hdr/
+# ktx2 still arrive; this is a pure subtraction of what nothing asks for.
+# png also carries the encoder the render tool writes contact sheets with.
+image = { version = "0.25", default-features = false, features = [
+    "png",
+    "jpeg",
+    "webp",
+] }
 futures-lite = "2"
 reqwest = { version = "0.12", default-features = false, features = [
     "json",

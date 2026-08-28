@@ -235,6 +235,94 @@ mod tests {
         assert_eq!((decoded.width(), decoded.height()), (4, 4));
     }
 
+    /// The blob policy, stated declaratively (#1153).
+    ///
+    /// `decode_image_capped` sniffs the format from magic bytes, so every
+    /// decoder compiled into the binary is reachable from an untrusted PDS
+    /// blob or peer avatar — and the dimension cap above bounds a pixel
+    /// bomb, not decoder complexity. EXR, TIFF and GIF have each had panic
+    /// and pathological-allocation CVEs; nothing in this app has ever asked
+    /// to read one.
+    ///
+    /// Asserting on `reading_enabled` rather than on decode results is
+    /// deliberate: it fails the day someone widens the `image` feature list
+    /// in Cargo.toml, which is the change that would silently reopen this,
+    /// and it says which formats are policy rather than leaving a reader to
+    /// infer it from a list of rejected fixtures.
+    #[test]
+    fn only_the_three_policy_formats_are_compiled_in() {
+        use image::ImageFormat;
+        for allowed in [ImageFormat::Png, ImageFormat::Jpeg, ImageFormat::WebP] {
+            assert!(
+                allowed.reading_enabled(),
+                "{allowed:?} is required by a live path (PDS blobs, bsky CDN PFPs)"
+            );
+        }
+        for denied in [
+            ImageFormat::Tiff,
+            ImageFormat::OpenExr,
+            ImageFormat::Gif,
+            ImageFormat::Bmp,
+            ImageFormat::Ico,
+            ImageFormat::Tga,
+            ImageFormat::Pnm,
+            ImageFormat::Qoi,
+            ImageFormat::Dds,
+            ImageFormat::Farbfeld,
+            ImageFormat::Avif,
+        ] {
+            assert!(
+                !denied.reading_enabled(),
+                "{denied:?} is compiled in and reachable from hostile bytes — \
+                 widen the image feature list only with a reason"
+            );
+        }
+    }
+
+    /// And the behavioural half: bytes announcing an excluded format are
+    /// turned away by `decode_image_capped` rather than reaching a decoder.
+    #[test]
+    fn headers_for_excluded_formats_are_turned_away() {
+        // Magic bytes only — a real decoder would need far more, which is
+        // the point: rejection must happen before anything parses these.
+        let tiff_le = b"II\x2a\x00\x08\x00\x00\x00".to_vec();
+        let tiff_be = b"MM\x00\x2a\x00\x00\x00\x08".to_vec();
+        let exr = vec![0x76, 0x2f, 0x31, 0x01, 0x02, 0x00, 0x00, 0x00];
+        let gif = b"GIF89a\x01\x00\x01\x00".to_vec();
+        let bmp = b"BM\x46\x00\x00\x00\x00\x00".to_vec();
+        for (name, bytes) in [
+            ("tiff-le", tiff_le),
+            ("tiff-be", tiff_be),
+            ("exr", exr),
+            ("gif", gif),
+            ("bmp", bmp),
+        ] {
+            assert!(
+                decode_image_capped(&bytes, "test").is_none(),
+                "{name} must not decode"
+            );
+        }
+    }
+
+    /// The control the test above needs: the policy formats really do still
+    /// decode, so the subtraction did not quietly break peer avatars.
+    /// PNG and JPEG round-trip through the crate's own encoders; `image`
+    /// 0.25 ships WebP as decode-only, so its half is covered by
+    /// `only_the_three_policy_formats_are_compiled_in`.
+    #[test]
+    fn the_allowed_formats_still_decode() {
+        for format in [image::ImageFormat::Png, image::ImageFormat::Jpeg] {
+            // JPEG has no alpha, so encode from RGB8 for both.
+            let img = image::DynamicImage::new_rgb8(4, 4);
+            let mut buf = Vec::new();
+            img.write_to(&mut std::io::Cursor::new(&mut buf), format)
+                .unwrap_or_else(|e| panic!("{format:?} must encode: {e}"));
+            let decoded = decode_image_capped(&buf, "test")
+                .unwrap_or_else(|| panic!("{format:?} must decode"));
+            assert_eq!((decoded.width(), decoded.height()), (4, 4));
+        }
+    }
+
     #[test]
     fn rejects_garbage_bytes() {
         assert!(decode_image_capped(&[0u8; 16], "test").is_none());

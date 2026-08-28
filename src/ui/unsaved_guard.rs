@@ -330,6 +330,26 @@ pub fn unsaved_guard_ui(
             if ui.button("Continue in background").clicked() {
                 close(&guard.action, &mut commands, &time);
             }
+            // Discard stays reachable while publishing (#1129). It was
+            // not, and that made a stalled request a trap rather than a
+            // failure: the guard auto-enters this phase whenever a task
+            // is in flight, the only button was "Continue in background",
+            // and the beforeunload guard resists a reload because the
+            // record is still dirty. Discarding does not depend on the
+            // task — proceeding abandons the edits either way — so there
+            // is no reason to withhold it, and the publish timeouts added
+            // alongside this only shorten the trap rather than remove it.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add(crate::ui::confirm::danger_button(
+                        continue_discard,
+                        &crate::ui::theme::current(ui.ctx()),
+                    ))
+                    .clicked()
+                {
+                    proceed(&guard.action, &mut commands, &mut next_state);
+                }
+            });
             return;
         }
 

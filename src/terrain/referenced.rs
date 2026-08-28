@@ -64,14 +64,7 @@ pub(super) fn spawn_splat_layer_fetch(
                 }
             }
         };
-        #[cfg(target_arch = "wasm32")]
-        {
-            fut.await
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::config::http::block_on(fut)
-        }
+        crate::config::http::run_or(fut, None).await
     });
     commands.spawn(PendingSplatLayerFetch {
         layer_idx,

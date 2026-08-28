@@ -325,10 +325,39 @@ pub(super) fn handle_incoming_messages(
                 }
             }
             OverlandsMessage::AvatarStateUpdate { record_json } => {
-                // Live preview nudge from a peer who is mid-edit. Decode,
-                // authenticate against the already-validated DID, sanitize,
-                // then overwrite `peer.avatar` so the hot-swap system in
-                // `player.rs` rebuilds the visual next frame.
+                // Live preview nudge from a peer who is mid-edit.
+                //
+                // AUTHORITY FIRST, matching the `RoomStateUpdate` arm below
+                // (#1126). This used to decode and sanitize up to ~900 KiB
+                // of JSON and only then check whether the sender was a peer
+                // we had authenticated — so a peer that never sent a valid
+                // Identity could make every guest walk a maximal generator
+                // tree once per frame and throw the result away. The
+                // heaviest message in the protocol already resolves the
+                // sender before touching the payload; the second-heaviest
+                // now does too.
+                let sender_did = peers
+                    .iter()
+                    .find(|(_, peer, _, _)| peer.peer_id == msg.sender)
+                    .and_then(|(_, peer, _, _)| peer.did.clone());
+                let Some(sender_did) = sender_did else {
+                    debug!(
+                        "Deferring AvatarStateUpdate from {}: peer DID not yet known",
+                        msg.sender
+                    );
+                    continue;
+                };
+                // Symmetric with `from_chunk_bytes`, which refuses to
+                // reassemble past this ceiling: a payload that could never
+                // have been legitimately broadcast is not worth decoding.
+                if record_json.len() > crate::config::network::MAX_RELIABLE_PAYLOAD_BYTES {
+                    warn!(
+                        "Dropping AvatarStateUpdate from {:?}: {} bytes exceeds the wire ceiling",
+                        msg.sender,
+                        record_json.len()
+                    );
+                    continue;
+                }
                 let Some(mut new_record) = OverlandsMessage::decode_avatar_state(&record_json)
                 else {
                     // Emit the typed decode-failure event (#634) so the
@@ -353,17 +382,9 @@ pub(super) fn handle_incoming_messages(
                     if peer.peer_id != msg.sender {
                         continue;
                     }
-                    // Only accept live updates from peers whose DID we have
-                    // already authenticated via Identity — otherwise a peer
-                    // that connected before its session bound could smuggle
-                    // an avatar under an empty DID and never be swept.
-                    let Some(peer_did) = peer.did.clone() else {
-                        debug!(
-                            "Deferring AvatarStateUpdate from {}: peer DID not yet known",
-                            msg.sender
-                        );
-                        continue;
-                    };
+                    // The DID was resolved above, before the decode — a peer
+                    // without one never reaches here.
+                    let peer_did = sender_did.clone();
                     // Carry a still-valid resolution across the update
                     // (#1113). `resolved` is `#[serde(skip)]`, so every
                     // preview arrives unresolved; overwriting wholesale threw

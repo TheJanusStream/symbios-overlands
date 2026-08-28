@@ -378,7 +378,9 @@ async fn fetch_legacy_inventory_record(
         return Ok(None);
     }
     if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
+        // Capped (#1124): an error body is an XRPC envelope, and this
+        // path is reachable on another identity's PDS.
+        let body = super::xrpc::read_capped_text(resp).await;
         if let Ok(xrpc) = serde_json::from_str::<XrpcError>(&body)
             && let Some(err) = xrpc.error.as_deref()
             && (err == "RecordNotFound"

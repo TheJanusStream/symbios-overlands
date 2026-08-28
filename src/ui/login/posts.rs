@@ -166,14 +166,7 @@ fn spawn_post_fetch_task(commands: &mut Commands) {
         // `IoTaskPool` worker thread runs synchronously, so on native we
         // need a tokio runtime to host reqwest's async machinery; on
         // WASM the future runs directly through the browser's event loop.
-        #[cfg(target_arch = "wasm32")]
-        {
-            fut.await
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::config::http::block_on(fut)
-        }
+        crate::config::http::run_or(fut, Err(crate::config::http::timed_out("posts fetch"))).await
     });
     commands.spawn(LoginFeedFetchTask(task));
 }

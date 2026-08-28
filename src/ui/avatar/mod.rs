@@ -1311,14 +1311,13 @@ fn spawn_wardrobe_list_task(commands: &mut Commands, did: &str) {
             let client = crate::config::http::default_client();
             pds::avatar::wardrobe::list_wardrobe(&client, &did).await
         };
-        #[cfg(target_arch = "wasm32")]
-        {
-            fut.await
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::config::http::block_on(fut)
-        }
+        crate::config::http::run_or(
+            fut,
+            Err(crate::pds::FetchError::Network(
+                crate::config::http::timed_out("wardrobe listing"),
+            )),
+        )
+        .await
     });
     commands.spawn(WardrobeListTask { task });
 }
@@ -1398,14 +1397,8 @@ pub(crate) fn spawn_publish_avatar_task(
             )
             .await
         };
-        #[cfg(target_arch = "wasm32")]
-        {
-            fut.await
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::config::http::block_on(fut)
-        }
+        crate::config::http::run_or(fut, Err(crate::config::http::timed_out("avatar publish")))
+            .await
     });
     commands.spawn(PublishAvatarTask {
         task,
@@ -1433,9 +1426,13 @@ pub fn poll_publish_avatar_tasks(
     time: Res<Time>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
-        let Some(result) =
-            futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
-        else {
+        let spawned_at = task.spawned_at;
+        let Some(result) = crate::ui::editable::poll_or_expire(
+            &mut task.task,
+            spawned_at,
+            time.elapsed_secs_f64(),
+            "avatar publish",
+        ) else {
             continue;
         };
         commands.entity(entity).despawn();

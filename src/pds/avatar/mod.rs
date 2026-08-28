@@ -216,7 +216,9 @@ pub async fn fetch_avatar_record(
         return fallback_from_profile(client, &pds, did).await;
     }
     if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
+        // Capped (#1124): peer avatar fetches fire automatically when
+        // anyone joins the room, so this body is chosen by a stranger.
+        let body = super::xrpc::read_capped_text(resp).await;
         if let Ok(xrpc) = serde_json::from_str::<XrpcError>(&body)
             && let Some(err) = xrpc.error.as_deref()
             && (err == "RecordNotFound"

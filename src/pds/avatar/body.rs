@@ -250,6 +250,18 @@ impl AvatarBody {
 impl RiggedBody {
     fn sanitize(&mut self) {
         clamp_rkey(&mut self.avatar);
+        // Drop references that are not record keys, then collapse repeats
+        // (#1126). Each surviving reference is one PDS fetch on every peer
+        // that renders the wearer, so a list of sixteen copies of one rkey
+        // was sixteen requests for one prop — and dressed that prop
+        // sixteen times over.
+        //
+        // Order is PRESERVED, not sorted: `attachments` is draw-order, so
+        // sorting would silently restack a wearer's props. First occurrence
+        // wins, which is the one the wearer's own editor put there.
+        let mut seen = std::collections::HashSet::new();
+        self.attachments
+            .retain(|rkey| is_record_key(rkey) && seen.insert(rkey.clone()));
         self.attachments.truncate(MAX_AVATAR_ATTACHMENTS);
         for rkey in &mut self.attachments {
             clamp_rkey(rkey);
@@ -263,6 +275,27 @@ impl RiggedBody {
             }
         }
     }
+}
+
+/// Whether `key` is a syntactically valid ATProto record key (#1126).
+///
+/// The charset is the whole of the safety argument: every character in it
+/// is unreserved in a URI path segment, so a key that passes cannot
+/// terminate, escape or re-route the AT-URI a consumer builds around it.
+/// `.` and `..` are reserved and rejected outright.
+///
+/// Duplicated from `symbios-avatar`'s private twin rather than shared: the
+/// rule is four lines of a published specification and unlikely to move,
+/// and exposing it upstream is a cross-crate change that belongs with the
+/// other hand-maintained mirrors. Kept beside `clamp_rkey` so the two
+/// reference guards are read together.
+fn is_record_key(key: &str) -> bool {
+    (1..=512).contains(&key.len())
+        && key != "."
+        && key != ".."
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'~' | b'-'))
 }
 
 /// Truncate a reference rkey to something that can only be a record key.
@@ -324,6 +357,79 @@ mod tests {
         assert_eq!(rig.avatar, "3jzfcijpj2z2a");
         assert_eq!(rig.attachments, vec![String::from("3jzfcijpj2z2b")]);
         assert!(rig.resolved.is_none(), "resolution is re-fetched, not read");
+    }
+
+    /// #1126: sixteen copies of one rkey was sixteen PDS fetches on every
+    /// peer rendering the wearer, and dressed the same prop sixteen times.
+    /// The sequence: a record naming one prop repeatedly — trivially
+    /// hand-written, and the truncation to sixteen was the only bound.
+    #[test]
+    fn sanitize_collapses_repeated_attachment_references() {
+        let mut body = AvatarBody::rigged("a");
+        if let Some(rig) = body.rigged_mut() {
+            rig.attachments = vec![String::from("3jzfcijpj2z2b"); 16];
+        }
+        body.sanitize();
+        assert_eq!(
+            body.rigged_ref().expect("rigged").attachments,
+            vec![String::from("3jzfcijpj2z2b")],
+            "one reference, one fetch, one prop"
+        );
+    }
+
+    /// Deduping must not restack the wearer: `attachments` is draw-order,
+    /// so first occurrence wins and the surviving order is the one the
+    /// wearer's own editor produced. (Sorting would have been simpler and
+    /// wrong.)
+    #[test]
+    fn dedupe_keeps_draw_order_and_the_first_occurrence() {
+        let mut body = AvatarBody::rigged("a");
+        if let Some(rig) = body.rigged_mut() {
+            rig.attachments = ["zeta", "alpha", "zeta", "mid", "alpha"]
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect();
+        }
+        body.sanitize();
+        assert_eq!(
+            body.rigged_ref().expect("rigged").attachments,
+            vec![
+                String::from("zeta"),
+                String::from("alpha"),
+                String::from("mid")
+            ]
+        );
+    }
+
+    /// A reference is pasted into an AT-URI by everything downstream, so a
+    /// key carrying path or query syntax is dropped rather than clamped —
+    /// truncating it would leave a shorter string that is still not a key.
+    #[test]
+    fn sanitize_drops_references_that_are_not_record_keys() {
+        let mut body = AvatarBody::rigged("a");
+        if let Some(rig) = body.rigged_mut() {
+            rig.attachments = [
+                "3jzfcijpj2z2b", // the real thing, kept
+                "../../../etc",  // path traversal
+                "a/b",           // extra path segment
+                "a?x=1",         // query
+                "a#frag",        // fragment
+                "a b",           // space
+                ".",             // reserved
+                "..",            // reserved
+                "",              // empty
+                "héllo",         // non-ascii
+            ]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+        }
+        body.sanitize();
+        assert_eq!(
+            body.rigged_ref().expect("rigged").attachments,
+            vec![String::from("3jzfcijpj2z2b")],
+            "only the syntactically valid key survives"
+        );
     }
 
     #[test]

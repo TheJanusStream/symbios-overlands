@@ -56,14 +56,54 @@ pub struct CachedBskyProfile {
 /// DID → cached bsky profile picture. Cleared on logout (see
 /// `logout::cleanup_on_logout`) so a new session can't render a previous
 /// user's peer with whatever was left over in GPU asset storage.
+///
+/// FIFO-bounded at [`crate::config::network::MAX_BSKY_PROFILE_CACHE_ENTRIES`]
+/// (#1125), mirroring `PeerAvatarCache`. Logout was previously the only
+/// thing that ever removed an entry, so a session that met many DIDs grew
+/// until it ended.
+///
+/// **Dropping an entry is not enough to free its image.** `add_image` is
+/// given an `EguiTextureHandle::Strong`, so egui holds a strong handle of
+/// its own and the asset outlives anything this map does — which is why
+/// both [`insert`](Self::insert) and [`clear`](Self::clear) hand the
+/// removed entries back rather than dropping them: the caller has
+/// `EguiUserTextures` and must call `remove_image` on each.
 #[derive(Resource, Default)]
 pub struct BskyProfileCache {
     by_did: std::collections::HashMap<String, CachedBskyProfile>,
+    order: std::collections::VecDeque<String>,
 }
 
 impl BskyProfileCache {
-    pub fn clear(&mut self) {
-        self.by_did.clear();
+    /// Empty the cache, returning every entry so the caller can release
+    /// its egui texture. Dropping the returned entries alone frees
+    /// nothing — see the type docs.
+    #[must_use = "the returned entries still hold egui's strong image handles"]
+    pub fn clear(&mut self) -> Vec<CachedBskyProfile> {
+        self.order.clear();
+        self.by_did.drain().map(|(_, entry)| entry).collect()
+    }
+
+    /// Cache `profile` under `did`, returning any entries evicted to stay
+    /// within the bound. Re-caching a DID refreshes its position rather
+    /// than adding a second queue entry, so one peer reconnecting
+    /// repeatedly cannot evict everyone else.
+    #[must_use = "evicted entries still hold egui's strong image handles"]
+    pub fn insert(&mut self, did: String, profile: CachedBskyProfile) -> Vec<CachedBskyProfile> {
+        let mut evicted = Vec::new();
+        if let Some(previous) = self.by_did.remove(&did) {
+            self.order.retain(|d| d != &did);
+            evicted.push(previous);
+        }
+        while self.order.len() >= crate::config::network::MAX_BSKY_PROFILE_CACHE_ENTRIES {
+            match self.order.pop_front() {
+                Some(oldest) => evicted.extend(self.by_did.remove(&oldest)),
+                None => break,
+            }
+        }
+        self.order.push_back(did.clone());
+        self.by_did.insert(did, profile);
+        evicted
     }
 
     /// Look up a cached profile by DID. Returns `None` when the fetch is
@@ -154,14 +194,7 @@ fn spawn_avatar_task(commands: &mut Commands, entity: Entity, did: String) {
     let did_for_fetch = did.clone();
     let task = pool.spawn(async move {
         let fut = fetch_avatar_bytes(did_for_fetch);
-        #[cfg(target_arch = "wasm32")]
-        {
-            fut.await
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::config::http::block_on(fut)
-        }
+        crate::config::http::run_or(fut, AvatarFetchResult::default()).await
     });
     commands
         .entity(entity)
@@ -212,6 +245,17 @@ fn poll_avatar_tasks(
             continue;
         };
 
+        // Downscale BEFORE the image reaches `Assets<Image>` (#1125): what
+        // is retained is what is stored, and this is only ever drawn at
+        // `AVATAR_ICON_PX`. On wasm the source comes from the DID's own
+        // PDS rather than the resizing bsky CDN, so without this an entry
+        // is whatever the owner uploaded — up to 64 MiB of RGBA each.
+        let icon_px = crate::config::network::BSKY_PROFILE_ICON_PX;
+        let dyn_img = if dyn_img.width() > icon_px || dyn_img.height() > icon_px {
+            dyn_img.resize(icon_px, icon_px, image::imageops::FilterType::Triangle)
+        } else {
+            dyn_img
+        };
         let img = Image::from_dynamic(
             dyn_img,
             true,
@@ -226,14 +270,18 @@ fn poll_avatar_tasks(
         // if egui drops its half.
         let egui_texture = egui_textures.add_image(EguiTextureHandle::Strong(image_handle.clone()));
 
-        cache.by_did.insert(
+        for evicted in cache.insert(
             did.clone(),
             CachedBskyProfile {
                 image: image_handle,
                 egui_texture,
                 handle: verified_handle,
             },
-        );
+        ) {
+            // Releases egui's strong handle; the asset is freed once ours
+            // goes out of scope with `evicted`.
+            egui_textures.remove_image(&evicted.image);
+        }
     }
 }
 
@@ -350,5 +398,95 @@ pub fn draw_avatar_icon(
         None => {
             ui.allocate_space(egui::vec2(size, size));
         }
+    }
+}
+
+#[cfg(test)]
+mod profile_cache_tests {
+    use super::*;
+    use bevy_egui::egui;
+
+    /// An entry with a distinguishable texture id. `Handle::default()` is
+    /// enough here: what is under test is the eviction bookkeeping, not the
+    /// asset it points at.
+    fn entry(tag: u64) -> CachedBskyProfile {
+        CachedBskyProfile {
+            image: Handle::default(),
+            egui_texture: egui::TextureId::User(tag),
+            handle: None,
+        }
+    }
+
+    /// #1125: the cache was populated by every peer Identity and emptied
+    /// only at logout, so a relay or peer set churning DIDs grew a guest's
+    /// heap for the whole session — and wasm never gives heap back.
+    #[test]
+    fn the_cache_evicts_oldest_first_past_its_bound() {
+        let mut cache = BskyProfileCache::default();
+        let bound = crate::config::network::MAX_BSKY_PROFILE_CACHE_ENTRIES;
+        for i in 0..bound {
+            assert!(
+                cache
+                    .insert(format!("did:plc:{i}"), entry(i as u64))
+                    .is_empty(),
+                "nothing is evicted while there is room"
+            );
+        }
+        let evicted = cache.insert(String::from("did:plc:one-too-many"), entry(9999));
+        assert_eq!(evicted.len(), 1, "exactly one entry makes way");
+        assert_eq!(
+            evicted[0].egui_texture,
+            egui::TextureId::User(0),
+            "and it is the oldest"
+        );
+        assert!(cache.get("did:plc:0").is_none());
+        assert!(cache.get("did:plc:one-too-many").is_some());
+    }
+
+    /// One peer reconnecting repeatedly must not evict everyone else: a
+    /// re-cache refreshes the DID's slot rather than queueing a second one.
+    /// The stale entry still comes back, because its egui handle needs
+    /// releasing just as an evicted one does.
+    #[test]
+    fn re_caching_a_did_replaces_its_entry_without_consuming_a_slot() {
+        let mut cache = BskyProfileCache::default();
+        assert!(cache.insert(String::from("did:plc:a"), entry(1)).is_empty());
+        assert!(cache.insert(String::from("did:plc:b"), entry(2)).is_empty());
+
+        let replaced = cache.insert(String::from("did:plc:a"), entry(3));
+        assert_eq!(replaced.len(), 1, "the superseded entry is handed back");
+        assert_eq!(replaced[0].egui_texture, egui::TextureId::User(1));
+        assert_eq!(
+            cache.get("did:plc:a").map(|p| p.egui_texture),
+            Some(egui::TextureId::User(3))
+        );
+        assert!(
+            cache.get("did:plc:b").is_some(),
+            "nobody else was disturbed"
+        );
+    }
+
+    /// Clearing hands every entry back for the same reason eviction does:
+    /// `add_image` was given a STRONG handle, so egui outlives this map and
+    /// dropping entries frees nothing on its own. Before #1125 logout
+    /// cleared the map and left every icon the session had decoded resident
+    /// for the life of the page.
+    #[test]
+    fn clearing_returns_every_entry_so_its_texture_can_be_released() {
+        let mut cache = BskyProfileCache::default();
+        for i in 0..8 {
+            let _ = cache.insert(format!("did:plc:{i}"), entry(i));
+        }
+        let released = cache.clear();
+        assert_eq!(released.len(), 8, "every entry comes back to be released");
+        assert!(cache.get("did:plc:0").is_none());
+        // And the queue is emptied with the map, so the next insert starts
+        // from a clean bound rather than an inherited backlog.
+        assert!(
+            cache
+                .insert(String::from("did:plc:fresh"), entry(99))
+                .is_empty(),
+            "a cleared cache has room again"
+        );
     }
 }

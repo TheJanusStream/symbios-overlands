@@ -179,14 +179,7 @@ fn spawn_fetch(commands: &mut Commands, key: AudioClipKey) {
                 }
             }
         };
-        #[cfg(target_arch = "wasm32")]
-        {
-            fut.await
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::config::http::block_on(fut)
-        }
+        crate::config::http::run_or(fut, None).await
     });
     commands.spawn(AudioClipTask { key, task });
 }

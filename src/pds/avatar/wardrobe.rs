@@ -254,7 +254,9 @@ async fn get_record_value<T: DeserializeOwned>(
         return Ok(None);
     }
     if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
+        // Capped (#1124) — this reads wardrobe, profile and attachment
+        // records of OTHER identities.
+        let body = super::super::xrpc::read_capped_text(resp).await;
         if let Ok(xrpc) = serde_json::from_str::<XrpcError>(&body)
             && let Some(err) = xrpc.error.as_deref()
             && (err == "RecordNotFound"

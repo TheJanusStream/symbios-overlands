@@ -842,6 +842,26 @@ pub mod network {
     /// finally publishes it) the wait is discarded and the new references
     /// resolve immediately.
     pub const RIG_RESOLVE_RETRY_BASE_SECS: f64 = 2.0;
+
+    /// Minimum seconds between two rigged-body resolutions for the SAME
+    /// peer, whatever they are wearing (#1126).
+    ///
+    /// The failure backoff above is keyed by reference set, which is right
+    /// for a reference that cannot resolve and useless against a peer whose
+    /// references keep *succeeding*: `resolved` is `#[serde(skip)]`, so
+    /// every inbound `AvatarStateUpdate` arrives unresolved, and a peer
+    /// alternating between two valid outfits presents a changed set every
+    /// time. Each round trip then costs every guest in the room a DID
+    /// document plus a wardrobe record plus up to sixteen attachments, to
+    /// hosts of the peer's choosing, on the shared `IoTaskPool` — the same
+    /// pool room loads, gifts and profile fetches queue on.
+    ///
+    /// So this floor is unconditional rather than "unless the set changed":
+    /// a condition on the set is exactly what the alternating case defeats.
+    /// Five seconds is invisible to the legitimate case — a wearer's own
+    /// edits are already debounced and only need to arrive eventually —
+    /// and turns an unbounded amplifier into a bounded trickle.
+    pub const RIG_RESOLVE_MIN_INTERVAL_SECS: f64 = 5.0;
     /// Ceiling for the doubling in [`RIG_RESOLVE_RETRY_BASE_SECS`]. A minute
     /// is long enough that a room full of unresolvable peers costs nothing,
     /// and short enough that a PDS coming back up is picked up while the
@@ -894,6 +914,31 @@ pub mod network {
     /// the vast majority of real rooms (a portal-cluster hop brings
     /// in low-double-digit peers) while bounding worst-case memory.
     pub const MAX_PEER_AVATAR_CACHE_ENTRIES: usize = 256;
+
+    /// Maximum number of (DID → cached bsky profile picture) entries kept
+    /// in `BskyProfileCache` (#1125).
+    ///
+    /// The unbounded sibling of [`MAX_PEER_AVATAR_CACHE_ENTRIES`], and the
+    /// more expensive one: each entry holds a decoded `Image` rather than a
+    /// record. It is populated by every peer Identity and cleared only on
+    /// logout, so a relay or peer set churning DIDs grew a guest's heap for
+    /// the length of the session — and wasm never returns heap to the OS.
+    /// Same bound as its sibling for the same reason: a portal-cluster hop
+    /// brings in low-double-digit peers.
+    pub const MAX_BSKY_PROFILE_CACHE_ENTRIES: usize = 256;
+
+    /// Edge length the cached profile picture is downscaled to before it
+    /// reaches `Assets<Image>` (#1125).
+    ///
+    /// Every consumer draws it through `draw_avatar_icon` at
+    /// `AVATAR_ICON_PX` (18 logical px), so 64 covers 3.5× device pixel
+    /// ratio with room to spare. What it replaces is what the source
+    /// actually is: the bsky CDN resizes, but the wasm path fetches from
+    /// the DID's own PDS, where the blob is whatever the owner uploaded —
+    /// up to the 4096 px decode cap, which is 64 MiB of RGBA for ONE
+    /// entry. Storing the icon at icon size makes each entry 16 KiB, so
+    /// the bound above is a few megabytes rather than gigabytes.
+    pub const BSKY_PROFILE_ICON_PX: u32 = 64;
 
     /// How often (seconds) to re-issue the relay **service-auth** token that
     /// the WebRTC signaller presents on every (re)connect. `getServiceAuth`
@@ -1079,12 +1124,48 @@ pub mod http {
         // Neither `timeout` nor `connect_timeout` are available on the WASM
         // reqwest client: it routes through the browser's fetch API, which
         // exposes no timeout controls on the builder. Per-request timeouts
-        // must be enforced by the caller on wasm32.
+        // are enforced by `run_or`, which every fetch site goes through.
+        //
+        // The redirect policy is native-only for the same reason: on wasm
+        // the browser follows redirects itself and exposes no hook. That is
+        // the target where a beacon is least useful anyway (CORS blocks the
+        // read, and mixed content blocks plain http outright); the native
+        // client is the one that will happily follow a stranger's record
+        // onto a corporate intranet.
         #[cfg(not(target_arch = "wasm32"))]
         let builder = builder
             .timeout(REQUEST_TIMEOUT)
-            .connect_timeout(CONNECT_TIMEOUT);
+            .connect_timeout(CONNECT_TIMEOUT)
+            .redirect(redirect_policy());
         builder.build().unwrap_or_default()
+    }
+
+    /// Follow at most three redirects, and never onto a scheme or host the
+    /// reference itself would have been refused for (#1127).
+    ///
+    /// The default ten-hop policy made the URL checks in
+    /// `pds::sanitize` advisory: a record could name a compliant
+    /// `https://` address whose only job is to answer `302` with
+    /// `http://192.168.0.1/`, and the client would follow it. Checking the
+    /// origin and re-checking every hop is what makes the up-front check
+    /// mean something.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn redirect_policy() -> reqwest::redirect::Policy {
+        /// Enough for the CDN and PDS shapes in use (a canonical-host hop
+        /// plus a signed-URL hop); far short of a chain used to launder a
+        /// destination past a one-shot check.
+        const MAX_HOPS: usize = 3;
+
+        reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= MAX_HOPS {
+                return attempt.error("too many redirects");
+            }
+            if crate::pds::sanitize::is_fetchable_endpoint(attempt.url().as_str()) {
+                attempt.follow()
+            } else {
+                attempt.stop()
+            }
+        })
     }
 
     /// Process-wide shared Tokio runtime, lazily constructed on first
@@ -1118,6 +1199,71 @@ pub mod http {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn block_on<F: std::future::Future>(fut: F) -> F::Output {
         SHARED_RUNTIME.block_on(fut)
+    }
+
+    /// Drive one HTTP future to completion inside an `IoTaskPool` task,
+    /// bounded on both targets, yielding `on_timeout` if it never settles.
+    ///
+    /// **This helper exists to make the timeout unforgettable** (#1129).
+    /// Before it, twenty call sites each hand-wrote the same
+    /// `#[cfg(wasm32)] { fut.await } #[cfg(not)] { block_on(fut) }` fork,
+    /// and the doc on [`default_client`] assigned wasm timeout enforcement
+    /// to "the caller" — which two of twenty callers actually did. The
+    /// other eighteen awaited a bare browser fetch, and a browser fetch has
+    /// no idle-body timeout: a PDS that accepts a connection and then drips
+    /// nothing leaves the corresponding task pending forever, while the
+    /// native client self-heals at [`REQUEST_TIMEOUT`]. Since any DID you
+    /// share a room with points the client at that user's PDS, a tarpit
+    /// host could wedge avatar icons, terrain textures, inventory and the
+    /// login completion flow — on the deployed target, silently.
+    ///
+    /// A `with_timeout` helper callers must *remember* to wrap around the
+    /// wasm arm would have the same failure mode as the doc comment did.
+    /// This one absorbs the whole fork, so a new fetch site cannot be
+    /// written without a bound.
+    ///
+    /// `on_timeout` is eager rather than a closure because every caller's
+    /// timeout value is a cheap constant, and it is unused on native, where
+    /// reqwest's own builder timeout has already bounded the request.
+    /// How long a publish task may sit unresolved before a poll system
+    /// declares it dead and frees the editor (#1129).
+    ///
+    /// Belt and braces behind [`run_or`]'s per-request bound: that races a
+    /// browser timer inside the task, this watches the wall clock from
+    /// outside it. Twice [`REQUEST_TIMEOUT`] so the inner bound always wins
+    /// a fair race — reaching this one means the task itself stopped
+    /// making progress, which no amount of waiting will fix, and an editor
+    /// stuck on `Publishing` cannot save, log out or travel.
+    pub const PUBLISH_TASK_DEADLINE: Duration = Duration::from_secs(REQUEST_TIMEOUT.as_secs() * 2);
+
+    /// The sentence a timed-out call reports, so the status line, the
+    /// toast and the log all name the same limit rather than each
+    /// inventing its own wording.
+    pub fn timed_out(what: &str) -> String {
+        format!("{what} timed out after {}s", REQUEST_TIMEOUT.as_secs())
+    }
+
+    pub async fn run_or<F: std::future::Future>(fut: F, on_timeout: F::Output) -> F::Output {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Native is bounded by `default_client`'s builder timeout, so
+            // this arm can never produce `on_timeout`.
+            drop(on_timeout);
+            block_on(fut)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Race the fetch against a browser timer; the loser is dropped,
+            // which aborts the underlying fetch.
+            let work = async { Some(fut.await) };
+            let timer = async {
+                gloo_timers::future::TimeoutFuture::new(REQUEST_TIMEOUT.as_millis() as u32).await;
+                None
+            };
+            futures_lite::future::or(work, timer)
+                .await
+                .unwrap_or(on_timeout)
+        }
     }
 }
 

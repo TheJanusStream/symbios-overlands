@@ -154,14 +154,13 @@ pub(crate) fn begin_portal_travel(
             let client = crate::config::http::default_client();
             fetch_room_record(&client, &target_did).await
         };
-        #[cfg(target_arch = "wasm32")]
-        {
-            fut.await
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::config::http::block_on(fut)
-        }
+        crate::config::http::run_or(
+            fut,
+            Err(crate::pds::FetchError::Network(
+                crate::config::http::timed_out("portal room fetch"),
+            )),
+        )
+        .await
     });
     commands.spawn(PortalTravelTask(task));
 }
