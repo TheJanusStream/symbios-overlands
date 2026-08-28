@@ -20,7 +20,7 @@ use super::terrain::SovereignTerrainConfig;
 use super::texture::SovereignMaterialSettings;
 use super::types::{
     BiomeFilter, Fp, Fp2, Fp3, Fp4, ScatterBounds, ScatterNaturalness, TransformData, default_true,
-    is_false, is_true, map_u16_as_string, u64_as_string,
+    is_false, is_true, map_u16_as_string, sorted_string_map, u64_as_string,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -1232,7 +1232,7 @@ pub enum GeneratorKind {
         /// → PBR settings. A terminal whose `material` is `None` or whose
         /// name has no entry here falls back to the spawner's default
         /// material.
-        #[serde(default)]
+        #[serde(default, serialize_with = "sorted_string_map")]
         materials: HashMap<String, SovereignMaterialSettings>,
         /// Terminal mesh ids — the strings emitted by `I("...")` — whose
         /// terminals render with a **round** cross-section: an elliptical

@@ -71,6 +71,16 @@ pub struct PublishInventoryTask {
     /// Serialized size of the record being written, measured at dispatch so
     /// the poll system can gauge + log it (#694).
     pub record_bytes: Option<usize>,
+    /// The exact stash this task handed to the PDS. On success `stored` is
+    /// pinned to THIS, never to whatever `live` holds when the task lands
+    /// (#1116). The window is routine here rather than theoretical: the
+    /// accept-a-gift path publishes without the Inventory window open and
+    /// re-opens the dialog for the next offer immediately, so a second
+    /// gift, a Wear, a rename or a delete inside one round trip is normal
+    /// play — and every one of them used to be marked clean without ever
+    /// having been written. `stored` is also what the next save's diff is
+    /// computed against, so the loss compounds instead of self-healing.
+    pub published: InventoryRecord,
 }
 
 /// Origin of a drag-to-place operation. The raycast + placement path
@@ -664,6 +674,7 @@ pub(crate) fn spawn_publish_inventory_task(
     // Per-item wire format → the budget gauge tracks the largest single
     // item record, not the whole stash (#694/#696).
     let record_bytes = crate::pds::inventory::max_item_bytes(&record);
+    let published = record.clone();
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
@@ -691,6 +702,7 @@ pub(crate) fn spawn_publish_inventory_task(
         did,
         spawned_at: now,
         record_bytes,
+        published,
     });
 }
 
@@ -698,7 +710,6 @@ pub(crate) fn spawn_publish_inventory_task(
 pub fn poll_publish_inventory_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut PublishInventoryTask)>,
-    live: Option<Res<LiveInventoryRecord>>,
     mut stored: Option<ResMut<StoredInventoryRecord>>,
     mut feedback: ResMut<PublishFeedback<InventoryRecord>>,
     mut session_log: ResMut<SessionLog>,
@@ -728,8 +739,10 @@ pub fn poll_publish_inventory_tasks(
         match result {
             Ok(()) => {
                 info!("Inventory record saved to PDS");
-                if let (Some(live), Some(stored)) = (live.as_ref(), stored.as_mut()) {
-                    stored.0 = live.0.clone();
+                // The published snapshot, not `live` (#1116) — see
+                // `PublishInventoryTask::published`.
+                if let Some(stored) = stored.as_mut() {
+                    stored.0 = task.published.clone();
                 }
                 feedback.status = PublishStatus::Success { at_secs: now };
                 session_log.info(

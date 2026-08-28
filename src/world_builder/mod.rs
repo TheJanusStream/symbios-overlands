@@ -472,7 +472,10 @@ fn create_foliage_card(width: f32, height: f32) -> Mesh {
 /// carried, so renders are unchanged.
 pub(crate) fn prop_mesh_geometry(kind: PropMeshType) -> Mesh {
     match kind {
-        PropMeshType::Leaf => create_foliage_card(0.5, 0.8),
+        // `Unknown` is a prop shape from a newer engine (#1119); it renders
+        // as the leaf card an unmapped slot already falls back to, so a
+        // forest built by a newer client still reads as a forest here.
+        PropMeshType::Leaf | PropMeshType::Unknown => create_foliage_card(0.5, 0.8),
         PropMeshType::Twig => create_foliage_card(0.7, 1.0),
         PropMeshType::Sphere => Sphere::new(0.2).mesh().ico(2).unwrap(),
         PropMeshType::Cone => Cone::new(0.15, 0.4).mesh().resolution(8).into(),

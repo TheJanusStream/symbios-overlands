@@ -1772,9 +1772,12 @@ struct GetRecordResponse {
 pub struct RoomGeneratorRecord {
     #[serde(rename = "$type")]
     pub lex_type: String,
-    /// Advisory copy of (one of) the manifest name(s) pointing here — the
-    /// manifest's `generator_refs` key is authoritative, so two names
-    /// mapping to identical content share a single child record.
+    /// The manifest name pointing here. It is part of the hashed body, so
+    /// it participates in [`child_rkey`]: two names holding identical
+    /// generator content get two children, not one. That is deliberate —
+    /// renaming a generator must re-key its child, or a peer that fetched
+    /// the old manifest and the new child would render the room under
+    /// stale names.
     pub name: String,
     pub generator: Generator,
 }
@@ -1790,9 +1793,19 @@ impl RoomGeneratorRecord {
 }
 
 /// Content-addressed record key for a child generator: lowercase hex of
-/// `fnv1a_64` over the child's canonical serialized body (serde_json emits
-/// sorted object keys, and the default-eliding serializers are
-/// deterministic). Content-addressing is what keeps non-atomic reads safe:
+/// `fnv1a_64` over the child's canonical serialized body.
+///
+/// "Canonical" is a property the wire types have to earn, not one
+/// `serde_json` supplies: it emits struct fields in declaration order but
+/// `HashMap` entries in iteration order, which `RandomState` re-seeds per
+/// map. Until #1118 the map-bearing generators (LSystem's `materials` and
+/// `prop_mappings`, Shape's `materials`) therefore hashed differently on
+/// every decode. The fix belongs in the *serializers* — see
+/// [`sorted_string_map`](crate::pds::types::sorted_string_map) — because
+/// this function must hash the same bytes the batch actually writes; a hash
+/// canonicalised on its own would address content nobody stored.
+///
+/// Content-addressing is what keeps non-atomic reads safe:
 /// a manifest can only ever point at children whose bytes cannot change,
 /// so a visitor racing a publish sees a fully consistent old or new room,
 /// never a half-updated child. It also makes unchanged generators free to
@@ -1821,7 +1834,9 @@ struct RoomSelfWire {
 
 /// The manifest written to `room/self` since #697: the full record minus
 /// generator bodies, which live in content-addressed child records.
-/// `generator_refs` is a `BTreeMap` so the manifest bytes are canonical.
+/// `generator_refs` and `traits` are `BTreeMap`s so the manifest bytes are
+/// canonical — the manifest is not content-addressed, but a peer diffing a
+/// re-broadcast room should see byte-equality when nothing changed.
 #[derive(Serialize)]
 struct RoomManifestOut {
     #[serde(rename = "$type")]
@@ -1829,7 +1844,7 @@ struct RoomManifestOut {
     environment: Environment,
     generator_refs: std::collections::BTreeMap<String, String>,
     placements: Vec<Placement>,
-    traits: HashMap<String, Vec<String>>,
+    traits: std::collections::BTreeMap<String, Vec<String>>,
     #[serde(skip_serializing_if = "ContactEffects::is_default")]
     contact_effects: ContactEffects,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1847,7 +1862,11 @@ impl RoomManifestOut {
                 .map(|(name, generator)| (name.clone(), child_rkey(name, generator)))
                 .collect(),
             placements: record.placements.clone(),
-            traits: record.traits.clone(),
+            traits: record
+                .traits
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
             contact_effects: record.contact_effects.clone(),
             default_landing: record.default_landing,
         }
@@ -2900,6 +2919,161 @@ mod split_wire_tests {
             key.chars()
                 .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
         );
+    }
+
+    /// Build an LSystem generator whose two maps are filled in the order
+    /// `rotation` dictates. Same content every time; only the `HashMap`
+    /// insertion sequence — and therefore its iteration order — differs.
+    fn lsystem_with_maps(rotation: usize) -> Generator {
+        let slots: Vec<u16> = vec![7, 1, 900, 42, 3, 250, 11, 65535];
+        let props: Vec<u16> = vec![5, 2, 9, 1];
+        let mut materials = HashMap::new();
+        for i in 0..slots.len() {
+            let slot = slots[(i + rotation) % slots.len()];
+            materials.insert(
+                slot,
+                super::super::texture::SovereignMaterialSettings {
+                    roughness: Fp(slot as f32 / 65535.0),
+                    ..Default::default()
+                },
+            );
+        }
+        let mut prop_mappings = HashMap::new();
+        for i in 0..props.len() {
+            let id = props[(i + rotation) % props.len()];
+            prop_mappings.insert(id, super::super::prim::PropMeshType::Leaf);
+        }
+        Generator::from_kind(GeneratorKind::LSystem {
+            source_code: "A --> F[+A][-A]".into(),
+            finalization_code: String::new(),
+            iterations: 3,
+            seed: 12,
+            angle: Fp(25.0),
+            step: Fp(1.0),
+            width: Fp(0.1),
+            elasticity: Fp(0.0),
+            tropism: None,
+            materials,
+            prop_mappings,
+            prop_scale: Fp(1.0),
+            mesh_resolution: 4,
+        })
+    }
+
+    /// The whole split-wire scheme rests on same-content-same-rkey, and
+    /// before #1118 that silently failed for every generator carrying a map:
+    /// `RandomState` re-seeds per map, so two equal `HashMap`s built in one
+    /// process iterate differently, serialize to different bytes, and hash
+    /// to different rkeys. The room would then re-create every tree on every
+    /// save and GC the identical child it had just replaced.
+    ///
+    /// The sequence that produced it: decode a room, edit anything, publish
+    /// — the decode rebuilt `materials` as a fresh map, so no LSystem child
+    /// ever matched `existing_children`.
+    #[test]
+    fn child_rkey_ignores_hashmap_insertion_order() {
+        let baseline = child_rkey("tree", &lsystem_with_maps(0));
+        for rotation in 0..50 {
+            assert_eq!(
+                baseline,
+                child_rkey("tree", &lsystem_with_maps(rotation)),
+                "rotation {rotation} minted a different rkey for identical content"
+            );
+        }
+    }
+
+    /// The rkey is only an address if it addresses the bytes the batch
+    /// actually writes. Assert the serialized child — the exact value
+    /// `plan_room_writes` hands to `applyWrites` — is byte-identical across
+    /// independently built maps, not merely equal-hashing.
+    #[test]
+    fn child_bytes_are_byte_identical_across_rebuilds() {
+        let canonical =
+            serde_json::to_string(&RoomGeneratorRecord::new("tree", &lsystem_with_maps(0)))
+                .unwrap();
+        for rotation in 0..50 {
+            let again = serde_json::to_string(&RoomGeneratorRecord::new(
+                "tree",
+                &lsystem_with_maps(rotation),
+            ))
+            .unwrap();
+            assert_eq!(
+                canonical, again,
+                "rotation {rotation} wrote different bytes"
+            );
+        }
+        // And the keys really are sorted, not merely stable.
+        let mats = canonical
+            .split("\"materials\":{")
+            .nth(1)
+            .expect("materials object");
+        let order: Vec<u16> = mats
+            .split('}')
+            .next()
+            .unwrap()
+            .split(',')
+            .filter_map(|entry| entry.split(':').next())
+            .filter_map(|k| k.trim().trim_matches('"').parse::<u16>().ok())
+            .collect();
+        let mut sorted = order.clone();
+        sorted.sort_unstable();
+        assert_eq!(order, sorted, "material slots must serialize in key order");
+    }
+
+    /// The same defect in the `String`-keyed half: `Shape::materials` is
+    /// keyed on the grammar's `Mat("...")` names and derives its serializer,
+    /// so it needs the explicit `sorted_string_map` rather than the
+    /// `map_u16_as_string` module.
+    #[test]
+    fn shape_material_names_serialize_sorted() {
+        let names = ["stone", "glass", "trim", "roof", "brick"];
+        let build = |rotation: usize| {
+            let mut materials = HashMap::new();
+            for i in 0..names.len() {
+                let name = names[(i + rotation) % names.len()];
+                materials.insert(
+                    name.to_string(),
+                    super::super::texture::SovereignMaterialSettings::default(),
+                );
+            }
+            Generator::from_kind(GeneratorKind::Shape {
+                grammar_source: "Lot --> Extrude(3) Roof".into(),
+                root_rule: "Lot".into(),
+                footprint: Fp3([4.0, 0.0, 4.0]),
+                seed: 3,
+                materials,
+                round_meshes: Vec::new(),
+            })
+        };
+        let baseline = child_rkey("hut", &build(0));
+        for rotation in 0..names.len() {
+            assert_eq!(baseline, child_rkey("hut", &build(rotation)));
+        }
+    }
+
+    /// The manifest is not content-addressed, but a peer diffing a
+    /// re-broadcast room compares bytes, so `traits` must not shuffle either.
+    #[test]
+    fn manifest_traits_serialize_sorted() {
+        let mut record = RoomRecord::default_for_did("did:plc:traits");
+        for name in ["zeta", "alpha", "mid", "beta", "omega"] {
+            record
+                .traits
+                .insert(name.into(), vec![format!("{name}-trait")]);
+        }
+        let once = serde_json::to_string(&RoomManifestOut::from_record(&record)).unwrap();
+        let traits = once.split("\"traits\":{").nth(1).expect("traits object");
+        let order: Vec<&str> = traits
+            .split('}')
+            .next()
+            .unwrap()
+            .split("],")
+            .filter_map(|entry| entry.split(':').next())
+            .map(|k| k.trim().trim_matches('"'))
+            .collect();
+        let mut sorted = order.clone();
+        sorted.sort_unstable();
+        assert_eq!(order, sorted, "trait keys must serialize in key order");
     }
 
     #[test]

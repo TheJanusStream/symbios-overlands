@@ -45,6 +45,16 @@ pub(super) fn draw_terrain_forge(
                 SovereignGeneratorKind::DiamondSquare => {
                     fp_slider(ui, "Roughness", &mut cfg.ds_roughness, 0.0, 1.0, dirty);
                 }
+                // No knobs for an algorithm this build has never compiled
+                // (#1119) — it has no parameters here to show. The combo
+                // above names it; the Kind picker is the way out.
+                SovereignGeneratorKind::Unknown => {
+                    ui.colored_label(
+                        crate::ui::theme::current(ui.ctx()).status.warn,
+                        "Terrain algorithm from a newer version of Overlands — \
+                         pick a Kind above to replace it.",
+                    );
+                }
                 SovereignGeneratorKind::VoronoiTerracing => {
                     drag_u32(
                         ui,

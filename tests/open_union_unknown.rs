@@ -211,3 +211,133 @@ fn a_room_this_build_fully_understands_still_publishes_and_broadcasts() {
     assert!(symbios_overlands::pds::record_size::wire_ready(&room, "world").is_ok());
     assert!(OverlandsMessage::room_state_update(&room).is_some());
 }
+
+// ---------------------------------------------------------------------------
+// #1119: the holes *below* the open unions. `#[serde(other)]` on `Placement` /
+// `GeneratorKind` catches an unknown `$type`; it does nothing for a known tag
+// whose payload carries an unknown variant of a nested closed enum. Three such
+// enums sat in the two places a record is most likely to grow — the manifest's
+// scatter filters and the Terrain / LSystem children — and each one turned a
+// newer client's addition into a whole-record decode failure.
+// ---------------------------------------------------------------------------
+
+/// A manifest whose scatter filter names a water relation this build has
+/// never heard of. Before #1119 this failed the *room* decode, which routes
+/// to `on_unrecoverable` and a banner whose button wipes the room.
+#[test]
+fn unknown_water_relation_does_not_fail_the_manifest() {
+    let json = r#"{
+        "$type": "network.symbios.overlands.room",
+        "environment": {},
+        "generators": {},
+        "placements": [
+            { "$type": "network.symbios.place.scatter",
+              "generator_ref": "reeds",
+              "bounds": { "type": "circle", "center": [0, 0], "radius": 640000 },
+              "count": 4,
+              "local_seed": "7",
+              "biome_filter": { "biomes": [0], "water": "Shoreline" },
+              "snap_to_terrain": true,
+              "random_yaw": true
+            }
+        ],
+        "traits": {}
+    }"#;
+    let room: RoomRecord =
+        serde_json::from_str(json).expect("an unknown water relation must not fail the room");
+    assert_eq!(room.placements.len(), 1, "the placement survives whole");
+}
+
+/// A `WaterRelation` this build cannot name filters nothing — it has no way
+/// to know which side the newer client meant to hide, and hiding the wrong
+/// half is worse than hiding neither.
+#[test]
+fn unknown_water_relation_degrades_to_both() {
+    use symbios_overlands::pds::{BiomeFilter, WaterRelation};
+    let unknown: WaterRelation = serde_json::from_str("\"Shoreline\"").expect("decodes");
+    assert!(matches!(unknown, WaterRelation::Unknown));
+    let filter = BiomeFilter {
+        biomes: Vec::new(),
+        water: unknown,
+    };
+    assert!(filter.is_noop(), "no constraint, so the fast path applies");
+    assert!(filter.accepts(0, 12.0, Some(4.0)), "accepts above water");
+    assert!(filter.accepts(0, -12.0, Some(4.0)), "and below it");
+    // ...and the same filter with a relation this build DOES know still
+    // constrains, so the degradation is about the unknown arm, not about
+    // the field having gone inert.
+    let strict = BiomeFilter {
+        biomes: Vec::new(),
+        water: WaterRelation::Below,
+    };
+    assert!(!strict.accepts(0, 12.0, Some(4.0)));
+}
+
+/// The Terrain child is one record. A fourth `symbios-ground` algorithm used
+/// to fail its decode, `list_room_children` drops what it cannot decode, and
+/// the room then loaded with no ground at all.
+#[test]
+fn unknown_terrain_algorithm_still_yields_terrain() {
+    use symbios_overlands::pds::{SovereignGeneratorKind, SovereignTerrainConfig};
+    let cfg: SovereignTerrainConfig =
+        serde_json::from_str(r#"{ "generator_kind": "RidgedMultifractal", "seed": "3" }"#)
+            .expect("an unknown algorithm must not fail the terrain child");
+    assert!(matches!(
+        cfg.generator_kind,
+        SovereignGeneratorKind::Unknown
+    ));
+    // Every other field still came through, which is the point of not
+    // failing the decode.
+    assert_eq!(cfg.seed, 3);
+}
+
+/// The LSystem child's `prop_mappings` values. A prop shape from a newer
+/// engine used to take every tree in the room down with it.
+#[test]
+fn unknown_prop_mesh_type_does_not_fail_the_lsystem_child() {
+    use std::collections::HashMap;
+    use symbios_overlands::pds::PropMeshType;
+    let mapped: HashMap<String, PropMeshType> =
+        serde_json::from_str(r#"{ "0": "Leaf", "1": "Frond2027" }"#)
+            .expect("an unknown prop shape must not fail the map");
+    assert!(matches!(mapped["0"], PropMeshType::Leaf));
+    assert!(matches!(mapped["1"], PropMeshType::Unknown));
+}
+
+/// All three follow #1111's other half: decoded as `Unknown`, never written
+/// back. Without this a client that merely *opened* such a room and saved it
+/// would replace the newer client's relation, algorithm or prop with this
+/// build's stand-in — permanently, and without saying so.
+#[test]
+fn the_three_new_unknown_arms_all_refuse_to_serialize() {
+    use symbios_overlands::pds::{PropMeshType, SovereignGeneratorKind, WaterRelation};
+    assert!(serde_json::to_string(&WaterRelation::Unknown).is_err());
+    assert!(serde_json::to_string(&SovereignGeneratorKind::Unknown).is_err());
+    assert!(serde_json::to_string(&PropMeshType::Unknown).is_err());
+    // The control: the arms this build understands write normally.
+    assert_eq!(
+        serde_json::to_string(&WaterRelation::Below).unwrap(),
+        "\"Below\""
+    );
+    assert_eq!(
+        serde_json::to_string(&SovereignGeneratorKind::FbmNoise).unwrap(),
+        "\"FbmNoise\""
+    );
+    assert_eq!(
+        serde_json::to_string(&PropMeshType::Twig).unwrap(),
+        "\"Twig\""
+    );
+}
+
+/// `ScatterBounds` stays closed on purpose — see
+/// `unknown_scatter_bounds_type_rejects_decode` above. Bounds are the one
+/// field where degrading is worse than failing: a filter that accepts
+/// everything is visible, a region that scatters everywhere is a wrecked
+/// world. Listed here so the next reader auditing "which unions are open"
+/// finds the exception beside the rule rather than concluding it was missed.
+#[test]
+fn scatter_bounds_remains_deliberately_closed() {
+    use symbios_overlands::pds::ScatterBounds;
+    let result: Result<ScatterBounds, _> = serde_json::from_str(r#"{ "type": "galaxy" }"#);
+    assert!(result.is_err());
+}

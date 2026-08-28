@@ -10,7 +10,7 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use crate::diagnostics::event::{EventPayload, RecordKind};
 use crate::diagnostics::{MetricsRegistry, SessionLog};
 use crate::pds::{self, RoomRecord};
-use crate::state::{LiveRoomRecord, PublishFeedback, PublishStatus, StoredRoomRecord};
+use crate::state::{PublishFeedback, PublishStatus, StoredRoomRecord};
 
 /// Async task for publishing the room record to the owner's PDS. Carries the
 /// target `did` and the dispatch time so [`poll_publish_tasks`] can emit a typed
@@ -24,6 +24,15 @@ pub struct PublishRoomTask {
     /// the poll system can gauge + log it (#694). `None` only on a
     /// serialization failure, which the publish itself will also report.
     pub record_bytes: Option<usize>,
+    /// The exact record this task handed to the PDS. On success `stored`
+    /// is pinned to THIS, never to whatever `live` holds when the task
+    /// lands (#1116): an edit made while a save is in flight would
+    /// otherwise be marked clean without ever having been written, and
+    /// the dirty flag is derived from `records_differ(live, stored)`, so
+    /// there is nothing left to notice it. Since #1110 `stored` is also
+    /// the baseline the attachment delete set is derived from, which
+    /// makes a wrong snapshot here a wrong *delete* on the next save.
+    pub published: RoomRecord,
 }
 
 /// Async task for the hard-reset publish path (wipe-then-republish). Separate
@@ -36,6 +45,8 @@ pub struct ResetRoomTask {
     pub spawned_at: f64,
     /// See [`PublishRoomTask::record_bytes`].
     pub record_bytes: Option<usize>,
+    /// See [`PublishRoomTask::published`].
+    pub published: RoomRecord,
 }
 
 /// Spawn the async room-record publish. `pub(crate)` because the
@@ -56,6 +67,7 @@ pub(crate) fn spawn_room_publish_task(
     // record the publish writes (manifest or biggest child), not the
     // in-memory monolith.
     let record_bytes = pds::room::max_publish_record_bytes(&record);
+    let published = record.clone();
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
@@ -76,6 +88,7 @@ pub(crate) fn spawn_room_publish_task(
         did,
         spawned_at: now,
         record_bytes,
+        published,
     });
 }
 
@@ -97,6 +110,7 @@ pub(super) fn spawn_reset_task(
     // record the publish writes (manifest or biggest child), not the
     // in-memory monolith.
     let record_bytes = pds::room::max_publish_record_bytes(&record);
+    let published = record.clone();
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
         let fut = async {
@@ -117,19 +131,24 @@ pub(super) fn spawn_reset_task(
         did,
         spawned_at: now,
         record_bytes,
+        published,
     });
 }
 
 /// Poll outstanding publish and reset tasks and log results. On success,
-/// pin `StoredRoomRecord` to the live `RoomRecord` so subsequent "Load from
-/// PDS" presses restore the now-committed state and the dirty indicator
-/// resets.
+/// pin `StoredRoomRecord` to the record the task actually published so
+/// subsequent "Load from PDS" presses restore the now-committed state and
+/// the dirty indicator resets.
+///
+/// Deliberately does not read `LiveRoomRecord` (#1116): `stored` is a claim
+/// about what the PDS holds, and the live resource is a claim about what
+/// the user has since typed. Pinning one to the other at landing time made
+/// every edit dispatched-but-not-yet-landed read as saved.
 #[allow(clippy::too_many_arguments)]
 pub fn poll_publish_tasks(
     mut commands: Commands,
     mut publish_tasks: Query<(Entity, &mut PublishRoomTask)>,
     mut reset_tasks: Query<(Entity, &mut ResetRoomTask)>,
-    live: Option<Res<LiveRoomRecord>>,
     mut stored: Option<ResMut<StoredRoomRecord>>,
     mut publish_feedback: ResMut<PublishFeedback<RoomRecord>>,
     mut session_log: ResMut<SessionLog>,
@@ -157,8 +176,8 @@ pub fn poll_publish_tasks(
         match result {
             Ok(()) => {
                 info!("Room record saved to PDS");
-                if let (Some(live), Some(stored)) = (live.as_ref(), stored.as_mut()) {
-                    stored.0 = live.0.clone();
+                if let Some(stored) = stored.as_mut() {
+                    stored.0 = task.published.clone();
                 }
                 publish_feedback.status = PublishStatus::Success { at_secs: now };
                 session_log.info(
@@ -208,8 +227,8 @@ pub fn poll_publish_tasks(
         match result {
             Ok(()) => {
                 info!("Room record reset on PDS (delete + put)");
-                if let (Some(live), Some(stored)) = (live.as_ref(), stored.as_mut()) {
-                    stored.0 = live.0.clone();
+                if let Some(stored) = stored.as_mut() {
+                    stored.0 = task.published.clone();
                 }
                 publish_feedback.status = PublishStatus::Success { at_secs: now };
                 session_log.info(

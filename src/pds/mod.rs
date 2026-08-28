@@ -64,7 +64,8 @@
 //!   slot in the engine; [`SignSource`] is retained as a type alias.
 //! * [`types`] — fixed-point wrappers ([`Fp`]/[`Fp2`]/[`Fp3`]/[`Fp4`]/[`Fp64`]),
 //!   [`TransformData`], [`BiomeFilter`], [`ScatterBounds`], and the string-key
-//!   serde helpers ([`u64_as_string`], [`map_u8_as_string`], [`map_u16_as_string`]).
+//!   serde helpers ([`u64_as_string`], [`map_u8_as_string`], [`map_u16_as_string`],
+//!   [`sorted_string_map`]).
 //! * [`texture`] — every `Sovereign*Config` mirror of a `bevy_symbios_texture`
 //!   generator, the unified [`SovereignTextureConfig`] tagged union, and
 //!   [`SovereignMaterialSettings`].
@@ -181,7 +182,7 @@ pub use audio::SovereignAudioConfig;
 pub use avatar::{
     AirplaneParams, AttachmentRecord, AvatarBody, AvatarRecord, CarParams, EngineAvatarRecord,
     EngineProfileRecord, GaitParams, HelicopterParams, HoverBoatParams, HumanoidParams,
-    LocomotionConfig, fetch_avatar_record, publish_avatar_record,
+    LocomotionConfig, fetch_avatar_record,
 };
 pub use contact_effects::{
     AudioClipSource, AudioParams, ContactEffectKind, ContactEffectRecord, ContactEffects,
@@ -227,6 +228,7 @@ pub use texture::{
 };
 pub use types::{
     BiomeFilter, FP_SCALE, Fp, Fp2, Fp3, Fp4, Fp64, ScatterBounds, ScatterNaturalness,
-    TransformData, WaterRelation, map_u8_as_string, map_u16_as_string, u64_as_string,
+    TransformData, WaterRelation, map_u8_as_string, map_u16_as_string, sorted_string_map,
+    u64_as_string,
 };
 pub use xrpc::{DidDocument, DidService, FetchError, resolve_handle, resolve_pds};

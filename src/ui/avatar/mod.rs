@@ -71,6 +71,15 @@ pub struct PublishAvatarTask {
     /// Serialized size of the record being written, measured at dispatch so
     /// the poll system can gauge + log it (#694).
     pub record_bytes: Option<usize>,
+    /// The exact avatar this task handed to the PDS. On success `stored` is
+    /// pinned to THIS, never to whatever `live` holds when the task lands
+    /// (#1116). Load-bearing twice over here: `stored` is what the dirty
+    /// flag diffs against, AND since #1110 it is the baseline the
+    /// attachment delete set is derived from (`stored` refs − `live`
+    /// refs). A `stored` that claims an attachment was published when it
+    /// was not makes the NEXT save compute a delete for a record the PDS
+    /// never had, and `applyWrites` rejects the whole batch.
+    pub published: AvatarRecord,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -1370,6 +1379,7 @@ pub(crate) fn spawn_publish_avatar_task(
     let session_clone = session.clone();
     let refresh_clone = refresh.clone();
     let record_bytes = pds::record_size::serialized_record_bytes(&record);
+    let published = record.clone();
     // The engine crate is clock-free by design (std::time panics on wasm),
     // so the ISO timestamp the wardrobe lexicon requires is stamped here —
     // chrono is already the app's wasm-safe clock (#846).
@@ -1402,17 +1412,20 @@ pub(crate) fn spawn_publish_avatar_task(
         did,
         spawned_at: now,
         record_bytes,
+        published,
     });
 }
 
-/// Poll outstanding avatar publish tasks. On success, sync `LiveAvatarRecord`
-/// into `StoredAvatarRecord` so the "Load from PDS" button is disabled until the
-/// next edit.
+/// Poll outstanding avatar publish tasks. On success, sync the record the
+/// task actually published into `StoredAvatarRecord` so the "Load from PDS"
+/// button is disabled until the next edit.
+///
+/// Deliberately does not read `LiveAvatarRecord` (#1116) — see
+/// [`PublishAvatarTask::published`].
 #[allow(clippy::too_many_arguments)]
 pub fn poll_publish_avatar_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut PublishAvatarTask)>,
-    live: Res<LiveAvatarRecord>,
     mut stored: Option<ResMut<StoredAvatarRecord>>,
     mut feedback: ResMut<PublishFeedback<AvatarRecord>>,
     mut session_log: ResMut<SessionLog>,
@@ -1440,7 +1453,7 @@ pub fn poll_publish_avatar_tasks(
             Ok(()) => {
                 info!("Avatar record saved to PDS");
                 if let Some(stored) = stored.as_mut() {
-                    stored.0 = live.0.clone();
+                    stored.0 = task.published.clone();
                 }
                 feedback.status = PublishStatus::Success { at_secs: now };
                 session_log.info(

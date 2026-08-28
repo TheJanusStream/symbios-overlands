@@ -9,11 +9,13 @@
 //! `putRecord` / `applyWrites`. The soft budget is the design target every
 //! record should stay under so we never get near either limit; the hard
 //! ceiling refuses a publish outright *before any network I/O*. The
-//! pre-flight refusal matters beyond UX: the 5xx recovery path in
-//! [`super::publish_avatar_record`] deletes the stored record and re-puts
-//! it — an oversized record that failed the re-put would leave the owner
-//! with *no* record at all. Refusing up front makes that data-loss sequence
-//! unreachable.
+//! pre-flight refusal matters beyond UX: every publish path is now an
+//! `applyWrites` batch, and one oversized record in a plan is refused as
+//! the whole batch. Measuring at plan time means the owner hears which
+//! record is too big, rather than watching an atomic save fail with a 413
+//! that names nothing. (Until #1117 it also stood between an oversized
+//! avatar and a delete-then-put that could leave the owner with no record
+//! at all; that path is gone.)
 //!
 //! Sizes are measured over the serialized `record` field alone; the
 //! surrounding `{repo, collection, rkey}` envelope adds ~100 bytes, which the
@@ -89,8 +91,8 @@ pub fn preflight<T: Serialize>(record: &T, label: &str) -> Result<usize, String>
     if bytes > HARD_RECORD_CEILING_BYTES {
         return Err(format!(
             "{label} record is {} — past the {} publish ceiling; refusing to send \
-             (the PDS would reject it, and the delete-then-put recovery path could \
-             delete the stored record without replacing it). Remove content and retry.",
+             (the PDS would reject it, and every publish is one atomic batch, so \
+             this record alone would fail the whole save). Remove content and retry.",
             human_bytes(bytes),
             human_bytes(HARD_RECORD_CEILING_BYTES),
         ));

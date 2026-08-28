@@ -8,12 +8,26 @@ use serde::{Deserialize, Serialize};
 
 /// Which base terrain algorithm to run. Mirrors `ground-lab::GeneratorKind`
 /// but tagged for lexicon-safe serde.
+///
+/// Open union (#1119). `symbios-ground` gains algorithms; a Terrain child
+/// naming one this build has never compiled used to fail that child's
+/// decode outright, and `list_room_children` drops what it cannot read —
+/// so the room loaded with no ground under it, and the next publish from
+/// this client rewrote the manifest without the ref and orphaned the
+/// child. A fourth algorithm should cost a visitor its terracing, not the
+/// owner their terrain.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SovereignGeneratorKind {
     FbmNoise,
     DiamondSquare,
     #[default]
     VoronoiTerracing,
+    /// An algorithm from a newer engine. Runs as the default
+    /// ([`VoronoiTerracing`](Self::VoronoiTerracing)) so the room still has
+    /// ground, and refuses to serialize so this build cannot save its
+    /// substitute over the owner's real choice.
+    #[serde(other, skip_serializing)]
+    Unknown,
 }
 
 /// Full terrain configuration stored inside a `Generator::Terrain` variant.

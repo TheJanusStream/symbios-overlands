@@ -238,10 +238,16 @@ pub(super) fn color_picker_rgba(ui: &mut egui::Ui, label: &str, value: &mut Fp4,
 pub(super) fn kind_combo(ui: &mut egui::Ui, kind: &mut SovereignGeneratorKind) -> bool {
     let mut changed = false;
     egui::ComboBox::from_label("Kind")
+        // `Unknown` is an algorithm from a newer engine (#1119). It is
+        // named, not hidden, and it is deliberately absent from the
+        // selectable list below: picking any of the three real algorithms
+        // is how the owner *deliberately* replaces it, and until they do
+        // the save stays refused rather than silently downgrading it.
         .selected_text(match kind {
             SovereignGeneratorKind::FbmNoise => "FBM Noise",
             SovereignGeneratorKind::DiamondSquare => "Diamond Square",
             SovereignGeneratorKind::VoronoiTerracing => "Voronoi Terracing",
+            SovereignGeneratorKind::Unknown => "Unknown (newer version)",
         })
         .show_ui(ui, |ui| {
             changed |= ui

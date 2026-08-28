@@ -22,9 +22,13 @@
 //!     inventory reference (decision on epic #1054): editing or deleting the
 //!     inventory item must not mutate an outfit that was already dressed.
 //!
-//! Publishing here is plain `putRecord` upsert per record with no
-//! delete-then-put recovery — these are fresh collections with none of the
-//! legacy-record 5xx history the avatar record's publish path carries.
+//! Publishing all of it — body, props, profile pointer and the overlands
+//! avatar record — is ONE `com.atproto.repo.applyWrites` batch (#1117),
+//! planned by [`plan_avatar_writes`] against what [`AvatarRepoState`] says
+//! the repo already holds. It commits whole or not at all, which is what
+//! stops a transient failure landing the props and losing the record that
+//! references them, and its delete phase is also the only sweep that ever
+//! retires an orphaned attachment.
 
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
@@ -40,7 +44,9 @@ pub use symbios_avatar::ProfileRecord as EngineProfileRecord;
 use super::super::generator::Generator;
 use super::super::sanitize::{Sanitize as _, sanitize_avatar_visuals};
 use super::super::types::TransformData;
-use super::super::xrpc::{FetchError, PutOutcome, XrpcError, decode_record_json, resolve_pds};
+use super::super::xrpc::{
+    FetchError, RepoWrite, XrpcError, chunk_writes, decode_record_json, record_exists, resolve_pds,
+};
 use super::super::{AVATAR_ATTACHMENT_COLLECTION, AVATAR_PROFILE_COLLECTION, WARDROBE_COLLECTION};
 use super::body::{ResolvedAttachment, ResolvedRig, RiggedBody};
 
@@ -263,73 +269,6 @@ async fn get_record_value<T: DeserializeOwned>(
 }
 
 #[derive(Serialize)]
-struct PutRequest<'a> {
-    repo: &'a str,
-    collection: &'a str,
-    rkey: &'a str,
-    record: &'a serde_json::Value,
-}
-
-/// `com.atproto.repo.putRecord` upsert of an already-serialized value.
-async fn put_record_json(
-    session: &AtprotoSession,
-    refresh: &crate::oauth::OauthRefreshCtx,
-    pds: &str,
-    collection: &str,
-    rkey: &str,
-    record: &serde_json::Value,
-) -> PutOutcome {
-    let url = format!("{pds}/xrpc/com.atproto.repo.putRecord");
-    let body = PutRequest {
-        repo: &session.did,
-        collection,
-        rkey,
-        record,
-    };
-    let body_json = match serde_json::to_value(&body) {
-        Ok(v) => v,
-        Err(e) => return PutOutcome::Transport(format!("serialize: {e}")),
-    };
-    let (status, body) =
-        match crate::oauth::oauth_post_with_refresh(&session.session, refresh, &url, &body_json)
-            .await
-        {
-            Ok(pair) => pair,
-            Err(e) => return PutOutcome::Transport(e),
-        };
-    if status.is_success() {
-        return PutOutcome::Ok;
-    }
-    let msg = format!("putRecord ({collection}/{rkey}) failed: {status} — {body}");
-    if status.is_server_error() {
-        PutOutcome::ServerError(msg)
-    } else {
-        PutOutcome::ClientError(msg)
-    }
-}
-
-/// Resolve the PDS and upsert, mapping the outcome to the `Result` shape the
-/// publish tasks report through the status line.
-async fn resolve_and_put(
-    client: &reqwest::Client,
-    session: &AtprotoSession,
-    refresh: &crate::oauth::OauthRefreshCtx,
-    collection: &str,
-    rkey: &str,
-    record: &serde_json::Value,
-) -> Result<(), String> {
-    let pds = resolve_pds(client, &session.did)
-        .await
-        .ok_or_else(|| "Failed to resolve PDS".to_string())?;
-    match put_record_json(session, refresh, &pds, collection, rkey, record).await {
-        PutOutcome::Ok => Ok(()),
-        PutOutcome::ClientError(m) | PutOutcome::ServerError(m) | PutOutcome::Transport(m) => {
-            Err(m)
-        }
-    }
-}
-
-#[derive(Serialize)]
 struct DeleteRequest<'a> {
     repo: &'a str,
     collection: &'a str,
@@ -477,21 +416,6 @@ pub async fn list_wardrobe(
     Ok(out)
 }
 
-/// Upsert one wardrobe record at `rkey` (a TID from
-/// [`crate::pds::tid::tid_now`] for a new body, the existing rkey for an
-/// edit).
-pub async fn publish_wardrobe_record(
-    client: &reqwest::Client,
-    session: &AtprotoSession,
-    refresh: &crate::oauth::OauthRefreshCtx,
-    rkey: &str,
-    record: &EngineAvatarRecord,
-) -> Result<(), String> {
-    let wire = engine_record_wire(record)?;
-    crate::pds::record_size::preflight(&wire, "wardrobe body")?;
-    resolve_and_put(client, session, refresh, WARDROBE_COLLECTION, rkey, &wire).await
-}
-
 /// Delete one wardrobe record.
 pub async fn delete_wardrobe_record(
     client: &reqwest::Client,
@@ -557,31 +481,6 @@ pub(crate) async fn fetch_avatar_profile_at(
     }))
 }
 
-/// Upsert the identity's avatar profile (rkey = self). Overlands calls this
-/// whenever the worn body changes so other symbios apps stay in agreement.
-pub async fn publish_avatar_profile(
-    client: &reqwest::Client,
-    session: &AtprotoSession,
-    refresh: &crate::oauth::OauthRefreshCtx,
-    profile: &EngineProfileRecord,
-) -> Result<(), String> {
-    let wire = WireProfile {
-        lex_type: AVATAR_PROFILE_COLLECTION.into(),
-        profile: profile.clone(),
-    };
-    let value = serde_json::to_value(&wire).map_err(|e| format!("serialize profile: {e}"))?;
-    crate::pds::record_size::preflight(&value, "avatar profile")?;
-    resolve_and_put(
-        client,
-        session,
-        refresh,
-        AVATAR_PROFILE_COLLECTION,
-        "self",
-        &value,
-    )
-    .await
-}
-
 // ---------------------------------------------------------------------------
 // Attachments
 // ---------------------------------------------------------------------------
@@ -611,37 +510,6 @@ pub(crate) async fn fetch_attachment_record_at(
         r.sanitize();
         r
     }))
-}
-
-/// Upsert one attachment record at `rkey`.
-pub async fn publish_attachment_record(
-    client: &reqwest::Client,
-    session: &AtprotoSession,
-    refresh: &crate::oauth::OauthRefreshCtx,
-    rkey: &str,
-    record: &AttachmentRecord,
-) -> Result<(), String> {
-    let value = serde_json::to_value(record).map_err(|e| format!("serialize attachment: {e}"))?;
-    crate::pds::record_size::preflight(&value, "attachment")?;
-    resolve_and_put(
-        client,
-        session,
-        refresh,
-        AVATAR_ATTACHMENT_COLLECTION,
-        rkey,
-        &value,
-    )
-    .await
-}
-
-/// Delete one attachment record — the detach half of the outfit editor.
-pub async fn delete_attachment_record(
-    client: &reqwest::Client,
-    session: &AtprotoSession,
-    refresh: &crate::oauth::OauthRefreshCtx,
-    rkey: &str,
-) -> Result<(), String> {
-    delete_record(client, session, refresh, AVATAR_ATTACHMENT_COLLECTION, rkey).await
 }
 
 // ---------------------------------------------------------------------------
@@ -764,37 +632,295 @@ fn attachment_deletes(record: &super::AvatarRecord, stored_attachments: &[String
         .collect()
 }
 
-/// Execute a [`AvatarPublishPlan`], children before pointers: the wardrobe
-/// body and the attachments land first, then the profile and the avatar
-/// record that reference them, and detached attachment records are deleted
-/// last — so no reader ever resolves a dangling reference, and a failure
-/// partway leaves at worst an unreferenced record, never a broken outfit.
+/// What the owner's repo already holds, read once before the plan is turned
+/// into writes (#1117).
+///
+/// `applyWrites` has no upsert: `#create` and `#update` are different verbs
+/// and the wrong one fails the whole atomic batch, so the plan has to know
+/// which records are already there. The room learned this first — one
+/// `room_self_exists` probe feeding `manifest_exists` into
+/// `room::plan_room_writes` (private to that module) — and the bundle is the
+/// same shape with four pointers instead of one.
+///
+/// The attachment listing does double duty: it decides create-vs-update for
+/// every worn prop AND it is the only way to find attachment records nothing
+/// references any more. Deliberately keyed on the rkeys in the listed
+/// AT-URIs rather than on decoded values, so a record this build cannot
+/// decode is still counted as present — the alternative re-`#create`s over
+/// it and fails the batch.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AvatarRepoState {
+    /// `network.symbios.overlands.avatar / self` is present.
+    pub avatar_record: bool,
+    /// The cross-app default-body pointer is present.
+    pub profile: bool,
+    /// The wardrobe rkey this save writes is present. Meaningless (and
+    /// never read) when the plan carries no wardrobe body.
+    pub worn_body: bool,
+    /// Every attachment rkey the owner's attachment collection holds.
+    pub attachments: std::collections::HashSet<String>,
+}
+
+/// Read [`AvatarRepoState`] — three existence probes and one `listRecords`
+/// walk, all before any write.
+async fn read_avatar_repo_state(
+    client: &reqwest::Client,
+    pds: &str,
+    did: &str,
+    plan: &AvatarPublishPlan,
+) -> Result<AvatarRepoState, String> {
+    let worn_body = match &plan.wardrobe {
+        Some((rkey, _)) => record_exists(client, pds, did, WARDROBE_COLLECTION, rkey).await?,
+        None => false,
+    };
+    Ok(AvatarRepoState {
+        avatar_record: record_exists(client, pds, did, super::super::AVATAR_COLLECTION, "self")
+            .await?,
+        profile: record_exists(client, pds, did, AVATAR_PROFILE_COLLECTION, "self").await?,
+        worn_body,
+        attachments: list_attachment_rkeys(client, pds, did)
+            .await
+            .map_err(|e| format!("attachment listing failed: {e:?}"))?,
+    })
+}
+
+/// Every attachment rkey in the owner's attachment collection.
+///
+/// Bounded by [`MAX_WARDROBE_LIST_PAGES`] pages of 100 for the same reason
+/// the wardrobe and room-child walks are: a hostile PDS handing out endless
+/// cursors must not be able to keep the client paging. A truncated listing
+/// under-reports, which can only make the orphan sweep miss a record — never
+/// delete one it should not.
+async fn list_attachment_rkeys(
+    client: &reqwest::Client,
+    pds: &str,
+    did: &str,
+) -> Result<std::collections::HashSet<String>, FetchError> {
+    #[derive(Deserialize)]
+    struct Page {
+        #[serde(default)]
+        records: Vec<Listed>,
+        cursor: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct Listed {
+        uri: String,
+    }
+
+    let mut out = std::collections::HashSet::new();
+    let mut cursor: Option<String> = None;
+    for _ in 0..MAX_WARDROBE_LIST_PAGES {
+        let url = format!("{pds}/xrpc/com.atproto.repo.listRecords");
+        let mut query: Vec<(&str, String)> = vec![
+            ("repo", did.to_string()),
+            ("collection", AVATAR_ATTACHMENT_COLLECTION.to_string()),
+            ("limit", "100".to_string()),
+        ];
+        if let Some(c) = cursor.take() {
+            query.push(("cursor", c));
+        }
+        let resp = client
+            .get(&url)
+            .query(&query)
+            .send()
+            .await
+            .map_err(|e| FetchError::Network(e.to_string()))?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(FetchError::PdsError(status.as_u16()));
+        }
+        let page: Page = decode_record_json(resp).await?;
+        let empty_page = page.records.is_empty();
+        for listed in page.records {
+            // at://did/collection/rkey — the rkey is the last path segment.
+            if let Some(rkey) = listed.uri.rsplit('/').next() {
+                out.insert(rkey.to_string());
+            }
+        }
+        cursor = page.cursor;
+        if cursor.is_none() || empty_page {
+            break;
+        }
+    }
+    Ok(out)
+}
+
+/// Turn a plan plus what the repo holds into `applyWrites` batches (#1117).
+///
+/// Pure, so the ordering, the create-vs-update choice, the orphan sweep and
+/// the batch sizing are all testable without a network — the same reason
+/// [`plan_avatar_publish`] is pure.
+///
+/// **Order: children before pointers.** Wardrobe body, then attachments,
+/// then the profile and the avatar record that reference them, then the
+/// deletes. Inside one atomic batch the order is immaterial; it starts
+/// mattering the instant [`chunk_writes`] splits the plan, because then each
+/// batch commits separately and a reader can land between two of them. A
+/// pointer written before its target is a dangling reference for that
+/// window; a delete issued before the record stops referencing it is the
+/// same defect from the other end.
+///
+/// Every per-record size preflight runs here, before any write leaves — an
+/// oversized attachment must never be able to leave the outfit half-saved.
+pub(crate) fn plan_avatar_writes(
+    plan: &AvatarPublishPlan,
+    repo: &AvatarRepoState,
+) -> Result<Vec<Vec<RepoWrite>>, String> {
+    // Refused before anything else: a body carrying an Absent or Unknown
+    // marker cannot be written back, and saving anyway would replace the
+    // owner's newer content with a husk.
+    plan.record.body.wire_ready()?;
+
+    let mut ordered: Vec<RepoWrite> = Vec::new();
+
+    if let Some((rkey, body)) = &plan.wardrobe {
+        let value = engine_record_wire(body)?;
+        crate::pds::record_size::preflight(&value, "wardrobe body")?;
+        ordered.push(upsert(
+            repo.worn_body,
+            WARDROBE_COLLECTION,
+            rkey.clone(),
+            value,
+        ));
+    }
+    for (rkey, attachment) in &plan.attachments {
+        let value =
+            serde_json::to_value(attachment).map_err(|e| format!("serialize attachment: {e}"))?;
+        crate::pds::record_size::preflight(&value, &format!("attachment \"{rkey}\""))?;
+        ordered.push(upsert(
+            repo.attachments.contains(rkey),
+            AVATAR_ATTACHMENT_COLLECTION,
+            rkey.clone(),
+            value,
+        ));
+    }
+    if let Some(profile) = &plan.profile {
+        let wire = WireProfile {
+            lex_type: AVATAR_PROFILE_COLLECTION.into(),
+            profile: profile.clone(),
+        };
+        let value = serde_json::to_value(&wire).map_err(|e| format!("serialize profile: {e}"))?;
+        crate::pds::record_size::preflight(&value, "avatar profile")?;
+        ordered.push(upsert(
+            repo.profile,
+            AVATAR_PROFILE_COLLECTION,
+            String::from("self"),
+            value,
+        ));
+    }
+    let record_value =
+        serde_json::to_value(&plan.record).map_err(|e| format!("serialize avatar: {e}"))?;
+    crate::pds::record_size::preflight(&record_value, "avatar")?;
+    ordered.push(upsert(
+        repo.avatar_record,
+        super::super::AVATAR_COLLECTION,
+        String::from("self"),
+        record_value,
+    ));
+
+    for rkey in attachment_retirements(plan, repo) {
+        ordered.push(RepoWrite::Delete {
+            collection: AVATAR_ATTACHMENT_COLLECTION.into(),
+            rkey,
+        });
+    }
+
+    chunk_writes(ordered)
+}
+
+/// `#update` when the record is already there, `#create` when it is not.
+fn upsert(exists: bool, collection: &str, rkey: String, value: serde_json::Value) -> RepoWrite {
+    if exists {
+        RepoWrite::Update {
+            collection: collection.into(),
+            rkey,
+            value,
+        }
+    } else {
+        RepoWrite::Create {
+            collection: collection.into(),
+            rkey,
+            value,
+        }
+    }
+}
+
+/// Which attachment records this save retires: #1110's derived delete set
+/// **plus** every attachment record in the repo that nothing references.
+///
+/// The two halves answer different questions and neither subsumes the other
+/// in every case. The derived set (`stored` refs − `live` refs) knows about
+/// records this client published and can name them even when the listing
+/// truncates at its page cap. The sweep knows about records the derived set
+/// cannot see at all: orphans left by an interrupted save, by another
+/// device, or — until this issue — by the old non-atomic bundle, which could
+/// land the attachments and then fail before the record that referenced them
+/// ever went out. Nothing else in the app ever walked this collection, so
+/// those accumulated in the owner's repo forever.
+///
+/// Referenced means the record's own `attachments` **reference list**, not
+/// the resolved outfit — the same distinction #1110 draws in
+/// [`attachment_deletes`]: a resolution that failed leaves `resolved` short
+/// of a prop the record still names, and that must never read as "the owner
+/// took it off".
+///
+/// The sweep is attachments only. The wardrobe is a keep-all collection —
+/// an identity accumulates bodies and the Body tab lists them for
+/// re-wearing — so an unreferenced wardrobe record is a saved body, not an
+/// orphan, and sweeping that collection would delete the owner's saved
+/// selves. This asymmetry is exactly why #1110 derived attachment deletes
+/// and left everything else alone.
+fn attachment_retirements(plan: &AvatarPublishPlan, repo: &AvatarRepoState) -> Vec<String> {
+    let referenced: std::collections::HashSet<&str> = plan
+        .record
+        .body
+        .rigged_ref()
+        .map(|rig| rig.attachments.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+    let mut retire: Vec<String> = plan
+        .attachment_deletes
+        .iter()
+        .chain(repo.attachments.iter())
+        .filter(|rkey| !referenced.contains(rkey.as_str()))
+        .cloned()
+        .collect();
+    // Sorted and deduped: a repeated rkey would be deleted twice and the
+    // second delete fails the whole batch, and a stable order makes the
+    // plan comparable in a test.
+    retire.sort();
+    retire.dedup();
+    retire
+}
+
+/// Execute an [`AvatarPublishPlan`] as `applyWrites` batches (#1117).
+///
+/// Replaces a walk of four separate `putRecord`s, one of which reacted to
+/// any `5xx` — a proxy's 502 included — by deleting `avatar/self` and
+/// re-putting it. During an outage the re-put usually failed too, and the
+/// owner's avatar record was simply gone. That path existed because some
+/// PDS implementations choked on their own update-diff logic against a
+/// stale stored CID; `applyWrites` does not do that diffing at all, and the
+/// existence probes in [`AvatarRepoState`] name `#create` vs `#update`
+/// explicitly, which is what the delete-then-put was crudely achieving. The
+/// room retired the same path for the same reason in #697. (The per-record
+/// size preflight is unrelated cover — it catches an oversized record, not a
+/// stale CID.)
+///
+/// Atomicity comes free with it: a bundle that fits one batch commits whole
+/// or not at all, so a transient failure can no longer land the attachments
+/// and lose the record that references them.
 pub async fn publish_avatar_bundle(
     client: &reqwest::Client,
     session: &AtprotoSession,
     refresh: &crate::oauth::OauthRefreshCtx,
     plan: &AvatarPublishPlan,
 ) -> Result<(), String> {
-    if let Some((rkey, body)) = &plan.wardrobe {
-        publish_wardrobe_record(client, session, refresh, rkey, body)
-            .await
-            .map_err(|e| format!("wardrobe body: {e}"))?;
-    }
-    for (rkey, attachment) in &plan.attachments {
-        publish_attachment_record(client, session, refresh, rkey, attachment)
-            .await
-            .map_err(|e| format!("attachment {rkey}: {e}"))?;
-    }
-    if let Some(profile) = &plan.profile {
-        publish_avatar_profile(client, session, refresh, profile)
-            .await
-            .map_err(|e| format!("profile: {e}"))?;
-    }
-    super::publish_avatar_record(client, session, refresh, &plan.record).await?;
-    for rkey in &plan.attachment_deletes {
-        delete_attachment_record(client, session, refresh, rkey)
-            .await
-            .map_err(|e| format!("detach {rkey}: {e}"))?;
+    let pds = resolve_pds(client, &session.did)
+        .await
+        .ok_or_else(|| "Failed to resolve PDS".to_string())?;
+    let repo = read_avatar_repo_state(client, &pds, &session.did, plan).await?;
+    for batch in plan_avatar_writes(plan, &repo)? {
+        crate::pds::xrpc::apply_writes(&pds, session, refresh, batch).await?;
     }
     Ok(())
 }
@@ -1263,6 +1389,247 @@ mod tests {
         assert_eq!(
             old.source, None,
             "a record with no provenance stays that way"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // #1117: the bundle as one atomic applyWrites plan
+    // -----------------------------------------------------------------
+
+    /// A repo holding exactly `attachments` and nothing else.
+    fn empty_repo_with(attachments: &[&str]) -> AvatarRepoState {
+        AvatarRepoState {
+            avatar_record: false,
+            profile: false,
+            worn_body: false,
+            attachments: attachments.iter().map(|k| (*k).to_string()).collect(),
+        }
+    }
+
+    fn collections(writes: &[RepoWrite]) -> Vec<(&'static str, &str, &str)> {
+        writes
+            .iter()
+            .map(|w| match w {
+                RepoWrite::Create {
+                    collection, rkey, ..
+                } => ("create", collection.as_str(), rkey.as_str()),
+                RepoWrite::Update {
+                    collection, rkey, ..
+                } => ("update", collection.as_str(), rkey.as_str()),
+                RepoWrite::Delete { collection, rkey } => {
+                    ("delete", collection.as_str(), rkey.as_str())
+                }
+            })
+            .collect()
+    }
+
+    /// Children before pointers, deletes last. Inside one atomic batch the
+    /// order is immaterial — it becomes load-bearing the moment
+    /// `chunk_writes` splits the plan, because then a reader can land
+    /// between two commits.
+    #[test]
+    fn the_plan_writes_children_before_pointers_and_deletes_last() {
+        let plan = plan_avatar_publish(
+            &wearing(&["rkey-worn"]),
+            &[String::from("rkey-worn"), String::from("rkey-gone")],
+            "2026-08-28T00:00:00Z",
+        );
+        let repo = empty_repo_with(&["rkey-worn", "rkey-gone"]);
+        let batches = plan_avatar_writes(&plan, &repo).expect("plans");
+        assert_eq!(batches.len(), 1, "a normal outfit is one atomic commit");
+        let order = collections(&batches[0]);
+
+        assert_eq!(order[0].1, WARDROBE_COLLECTION, "body first");
+        assert_eq!(order[1].1, AVATAR_ATTACHMENT_COLLECTION, "then its props");
+        assert_eq!(order[2].1, AVATAR_PROFILE_COLLECTION, "then the pointers");
+        assert_eq!(order[3].1, super::super::AVATAR_COLLECTION);
+        assert_eq!(
+            order[4],
+            ("delete", AVATAR_ATTACHMENT_COLLECTION, "rkey-gone"),
+            "and the retirement last, after nothing references it"
+        );
+        assert_eq!(order.len(), 5);
+    }
+
+    /// `applyWrites` has no upsert. A record already in the repo must be an
+    /// `#update` and a fresh one a `#create`; the wrong verb fails the whole
+    /// atomic batch, which is why the plan takes a repo state at all.
+    #[test]
+    fn existing_records_update_and_fresh_ones_create() {
+        let plan = plan_avatar_publish(&wearing(&["rkey-worn"]), &[], "2026-08-28T00:00:00Z");
+
+        let fresh = plan_avatar_writes(&plan, &empty_repo_with(&[])).expect("plans");
+        assert!(
+            collections(&fresh[0])
+                .iter()
+                .all(|(verb, ..)| *verb == "create"),
+            "a first save creates everything"
+        );
+
+        let established = AvatarRepoState {
+            avatar_record: true,
+            profile: true,
+            worn_body: true,
+            attachments: [String::from("rkey-worn")].into_iter().collect(),
+        };
+        let again = plan_avatar_writes(&plan, &established).expect("plans");
+        assert!(
+            collections(&again[0])
+                .iter()
+                .all(|(verb, ..)| *verb == "update"),
+            "a re-save updates everything"
+        );
+    }
+
+    /// The orphan sweep. Nothing in the app ever walked the attachment
+    /// collection before #1117, so a record the old non-atomic bundle landed
+    /// and then failed to reference — the attachments went out first, and a
+    /// 5xx on `avatar/self` could delete the record that named them — stayed
+    /// in the owner's repo forever, invisible and un-deletable through any
+    /// UI.
+    ///
+    /// The sequence: attachment `rkey-stray` lands; the avatar record write
+    /// fails; the session ends. `stored_attachments` never learned about it,
+    /// so #1110's derived delete set cannot see it. Only the listing can.
+    #[test]
+    fn the_sweep_retires_an_orphan_the_derived_delete_set_cannot_see() {
+        let plan = plan_avatar_publish(&wearing(&["rkey-worn"]), &[], "2026-08-28T00:00:00Z");
+        assert!(
+            plan.attachment_deletes.is_empty(),
+            "the derived set knows of no detachment here"
+        );
+
+        let repo = empty_repo_with(&["rkey-worn", "rkey-stray"]);
+        let writes = plan_avatar_writes(&plan, &repo).expect("plans");
+        let deletes: Vec<&str> = collections(&writes[0])
+            .into_iter()
+            .filter(|(verb, ..)| *verb == "delete")
+            .map(|(_, _, rkey)| rkey)
+            .collect();
+        assert_eq!(deletes, vec!["rkey-stray"]);
+    }
+
+    /// The other half: a listing that truncated at its page cap cannot see
+    /// a record the derived set can, so both halves stay in the union.
+    #[test]
+    fn a_derived_delete_survives_a_listing_that_did_not_see_it() {
+        let plan = plan_avatar_publish(
+            &wearing(&[]),
+            &[String::from("rkey-detached")],
+            "2026-08-28T00:00:00Z",
+        );
+        let writes = plan_avatar_writes(&plan, &empty_repo_with(&[])).expect("plans");
+        let deletes: Vec<&str> = collections(&writes[0])
+            .into_iter()
+            .filter(|(verb, ..)| *verb == "delete")
+            .map(|(_, _, rkey)| rkey)
+            .collect();
+        assert_eq!(deletes, vec!["rkey-detached"]);
+    }
+
+    /// #1110's rule survives the sweep: what the record still *references*
+    /// is never retired, even when the resolution that would have published
+    /// it failed and the plan therefore carries no write for it.
+    #[test]
+    fn the_sweep_never_retires_a_referenced_rkey() {
+        let mut record = wearing(&["rkey-worn"]);
+        // A fetch failure: the record still names the prop, but resolution
+        // came back without it. This must not read as "took it off".
+        if let Some(rig) = record.body.rigged_mut()
+            && let Some(resolved) = rig.resolved.as_mut()
+        {
+            resolved.attachments.clear();
+        }
+        let plan = plan_avatar_publish(
+            &record,
+            &[String::from("rkey-worn")],
+            "2026-08-28T00:00:00Z",
+        );
+        let repo = empty_repo_with(&["rkey-worn"]);
+        let writes = plan_avatar_writes(&plan, &repo).expect("plans");
+        assert!(
+            !collections(&writes[0])
+                .iter()
+                .any(|(verb, _, rkey)| *verb == "delete" && *rkey == "rkey-worn"),
+            "a prop the record still names is not an orphan"
+        );
+    }
+
+    /// The wardrobe is a keep-all collection — an identity accumulates
+    /// bodies and the Body tab lists them for re-wearing — so the sweep must
+    /// never touch it. A saved body the owner is not currently wearing is
+    /// not an orphan, and deleting it would delete a self.
+    #[test]
+    fn the_sweep_is_attachments_only_and_never_touches_the_wardrobe() {
+        let plan = plan_avatar_publish(&wearing(&[]), &[], "2026-08-28T00:00:00Z");
+        let writes = plan_avatar_writes(&plan, &empty_repo_with(&[])).expect("plans");
+        assert!(
+            !collections(&writes[0]).iter().any(
+                |(verb, collection, _)| *verb == "delete" && *collection == WARDROBE_COLLECTION
+            ),
+            "the wardrobe is never swept"
+        );
+    }
+
+    /// A body this build cannot serialize is refused before any write is
+    /// built, not discovered mid-batch (#1111).
+    #[test]
+    fn an_unwritable_body_is_refused_at_plan_time() {
+        let plan = plan_avatar_publish(
+            &super::super::AvatarRecord::default_for_seed(3),
+            &[],
+            "2026-08-28T00:00:00Z",
+        );
+        let mut absent = plan.clone();
+        absent.record.body = super::super::AvatarBody::Absent;
+        assert!(plan_avatar_writes(&absent, &empty_repo_with(&[])).is_err());
+    }
+
+    /// The batch respects the request-body budget rather than the write
+    /// count alone (#1115) — the reason this routes through `chunk_writes`
+    /// instead of building one `Vec` and hoping.
+    #[test]
+    fn a_heavy_outfit_chunks_instead_of_exceeding_the_request_budget() {
+        let rkeys: Vec<String> = (0..40).map(|i| format!("rkey-{i:04}")).collect();
+        let refs: Vec<&str> = rkeys.iter().map(String::as_str).collect();
+        let mut record = wearing(&refs);
+        // Fatten each attachment so the bundle cannot fit one request.
+        if let Some(rig) = record.body.rigged_mut()
+            && let Some(resolved) = rig.resolved.as_mut()
+        {
+            for attachment in &mut resolved.attachments {
+                attachment.record.item.children =
+                    (0..60).map(|_| Generator::default_cuboid()).collect();
+            }
+        }
+        let plan = plan_avatar_publish(&record, &[], "2026-08-28T00:00:00Z");
+        let batches = plan_avatar_writes(&plan, &empty_repo_with(&[])).expect("plans");
+        assert!(batches.len() > 1, "a heavy outfit must split");
+        for batch in &batches {
+            let bytes: usize = batch.iter().map(RepoWrite::wire_bytes).sum();
+            assert!(
+                bytes <= crate::pds::xrpc::MAX_APPLY_WRITES_BYTES,
+                "a batch of {bytes} B exceeds the request budget"
+            );
+        }
+        // Split or not, the children still precede the pointers that name
+        // them: flatten the batches and check the avatar record comes after
+        // every attachment write.
+        let flat: Vec<RepoWrite> = batches.into_iter().flatten().collect();
+        let order = collections(&flat);
+        let last_attachment = order
+            .iter()
+            .rposition(|(verb, collection, _)| {
+                *verb != "delete" && *collection == AVATAR_ATTACHMENT_COLLECTION
+            })
+            .expect("attachments present");
+        let record_at = order
+            .iter()
+            .position(|(_, collection, _)| *collection == super::super::AVATAR_COLLECTION)
+            .expect("the record is written");
+        assert!(
+            record_at > last_attachment,
+            "the pointer must never be committed before what it points at"
         );
     }
 

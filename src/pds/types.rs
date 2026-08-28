@@ -10,6 +10,47 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// DAG-CBOR float scale. Every `f32` goes to the wire as `i32` scaled by this.
 pub const FP_SCALE: f32 = 10_000.0;
 
+/// Read one wire scalar the way the whole fixed-point layer must read them:
+/// **wide, then saturating** (#1119).
+///
+/// Our own writer emits `i32`, so reading `i32` looks sufficient. It is not,
+/// and the reason is the failure it causes rather than the values it
+/// rejects. `Fp` sits inside every room, avatar and inventory record; a
+/// narrow read turns one out-of-range integer anywhere in the tree into a
+/// *parse* failure, and a parse failure discards the entire record before
+/// [`Sanitize`](crate::pds::sanitize::Sanitize) — whose job is precisely to
+/// bound values like this — ever runs. `fetch.rs` then substitutes the
+/// DID-seeded default and shows the recovery banner, so the owner's world
+/// is replaced by a stranger's on every login while their real record sits
+/// intact on the PDS. Out-of-range data is bad *data*; making it a bad
+/// parse is what loses the world.
+///
+/// Reading `i64` — the widest integer the AT Protocol data model has — and
+/// saturating on the `as f32` cast means such a value arrives as a finite
+/// number for `sanitize` to clamp. This matches the rule `symbios-avatar`
+/// documents for its `scaled` module in the same PDS repo; the two
+/// fixed-point layers now at least agree on how to read.
+///
+/// The grid does not move: every value an `i32` writer can emit round-trips
+/// through `i64` bit-for-bit, so no stored record decodes differently than
+/// it did before.
+fn unscale_wide<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+    Ok(i64::deserialize(d)? as f32 / FP_SCALE)
+}
+
+/// [`unscale_wide`] for a fixed-length array of wire scalars.
+///
+/// The `where` clause is serde's, not ours: it still implements
+/// `Deserialize` for arrays through a per-length macro rather than over
+/// const generics, so the bound has to be spelled out at each call.
+fn unscale_wide_array<'de, D: Deserializer<'de>, const N: usize>(d: D) -> Result<[f32; N], D::Error>
+where
+    [i64; N]: Deserialize<'de>,
+{
+    let ints = <[i64; N]>::deserialize(d)?;
+    Ok(ints.map(|v| v as f32 / FP_SCALE))
+}
+
 /// Serialize a `u64` as a JSON **string** rather than a number.
 ///
 /// JSON has no native integer type — most parsers (including the ones in
@@ -79,7 +120,7 @@ impl Serialize for Fp {
 
 impl<'de> Deserialize<'de> for Fp {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        Ok(Fp(i32::deserialize(d)? as f32 / FP_SCALE))
+        Ok(Fp(unscale_wide(d)?))
     }
 }
 
@@ -105,8 +146,7 @@ impl Serialize for Fp2 {
 
 impl<'de> Deserialize<'de> for Fp2 {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let ints = <[i32; 2]>::deserialize(d)?;
-        Ok(Fp2([ints[0] as f32 / FP_SCALE, ints[1] as f32 / FP_SCALE]))
+        Ok(Fp2(unscale_wide_array(d)?))
     }
 }
 
@@ -133,12 +173,7 @@ impl Serialize for Fp3 {
 
 impl<'de> Deserialize<'de> for Fp3 {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let ints = <[i32; 3]>::deserialize(d)?;
-        Ok(Fp3([
-            ints[0] as f32 / FP_SCALE,
-            ints[1] as f32 / FP_SCALE,
-            ints[2] as f32 / FP_SCALE,
-        ]))
+        Ok(Fp3(unscale_wide_array(d)?))
     }
 }
 
@@ -166,13 +201,7 @@ impl Serialize for Fp4 {
 
 impl<'de> Deserialize<'de> for Fp4 {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let ints = <[i32; 4]>::deserialize(d)?;
-        Ok(Fp4([
-            ints[0] as f32 / FP_SCALE,
-            ints[1] as f32 / FP_SCALE,
-            ints[2] as f32 / FP_SCALE,
-            ints[3] as f32 / FP_SCALE,
-        ]))
+        Ok(Fp4(unscale_wide_array(d)?))
     }
 }
 
@@ -196,7 +225,9 @@ impl Serialize for Fp64 {
 
 impl<'de> Deserialize<'de> for Fp64 {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        Ok(Fp64(i32::deserialize(d)? as f64 / FP_SCALE as f64))
+        // Wide for the same reason as [`Fp`] — and `f64` holds every `i64`
+        // to within its own precision, so nothing saturates here at all.
+        Ok(Fp64(i64::deserialize(d)? as f64 / FP_SCALE as f64))
     }
 }
 
@@ -268,6 +299,14 @@ pub(crate) fn is_false(b: &bool) -> bool {
 
 /// Whether a sampled point should be accepted above, below, or regardless of
 /// the world's water surface. `Both` is the no-op default.
+///
+/// Open union (#1119) even though it is a bare string on the wire rather
+/// than a `$type` tag: it rides inside `BiomeFilter` on every Scatter
+/// placement, so it is in the *manifest*. Without the fallback arm, one
+/// relation this build has never heard of — a future `Shoreline`, say —
+/// failed the whole `room/self` decode, and the recovery banner that
+/// followed offers to wipe the room. A filter is the wrong place to lose a
+/// world over.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum WaterRelation {
     /// No water constraint — keep points on either side of the surface.
@@ -277,6 +316,13 @@ pub enum WaterRelation {
     Above,
     /// Keep only points with world Y < water surface.
     Below,
+    /// A relation from a newer engine. Filters like [`Both`](Self::Both) —
+    /// showing every sample is the honest degradation, because this build
+    /// cannot know which half the newer client meant to hide — and refuses
+    /// to serialize, so opening such a room and saving it cannot rewrite
+    /// the owner's constraint as `Both` for real.
+    #[serde(other, skip_serializing)]
+    Unknown,
 }
 
 /// Combined biome + water filter applied to each scatter sample. An empty
@@ -297,8 +343,13 @@ impl BiomeFilter {
     /// `true` when neither the biome allow-list nor the water relation
     /// imposes any constraint. Lets the caller skip expensive per-sample
     /// work when the filter is a no-op.
+    ///
+    /// [`WaterRelation::Unknown`] counts as no constraint for the same
+    /// reason [`accepts`](Self::accepts) lets it through: this build has no
+    /// idea which side a future relation excludes, and the fast path must
+    /// agree with the slow one or the two disagree about the same record.
     pub fn is_noop(&self) -> bool {
-        self.biomes.is_empty() && matches!(self.water, WaterRelation::Both)
+        self.biomes.is_empty() && matches!(self.water, WaterRelation::Both | WaterRelation::Unknown)
     }
 
     /// Accept / reject a sample. `water_level` is `None` when the record has
@@ -321,6 +372,9 @@ impl BiomeFilter {
         if !self.biomes.is_empty() && !self.biomes.contains(&biome) {
             return false;
         }
+        // The catch-all covers `Both`, a water-relative filter on a record
+        // with no water, and `Unknown` — a relation from a newer engine,
+        // which accepts everything rather than guessing at a half to hide.
         match (self.water, water_level) {
             (WaterRelation::Above, Some(wl)) => y >= wl + ABOVE_FREEBOARD,
             (WaterRelation::Below, Some(wl)) => y < wl,
@@ -508,6 +562,9 @@ pub(crate) fn truncate_on_char_boundary(s: &mut String, max_bytes: usize) {
 }
 
 /// Serde helper for `HashMap<u8, V>` — JSON object keys must be strings.
+///
+/// Emits entries in ascending key order. See [`map_u16_as_string`] for why
+/// that ordering is load-bearing rather than cosmetic.
 pub mod map_u8_as_string {
     use serde::{Deserialize, Deserializer, Serializer};
     use std::collections::HashMap;
@@ -518,9 +575,11 @@ pub mod map_u8_as_string {
         V: serde::Serialize,
     {
         use serde::ser::SerializeMap;
+        let mut keys: Vec<&u8> = map.keys().collect();
+        keys.sort_unstable();
         let mut map_ser = serializer.serialize_map(Some(map.len()))?;
-        for (k, v) in map {
-            map_ser.serialize_entry(&k.to_string(), v)?;
+        for k in keys {
+            map_ser.serialize_entry(&k.to_string(), &map[k])?;
         }
         map_ser.end()
     }
@@ -542,6 +601,13 @@ pub mod map_u8_as_string {
 }
 
 /// Serde helper for `HashMap<u16, V>` — JSON object keys must be strings.
+///
+/// Emits entries in ascending key order (#1118). A `HashMap` iterates in an
+/// order that `RandomState` re-seeds per map and per process, so an
+/// unsorted writer would give the same content different bytes on every
+/// decode — and the child-generator rkey is a hash *of those bytes*. Sorting
+/// here is what makes [`child_rkey`](crate::pds::room::child_rkey) an
+/// address of the content rather than of this process's hash seed.
 pub mod map_u16_as_string {
     use serde::{Deserialize, Deserializer, Serializer};
     use std::collections::HashMap;
@@ -552,9 +618,11 @@ pub mod map_u16_as_string {
         V: serde::Serialize,
     {
         use serde::ser::SerializeMap;
+        let mut keys: Vec<&u16> = map.keys().collect();
+        keys.sort_unstable();
         let mut map_ser = serializer.serialize_map(Some(map.len()))?;
-        for (k, v) in map {
-            map_ser.serialize_entry(&k.to_string(), v)?;
+        for k in keys {
+            map_ser.serialize_entry(&k.to_string(), &map[k])?;
         }
         map_ser.end()
     }
@@ -572,5 +640,143 @@ pub mod map_u16_as_string {
             }
         }
         Ok(map)
+    }
+}
+
+/// Serialize a `HashMap<String, V>` with its keys in sorted order (#1118).
+///
+/// Use as `#[serde(serialize_with = "sorted_string_map")]` on any map that
+/// reaches the wire. Deserialization needs no partner helper — serde reads a
+/// JSON object into a `HashMap` regardless of the order it arrives in — so
+/// this is deliberately a bare `serialize_with` rather than a `with` module:
+/// the asymmetry is the point. What must be canonical is the bytes we
+/// *write*, because those bytes are what gets hashed into a record key and
+/// what a peer diffs against.
+pub fn sorted_string_map<S, V>(
+    map: &std::collections::HashMap<String, V>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+    V: serde::Serialize,
+{
+    use serde::ser::SerializeMap;
+    let mut keys: Vec<&String> = map.keys().collect();
+    keys.sort_unstable();
+    let mut map_ser = serializer.serialize_map(Some(map.len()))?;
+    for k in keys {
+        map_ser.serialize_entry(k, &map[k])?;
+    }
+    map_ser.end()
+}
+
+#[cfg(test)]
+mod fp_wire_tests {
+    //! #1119: the fixed-point decode reads wide and saturates, and the wire
+    //! grid does not move while it does.
+    use super::*;
+
+    /// The regression this closes. `Fp*` read through `i32`, so one integer
+    /// past `2_147_483_647` anywhere in a room, avatar or inventory record
+    /// failed the whole `serde_json` decode *before* `Sanitize` — whose
+    /// entire job is bounding values like this — could run. The loader then
+    /// substituted the DID-seeded default and raised the recovery banner, so
+    /// the owner saw a stranger's world on every login while their real
+    /// record sat intact on their PDS.
+    ///
+    /// The sequence that produced it: another symbios client (or a hand-edit)
+    /// widens one axis past `i32`; this build fetches the record; decode
+    /// fails; `fetch.rs` falls back to the seeded default.
+    #[test]
+    fn an_out_of_range_scalar_is_data_to_clamp_not_a_lost_record() {
+        // One past i32::MAX, and its negative twin.
+        let big: Fp = serde_json::from_str("2147483648").expect("must decode, not fail");
+        assert!(big.0.is_finite());
+        let small: Fp = serde_json::from_str("-2147483649").expect("must decode, not fail");
+        assert!(small.0.is_finite());
+        // And the widest the AT Protocol data model can carry at all.
+        let widest: Fp = serde_json::from_str(&i64::MAX.to_string()).expect("must decode");
+        assert!(widest.0.is_finite(), "saturates to a finite float");
+    }
+
+    /// The array wrappers read wide too — a transform's translation is three
+    /// of them, and one bad component must not cost the record either.
+    #[test]
+    fn the_array_wrappers_read_wide_as_well() {
+        let t: Fp3 = serde_json::from_str("[2147483648, 0, -2147483649]").expect("must decode");
+        assert!(t.0.iter().all(|v| v.is_finite()));
+        let q: Fp4 = serde_json::from_str("[0, 0, 0, 9999999999]").expect("must decode");
+        assert!(q.0.iter().all(|v| v.is_finite()));
+        let p: Fp2 = serde_json::from_str("[9999999999, 0]").expect("must decode");
+        assert!(p.0.iter().all(|v| v.is_finite()));
+        let d: Fp64 = serde_json::from_str("9999999999").expect("must decode");
+        assert!(d.0.is_finite());
+    }
+
+    /// The half that must NOT move. Widening the read is only safe if every
+    /// value an `i32` writer can emit still quantises to exactly what it
+    /// quantised to before — otherwise the fix silently re-grids every
+    /// stored record. Checked in all three directions (#211/#212): the
+    /// integer a float writes, the float that integer reads back, and the
+    /// fact that reading again is a fixed point.
+    #[test]
+    fn normal_range_values_quantise_exactly_as_before() {
+        for raw in [
+            0.0_f32,
+            1.0,
+            -1.0,
+            0.0001,
+            -0.0001,
+            0.00005, // rounds to 1 tick, not 0
+            2.5,
+            -37.125,
+            // Grid points written as tick-over-scale rather than as decimal
+            // literals: the decimals `f32` cannot hold exactly are the
+            // interesting ones, and spelling them this way says which tick
+            // is meant instead of leaving the reader to guess how the
+            // literal rounded.
+            12_345_678.0 / FP_SCALE,
+            -999_999_999.0 / FP_SCALE,
+            // The old narrow decoder's ceiling, exactly.
+            i32::MAX as f32 / FP_SCALE,
+            i32::MIN as f32 / FP_SCALE,
+        ] {
+            // Direction 1: the float writes the integer it always did.
+            let wire = serde_json::to_string(&Fp(raw)).expect("writes");
+            let expected = (raw * FP_SCALE).round() as i32;
+            assert_eq!(wire, expected.to_string(), "wire form moved for {raw}");
+
+            // Direction 2: that integer reads back to the same float the
+            // narrow decoder produced.
+            let back: Fp = serde_json::from_str(&wire).expect("reads");
+            assert_eq!(
+                back.0,
+                expected as f32 / FP_SCALE,
+                "quantised value moved for {raw}"
+            );
+
+            // Direction 3: re-writing the decoded value is a fixed point,
+            // so a record that round-trips through this build is byte-stable.
+            assert_eq!(
+                serde_json::to_string(&back).expect("rewrites"),
+                wire,
+                "round trip is not a fixed point for {raw}"
+            );
+        }
+    }
+
+    /// The grid is shared by the array wrappers, and a wrapper that read its
+    /// components in the wrong order would pass the scalar test above.
+    #[test]
+    fn array_wrappers_keep_component_order_and_grid() {
+        // Values chosen to be exactly representable in `f32` so the
+        // assertion is about component order and scale, not about the
+        // rounding `f32` was always going to do (1234.5678 * 10_000 lands
+        // on 12345677, and always did).
+        let t = Fp3([1.5, -2.25, 1234.5]);
+        let wire = serde_json::to_string(&t).expect("writes");
+        assert_eq!(wire, "[15000,-22500,12345000]");
+        let back: Fp3 = serde_json::from_str(&wire).expect("reads");
+        assert_eq!(back.0, [1.5, -2.25, 1234.5]);
     }
 }

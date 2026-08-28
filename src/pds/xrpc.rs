@@ -1,6 +1,7 @@
 //! Shared ATProto XRPC plumbing: DID resolution, [`FetchError`],
-//! [`XrpcError`], and the [`PutOutcome`] discriminator used by every
-//! record-upsert helper.
+//! [`XrpcError`], and the `applyWrites` layer every publish path commits
+//! through — [`RepoWrite`], [`record_exists`] (the create-vs-update probe),
+//! [`chunk_writes`] and [`apply_writes`].
 
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -242,17 +243,6 @@ pub(crate) struct XrpcError {
     pub message: Option<String>,
 }
 
-/// Result of a single `putRecord` attempt. The `ServerError` variant
-/// distinguishes "the PDS's own logic blew up" (transient-or-buggy; we can
-/// retry with delete-then-put) from "the PDS rejected our request" (4xx;
-/// retrying won't help and we should surface the error as-is).
-pub(crate) enum PutOutcome {
-    Ok,
-    ServerError(String),
-    ClientError(String),
-    Transport(String),
-}
-
 /// Hard cap the reference PDS puts on one `com.atproto.repo.applyWrites`
 /// batch. [`apply_writes`] refuses larger batches locally so the caller
 /// hears "split the batch" instead of a server 400.
@@ -346,6 +336,50 @@ pub(crate) fn chunk_writes(ordered: Vec<RepoWrite>) -> Result<Vec<Vec<RepoWrite>
         batches.push(batch);
     }
     Ok(batches)
+}
+
+/// `true` when `collection/rkey` exists in `did`'s repo, `false` when the
+/// PDS says it does not.
+///
+/// The create-vs-update probe every `applyWrites` plan needs: the two
+/// operations are distinct verbs, and picking the wrong one fails the whole
+/// atomic batch. `room_self_exists` is this same probe, specialised to the
+/// room manifest and written first (#697); the avatar bundle needs it four
+/// times over (#1117), so it lives here.
+///
+/// ATProto signals "no such record" as `400` with `RecordNotFound` in the
+/// body, NOT as `404`, so both have to be read as absence. Anything else is
+/// an error rather than a guess — guessing `false` would turn a transient
+/// blip into an `#create` over a record that exists.
+pub(crate) async fn record_exists(
+    client: &reqwest::Client,
+    pds: &str,
+    did: &str,
+    collection: &str,
+    rkey: &str,
+) -> Result<bool, String> {
+    let url = format!(
+        "{pds}/xrpc/com.atproto.repo.getRecord?repo={did}&collection={collection}&rkey={rkey}"
+    );
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("existence check ({collection}/{rkey}): {e}"))?;
+    let status = resp.status();
+    if status.is_success() {
+        return Ok(true);
+    }
+    if status.as_u16() == 404 {
+        return Ok(false);
+    }
+    let body = resp.text().await.unwrap_or_default();
+    if body.contains("RecordNotFound") {
+        return Ok(false);
+    }
+    Err(format!(
+        "existence check ({collection}/{rkey}) failed: {status} — {body}"
+    ))
 }
 
 /// Commit a batch of record writes to the authenticated user's repo in ONE

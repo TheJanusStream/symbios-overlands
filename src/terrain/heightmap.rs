@@ -232,7 +232,12 @@ pub(crate) fn heightmap_params(cfg: &SovereignTerrainConfig) -> gen_jobs::Height
         generator_kind: match cfg.generator_kind {
             SovereignGeneratorKind::FbmNoise => GeneratorKind::FbmNoise,
             SovereignGeneratorKind::DiamondSquare => GeneratorKind::DiamondSquare,
-            SovereignGeneratorKind::VoronoiTerracing => GeneratorKind::VoronoiTerracing,
+            // An algorithm this build has never heard of (#1119) still has
+            // to produce a heightmap — a visitor seeing the wrong terrain
+            // is recoverable; a visitor standing on nothing is not.
+            SovereignGeneratorKind::VoronoiTerracing | SovereignGeneratorKind::Unknown => {
+                GeneratorKind::VoronoiTerracing
+            }
         },
         seed: cfg.seed,
         octaves: cfg.octaves,

@@ -59,7 +59,7 @@ use crate::ui::editable::{
 
 use publish::spawn_reset_task;
 pub(crate) use publish::spawn_room_publish_task;
-pub use publish::{PublishRoomTask, poll_publish_tasks};
+pub use publish::{PublishRoomTask, ResetRoomTask, poll_publish_tasks};
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum EditorTab {

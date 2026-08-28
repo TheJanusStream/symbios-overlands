@@ -63,9 +63,10 @@ Size is policed before either crossing. A publish is measured record by record
 before any network I/O — a room writes a manifest plus one child per generator,
 and each is weighed on its own: past the 100 KiB soft budget the editor's size
 readout turns amber, past the 900 KiB hard ceiling the publish is refused and
-the button greys out. The refusal matters beyond tidiness, because the delete-then-put recovery
-path must never be handed a record the PDS will reject, or an owner ends up with
-no record at all. The peer path is chunked rather than refused: a reliable
+the button greys out. The refusal matters beyond tidiness, because every publish
+commits as one atomic `applyWrites` batch: a single record the PDS will reject
+fails the whole save, and measuring at plan time is what lets the owner be told
+which record is too big instead of watching an opaque rejection. The peer path is chunked rather than refused: a reliable
 payload over ~48 KiB is split under WebRTC's 64 KiB SCTP whole-message ceiling
 and reassembled on the far side, with the same 900 KiB backstop above which the
 broadcast is dropped and counted.
