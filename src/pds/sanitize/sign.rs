@@ -267,9 +267,17 @@ mod reference_url_tests {
 
     /// `http://` to loopback is a development convenience and nothing more,
     /// so it lives behind `debug_assertions`. Asserted in both directions
-    /// because the gate runs under `test-release`, which inherits release
-    /// and therefore has debug assertions OFF — a test written for only one
-    /// of the two would pass vacuously in the profile that matters.
+    /// because which one runs depends on the profile, and that has already
+    /// moved once: when this was written `[profile.test-release]` inherited
+    /// release and so had debug assertions OFF, and #1147 then turned them
+    /// on. A test written for only one branch would have silently swapped
+    /// which rule it was checking.
+    ///
+    /// Note what that means today: the gate exercises the DEBUG branch, so
+    /// the release rule — loopback over plain http refused outright — is
+    /// checked by the `else` arm only when someone builds without
+    /// assertions. The one-line assertion below it covers the case that
+    /// actually matters either way.
     #[test]
     fn plain_http_to_loopback_is_a_debug_build_affordance_only() {
         let local = sanitized("http://localhost:2583/asset.png");
