@@ -11,9 +11,7 @@ use super::generator::{
 use super::sanitize::{Sanitize, limits, sanitize_generator};
 use super::terrain::SovereignTerrainConfig;
 use super::types::{Fp, Fp2, Fp3, Fp4, Fp64, TransformData};
-use super::xrpc::{
-    FetchError, MAX_APPLY_WRITES, RepoWrite, XrpcError, decode_record_json, resolve_pds,
-};
+use super::xrpc::{FetchError, RepoWrite, XrpcError, decode_record_json, resolve_pds};
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde::{Deserialize, Serialize};
@@ -2048,7 +2046,8 @@ pub fn max_publish_record_bytes(record: &RoomRecord) -> Option<usize> {
 /// currently on the PDS and whether `room/self` already exists.
 ///
 /// The plan is: child creates, then the manifest put, then orphan deletes —
-/// chunked to the [`MAX_APPLY_WRITES`] commit cap in that order, so a
+/// chunked by [`crate::pds::xrpc::chunk_writes`] to both the write-count
+/// commit cap and the request-body byte budget, in that order, so a
 /// visitor reading between commits always sees a manifest whose refs all
 /// resolve (new children land before the manifest points at them; orphans
 /// are only deleted after nothing references them). Unchanged generators
@@ -2128,18 +2127,7 @@ fn plan_room_writes(
     // Sharing a batch across the create/manifest/delete phases is fine —
     // each applyWrites batch commits atomically, so only the ordering at
     // CHUNK boundaries matters, and the linear order above provides it.
-    let mut batches: Vec<Vec<RepoWrite>> = Vec::new();
-    let mut batch: Vec<RepoWrite> = Vec::new();
-    for write in ordered {
-        if batch.len() == MAX_APPLY_WRITES {
-            batches.push(std::mem::take(&mut batch));
-        }
-        batch.push(write);
-    }
-    if !batch.is_empty() {
-        batches.push(batch);
-    }
-    Ok(batches)
+    crate::pds::xrpc::chunk_writes(ordered)
 }
 
 /// `true` when `room/self` exists on the PDS in either shape. Publish uses
@@ -2189,6 +2177,12 @@ pub async fn publish_room_record(
     refresh: &crate::oauth::OauthRefreshCtx,
     record: &RoomRecord,
 ) -> Result<(), String> {
+    // Refused before any network I/O, and before `child_rkey` hashes a body
+    // it could not write (#1111): a generator, placement or material this
+    // build decoded as `Unknown` cannot be re-serialized, and saving anyway
+    // would replace the owner's newer content with a husk — the split-wire
+    // publish would even GC the original child as an orphan.
+    crate::pds::record_size::wire_ready(record, "world")?;
     let pds = resolve_pds(client, &session.did)
         .await
         .ok_or_else(|| "Failed to resolve PDS".to_string())?;
@@ -2246,18 +2240,7 @@ pub async fn delete_room_record(
         rkey,
     }));
 
-    let mut batches: Vec<Vec<RepoWrite>> = Vec::new();
-    let mut batch: Vec<RepoWrite> = Vec::new();
-    for write in deletes {
-        if batch.len() == MAX_APPLY_WRITES {
-            batches.push(std::mem::take(&mut batch));
-        }
-        batch.push(write);
-    }
-    if !batch.is_empty() {
-        batches.push(batch);
-    }
-    for batch in batches {
+    for batch in super::xrpc::chunk_writes(deletes)? {
         super::xrpc::apply_writes(&pds, session, refresh, batch).await?;
     }
     Ok(())
@@ -3019,7 +3002,11 @@ mod split_wire_tests {
             .collect();
 
         let batches = plan_room_writes(&record, &existing, true).unwrap();
-        assert!(batches.iter().all(|b| b.len() <= MAX_APPLY_WRITES));
+        assert!(
+            batches
+                .iter()
+                .all(|b| b.len() <= super::super::xrpc::MAX_APPLY_WRITES)
+        );
         let flat: Vec<&RepoWrite> = batches.iter().flatten().collect();
         assert_eq!(flat.len(), limits::MAX_GENERATORS * 2 + 1);
 

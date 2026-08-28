@@ -1210,7 +1210,7 @@ pub enum SovereignTextureConfig {
     // Alpha-masked mesh cards.
     ChainLink(SovereignChainLinkConfig),
     LogEnd(SovereignLogEndConfig),
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 

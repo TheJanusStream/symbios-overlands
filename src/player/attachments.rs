@@ -131,6 +131,28 @@ impl AttachmentsApplied {
     }
 }
 
+/// What `record` says is worn, or `None` when it cannot say yet.
+///
+/// The three answers are distinct and the middle one is the point (#1112):
+///
+///   - `Some(&[…])` — a rigged body with its references resolved: dress
+///     exactly this.
+///   - `None` — a rigged body whose references have not resolved (a
+///     live-preview broadcast carries rkeys only; `resolved` never rides the
+///     wire). Nothing is known, so nothing changes: keep what is standing
+///     until the resolution lands.
+///   - `Some(&[])` — a generator body, which wears no rig attachments at
+///     all. Genuinely empty, so anything standing comes off.
+fn dressed_by(record: &crate::pds::AvatarRecord) -> Option<&[ResolvedAttachment]> {
+    match record.body.rigged_ref() {
+        Some(rig) => rig
+            .resolved
+            .as_ref()
+            .map(|resolved| resolved.attachments.as_slice()),
+        None => Some(&[]),
+    }
+}
+
 /// Dress every rigged body whose worn set differs from its record's.
 ///
 /// Runs after [`super::rigged::land_rigged_builds`] in the Build set, so a
@@ -238,19 +260,20 @@ pub(super) fn sync_rigged_attachments(
         // Whose record dresses this body: the local player's live record, or
         // the peer's fetched one. A chassis that is neither (mid-despawn)
         // keeps whatever it wears until it goes.
-        let empty: &[ResolvedAttachment] = &[];
-        let desired: &[ResolvedAttachment] = if locals.contains(chassis) {
-            live.as_ref()
-                .and_then(|live| live.0.body.rigged_ref())
-                .and_then(|rig| rig.resolved.as_ref())
-                .map_or(empty, |resolved| &resolved.attachments)
+        let desired = if locals.contains(chassis) {
+            live.as_ref().map(|live| dressed_by(&live.0))
         } else if let Ok(peer) = peers.get(chassis) {
-            peer.avatar
-                .as_ref()
-                .and_then(|record| record.body.rigged_ref())
-                .and_then(|rig| rig.resolved.as_ref())
-                .map_or(empty, |resolved| &resolved.attachments)
+            peer.avatar.as_ref().map(dressed_by)
         } else {
+            continue;
+        };
+        // `None` is a WAIT, not an empty outfit (#1112) — the same rule
+        // `kick_rigged_builds` applies to the body itself. A rigged record
+        // whose references have not resolved yet cannot say what is worn,
+        // and reading that as "wearing nothing" stripped every prop on
+        // arrival of each live-preview broadcast and re-dressed it a
+        // round-trip later, re-running the fitted props' measurements.
+        let Some(Some(desired)) = desired else {
             continue;
         };
 
@@ -588,6 +611,43 @@ pub(super) mod tests {
     use crate::pds::avatar::wardrobe::{AttachmentRecord, engine_default_for_did};
     use crate::pds::types::Fp3;
     use crate::pds::{Generator, TransformData};
+
+    /// The three answers `dressed_by` distinguishes (#1112). The middle
+    /// one is the fix: a rigged record whose references have not resolved
+    /// says *nothing*, and must not be read as "wearing nothing".
+    ///
+    /// It was read that way, and every live-preview broadcast — which
+    /// carries rkeys only, because `resolved` is `#[serde(skip)]` — stripped
+    /// the wearer's whole outfit on arrival and re-dressed it a wardrobe
+    /// round-trip later, re-running each fitted prop's measurement.
+    #[test]
+    fn an_unresolved_rig_says_nothing_rather_than_nothing_worn() {
+        let mut record = crate::pds::AvatarRecord::wearing("3jzfcijpj2z2a");
+        assert_eq!(
+            dressed_by(&record),
+            None,
+            "references not resolved yet: keep what is standing"
+        );
+
+        if let Some(rig) = record.body.rigged_mut() {
+            rig.resolved = Some(crate::pds::avatar::ResolvedRig {
+                body: engine_default_for_did("did:plc:dressed-by"),
+                attachments: Vec::new(),
+            });
+        }
+        assert_eq!(
+            dressed_by(&record).map(<[_]>::len),
+            Some(0),
+            "resolved and wearing nothing is a real, empty answer"
+        );
+
+        let generator = crate::pds::AvatarRecord::default_for_seed(7);
+        assert_eq!(
+            dressed_by(&generator).map(<[_]>::len),
+            Some(0),
+            "a generator body wears no rig attachments at all"
+        );
+    }
 
     fn built() -> symbios_avatar::Avatar {
         symbios_avatar::Avatar::build_with(

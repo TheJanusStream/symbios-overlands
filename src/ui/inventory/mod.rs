@@ -243,10 +243,9 @@ fn apply_wear_action(
             }
         }
         WearAction::TakeOff(name) => {
-            let mut detached = Vec::new();
-            let taken = crate::ui::avatar::take_off_source(rig, &name, &mut detached);
-            if taken > 0 {
-                avatar_editor.queue_attachment_deletes(detached);
+            let detached = crate::ui::avatar::worn_rkeys_from(rig, &name);
+            if crate::ui::avatar::take_off_source(rig, &name) > 0 {
+                avatar_editor.forget_attachments(detached);
                 undo_labels.set_avatar(format!("take off {name}"));
             }
         }

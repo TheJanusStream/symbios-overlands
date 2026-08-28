@@ -735,9 +735,8 @@ pub(super) fn scene_context_menu_ui(
             let Some(rig) = live.0.body.rigged_mut() else {
                 return;
             };
-            let mut detached = Vec::new();
-            if crate::ui::avatar::take_off_rkey(rig, &worn.rkey, &mut detached) {
-                avatar_editor.queue_attachment_deletes(detached);
+            if crate::ui::avatar::take_off_rkey(rig, &worn.rkey) {
+                avatar_editor.forget_attachments([worn.rkey.clone()]);
                 undo_labels.set_avatar(format!(
                     "take off {}",
                     worn.source.as_deref().unwrap_or("prop")

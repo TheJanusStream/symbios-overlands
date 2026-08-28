@@ -258,6 +258,31 @@ pub(crate) enum PutOutcome {
 /// hears "split the batch" instead of a server 400.
 pub(crate) const MAX_APPLY_WRITES: usize = 200;
 
+/// Byte budget for one `applyWrites` request body (#1115).
+///
+/// A write count is not the binding limit. The reference PDS caps the whole
+/// XRPC **JSON body** at 150 KiB (`jsonLimit` in
+/// `packages/pds/src/index.ts`), so a batch of well under two hundred
+/// writes is rejected the moment the records it carries sum past that —
+/// which a first publish of a heavy seeded room does easily, since it
+/// writes every child at once and the largest single child in the
+/// catalogue is already ~91 KiB. The failure was an opaque 413 that the
+/// per-record ceiling could never pre-empt, because that ceiling is
+/// measured per record and this limit is per request.
+///
+/// 120 KiB leaves room for the `{repo, writes:[…]}` envelope and each
+/// write's `$type`/`collection`/`rkey` fields on top of the record values.
+pub(crate) const MAX_APPLY_WRITES_BYTES: usize = 120 * 1024;
+
+impl RepoWrite {
+    /// Serialized size of this write as it will appear in the request's
+    /// `writes` array, plus a comma. Used to pack batches under
+    /// [`MAX_APPLY_WRITES_BYTES`].
+    pub(crate) fn wire_bytes(&self) -> usize {
+        serde_json::to_vec(self).map_or(0, |v| v.len()) + 1
+    }
+}
+
 /// One write of a `com.atproto.repo.applyWrites` batch. The `$type` tags
 /// are the lexicon's union refs, so a `Vec<RepoWrite>` serializes directly
 /// as the request's `writes` array.
@@ -280,6 +305,49 @@ pub(crate) enum RepoWrite {
     Delete { collection: String, rkey: String },
 }
 
+/// Pack writes into `applyWrites` batches under **both** caps: the
+/// write-count commit limit and the request-body byte budget (#1115).
+///
+/// Counting writes alone was the bug. The reference PDS caps the XRPC JSON
+/// body at 150 KiB, so a first publish of a heavy seeded room — every child
+/// created in one batch, the largest already ~91 KiB — was rejected whole
+/// with an opaque 413 long before two hundred writes were reached. The
+/// per-record ceiling could not pre-empt it either: that measures one
+/// record, this limits a request.
+///
+/// The input order is preserved exactly, so the read-safe sequencing
+/// (creates → manifest → deletes) still holds across every chunk boundary.
+/// A single write larger than the whole budget is an error rather than a
+/// batch that would certainly be refused: it cannot be split, and saying so
+/// here names the record instead of leaving a 413 to explain it.
+pub(crate) fn chunk_writes(ordered: Vec<RepoWrite>) -> Result<Vec<Vec<RepoWrite>>, String> {
+    let mut batches: Vec<Vec<RepoWrite>> = Vec::new();
+    let mut batch: Vec<RepoWrite> = Vec::new();
+    let mut batch_bytes = 0usize;
+    for write in ordered {
+        let bytes = write.wire_bytes();
+        if bytes > MAX_APPLY_WRITES_BYTES {
+            return Err(format!(
+                "a single record is {} — past the {} the PDS accepts in one request; \
+                 remove content from it and retry",
+                crate::pds::record_size::human_bytes(bytes),
+                crate::pds::record_size::human_bytes(MAX_APPLY_WRITES_BYTES),
+            ));
+        }
+        let full = batch.len() == MAX_APPLY_WRITES || batch_bytes + bytes > MAX_APPLY_WRITES_BYTES;
+        if full && !batch.is_empty() {
+            batches.push(std::mem::take(&mut batch));
+            batch_bytes = 0;
+        }
+        batch_bytes += bytes;
+        batch.push(write);
+    }
+    if !batch.is_empty() {
+        batches.push(batch);
+    }
+    Ok(batches)
+}
+
 /// Commit a batch of record writes to the authenticated user's repo in ONE
 /// atomic commit via `com.atproto.repo.applyWrites` — either every write
 /// lands or none do, so multi-record layouts (inventory items, later the
@@ -297,6 +365,16 @@ pub(crate) async fn apply_writes(
             writes.len()
         ));
     }
+    // The byte twin of the count cap (#1115). Refused here so the caller
+    // hears which limit it hit, rather than a bare 413 from the PDS.
+    let batch_bytes: usize = writes.iter().map(RepoWrite::wire_bytes).sum();
+    if batch_bytes > MAX_APPLY_WRITES_BYTES {
+        return Err(format!(
+            "applyWrites batch is {} — past the {} request-body budget; split the batch",
+            crate::pds::record_size::human_bytes(batch_bytes),
+            crate::pds::record_size::human_bytes(MAX_APPLY_WRITES_BYTES),
+        ));
+    }
     let url = format!("{}/xrpc/com.atproto.repo.applyWrites", pds);
     let body = serde_json::json!({ "repo": session.did, "writes": writes });
     let (status, body) =
@@ -311,6 +389,79 @@ pub(crate) async fn apply_writes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A create carrying `bytes` of payload, near enough for packing tests.
+    fn sized_write(rkey: &str, bytes: usize) -> RepoWrite {
+        RepoWrite::Create {
+            collection: "network.symbios.overlands.room.generator".into(),
+            rkey: rkey.into(),
+            value: serde_json::json!({ "blob": "x".repeat(bytes) }),
+        }
+    }
+
+    /// #1115: the reference PDS caps the XRPC JSON body at 150 KiB, so a
+    /// first publish of a heavy seeded room — every child created in one
+    /// batch — was rejected whole with an opaque 413 while the count cap
+    /// (200 writes) sat unreached and the per-record ceiling (measured per
+    /// record, not per request) could never pre-empt it.
+    #[test]
+    fn batches_are_packed_under_the_request_body_budget() {
+        // Ten 40 KiB children: 400 KiB total, well inside 200 writes.
+        let writes: Vec<RepoWrite> = (0..10)
+            .map(|i| sized_write(&format!("child{i}"), 40 * 1024))
+            .collect();
+        let batches = chunk_writes(writes).expect("packs");
+
+        assert!(batches.len() > 1, "400 KiB cannot ride in one request");
+        for batch in &batches {
+            let bytes: usize = batch.iter().map(RepoWrite::wire_bytes).sum();
+            assert!(
+                bytes <= MAX_APPLY_WRITES_BYTES,
+                "batch of {bytes} B exceeds the budget"
+            );
+            assert!(batch.len() <= MAX_APPLY_WRITES);
+            assert!(!batch.is_empty(), "an empty batch is a wasted round trip");
+        }
+    }
+
+    /// The read-safe ordering (creates → manifest → deletes) is the whole
+    /// reason a torn publish is survivable, so packing must never reorder.
+    #[test]
+    fn packing_preserves_the_order_it_was_given() {
+        let writes: Vec<RepoWrite> = (0..12)
+            .map(|i| sized_write(&format!("r{i:02}"), 30 * 1024))
+            .collect();
+        let flattened: Vec<RepoWrite> = chunk_writes(writes.clone())
+            .expect("packs")
+            .into_iter()
+            .flatten()
+            .collect();
+        assert_eq!(flattened, writes);
+    }
+
+    #[test]
+    fn many_small_writes_still_stop_at_the_count_cap() {
+        // The count cap must keep binding where bytes do not.
+        let writes: Vec<RepoWrite> = (0..250).map(|i| sized_write(&format!("t{i}"), 8)).collect();
+        let batches = chunk_writes(writes).expect("packs");
+        assert!(batches.iter().all(|b| b.len() <= MAX_APPLY_WRITES));
+        assert_eq!(batches.iter().map(Vec::len).sum::<usize>(), 250);
+    }
+
+    #[test]
+    fn a_single_record_past_the_budget_is_named_rather_than_413ed() {
+        // It cannot be split, so a batch would certainly be refused. Saying
+        // so locally beats letting the PDS answer with a bare 413.
+        let err = chunk_writes(vec![sized_write("whale", MAX_APPLY_WRITES_BYTES + 1)])
+            .expect_err("refused");
+        assert!(err.contains("single record"), "{err}");
+        assert!(err.contains("remove content"), "offers a way out: {err}");
+    }
+
+    #[test]
+    fn an_empty_plan_produces_no_batches() {
+        assert!(chunk_writes(Vec::new()).expect("packs").is_empty());
+    }
 
     #[test]
     fn network_did_methods_are_resolvable() {

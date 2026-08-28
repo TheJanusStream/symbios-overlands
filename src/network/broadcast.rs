@@ -82,16 +82,21 @@ pub(super) fn broadcast_avatar_state(
     }
     // A body this build cannot re-serialize (a newer client's kind, kept as
     // `Unknown`) is not broadcastable; peers get the authoritative record
-    // from the PDS instead, decoded by whatever build understands it. Without
-    // this gate every change tick would error-log a serialize failure.
+    // from the PDS instead, decoded by whatever build understands it. The
+    // body marker is checked first so the common case reports the reason it
+    // knows; `avatar_state_update` then catches an `Unknown` anywhere deeper
+    // in the record (#1111) and declines the same way.
     if live.0.body.wire_ready().is_err() {
         return;
     }
+    let Some(message) = OverlandsMessage::avatar_state_update(&live.0) else {
+        return;
+    };
     chunk.broadcast(
         &mut sender,
         &mut session_log,
         time.elapsed_secs_f64(),
-        OverlandsMessage::avatar_state_update(&live.0),
+        message,
     );
 }
 
@@ -143,12 +148,13 @@ pub(super) fn broadcast_room_state(
     if !due {
         return;
     }
+    // A room holding a union arm this build cannot write back is not
+    // broadcast (#1111): guests read the owner's PDS record instead, which
+    // whatever build understands it decodes in full.
+    let Some(message) = OverlandsMessage::room_state_update(&record.0) else {
+        return;
+    };
     *dirty = false;
     *last_sent = Some(now);
-    chunk.broadcast(
-        &mut sender,
-        &mut session_log,
-        now,
-        OverlandsMessage::room_state_update(&record.0),
-    );
+    chunk.broadcast(&mut sender, &mut session_log, now, message);
 }

@@ -116,18 +116,32 @@ pub enum OverlandsMessage {
     },
 }
 
-impl OverlandsMessage {
-    /// Package a [`RoomRecord`] for broadcast over the P2P channel. Falls
-    /// back to an empty payload if serialisation fails, which the receiver
-    /// will drop — the alternative of panicking on a malformed record would
-    /// tear down the session mid-edit.
-    pub fn room_state_update(record: &RoomRecord) -> Self {
-        Self::RoomStateUpdate {
-            record_json: serde_json::to_vec(record).unwrap_or_else(|e| {
-                bevy::log::error!("Failed to serialize RoomRecord: {}", e);
-                Vec::new()
-            }),
+/// Serialize a record for the wire, or `None` with one log line naming the
+/// record kind. Shared by the two state-update constructors so they cannot
+/// drift in how a refusal is reported.
+fn serialize_for_wire<T: serde::Serialize>(record: &T, kind: &str) -> Option<Vec<u8>> {
+    match serde_json::to_vec(record) {
+        Ok(bytes) => Some(bytes),
+        Err(e) => {
+            bevy::log::warn!("{kind} not broadcast: {e}");
+            None
         }
+    }
+}
+
+impl OverlandsMessage {
+    /// Package a [`RoomRecord`] for broadcast over the P2P channel.
+    ///
+    /// `None` when the record cannot be serialized — in practice when it
+    /// holds a union arm this build decoded as `Unknown` and therefore must
+    /// not write back (#1111). The caller skips the broadcast: peers read
+    /// the authoritative record from the owner's PDS, decoded by whatever
+    /// build understands it. Broadcasting an EMPTY payload instead, as this
+    /// used to, sent every peer a record that decoded to nothing.
+    pub fn room_state_update(record: &RoomRecord) -> Option<Self> {
+        Some(Self::RoomStateUpdate {
+            record_json: serialize_for_wire(record, "RoomRecord")?,
+        })
     }
 
     /// Attempt to decode a [`RoomRecord`] from a `RoomStateUpdate` payload.
@@ -144,14 +158,11 @@ impl OverlandsMessage {
     }
 
     /// Package an [`AvatarRecord`] for broadcast over the P2P channel.
-    /// Same fallback policy as [`Self::room_state_update`].
-    pub fn avatar_state_update(record: &AvatarRecord) -> Self {
-        Self::AvatarStateUpdate {
-            record_json: serde_json::to_vec(record).unwrap_or_else(|e| {
-                bevy::log::error!("Failed to serialize AvatarRecord: {}", e);
-                Vec::new()
-            }),
-        }
+    /// Same policy as [`Self::room_state_update`].
+    pub fn avatar_state_update(record: &AvatarRecord) -> Option<Self> {
+        Some(Self::AvatarStateUpdate {
+            record_json: serialize_for_wire(record, "AvatarRecord")?,
+        })
     }
 
     /// Decode an [`AvatarRecord`] from an `AvatarStateUpdate` payload.

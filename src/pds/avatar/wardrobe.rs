@@ -672,15 +672,28 @@ pub struct AvatarPublishPlan {
 /// publishable on the way — an empty name and a missing `createdAt` are
 /// filled here (`now_iso` is the application's clock; the engine crate is
 /// deliberately clock-free) — and the profile follows the worn body.
+///
+/// **The delete set is derived, never queued** (#1110). `stored_attachments`
+/// is the attachment rkey list of the record the PDS currently holds; what
+/// this save deletes is exactly that set minus what the record being
+/// published still references. A session-scoped "detached this session"
+/// queue cannot express this: it survived Undo, Load-from-PDS, Reset and
+/// logout, so a take-off followed by an undo deleted a record the very same
+/// bundle had just re-published — and, in the other direction, every path
+/// that drops a reference *without* going through the queue ("Publish & log
+/// out", Reset, re-roll, wearing a fresh body) orphaned its record in the
+/// repo forever. Deriving from the two record states covers both, and can
+/// never ask the PDS to delete an rkey it was never given (a prop worn and
+/// taken off inside one session was never published).
 pub fn plan_avatar_publish(
     record: &super::AvatarRecord,
-    deleted_attachments: &[String],
+    stored_attachments: &[String],
     now_iso: &str,
 ) -> AvatarPublishPlan {
     let mut plan = AvatarPublishPlan {
         wardrobe: None,
         attachments: Vec::new(),
-        attachment_deletes: deleted_attachments.to_vec(),
+        attachment_deletes: attachment_deletes(record, stored_attachments),
         profile: None,
         record: record.clone(),
     };
@@ -710,6 +723,45 @@ pub fn plan_avatar_publish(
         ));
     }
     plan
+}
+
+/// The attachment record keys an avatar record references, in record order.
+///
+/// The publish flow's view of "what the PDS holds for this identity": pass
+/// the *stored* record's list to [`plan_avatar_publish`] and it retires
+/// whatever the record being saved has since stopped referencing (#1110).
+/// Empty for a generator body, which wears nothing.
+pub fn attachment_rkeys(record: &super::AvatarRecord) -> Vec<String> {
+    record
+        .body
+        .rigged_ref()
+        .map(|rig| rig.attachments.clone())
+        .unwrap_or_default()
+}
+
+/// Which attachment records this save retires: the ones the PDS holds that
+/// the record being published no longer references.
+///
+/// Deliberately reads the record's own **reference list** (`rig.attachments`)
+/// rather than the resolved outfit: the references are what a reader
+/// follows, and a resolution that failed (a fetch error leaves `resolved`
+/// short of a prop the record still names) must never be read as "the owner
+/// took it off". Order follows `stored_attachments` so a plan is stable, and
+/// duplicates collapse — a repeated rkey would delete twice and fail the
+/// second time.
+fn attachment_deletes(record: &super::AvatarRecord, stored_attachments: &[String]) -> Vec<String> {
+    let kept: std::collections::HashSet<&str> = record
+        .body
+        .rigged_ref()
+        .map(|rig| rig.attachments.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+    let mut seen = std::collections::HashSet::new();
+    stored_attachments
+        .iter()
+        .filter(|rkey| !kept.contains(rkey.as_str()))
+        .filter(|rkey| seen.insert(rkey.as_str()))
+        .cloned()
+        .collect()
 }
 
 /// Execute a [`AvatarPublishPlan`], children before pointers: the wardrobe
@@ -908,6 +960,112 @@ mod tests {
             "the cross-app pointer follows the worn body"
         );
         assert_eq!(plan.attachment_deletes, vec![String::from("3jzfcijpj2z2c")]);
+    }
+
+    /// A rigged record wearing exactly `rkeys`, resolved so the plan has a
+    /// body to publish.
+    fn wearing(rkeys: &[&str]) -> super::super::AvatarRecord {
+        let mut record = super::super::AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = record.body.rigged_mut() {
+            rig.attachments = rkeys.iter().map(|k| (*k).to_string()).collect();
+            rig.resolved = Some(ResolvedRig {
+                body: engine_default_for_did("did:plc:deletes"),
+                attachments: rkeys
+                    .iter()
+                    .map(|k| ResolvedAttachment {
+                        rkey: (*k).to_string(),
+                        record: AttachmentRecord::new(
+                            Generator::default(),
+                            symbios_avatar::Socket::Crown,
+                        ),
+                    })
+                    .collect(),
+            });
+        }
+        record
+    }
+
+    #[test]
+    fn a_worn_rkey_is_never_deleted_by_the_save_that_publishes_it() {
+        // #1110, the sequence that lost data: take a prop off (the queue
+        // holds its rkey), press Ctrl+Z or Load-from-PDS so the record wears
+        // it again, then Save. The old queue-driven plan re-published the
+        // record AND deleted it, leaving the avatar pointing at nothing.
+        // Deriving the delete set from the two record states cannot express
+        // that: what the record references is never retired.
+        let stored = [String::from("rkey-worn"), String::from("rkey-gone")];
+        let plan = plan_avatar_publish(&wearing(&["rkey-worn"]), &stored, "2026-08-28T00:00:00Z");
+
+        assert_eq!(
+            plan.attachment_deletes,
+            vec![String::from("rkey-gone")],
+            "only the reference the record dropped is retired"
+        );
+        assert!(
+            plan.attachments.iter().any(|(rkey, _)| rkey == "rkey-worn"),
+            "and the worn one is published, not deleted"
+        );
+    }
+
+    #[test]
+    fn dropping_a_reference_retires_its_record_however_it_was_dropped() {
+        // The other direction (#1110): "Publish & log out", Reset,
+        // re-roll and wearing a fresh body all drop references without
+        // going through any take-off path. The old plan was handed an empty
+        // queue on those routes and orphaned every record in the repo.
+        let stored = [
+            String::from("rkey-a"),
+            String::from("rkey-b"),
+            String::from("rkey-c"),
+        ];
+        let plan = plan_avatar_publish(&wearing(&[]), &stored, "2026-08-28T00:00:00Z");
+        assert_eq!(plan.attachment_deletes, stored.to_vec());
+
+        // A body swapped for a generator one keeps the same rule.
+        let plan = plan_avatar_publish(
+            &super::super::AvatarRecord::default_for_seed(7),
+            &stored,
+            "2026-08-28T00:00:00Z",
+        );
+        assert_eq!(plan.attachment_deletes, stored.to_vec());
+    }
+
+    #[test]
+    fn a_prop_worn_and_taken_off_before_any_save_is_never_deleted() {
+        // Its record was never published, so asking the PDS to delete it
+        // would fail the whole bundle. Nothing the PDS was not given can
+        // appear in the delete set, because the set is derived from what it
+        // holds.
+        let plan = plan_avatar_publish(&wearing(&[]), &[], "2026-08-28T00:00:00Z");
+        assert!(plan.attachment_deletes.is_empty());
+    }
+
+    #[test]
+    fn a_repeated_stored_rkey_is_deleted_once() {
+        // A duplicate would delete twice and fail on the second call.
+        let stored = [String::from("rkey-dup"), String::from("rkey-dup")];
+        let plan = plan_avatar_publish(&wearing(&[]), &stored, "2026-08-28T00:00:00Z");
+        assert_eq!(plan.attachment_deletes, vec![String::from("rkey-dup")]);
+    }
+
+    #[test]
+    fn a_failed_resolution_does_not_read_as_taking_the_prop_off() {
+        // `resolved` is short of a prop the record still names (a fetch
+        // error at load). The delete set reads the RECORD's reference list,
+        // so the record survives; reading the resolved outfit would have
+        // deleted somebody's prop because their PDS blipped.
+        let mut record = wearing(&["rkey-x", "rkey-y"]);
+        if let Some(rig) = record.body.rigged_mut()
+            && let Some(resolved) = rig.resolved.as_mut()
+        {
+            resolved.attachments.retain(|a| a.rkey != "rkey-y");
+        }
+        let plan = plan_avatar_publish(
+            &record,
+            &[String::from("rkey-x"), String::from("rkey-y")],
+            "2026-08-28T00:00:00Z",
+        );
+        assert!(plan.attachment_deletes.is_empty());
     }
 
     #[test]

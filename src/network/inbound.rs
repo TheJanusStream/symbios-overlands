@@ -19,6 +19,7 @@ use bevy_symbios_multiuser::prelude::*;
 use crate::avatar::AvatarFetchPending;
 use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::EventPayload;
+use crate::pds::AvatarRecord;
 use crate::protocol::OverlandsMessage;
 use crate::state::{
     ChatHistory, CurrentRoomDid, IncomingOfferDialog, LiveRoomRecord, PendingOutgoingOffers,
@@ -100,6 +101,29 @@ pub(super) struct InboundBuffers<'w> {
     /// Chat-keyword emotes (#1068): an arriving message plays a gesture on
     /// its sender's own body.
     emotes: MessageWriter<'w, crate::player::emote::EmoteRequest>,
+}
+
+/// Move a peer's existing rig resolution onto an incoming record when the
+/// two name the same references (#1113).
+///
+/// A resolution is a fetch of the records the reference list names, so it
+/// stays correct for exactly as long as that list does. Requiring an exact
+/// match — wardrobe rkey *and* the ordered attachment rkeys — is what keeps
+/// this from carrying a stale outfit across a real change: any edit to what
+/// the peer wears alters the list and forces a fresh resolve.
+fn carry_resolution(existing: Option<&AvatarRecord>, incoming: &mut AvatarRecord) {
+    let Some(previous) = existing.and_then(|record| record.body.rigged_ref()) else {
+        return;
+    };
+    let Some(rig) = incoming.body.rigged_mut() else {
+        return;
+    };
+    if rig.resolved.is_none()
+        && rig.avatar == previous.avatar
+        && rig.attachments == previous.attachments
+    {
+        rig.resolved = previous.resolved.clone();
+    }
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -340,6 +364,16 @@ pub(super) fn handle_incoming_messages(
                         );
                         continue;
                     };
+                    // Carry a still-valid resolution across the update
+                    // (#1113). `resolved` is `#[serde(skip)]`, so every
+                    // preview arrives unresolved; overwriting wholesale threw
+                    // away a resolution that was still correct and made each
+                    // debounced keystroke cost a DID-document lookup plus a
+                    // wardrobe record plus up to sixteen attachment records,
+                    // on every client in the room. The references name what
+                    // the resolution is *of*, so an unchanged reference set
+                    // means the fetched records are unchanged too.
+                    carry_resolution(peer.avatar.as_ref(), &mut new_record);
                     // Refresh the cache so a future Identity from this DID
                     // (e.g. reconnect within the session) restores the
                     // live-preview state instead of the stale PDS record.
@@ -728,6 +762,74 @@ pub(super) fn handle_incoming_messages(
                     );
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pds::avatar::{ResolvedRig, wardrobe::engine_default_for_did};
+
+    fn resolved_record(avatar: &str, attachments: &[&str]) -> AvatarRecord {
+        let mut record = AvatarRecord::wearing(avatar);
+        if let Some(rig) = record.body.rigged_mut() {
+            rig.attachments = attachments.iter().map(|a| (*a).to_string()).collect();
+            rig.resolved = Some(ResolvedRig {
+                body: engine_default_for_did("did:plc:carry"),
+                attachments: Vec::new(),
+            });
+        }
+        record
+    }
+
+    /// #1113: `resolved` is `#[serde(skip)]`, so every live-preview
+    /// broadcast decodes unresolved. Overwriting the peer's record wholesale
+    /// discarded a resolution that was still correct and made each debounced
+    /// keystroke cost a DID lookup, a wardrobe fetch and up to sixteen
+    /// attachment fetches on every client in the room.
+    #[test]
+    fn an_unchanged_reference_set_keeps_its_resolution_across_a_preview() {
+        let standing = resolved_record("3jzfcijpj2z2a", &["att-1"]);
+        let mut off_the_wire = AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = off_the_wire.body.rigged_mut() {
+            rig.attachments = vec![String::from("att-1")];
+        }
+
+        carry_resolution(Some(&standing), &mut off_the_wire);
+
+        assert!(
+            off_the_wire
+                .body
+                .rigged_ref()
+                .is_some_and(|rig| rig.resolved.is_some()),
+            "same references: the fetched records are still the right ones"
+        );
+    }
+
+    /// The other half of the rule — carrying it when the peer actually
+    /// changed what they wear would show everyone a stale outfit.
+    #[test]
+    fn a_changed_reference_set_is_re_resolved() {
+        let standing = resolved_record("3jzfcijpj2z2a", &["att-1"]);
+
+        for changed in [
+            ("3jzfcijpj2z2b", vec!["att-1"]),
+            ("3jzfcijpj2z2a", vec!["att-1", "att-2"]),
+            ("3jzfcijpj2z2a", vec![]),
+        ] {
+            let mut incoming = AvatarRecord::wearing(changed.0);
+            if let Some(rig) = incoming.body.rigged_mut() {
+                rig.attachments = changed.1.iter().map(|a| (*a).to_string()).collect();
+            }
+            carry_resolution(Some(&standing), &mut incoming);
+            assert!(
+                incoming
+                    .body
+                    .rigged_ref()
+                    .is_some_and(|rig| rig.resolved.is_none()),
+                "{changed:?} names different records and must be fetched afresh"
+            );
         }
     }
 }

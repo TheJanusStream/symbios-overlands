@@ -84,7 +84,7 @@ pub fn serialized_record_bytes<T: Serialize>(record: &T) -> Option<usize> {
 /// so the shared status line stays self-explanatory.
 pub fn preflight<T: Serialize>(record: &T, label: &str) -> Result<usize, String> {
     let bytes = serde_json::to_vec(record)
-        .map_err(|e| format!("serialize ({label}): {e}"))?
+        .map_err(|e| unserializable_reason(label, &e.to_string()))?
         .len();
     if bytes > HARD_RECORD_CEILING_BYTES {
         return Err(format!(
@@ -96,6 +96,42 @@ pub fn preflight<T: Serialize>(record: &T, label: &str) -> Result<usize, String>
         ));
     }
     Ok(bytes)
+}
+
+/// Why a record would not serialize, in a sentence the status line can show.
+///
+/// In practice there is exactly one cause (#1111): a union arm this build
+/// does not understand, decoded into `Unknown` and marked `skip_serializing`
+/// so it can never be written back. That is deliberate — the alternative is
+/// what this project shipped until now, where `Unknown` serialized as
+/// `{"$type":"Unknown"}` and an older client saving a room it had merely
+/// *opened* replaced a newer client's generator, placement, material or
+/// locomotion preset with a husk. Content the reader cannot understand is
+/// content it must not overwrite, so the save is refused instead.
+pub fn unserializable_reason(label: &str, serde_error: &str) -> String {
+    if serde_error.contains("cannot be serialized") {
+        format!(
+            "this {label} contains something made by a newer version of Overlands, which this \
+             build cannot write back without destroying it. Update, or remove the affected \
+             item, and try again."
+        )
+    } else {
+        format!("serialize ({label}): {serde_error}")
+    }
+}
+
+/// Whether `record` can be written to the PDS or broadcast to peers at all.
+///
+/// The probe is a serialization attempt, deliberately rather than a walk over
+/// every union: the record types nest more than thirty open unions and a
+/// hand-written traversal would go stale the first time one is added, which
+/// is the failure mode this guards against in the first place. Publish paths
+/// get this for free through [`preflight`]; the broadcast paths, which do no
+/// size check, call it directly.
+pub fn wire_ready<T: Serialize>(record: &T, label: &str) -> Result<(), String> {
+    serde_json::to_vec(record)
+        .map(|_| ())
+        .map_err(|e| unserializable_reason(label, &e.to_string()))
 }
 
 /// Human-readable byte count for the UI readout and error messages

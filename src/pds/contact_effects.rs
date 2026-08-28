@@ -31,7 +31,7 @@ pub enum ContactSurfaceKind {
     Water,
     #[serde(rename = "network.symbios.contact.surface.terrain")]
     Terrain,
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -47,7 +47,7 @@ pub enum ContactPhaseKind {
     Dwell,
     #[serde(rename = "network.symbios.contact.phase.exit")]
     Exit,
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -157,7 +157,7 @@ pub enum AudioClipSource {
     AtprotoBlob { did: String, cid: String },
     /// A future/unknown source (e.g. forthcoming procedural synthesis)
     /// — decoded, never authored on this client; the cue is skipped.
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -236,7 +236,7 @@ pub enum ContactEffectKind {
     AudioCue { audio: AudioParams },
     /// A future/unknown effect kind — decoded, never authored. Dropped
     /// by the runtime mapper.
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 

@@ -90,7 +90,7 @@ pub enum LocomotionConfig {
     #[serde(rename = "network.symbios.locomotion.car")]
     Car(Box<CarParams>),
 
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 

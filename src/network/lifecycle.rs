@@ -95,15 +95,17 @@ pub(super) fn handle_peer_connections(
                         // large room never received it and saw only the stale
                         // PDS version (or nothing). Fragmenting it here is what
                         // makes the join actually deliver the live room.
-                        super::chunk::send_chunked(
-                            &mut sender,
-                            &mut seq,
-                            &mut metrics,
-                            &mut session_log,
-                            super::chunk::ChunkDest::To(event.peer),
-                            elapsed,
-                            OverlandsMessage::room_state_update(&record.0),
-                        );
+                        if let Some(message) = OverlandsMessage::room_state_update(&record.0) {
+                            super::chunk::send_chunked(
+                                &mut sender,
+                                &mut seq,
+                                &mut metrics,
+                                &mut session_log,
+                                super::chunk::ChunkDest::To(event.peer),
+                                elapsed,
+                                message,
+                            );
+                        }
                     }
                 }
             }

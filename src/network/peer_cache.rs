@@ -126,18 +126,73 @@ pub(super) fn spawn_peer_avatar_fetch(
 #[derive(Component)]
 pub(super) struct PeerRigResolveTask {
     peer_id: PeerId,
+    /// The peer this resolves for, so a failure can record its backoff.
+    peer_entity: Entity,
     avatar_rkey: String,
     attachment_rkeys: Vec<String>,
     task: bevy::tasks::Task<Option<crate::pds::avatar::ResolvedRig>>,
 }
 
+/// A reference set that failed to resolve, and when it may be tried again
+/// (#1113).
+///
+/// Lives on the peer entity, so it goes when the peer does. Keyed by the
+/// reference set itself rather than by peer: the wait exists because *these
+/// records* could not be fetched, so any edit to what the peer wears retires
+/// it immediately and the new references resolve on the next frame.
+#[derive(Component)]
+pub(super) struct PeerRigResolveBackoff {
+    avatar_rkey: String,
+    attachment_rkeys: Vec<String>,
+    /// Seconds to wait from [`Self::failed_at`], doubling per attempt up to
+    /// [`config::network::RIG_RESOLVE_RETRY_MAX_SECS`].
+    wait_secs: f64,
+    failed_at: f64,
+}
+
+impl PeerRigResolveBackoff {
+    /// Whether this backoff still holds for `rig` at time `now` — the same
+    /// references, and the wait not yet elapsed.
+    fn holds(&self, rig: &crate::pds::avatar::RiggedBody, now: f64) -> bool {
+        self.avatar_rkey == rig.avatar
+            && self.attachment_rkeys == rig.attachments
+            && now - self.failed_at < self.wait_secs
+    }
+
+    /// The backoff to record after a failure, doubling the previous wait
+    /// for the same reference set and starting from the base otherwise.
+    fn after_failure(
+        previous: Option<&Self>,
+        rig: &crate::pds::avatar::RiggedBody,
+        now: f64,
+    ) -> Self {
+        let same_set = previous
+            .is_some_and(|b| b.avatar_rkey == rig.avatar && b.attachment_rkeys == rig.attachments);
+        let wait_secs = if same_set {
+            previous.map_or(config::network::RIG_RESOLVE_RETRY_BASE_SECS, |b| {
+                (b.wait_secs * 2.0).min(config::network::RIG_RESOLVE_RETRY_MAX_SECS)
+            })
+        } else {
+            config::network::RIG_RESOLVE_RETRY_BASE_SECS
+        };
+        Self {
+            avatar_rkey: rig.avatar.clone(),
+            attachment_rkeys: rig.attachments.clone(),
+            wait_secs,
+            failed_at: now,
+        }
+    }
+}
+
 /// Start a resolution for every peer whose record is rigged but unresolved.
 pub(super) fn spawn_peer_rig_resolutions(
     mut commands: Commands,
-    peers: Query<&RemotePeer>,
+    peers: Query<(Entity, &RemotePeer, Option<&PeerRigResolveBackoff>)>,
     inflight: Query<&PeerRigResolveTask>,
+    time: Res<Time>,
 ) {
-    for peer in &peers {
+    let now = time.elapsed_secs_f64();
+    for (peer_entity, peer, backoff) in &peers {
         let Some(did) = peer.did.clone() else {
             continue;
         };
@@ -149,6 +204,13 @@ pub(super) fn spawn_peer_rig_resolutions(
             continue;
         };
         if rig.resolved.is_some() || inflight.iter().any(|t| t.peer_id == peer.peer_id) {
+            continue;
+        }
+        // A reference set that just failed is not retried until its wait has
+        // elapsed (#1113). Without this the `None` result below simply left
+        // `resolved` empty and this system re-spawned the whole fan-out on
+        // the very next frame, forever.
+        if backoff.is_some_and(|b| b.holds(rig, now)) {
             continue;
         }
         let avatar_rkey = rig.avatar.clone();
@@ -178,6 +240,7 @@ pub(super) fn spawn_peer_rig_resolutions(
         });
         commands.spawn(PeerRigResolveTask {
             peer_id: peer.peer_id,
+            peer_entity,
             avatar_rkey,
             attachment_rkeys,
             task,
@@ -191,8 +254,10 @@ pub(super) fn spawn_peer_rig_resolutions(
 pub(super) fn poll_peer_rig_resolutions(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut PeerRigResolveTask)>,
-    mut peers: Query<&mut RemotePeer>,
+    mut peers: Query<(&mut RemotePeer, Option<&PeerRigResolveBackoff>)>,
+    time: Res<Time>,
 ) {
+    let now = time.elapsed_secs_f64();
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
             futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
@@ -201,12 +266,28 @@ pub(super) fn poll_peer_rig_resolutions(
         };
         commands.entity(entity).despawn();
         let Some(resolved) = result else {
-            // Nothing resolved (deleted wardrobe record, transport failure):
-            // the peer keeps whatever body is standing. NOT retried in a
-            // loop — the next record change re-arms the spawn system.
+            // Nothing resolved (deleted wardrobe record, transport failure,
+            // or a body the owner has not published yet): the peer keeps
+            // whatever body is standing, and the reference set is put on a
+            // backoff (#1113) so this does not become one fan-out per frame
+            // for every client in the room. The comment here used to claim
+            // "NOT retried in a loop" while nothing recorded the failure,
+            // which is exactly what made it a loop.
+            let rig = peers
+                .get(task.peer_entity)
+                .ok()
+                .and_then(|(peer, backoff)| {
+                    peer.avatar
+                        .as_ref()
+                        .and_then(|record| record.body.rigged_ref())
+                        .map(|rig| PeerRigResolveBackoff::after_failure(backoff, rig, now))
+                });
+            if let Some(backoff) = rig {
+                commands.entity(task.peer_entity).insert(backoff);
+            }
             continue;
         };
-        let Some(mut peer) = peers.iter_mut().find(|p| p.peer_id == task.peer_id) else {
+        let Some((mut peer, _)) = peers.iter_mut().find(|(p, _)| p.peer_id == task.peer_id) else {
             continue;
         };
         let Some(record) = peer.avatar.as_mut() else {
@@ -219,6 +300,10 @@ pub(super) fn poll_peer_rig_resolutions(
             continue;
         }
         rig.resolved = Some(resolved);
+        // Resolved: any wait recorded for these references is spent.
+        commands
+            .entity(task.peer_entity)
+            .remove::<PeerRigResolveBackoff>();
     }
 }
 
@@ -311,5 +396,87 @@ pub(super) fn poll_peer_avatar_fetches(
         {
             peer.avatar = Some(record);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rig(avatar: &str, attachments: &[&str]) -> crate::pds::avatar::RiggedBody {
+        crate::pds::avatar::RiggedBody {
+            avatar: avatar.into(),
+            attachments: attachments.iter().map(|a| (*a).to_string()).collect(),
+            resolved: None,
+        }
+    }
+
+    /// #1113: a reference set that cannot resolve is left alone for a while
+    /// instead of being re-fetched every frame by every client in the room.
+    #[test]
+    fn a_failed_resolution_holds_off_the_next_attempt() {
+        let unresolvable = rig("3jzfcijpj2z2a", &["att-1"]);
+        let backoff = PeerRigResolveBackoff::after_failure(None, &unresolvable, 100.0);
+
+        assert_eq!(
+            backoff.wait_secs,
+            config::network::RIG_RESOLVE_RETRY_BASE_SECS
+        );
+        assert!(backoff.holds(&unresolvable, 100.5), "still waiting");
+        assert!(
+            !backoff.holds(
+                &unresolvable,
+                100.0 + config::network::RIG_RESOLVE_RETRY_BASE_SECS
+            ),
+            "the wait elapses and the references are tried again"
+        );
+    }
+
+    #[test]
+    fn repeated_failure_of_the_same_references_backs_further_off_up_to_a_ceiling() {
+        let same = rig("3jzfcijpj2z2a", &["att-1"]);
+        let mut backoff = PeerRigResolveBackoff::after_failure(None, &same, 0.0);
+        let first = backoff.wait_secs;
+        backoff = PeerRigResolveBackoff::after_failure(Some(&backoff), &same, 10.0);
+        assert_eq!(backoff.wait_secs, first * 2.0);
+
+        for _ in 0..20 {
+            backoff = PeerRigResolveBackoff::after_failure(Some(&backoff), &same, 0.0);
+        }
+        assert_eq!(
+            backoff.wait_secs,
+            config::network::RIG_RESOLVE_RETRY_MAX_SECS,
+            "the doubling is capped, not unbounded"
+        );
+    }
+
+    /// The backoff must never outlive the reason for it: the moment the peer
+    /// changes what they wear (or publishes the body they were wearing), the
+    /// new references are a different question and are asked immediately.
+    #[test]
+    fn changing_the_references_retires_the_backoff() {
+        let failed = rig("3jzfcijpj2z2a", &["att-1"]);
+        let backoff = PeerRigResolveBackoff::after_failure(None, &failed, 0.0);
+
+        assert!(backoff.holds(&failed, 0.1));
+        assert!(
+            !backoff.holds(&rig("3jzfcijpj2z2b", &["att-1"]), 0.1),
+            "a different body is a different question"
+        );
+        assert!(
+            !backoff.holds(&rig("3jzfcijpj2z2a", &["att-1", "att-2"]), 0.1),
+            "a changed outfit is too"
+        );
+
+        // And a failure against new references restarts from the base wait
+        // rather than inheriting the old set's escalation.
+        let escalated = PeerRigResolveBackoff::after_failure(Some(&backoff), &failed, 0.0);
+        assert!(escalated.wait_secs > config::network::RIG_RESOLVE_RETRY_BASE_SECS);
+        let fresh =
+            PeerRigResolveBackoff::after_failure(Some(&escalated), &rig("3jzfcijpj2z2z", &[]), 0.0);
+        assert_eq!(
+            fresh.wait_secs,
+            config::network::RIG_RESOLVE_RETRY_BASE_SECS
+        );
     }
 }

@@ -65,7 +65,7 @@ pub enum SovereignAudioConfig {
     Sequence { recipe: SovereignSequenceRecipe },
     /// Forward-compat seam — a record from a future engine version
     /// decodes here rather than failing the whole load.
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -274,7 +274,7 @@ pub enum SovereignConnection {
     },
     /// Forward-compat — a future Connection variant decodes here.
     /// Mapped to `Constant { value: 0.0 }` (silent) on `to_native`.
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -343,7 +343,7 @@ pub enum SovereignNodeKind {
     Gate(SovereignGate),
     Chorus(SovereignChorus),
     Reverb(SovereignReverb),
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -537,7 +537,7 @@ pub enum SovereignSawPolarity {
     #[default]
     Up,
     Down,
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -567,7 +567,7 @@ pub enum SovereignAntiAlias {
     Naive,
     /// PolyBLEP / polyBLAMP band-limited generator.
     PolyBlep,
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -756,7 +756,7 @@ pub enum SovereignAdsrCurve {
     #[default]
     Linear,
     Exponential,
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -921,7 +921,7 @@ pub enum SovereignLfoShape {
     Square,
     Saw,
     Random,
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -1290,7 +1290,7 @@ pub enum SovereignPitchMode {
     /// Retune oscillators at synthesis time — pitch and duration
     /// independent.
     TimePreserving,
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 

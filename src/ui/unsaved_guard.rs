@@ -371,6 +371,17 @@ pub fn unsaved_guard_ui(
                             session,
                             refresh_ctx,
                             live.0.clone(),
+                            // The stored record's references, so this save
+                            // retires what it takes off exactly as the
+                            // editor's own Publish does (#1110). Passing
+                            // nothing here is what orphaned every prop
+                            // removed before a "Publish & log out".
+                            records
+                                .stored_avatar
+                                .as_deref()
+                                .map_or_else(Vec::new, |stored| {
+                                    crate::pds::avatar::wardrobe::attachment_rkeys(&stored.0)
+                                }),
                             time.elapsed_secs_f64(),
                         );
                     }

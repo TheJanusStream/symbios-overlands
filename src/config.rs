@@ -785,6 +785,69 @@ pub mod network {
     /// max-size (900 KiB) reassemblies with headroom.
     pub const MAX_REASSEMBLY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 
+    /// Bookkeeping cost charged against
+    /// [`MAX_REASSEMBLY_BUFFER_BYTES`] for one in-flight reassembly, on top
+    /// of the payload bytes it holds (#1114).
+    ///
+    /// The budget used to count payload only, which a flooding peer walked
+    /// straight past: a one-byte fragment with a fresh `msg_id` allocates a
+    /// slot vector for the whole declared message plus a `Partial` and a
+    /// HashMap entry — some hundreds of bytes — and charged one byte for it.
+    /// The cap could therefore never be reached, and partials grew until the
+    /// ten-second age sweep happened to catch them.
+    ///
+    /// `PER_SLOT` is `size_of::<Option<Vec<u8>>>()` (24 on 64-bit); `BASE`
+    /// covers the `Partial` struct, the map entry and allocator overhead.
+    /// Both are deliberately approximate: the point is that opening a
+    /// reassembly costs something, not that the figure is exact.
+    pub const REASSEMBLY_SLOT_OVERHEAD_BYTES: usize = 24;
+    /// See [`REASSEMBLY_SLOT_OVERHEAD_BYTES`].
+    pub const REASSEMBLY_PARTIAL_OVERHEAD_BYTES: usize = 128;
+
+    /// Most in-flight reassemblies one peer may hold open (#1114).
+    ///
+    /// A byte budget alone cannot bound the *count*, and the count is what
+    /// the per-fragment sweep costs are proportional to. The sender chunks
+    /// one message at a time, so a handful covers every legitimate case
+    /// (an interleaved directed room push plus a broadcast, say); past it
+    /// the peer's own oldest partial is dropped to make room. Per-sender,
+    /// so a flooding peer can only ever evict its own work.
+    pub const MAX_REASSEMBLIES_PER_PEER: usize = 8;
+
+    /// Most in-flight reassemblies across all peers. With the per-peer cap
+    /// above this is a second-order guard for a room full of peers all
+    /// chunking at once.
+    pub const MAX_REASSEMBLIES_TOTAL: usize = 64;
+
+    /// How often the stale-partial sweep may run, in seconds (#1114).
+    ///
+    /// The sweep is O(partials) and used to run on *every* fragment, so a
+    /// flooding peer made the per-frame drain quadratic and pinned the main
+    /// thread. Partials are only ever dropped for being older than
+    /// [`MAX_REASSEMBLY_AGE_SECS`], so running it on a timer instead costs
+    /// at most one extra sweep interval of lifetime for a dead partial.
+    pub const REASSEMBLY_SWEEP_INTERVAL_SECS: f64 = 1.0;
+
+    /// How long a failed rigged-body resolution is left alone before the
+    /// peer's references are tried again, and how far that wait doubles
+    /// (#1113).
+    ///
+    /// A reference that cannot resolve — a wardrobe rkey minted by "wear a
+    /// fresh body" but not yet published, a deleted record, a PDS that is
+    /// down — used to be retried by every client in the room on every
+    /// frame, because nothing recorded the failure: one peer with a
+    /// dangling pointer turned every guest into a continuous load generator
+    /// against `plc.directory` and a stranger's PDS. The backoff is per
+    /// reference *set*, so the moment the peer edits what they wear (or
+    /// finally publishes it) the wait is discarded and the new references
+    /// resolve immediately.
+    pub const RIG_RESOLVE_RETRY_BASE_SECS: f64 = 2.0;
+    /// Ceiling for the doubling in [`RIG_RESOLVE_RETRY_BASE_SECS`]. A minute
+    /// is long enough that a room full of unresolvable peers costs nothing,
+    /// and short enough that a PDS coming back up is picked up while the
+    /// visitor is still there.
+    pub const RIG_RESOLVE_RETRY_MAX_SECS: f64 = 60.0;
+
     /// Maximum age (seconds) a partial reassembly is kept before it is
     /// discarded. Chunks of one message ride the ordered Reliable channel and
     /// complete in well under a second on any live link; a partial older than

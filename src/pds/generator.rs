@@ -233,7 +233,7 @@ pub enum RoadStyle {
     /// wander with the land and never settle into a grid, even on flats.
     #[serde(rename = "network.symbios.road_style.organic")]
     Organic,
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -343,7 +343,7 @@ pub enum LotTierBias {
     /// Props only — street clutter without buildings.
     #[serde(rename = "network.symbios.lot_bias.props_only")]
     PropsOnly,
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -604,7 +604,7 @@ pub enum BlobShape {
     /// truncated-cone limb segment).
     #[serde(rename = "network.symbios.blob.cone")]
     Cone,
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -663,7 +663,7 @@ pub enum UvMapping {
     /// material — a sign face, a painted panel.
     #[serde(rename = "network.symbios.uv.fit")]
     Fit,
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -788,7 +788,7 @@ pub enum FaceKey {
     /// Open lip at the profile-cut band's end (torus / helix cross-section).
     #[serde(rename = "network.symbios.face.profile_cut_end")]
     ProfileCutEnd,
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -1738,7 +1738,7 @@ pub enum GeneratorKind {
         texture_filter: TextureFilter,
     },
 
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -1775,7 +1775,7 @@ pub enum AlphaModeKind {
     #[serde(rename = "network.symbios.alpha.blend")]
     Blend,
 
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -1807,7 +1807,7 @@ pub enum EmitterShape {
     #[serde(rename = "network.symbios.particle.cone")]
     Cone { half_angle: Fp, height: Fp },
 
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -1825,7 +1825,7 @@ pub enum ParticleBlendMode {
     #[serde(rename = "network.symbios.particle.blend.additive")]
     Additive,
 
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -1843,7 +1843,7 @@ pub enum SimulationSpace {
     #[serde(rename = "network.symbios.particle.space.local")]
     Local,
 
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -1887,7 +1887,7 @@ pub enum AnimationFrameMode {
     #[serde(rename = "network.symbios.particle.frame.over_lifetime")]
     OverLifetime { fps: Fp },
 
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -1905,7 +1905,7 @@ pub enum TextureFilter {
     #[serde(rename = "network.symbios.particle.filter.nearest")]
     Nearest,
 
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 
@@ -2604,7 +2604,7 @@ pub enum Placement {
         random_yaw: bool,
     },
 
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 

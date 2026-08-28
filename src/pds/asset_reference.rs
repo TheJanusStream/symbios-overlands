@@ -73,7 +73,7 @@ pub enum SovereignAssetReference {
     #[serde(rename = "network.symbios.sign.did_pfp")]
     DidPfp { did: String },
 
-    #[serde(other)]
+    #[serde(other, skip_serializing)]
     Unknown,
 }
 

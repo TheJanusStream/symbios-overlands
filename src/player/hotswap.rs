@@ -324,17 +324,35 @@ pub(super) fn detect_remote_change(
         if applied.is_some_and(|a| &a.0 == record) {
             continue;
         }
-        timed_spawn_avatar_visuals(
-            &mut commands,
-            entity,
-            &record.body,
-            children,
-            &mut meshes,
-            &mut materials,
-            &mut images,
-            &mut avatar_deps,
-            false,
-        );
+        // The same discipline as the local path (#1104, extended to peers by
+        // #1112): a changed record does not by itself owe a respawn, and
+        // `spawn_avatar_visuals` clears EVERY chassis child — the rigged
+        // root and its worn props included — while spawning nothing for a
+        // rigged body.
+        //
+        // A live preview is the case that made this visible. `resolved` is
+        // `#[serde(skip)]`, so every `AvatarStateUpdate` arrives with the
+        // references unresolved; comparing whole records therefore reported
+        // a difference on every debounced keystroke and tore the peer's body
+        // down until a wardrobe round-trip and a fresh build replaced it.
+        // `kick_rigged_builds` deliberately treats rigged-but-unresolved as
+        // a WAIT so the standing body survives exactly that window — this
+        // path was undoing that decision from the other side.
+        let live_body = record.body.sans_attachments();
+        let applied_body = applied.map(|a| a.0.body.sans_attachments());
+        if needs_visual_respawn(applied_body.as_ref(), &live_body) {
+            timed_spawn_avatar_visuals(
+                &mut commands,
+                entity,
+                &record.body,
+                children,
+                &mut meshes,
+                &mut materials,
+                &mut images,
+                &mut avatar_deps,
+                false,
+            );
+        }
         commands
             .entity(entity)
             .insert(AppliedAvatar(record.clone()));
@@ -414,6 +432,37 @@ mod tests {
         assert!(needs_visual_respawn(Some(&gen_a), &gen_b));
         assert!(needs_visual_respawn(Some(&gen_a), &rigged("did:plc:a")));
         assert!(needs_visual_respawn(Some(&rigged("did:plc:a")), &gen_a));
+    }
+
+    /// The peer half of the same decision (#1112). A live-preview
+    /// broadcast arrives with `resolved` empty — it never rides the wire —
+    /// so the record differs from the applied snapshot on every debounced
+    /// keystroke. `detect_remote_change` used to compare whole records and
+    /// despawn every chassis child on any difference, which for a rigged
+    /// body meant tearing the wearer down and spawning nothing in its
+    /// place: the peer blinked out for a wardrobe round-trip plus a build.
+    #[test]
+    fn an_unresolved_peer_body_owes_no_respawn() {
+        let standing = rigged("did:plc:peer");
+        // What arrives on the wire: same body kind, same wardrobe rkey,
+        // no resolution.
+        let off_the_wire = AvatarBody::rigged("3jzfcijpj2z2a");
+        assert!(
+            off_the_wire
+                .rigged_ref()
+                .is_some_and(|r| r.resolved.is_none())
+        );
+        assert_ne!(
+            standing, off_the_wire,
+            "the records genuinely differ — which is why comparing them was the bug"
+        );
+        assert!(
+            !needs_visual_respawn(
+                Some(&standing.sans_attachments()),
+                &off_the_wire.sans_attachments()
+            ),
+            "an unresolved rigged record must not tear the standing body down"
+        );
     }
 
     /// #1104 bug 2, reproduced in-app: a worn prop's offset nudge used to

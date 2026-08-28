@@ -43,18 +43,17 @@ pub(super) struct AttachmentsTabState {
     pick_item: Option<String>,
 }
 
-/// Draw the tab. `pending_deletes` is the session's queue of detached
-/// record rkeys, owned by the publish flow. `inventory` is mutable for
-/// the one write this tab makes to it — **Save to inventory** on a worn
-/// prop (#1096); the guarded-dirty rule holds because the stash's dirty
-/// state is derived live-vs-stored, never from a change tick.
+/// Draw the tab. `inventory` is mutable for the one write this tab makes to
+/// it — **Save to inventory** on a worn prop (#1096); the guarded-dirty rule
+/// holds because the stash's dirty state is derived live-vs-stored, never
+/// from a change tick. Taking a prop off drops its reference and stops
+/// there; the record it leaves behind is retired by the next save (#1110).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_attachments_tab(
     ui: &mut egui::Ui,
     record: &mut AvatarRecord,
     inventory: Option<&mut LiveInventoryRecord>,
     state: &mut AttachmentsTabState,
-    pending_deletes: &mut Vec<String>,
     did: Option<&str>,
     selected: &mut Option<String>,
     focus_selected: bool,
@@ -236,7 +235,7 @@ pub(super) fn draw_attachments_tab(
                     .as_ref()
                     .and_then(|r| r.attachments.get(index))
                     .map(|a| a.rkey.clone());
-                detach_at(rig, index, pending_deletes);
+                detach_at(rig, index);
                 if gone.is_some() && *selected == gone {
                     *selected = None;
                 }
@@ -351,12 +350,9 @@ pub(crate) fn attach_record(
 
 /// Take off every worn prop that came from the named inventory item
 /// (#1096) — the Inventory window's Take off. Returns how many came off;
-/// their records are queued on `pending_deletes` like any other detach.
-pub(crate) fn take_off_source(
-    rig: &mut crate::pds::avatar::RiggedBody,
-    source: &str,
-    pending_deletes: &mut Vec<String>,
-) -> usize {
+/// their records are retired by the next save, which derives the delete set
+/// from the reference list this drops them from (#1110).
+pub(crate) fn take_off_source(rig: &mut crate::pds::avatar::RiggedBody, source: &str) -> usize {
     let mut taken = 0;
     loop {
         let Some(index) = rig.resolved.as_ref().and_then(|resolved| {
@@ -367,18 +363,14 @@ pub(crate) fn take_off_source(
         }) else {
             return taken;
         };
-        detach_at(rig, index, pending_deletes);
+        detach_at(rig, index);
         taken += 1;
     }
 }
 
 /// Take off the worn prop with this record key (#1097) — the scene menu's
 /// Take off. `false` when nothing worn has that key.
-pub(crate) fn take_off_rkey(
-    rig: &mut crate::pds::avatar::RiggedBody,
-    rkey: &str,
-    pending_deletes: &mut Vec<String>,
-) -> bool {
+pub(crate) fn take_off_rkey(rig: &mut crate::pds::avatar::RiggedBody, rkey: &str) -> bool {
     let Some(index) = rig.resolved.as_ref().and_then(|resolved| {
         resolved
             .attachments
@@ -387,8 +379,25 @@ pub(crate) fn take_off_rkey(
     }) else {
         return false;
     };
-    detach_at(rig, index, pending_deletes);
+    detach_at(rig, index);
     true
+}
+
+/// The record keys of every worn prop that came from the named inventory
+/// item — what [`take_off_source`] is about to drop, read before it does so
+/// the caller can retire a gizmo aimed at one of them.
+pub(crate) fn worn_rkeys_from(rig: &crate::pds::avatar::RiggedBody, source: &str) -> Vec<String> {
+    rig.resolved
+        .as_ref()
+        .map(|resolved| {
+            resolved
+                .attachments
+                .iter()
+                .filter(|worn| worn.record.source.as_deref() == Some(source))
+                .map(|worn| worn.rkey.clone())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Whether any worn prop came from the named inventory item.
@@ -424,16 +433,14 @@ pub(crate) fn save_worn_to_inventory(
 }
 
 /// Take prop `index` off the body: drop it from the resolved outfit AND
-/// from the record's reference list, and queue its record for deletion.
+/// from the record's reference list.
 ///
-/// All three, or none — a reference left behind is a fetch every peer pays
-/// for a prop nobody wears, and a queue entry left behind orphans a record
-/// in the repo forever.
-fn detach_at(
-    rig: &mut crate::pds::avatar::RiggedBody,
-    index: usize,
-    pending_deletes: &mut Vec<String>,
-) {
+/// Both, or neither — a reference left behind is a fetch every peer pays for
+/// a prop nobody wears. Retiring the *record* is not this function's job and
+/// never was a session queue's (#1110): the next save derives what to delete
+/// from the published record's reference list, so dropping the reference here
+/// is the whole of taking something off.
+fn detach_at(rig: &mut crate::pds::avatar::RiggedBody, index: usize) {
     let Some(resolved) = rig.resolved.as_mut() else {
         return;
     };
@@ -442,7 +449,6 @@ fn detach_at(
     }
     let gone = resolved.attachments.remove(index);
     rig.attachments.retain(|rkey| rkey != &gone.rkey);
-    pending_deletes.push(gone.rkey);
 }
 
 /// The full transform rows for one worn prop (#1095): translation, yaw /
@@ -519,15 +525,14 @@ mod tests {
     }
 
     #[test]
-    fn detaching_drops_the_prop_the_reference_and_queues_the_delete() {
-        // Three things move together or the outfit is wrong: peers would
-        // keep fetching a reference for a prop nobody wears, or the record
-        // would be orphaned in the repo forever.
+    fn detaching_drops_the_prop_from_both_halves() {
+        // Both move together or the outfit is wrong: a reference left
+        // behind is a fetch every peer pays for a prop nobody wears.
+        // Retiring the RECORD is the next save's job, derived from this
+        // shortened reference list (#1110) — not a queue kept here.
         let mut rig = dressed(3);
-        let mut deletes = Vec::new();
-        detach_at(&mut rig, 1, &mut deletes);
+        detach_at(&mut rig, 1);
 
-        assert_eq!(deletes, vec![String::from("rkey1")]);
         assert_eq!(rig.attachments, vec!["rkey0".to_string(), "rkey2".into()]);
         let resolved = rig.resolved.as_ref().expect("still resolved");
         assert_eq!(resolved.attachments.len(), 2);
@@ -601,10 +606,11 @@ mod tests {
         assert_eq!(name, "back");
         assert!(inventory.is_wearable("back"));
 
-        // Take off by name: both halves move, the record is queued.
-        let mut deletes = Vec::new();
-        assert_eq!(take_off_source(&mut rig, "Gilded Circlet", &mut deletes), 1);
-        assert_eq!(deletes.len(), 1);
+        // Take off by name: both halves move. `worn_rkeys_from` names what
+        // is about to come off, which is what the caller retires a gizmo on.
+        assert_eq!(worn_rkeys_from(&rig, "Gilded Circlet").len(), 1);
+        assert_eq!(take_off_source(&mut rig, "Gilded Circlet"), 1);
+        assert!(worn_rkeys_from(&rig, "Gilded Circlet").is_empty());
         assert!(rig.attachments.is_empty());
         assert!(!is_worn_from(&rig, "Gilded Circlet"));
 
@@ -615,18 +621,15 @@ mod tests {
             "did:plc:wear-test",
         )
         .expect("dresses");
-        assert!(!take_off_rkey(&mut rig, "not-a-key", &mut deletes));
-        assert!(take_off_rkey(&mut rig, &rkey, &mut deletes));
-        assert_eq!(deletes.len(), 2);
+        assert!(!take_off_rkey(&mut rig, "not-a-key"));
+        assert!(take_off_rkey(&mut rig, &rkey));
         assert!(rig.attachments.is_empty());
     }
 
     #[test]
     fn detaching_a_prop_that_is_not_there_changes_nothing() {
         let mut rig = dressed(1);
-        let mut deletes = Vec::new();
-        detach_at(&mut rig, 7, &mut deletes);
-        assert!(deletes.is_empty());
+        detach_at(&mut rig, 7);
         assert_eq!(rig.attachments.len(), 1);
     }
 }

@@ -477,9 +477,15 @@ fn plan_item_writes(
 /// published stash exactly as it was, so the caller keeps `stored`
 /// unchanged and the save stays dirty and retryable.
 ///
-/// The write cap is safe by construction: at most
+/// The write COUNT is safe by construction: at most
 /// [`crate::config::state::MAX_INVENTORY_ITEMS`] puts + as many deletes +
 /// one legacy delete = 101 writes, half the `applyWrites` commit limit.
+/// The write *bytes* are not — a stash of large items sums past the PDS's
+/// 150 KiB request-body cap long before that (#1115) — so the plan is
+/// chunked by size. Atomicity is therefore per batch rather than over the
+/// whole save, which the write order makes safe to observe torn: every put
+/// precedes every delete, so a stash read mid-save holds the new item and
+/// possibly also the old one, never neither.
 pub async fn publish_inventory_record(
     client: &reqwest::Client,
     session: &AtprotoSession,
@@ -503,7 +509,10 @@ pub async fn publish_inventory_record(
     if writes.is_empty() {
         return Ok(());
     }
-    super::xrpc::apply_writes(&pds, session, refresh, writes).await
+    for batch in super::xrpc::chunk_writes(writes)? {
+        super::xrpc::apply_writes(&pds, session, refresh, batch).await?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

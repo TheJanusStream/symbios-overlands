@@ -35,7 +35,7 @@
 mod attachments;
 pub(crate) use attachments::{
     attach_record, is_worn_from, record_for_inventory_item, save_worn_to_inventory, take_off_rkey,
-    take_off_source,
+    take_off_source, worn_rkeys_from,
 };
 mod body;
 mod locomotion;
@@ -168,11 +168,6 @@ pub struct AvatarEditorState {
     /// so the next Attachments draw force-opens that row and scrolls to it.
     /// The attachment-tab twin of [`Self::pending_tree_focus`].
     pending_attachment_focus: bool,
-    /// Attachment records detached this session, deleted by the publish
-    /// bundle AFTER the avatar record stops referencing them. Cleared only
-    /// when that save lands — a failed publish keeps the queue so the next
-    /// attempt still tidies up.
-    pending_attachment_deletes: Vec<String>,
     /// Which worn prop's PARTS editor is open in the Attachments tab
     /// (#1098), by record key: the tab then shows that item's generator
     /// tree — the region-asset editor over the worn copy — instead of the
@@ -220,16 +215,20 @@ impl AvatarEditorState {
         self.selected_attachment = None;
     }
 
-    /// Queue detached attachment records for deletion by the next publish
+    /// Drop the gizmo selection if it named a prop that just came off
     /// (#1096): the Inventory window's Take off and the scene menu detach
-    /// outside this editor, and their records must still be tidied up by
-    /// the same bundle. Clears the selection if it named one of them.
-    pub(crate) fn queue_attachment_deletes(&mut self, rkeys: impl IntoIterator<Item = String>) {
+    /// outside this editor, and a gizmo aimed at a prop that is no longer
+    /// worn has nothing to move.
+    ///
+    /// Retiring the *records* is not tracked here. The next save derives its
+    /// delete set from the published record's reference list (#1110), which
+    /// take-off has already shortened, so there is no session queue to keep
+    /// in step — and nothing left to go stale across an undo or a logout.
+    pub(crate) fn forget_attachments(&mut self, rkeys: impl IntoIterator<Item = String>) {
         for rkey in rkeys {
             if self.selected_attachment.as_deref() == Some(rkey.as_str()) {
                 self.selected_attachment = None;
             }
-            self.pending_attachment_deletes.push(rkey);
         }
     }
 
@@ -685,7 +684,6 @@ pub fn avatar_ui(
                     pending_tree_focus,
                     wardrobe,
                     attachments: attachments_state,
-                    pending_attachment_deletes,
                     selected_attachment,
                     pending_attachment_focus,
                     editing_parts,
@@ -955,16 +953,14 @@ pub fn avatar_ui(
                                 (session.as_ref(), refresh_ctx.as_ref())
                         {
                             feedback.status = PublishStatus::Publishing;
-                            spawn_publish_avatar_bundle_task(
+                            spawn_publish_avatar_task(
                                 &mut commands,
                                 session,
                                 refresh,
                                 live_mut.0.clone(),
-                                // Handed to the task, not cleared here: a
-                                // failed publish must keep the queue so the
-                                // next attempt still tidies the detached
-                                // records up.
-                                pending_attachment_deletes.clone(),
+                                stored.as_ref().map_or_else(Vec::new, |s| {
+                                    pds::avatar::wardrobe::attachment_rkeys(&s.0)
+                                }),
                                 time.elapsed_secs_f64(),
                             );
                         }
@@ -1084,7 +1080,6 @@ pub fn avatar_ui(
                                 &mut live_mut.0,
                                 inventory.as_deref_mut(),
                                 attachments_state,
-                                pending_attachment_deletes,
                                 session.as_ref().map(|s| s.did.as_str()),
                                 selected_attachment,
                                 std::mem::take(pending_attachment_focus),
@@ -1353,24 +1348,19 @@ pub fn poll_wardrobe_list_tasks(
 /// resolves a dangling reference. A generator record is exactly the classic
 /// single-record save it always was — [`pds::avatar::wardrobe::plan_avatar_publish`]
 /// decides which by looking at the body.
+///
+/// `stored_attachments` is the attachment rkey list of the record the PDS
+/// currently holds — [`StoredAvatarRecord`], or empty when nothing has been
+/// fetched. The plan retires exactly what that set has and `record` no
+/// longer references (#1110), so every caller must pass it: handing over an
+/// empty list where a stored record exists silently orphans whatever this
+/// save takes off.
 pub(crate) fn spawn_publish_avatar_task(
     commands: &mut Commands,
     session: &AtprotoSession,
     refresh: &crate::oauth::OauthRefreshCtx,
     record: AvatarRecord,
-    now: f64,
-) {
-    spawn_publish_avatar_bundle_task(commands, session, refresh, record, Vec::new(), now);
-}
-
-/// [`spawn_publish_avatar_task`] with the session's detached-attachment
-/// queue, which only the editor holds.
-pub(crate) fn spawn_publish_avatar_bundle_task(
-    commands: &mut Commands,
-    session: &AtprotoSession,
-    refresh: &crate::oauth::OauthRefreshCtx,
-    record: AvatarRecord,
-    deletes: Vec<String>,
+    stored_attachments: Vec<String>,
     now: f64,
 ) {
     // The avatar record is always the local user's own, saved to their PDS, so
@@ -1388,7 +1378,8 @@ pub(crate) fn spawn_publish_avatar_bundle_task(
     let task = pool.spawn(async move {
         let fut = async {
             let client = crate::config::http::default_client();
-            let plan = pds::avatar::wardrobe::plan_avatar_publish(&record, &deletes, &now_iso);
+            let plan =
+                pds::avatar::wardrobe::plan_avatar_publish(&record, &stored_attachments, &now_iso);
             pds::avatar::wardrobe::publish_avatar_bundle(
                 &client,
                 &session_clone,
@@ -1426,7 +1417,6 @@ pub fn poll_publish_avatar_tasks(
     mut feedback: ResMut<PublishFeedback<AvatarRecord>>,
     mut session_log: ResMut<SessionLog>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
-    mut editor: ResMut<AvatarEditorState>,
     time: Res<Time>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
@@ -1452,13 +1442,6 @@ pub fn poll_publish_avatar_tasks(
                 if let Some(stored) = stored.as_mut() {
                     stored.0 = live.0.clone();
                 }
-                // The detached records are gone from the repo now, so the
-                // queue retires. Cleared only here: a failed publish keeps
-                // it for the next attempt.
-                editor
-                    .bypass_change_detection()
-                    .pending_attachment_deletes
-                    .clear();
                 feedback.status = PublishStatus::Success { at_secs: now };
                 session_log.info(
                     now,

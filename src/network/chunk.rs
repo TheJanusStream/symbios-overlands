@@ -52,8 +52,24 @@ struct Partial {
     /// Monotonic time the first fragment arrived — the age-eviction key.
     first_seen: f64,
     /// Bytes buffered for this partial — kept so eviction can decrement the
-    /// running [`ChunkReassembly::total_bytes`] in O(1).
+    /// running [`ChunkReassembly::total_bytes`] in O(1). Payload only; the
+    /// bookkeeping cost is [`Partial::overhead`].
     bytes: usize,
+}
+
+impl Partial {
+    /// What this reassembly costs beyond the payload it holds: the slot
+    /// vector sized for the whole declared message, plus the struct and its
+    /// map entry (#1114).
+    fn overhead(&self) -> usize {
+        self.total as usize * config::network::REASSEMBLY_SLOT_OVERHEAD_BYTES
+            + config::network::REASSEMBLY_PARTIAL_OVERHEAD_BYTES
+    }
+
+    /// Total charge against the reassembly budget.
+    fn footprint(&self) -> usize {
+        self.bytes + self.overhead()
+    }
 }
 
 /// Receive-side buffer of partial chunked messages, keyed by
@@ -61,8 +77,12 @@ struct Partial {
 #[derive(Resource, Default)]
 pub struct ChunkReassembly {
     partials: HashMap<(PeerId, u64), Partial>,
-    /// Running sum of `Partial::bytes` across `partials`, for the buffer cap.
+    /// Running sum of [`Partial::footprint`] across `partials`, for the
+    /// buffer cap.
     total_bytes: usize,
+    /// When the stale sweep may next run (#1114) — see
+    /// [`config::network::REASSEMBLY_SWEEP_INTERVAL_SECS`].
+    next_sweep_at: f64,
 }
 
 impl ChunkReassembly {
@@ -79,7 +99,13 @@ impl ChunkReassembly {
         data: Vec<u8>,
         now: f64,
     ) -> Option<OverlandsMessage> {
-        self.evict_stale(now);
+        // On a timer, not per fragment (#1114): the sweep is O(partials),
+        // and running it on every one let a flooding peer make the per-frame
+        // queue drain quadratic in the number of partials it had opened.
+        if now >= self.next_sweep_at {
+            self.evict_stale(now);
+            self.next_sweep_at = now + config::network::REASSEMBLY_SWEEP_INTERVAL_SECS;
+        }
 
         // Reject nonsense before allocating a buffer: a `total` larger than a
         // ceiling-sized message could ever produce, an out-of-range `seq`, or
@@ -95,6 +121,13 @@ impl ChunkReassembly {
         }
 
         let key = (sender, msg_id);
+        // Opening a NEW reassembly is the expensive, attacker-controlled
+        // step, so the count bounds are enforced here rather than on every
+        // fragment (#1114).
+        let opening = !self.partials.contains_key(&key);
+        if opening {
+            self.make_room_for_new_partial(sender);
+        }
         let corrupt;
         {
             let entry = self.partials.entry(key).or_insert_with(|| Partial {
@@ -110,6 +143,12 @@ impl ChunkReassembly {
                 corrupt = true;
             } else {
                 corrupt = false;
+                if opening {
+                    // Charge the bookkeeping the moment the reassembly opens,
+                    // so a stream of one-byte fragments with fresh msg_ids
+                    // reaches the budget instead of walking past it.
+                    self.total_bytes += entry.overhead();
+                }
                 let slot = &mut entry.chunks[seq as usize];
                 if slot.is_none() {
                     let n = data.len();
@@ -138,7 +177,7 @@ impl ChunkReassembly {
             return None;
         }
         let p = self.partials.remove(&key)?;
-        self.total_bytes -= p.bytes;
+        self.total_bytes = self.total_bytes.saturating_sub(p.footprint());
         let mut buf = Vec::with_capacity(p.bytes);
         for slot in p.chunks {
             // `received == total` guarantees every slot is filled; guard
@@ -152,8 +191,50 @@ impl ChunkReassembly {
     /// Remove a partial and decrement the byte accounting.
     fn remove(&mut self, key: &(PeerId, u64)) {
         if let Some(p) = self.partials.remove(key) {
-            self.total_bytes -= p.bytes;
+            self.total_bytes = self.total_bytes.saturating_sub(p.footprint());
         }
+    }
+
+    /// Make room for a reassembly `sender` is about to open, dropping the
+    /// oldest partial when either count bound is already met (#1114).
+    ///
+    /// The per-peer bound is evicted first and evicts only that peer's own
+    /// partials, so a flooding peer can never displace another peer's
+    /// in-flight message — the reason a count bound is per-sender at all.
+    fn make_room_for_new_partial(&mut self, sender: PeerId) {
+        while self.count_for(sender) >= config::network::MAX_REASSEMBLIES_PER_PEER {
+            match self.oldest(|(peer, _)| *peer == sender) {
+                Some(key) => self.remove(&key),
+                None => break,
+            }
+        }
+        while self.partials.len() >= config::network::MAX_REASSEMBLIES_TOTAL {
+            match self.oldest(|_| true) {
+                Some(key) => self.remove(&key),
+                None => break,
+            }
+        }
+    }
+
+    /// How many reassemblies this peer currently has open.
+    fn count_for(&self, sender: PeerId) -> usize {
+        self.partials
+            .keys()
+            .filter(|(peer, _)| *peer == sender)
+            .count()
+    }
+
+    /// The oldest partial whose key passes `pick`, by first-fragment time.
+    fn oldest(&self, pick: impl Fn(&(PeerId, u64)) -> bool) -> Option<(PeerId, u64)> {
+        self.partials
+            .iter()
+            .filter(|(key, _)| pick(key))
+            .min_by(|(_, a), (_, b)| {
+                a.first_seen
+                    .partial_cmp(&b.first_seen)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(key, _)| *key)
     }
 
     /// Drop partials whose first fragment arrived more than
@@ -176,16 +257,7 @@ impl ChunkReassembly {
     /// [`config::network::MAX_REASSEMBLY_BUFFER_BYTES`].
     fn enforce_budget(&mut self) {
         while self.total_bytes > config::network::MAX_REASSEMBLY_BUFFER_BYTES {
-            let oldest = self
-                .partials
-                .iter()
-                .min_by(|(_, a), (_, b)| {
-                    a.first_seen
-                        .partial_cmp(&b.first_seen)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
-                .map(|(k, _)| *k);
-            match oldest {
+            match self.oldest(|_| true) {
                 Some(k) => self.remove(&k),
                 None => break,
             }
@@ -493,5 +565,116 @@ mod tests {
         assert!(r.ingest(peer, 1, 1, 4, vec![1; 16], 0.0).is_none());
         assert!(r.partials.is_empty());
         assert_eq!(r.total_bytes, 0);
+    }
+
+    // -----------------------------------------------------------------
+    // #1114: the flood a byte budget alone did not stop.
+    // -----------------------------------------------------------------
+
+    /// One-byte fragment of a message that declares many more, with a fresh
+    /// `msg_id` each time — the cheapest way to make a guest allocate.
+    fn sliver(state: &mut ChunkReassembly, peer: PeerId, msg_id: u64, now: f64) {
+        state.ingest(peer, msg_id, 0, 19, vec![0u8], now);
+    }
+
+    #[test]
+    fn a_flood_of_one_byte_fragments_cannot_open_unbounded_reassemblies() {
+        // Before: the budget counted payload bytes only, so 100k slivers
+        // charged 100 KB against a 4 MiB cap while actually holding a slot
+        // vector, a Partial and a map entry apiece — the cap was
+        // unreachable and the partial count grew until the ten-second age
+        // sweep happened to catch it.
+        let mut state = ChunkReassembly::default();
+        let attacker = test_peer(1);
+        for msg_id in 0..100_000 {
+            sliver(&mut state, attacker, msg_id, 0.0);
+        }
+        assert!(
+            state.partials.len() <= config::network::MAX_REASSEMBLIES_PER_PEER,
+            "one peer held {} reassemblies open",
+            state.partials.len()
+        );
+    }
+
+    #[test]
+    fn a_flooding_peer_only_ever_evicts_its_own_partials() {
+        // The count bound is per-sender precisely so this holds: a legitimate
+        // peer's half-delivered room push must survive somebody else's flood.
+        let mut state = ChunkReassembly::default();
+        let honest = test_peer(2);
+        let attacker = test_peer(3);
+
+        let frags = fragments(&big_message(7));
+        // Deliver all but the last fragment of a real message.
+        for (seq, total, data) in frags.iter().take(frags.len() - 1) {
+            assert!(
+                state
+                    .ingest(honest, 1, *seq, *total, data.clone(), 0.0)
+                    .is_none()
+            );
+        }
+
+        for msg_id in 0..10_000 {
+            sliver(&mut state, attacker, msg_id, 0.0);
+        }
+
+        let (seq, total, data) = frags.last().expect("multi-fragment").clone();
+        match state.ingest(honest, 1, seq, total, data, 0.0) {
+            Some(OverlandsMessage::RoomStateUpdate { record_json }) => {
+                assert_eq!(
+                    record_json,
+                    vec![7u8; 120 * 1024],
+                    "the honest peer's message still completes through the flood"
+                );
+            }
+            other => panic!("honest message lost to another peer's flood: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_budget_charges_the_bookkeeping_not_just_the_payload() {
+        let mut state = ChunkReassembly::default();
+        let peer = test_peer(4);
+        sliver(&mut state, peer, 1, 0.0);
+
+        // One payload byte, but a 19-slot vector plus the struct and entry.
+        assert!(
+            state.total_bytes > 1 + config::network::REASSEMBLY_PARTIAL_OVERHEAD_BYTES,
+            "expected the slot vector to be charged, got {}",
+            state.total_bytes
+        );
+    }
+
+    #[test]
+    fn the_accounting_returns_to_zero_when_a_message_completes() {
+        // The overhead is charged once at open and released once at
+        // completion; a leak here would ratchet the cap shut over a session.
+        let mut state = ChunkReassembly::default();
+        let peer = test_peer(5);
+        let msg = big_message(9);
+        for (seq, total, data) in fragments(&msg) {
+            state.ingest(peer, 42, seq, total, data, 0.0);
+        }
+        assert_eq!(state.total_bytes, 0);
+        assert!(state.partials.is_empty());
+    }
+
+    #[test]
+    fn the_stale_sweep_runs_on_a_timer_not_on_every_fragment() {
+        // The sweep is O(partials); running it per fragment made the drain
+        // quadratic under flood. It must still happen — just not every time.
+        let mut state = ChunkReassembly::default();
+        let peer = test_peer(6);
+        sliver(&mut state, peer, 1, 0.0);
+        assert_eq!(state.partials.len(), 1);
+
+        let stale_at = config::network::MAX_REASSEMBLY_AGE_SECS
+            + config::network::REASSEMBLY_SWEEP_INTERVAL_SECS
+            + 1.0;
+        sliver(&mut state, peer, 2, stale_at);
+        assert!(
+            !state.partials.contains_key(&(peer, 1)),
+            "the aged-out partial is still collected, on the next sweep"
+        );
     }
 }
