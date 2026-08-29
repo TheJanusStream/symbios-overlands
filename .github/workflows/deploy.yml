@@ -21,10 +21,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Reads the pinned version out of rust-toolchain.toml (#1181), the same
+      # way ci.yml's wasm job does. `dtolnay/rust-toolchain@stable` does not:
+      # it installed the newest stable and added wasm32 to THAT, and then
+      # cargo, running in a directory carrying a `rust-toolchain.toml`, took
+      # the pinned 1.96.1 instead — a toolchain that had the pin's components
+      # and no wasm32 target at all. The build then failed on `can't find
+      # crate for core`, whose own hint ("the target may not be installed")
+      # is true and points at the wrong step. #1148 moved ci.yml onto this
+      # action and left deploy.yml behind; it broke on the next deploy.
+      #
+      # `cache: false` keeps this step doing exactly what the old one did.
+      # Unlike ci.yml there is no `Swatinem/rust-cache` after it here, so
+      # deploy has never cached anything — turning that on is a separate
+      # decision, not a side effect of fixing the toolchain.
       - name: Install Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          targets: wasm32-unknown-unknown
+          target: wasm32-unknown-unknown
+          cache: false
 
       - name: Install wasm-bindgen-cli
         # Pinned to the `wasm-bindgen = "=0.2.127"` in Cargo.toml (#1152).
@@ -118,9 +133,13 @@ jobs:
             local raw gz
             raw=$(stat -c %s "$file")
             gz=$(gzip -9c "$file" | wc -c)
-            printf '%-30s raw %10d B (%6.2f MB)  gzip %10d B (%6.2f MB)\n' \
-              "$(basename "$file")" "$raw" "$(echo "scale=2; $raw/1048576" | bc)" \
-              "$gz" "$(echo "scale=2; $gz/1048576" | bc)"
+            # Bash integer arithmetic rather than `bc`: this step is the
+            # deploy's own gate, so it must not be able to fail on a tool the
+            # runner image might not carry. Hundredths of a MB by hand.
+            printf '%-30s raw %10d B (%d.%02d MB)  gzip %10d B (%d.%02d MB)\n' \
+              "$(basename "$file")" \
+              "$raw" "$((raw / 1048576))" "$(((raw % 1048576) * 100 / 1048576))" \
+              "$gz" "$((gz / 1048576))" "$(((gz % 1048576) * 100 / 1048576))"
             if [ "$raw" -gt "$raw_budget" ]; then
               echo "::error::$(basename "$file") raw $raw B exceeds the $raw_budget B budget"
               fail=1
