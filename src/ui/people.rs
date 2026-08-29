@@ -208,6 +208,47 @@ pub fn people_ui(
                                 )
                                 .on_hover_text("Waiting for this peer to accept or decline");
                             }
+                            // Wire-compatibility chip (#1121). Until this
+                            // existed, a gift to an incompatible peer looked
+                            // exactly like a gift to a peer who had not
+                            // answered yet — the offer badge above sat there
+                            // forever and neither end could learn why. The
+                            // chip does not make the two builds compatible;
+                            // it makes the pending badge legible.
+                            match peer.compatibility(now) {
+                                crate::state::PeerCompatibility::Mismatched(theirs) => {
+                                    let ours = crate::protocol::PROTOCOL_VERSION;
+                                    let detail = peer
+                                        .build
+                                        .as_ref()
+                                        .map(|b| b.build.as_str())
+                                        .unwrap_or("unknown");
+                                    ui.colored_label(
+                                        crate::ui::theme::current(ui.ctx()).status.warn,
+                                        egui::RichText::new("⚠ build").small(),
+                                    )
+                                    .on_hover_text(format!(
+                                        "This peer speaks wire protocol {theirs} ({detail}); \
+                                         we speak {ours}. Chat and movement may work, but \
+                                         gifts and room updates between you can fail to \
+                                         decode and are dropped without notice."
+                                    ));
+                                }
+                                crate::state::PeerCompatibility::Unannounced => {
+                                    ui.colored_label(
+                                        crate::ui::theme::current(ui.ctx()).status.warn,
+                                        egui::RichText::new("⚠ build").small(),
+                                    )
+                                    .on_hover_text(
+                                        "This peer never announced a wire protocol, so it is \
+                                         running a build from before the handshake existed. \
+                                         Gifts and room updates between you can fail to decode \
+                                         and are dropped without notice.",
+                                    );
+                                }
+                                crate::state::PeerCompatibility::Compatible
+                                | crate::state::PeerCompatibility::Pending => {}
+                            }
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {

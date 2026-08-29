@@ -63,7 +63,10 @@ pub(super) fn relocate_above_water(
         }
         (0..8).all(|i| {
             let a = i as f32 * std::f32::consts::TAU / 8.0;
-            sample(x + a.sin() * clearance, z + a.cos() * clearance) >= water_y + FREEBOARD
+            // libm (#1132): same accept/reject shape as the slope walk — a
+            // site is dry only if all eight probes clear the freeboard.
+            sample(x + libm::sinf(a) * clearance, z + libm::cosf(a) * clearance)
+                >= water_y + FREEBOARD
         })
     };
     let (x0, z0) = (translation.x, translation.z);

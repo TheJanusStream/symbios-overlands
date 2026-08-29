@@ -82,8 +82,13 @@ pub(crate) fn sample_bounds(
             let lx = falloff_axis(unit_f32(rng), edge_falloff) * extents.0[0];
             let lz = falloff_axis(unit_f32(rng), edge_falloff) * extents.0[1];
             let rot = rotation.0;
-            let rx = lx * rot.cos() - lz * rot.sin();
-            let rz = lx * rot.sin() + lz * rot.cos();
+            // libm (#1132): a rotated rect's instance positions must agree
+            // between a native and a browser peer, because the position is
+            // what the slope and biome filters are then sampled AT — so a
+            // difference here feeds the accept/reject decisions above.
+            let (sin, cos) = (libm::sinf(rot), libm::cosf(rot));
+            let rx = lx * cos - lz * sin;
+            let rz = lx * sin + lz * cos;
             (center.0[0] + rx, center.0[1] + rz)
         }
         ScatterBounds::Circle { center, radius } => loop {
@@ -94,7 +99,8 @@ pub(crate) fn sample_bounds(
                 let (x, z) = if edge_falloff > 0.0 {
                     let r = (x * x + z * z).sqrt();
                     if r > f32::EPSILON {
-                        let k = r.powf(edge_falloff);
+                        // libm (#1132), same reason as the rect rotation above.
+                        let k = libm::powf(r, edge_falloff);
                         (x * k, z * k)
                     } else {
                         (x, z)
@@ -114,7 +120,8 @@ fn falloff_axis(v: f32, falloff: f32) -> f32 {
     if falloff <= 0.0 {
         return v;
     }
-    v.signum() * v.abs().powf(1.0 + falloff)
+    // libm (#1132), same reason as the rect rotation.
+    v.signum() * libm::powf(v.abs(), 1.0 + falloff)
 }
 
 /// Deterministic cluster seeds for a scatter, drawn from their own stream so
@@ -211,7 +218,11 @@ pub(crate) fn instance_jitter(rng: &mut ChaCha8Rng, n: &ScatterNaturalness) -> I
         tilt_angle: tilt * n.tilt_jitter.0,
         // Log-uniform: a 0.85× and a 1.18× instance are the same one step
         // away from nominal, which an additive spread would not give.
-        scale: (scale * n.scale_jitter.0).exp(),
+        // libm (#1132). Not a discrete decision — an instance a ULP larger
+        // is invisible — but it is seeded derived geometry, and leaving one
+        // `f32` transcendental in the path would make "this derivation is
+        // bit-identical across targets" a claim with an asterisk.
+        scale: libm::expf(scale * n.scale_jitter.0),
     }
 }
 
@@ -337,7 +348,16 @@ pub(crate) fn terrain_slope_at(
 pub(crate) fn slope_cutoff(naturalness: &ScatterNaturalness) -> Option<f32> {
     naturalness
         .max_slope_deg
-        .map(|deg| 1.0 - deg.0.to_radians().cos())
+        // `libm::cosf`, not `f32::cos` (#1132). This value is COMPARED against
+        // a sampled slope to accept or reject each instance, so it is one of
+        // the handful of places in the derivation where a one-ULP difference
+        // between two peers stops being invisible: a sample sitting within a
+        // ULP of the cutoff gets a tree on one peer and bare ground on the
+        // other. `f32::cos` links the target's libm — glibc on native,
+        // compiler-builtins on wasm — and the two disagree in the last bit on
+        // roughly one degree value in eighty (measured over 0-90° at 0.001°
+        // steps on x86-64).
+        .map(|deg| 1.0 - libm::cosf(deg.0.to_radians()))
 }
 
 /// Everything a scatter sample is tested against, resolved once per unit.

@@ -78,6 +78,14 @@ pub struct GeneratorCaches<'w> {
     /// contains `GeneratorCaches` is a B0002 aliasing panic at schedule
     /// build, which unit tests never catch. Route through this field.
     pub(crate) metrics: Option<ResMut<'w, crate::diagnostics::MetricsRegistry>>,
+    /// The local peer's world digest (#1146). The executor writes the compile
+    /// part here at job completion. Bundled for the same 16-parameter reason
+    /// as the fields above.
+    ///
+    /// `Option` on the same grounds as `metrics`: headless embedders build a
+    /// world without the app's resources, and a digest nobody exchanges is
+    /// not worth requiring them to insert.
+    pub(crate) digest: Option<ResMut<'w, crate::world_digest::WorldDigest>>,
 }
 
 /// Hard ceiling on the number of `spawn_generator` calls a single

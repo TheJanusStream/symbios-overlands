@@ -222,6 +222,11 @@ pub enum EventPayload {
         duration_secs: f64,
         width: u32,
         height: u32,
+        /// Content digest of the sample grid (#1146) — see
+        /// [`crate::world_digest`]. Recorded so two captured logs from two
+        /// peers of the same room can be compared offline even when neither
+        /// peer was running when the other was.
+        digest: u64,
     },
     AmbientBakeStarted {
         variant: String,
@@ -236,6 +241,9 @@ pub enum EventPayload {
     WorldCompileCompleted {
         entity_count: u32,
         duration_secs: f64,
+        /// Content digest of the compile (#1146) — placement fingerprints in
+        /// index order plus `entity_count`. See [`crate::world_digest`].
+        digest: u64,
     },
     /// The local player re-seeded their avatar in the editor (a `Reroll(seed)`),
     /// regenerating the avatar visuals. Grouped with the other in-game
@@ -298,6 +306,20 @@ pub enum EventPayload {
         claimed_did: String,
         authenticated_did: String,
     },
+    /// A peer announced a wire protocol that is not ours, or announced none
+    /// at all within the grace period (#1121). `theirs` is `None` for the
+    /// silent case — a build from before the handshake existed, which is what
+    /// every peer running a bundle cached before this change looks like.
+    ///
+    /// Advisory: nothing is refused on the strength of it. It exists so that
+    /// "my gift never arrived" stops being an anecdote — the two builds that
+    /// disagreed are named in the log of both ends.
+    PeerProtocolMismatch {
+        peer: String,
+        ours: u16,
+        theirs: Option<u16>,
+        build: String,
+    },
     AvatarFetchFailed {
         peer: String,
         did: String,
@@ -333,7 +355,34 @@ pub enum EventPayload {
         sender_did: String,
         error: String,
     },
-    RoomStateApplied,
+    /// An owner's room broadcast was accepted and replaced the live record
+    /// (#1146). Declared since the diagnostics suite was built and never
+    /// emitted until now, which is why the two historical desyncs (#51, #882)
+    /// had no record of WHICH record each peer was deriving from — the apply
+    /// path was the one inbound outcome that left no trace at all.
+    ///
+    /// `bytes` is the received JSON payload size; `digest_of_record` is the
+    /// fingerprint of the record as applied, so two peers' logs can be lined
+    /// up on "were we even building the same recipe" before anyone argues
+    /// about the world.
+    RoomStateApplied {
+        bytes: u64,
+        digest_of_record: u64,
+    },
+    /// A peer reported a world digest that differs from ours for the SAME
+    /// record (#1146). The first captured evidence this project has ever had
+    /// that two clients expanded one record into two different worlds.
+    ///
+    /// Advisory in both directions: the digest arrives over an
+    /// unauthenticated data channel and nothing is refused on the strength of
+    /// it, so a hostile peer can provoke this event in our log and nothing
+    /// else.
+    PeerWorldDigestMismatch {
+        peer: String,
+        record_fp: u64,
+        ours: u64,
+        theirs: u64,
+    },
     ChatReceived {
         sender_did: String,
         text_len: u32,
@@ -498,13 +547,15 @@ impl EventPayload {
             | PeerJoined { .. }
             | PeerLeft { .. }
             | PeerIdentitySpoofRejected { .. }
+            | PeerProtocolMismatch { .. }
             | AvatarFetchFailed { .. }
             | WardrobeResolved { .. }
             | AttachmentFetchFailed { .. }
             | AvatarStateDecodeFailed { .. }
             | RoomStateRejected { .. }
             | RoomStateDecodeFailed { .. }
-            | RoomStateApplied
+            | RoomStateApplied { .. }
+            | PeerWorldDigestMismatch { .. }
             | ChatReceived { .. }
             | ChatDroppedMuted { .. }
             | ItemOfferSent { .. }
@@ -569,6 +620,7 @@ impl EventPayload {
             | PeerJoined { .. }
             | PeerLeft { .. }
             | PeerIdentitySpoofRejected { .. }
+            | PeerProtocolMismatch { .. }
             | AvatarFetchFailed { .. }
             | WardrobeResolved { .. }
             | AttachmentFetchFailed { .. }
@@ -577,7 +629,8 @@ impl EventPayload {
 
             RoomStateRejected { .. }
             | RoomStateDecodeFailed { .. }
-            | RoomStateApplied
+            | RoomStateApplied { .. }
+            | PeerWorldDigestMismatch { .. }
             | OutboundMessageOversize { .. } => Category::Transport,
 
             ChatReceived { .. } | ChatDroppedMuted { .. } => Category::Chat,
@@ -689,6 +742,7 @@ impl EventPayload {
                 duration_secs,
                 width,
                 height,
+                ..
             } => {
                 format!("heightmap gen done {width}×{height} in {duration_secs:.1}s")
             }
@@ -703,6 +757,7 @@ impl EventPayload {
             WorldCompileCompleted {
                 entity_count,
                 duration_secs,
+                ..
             } => {
                 format!("world compile done ({entity_count} entities) in {duration_secs:.1}s")
             }
@@ -743,6 +798,15 @@ impl EventPayload {
             } => {
                 format!("SPOOF rejected: claimed {claimed_did} ≠ {authenticated_did}")
             }
+            PeerProtocolMismatch {
+                peer,
+                ours,
+                theirs,
+                build,
+            } => match theirs {
+                Some(t) => format!("peer {peer} speaks protocol {t}, we speak {ours} ({build})"),
+                None => format!("peer {peer} announced no protocol (we speak {ours})"),
+            },
             AvatarFetchFailed { did, error, .. } => format!("avatar FAILED: {did} ({error})"),
             WardrobeResolved {
                 did,
@@ -765,7 +829,18 @@ impl EventPayload {
             RoomStateDecodeFailed { sender_did, error } => {
                 format!("room-state decode failed from {sender_did}: {error}")
             }
-            RoomStateApplied => "room-state applied".to_string(),
+            RoomStateApplied {
+                bytes,
+                digest_of_record,
+            } => format!("room-state applied ({bytes} B, record {digest_of_record:016x})"),
+            PeerWorldDigestMismatch {
+                peer,
+                record_fp,
+                ours,
+                theirs,
+            } => format!(
+                "DESYNC: peer {peer} built {theirs:016x}, we built {ours:016x} from record {record_fp:016x}"
+            ),
             ChatReceived {
                 sender_did,
                 text_len,
@@ -1031,13 +1106,70 @@ mod tests {
         out
     }
 
-    /// Whether `name` is CONSTRUCTED anywhere outside this file — a match
-    /// pattern reads a variant, it does not produce one.
+    /// Strip every `#[cfg(test)]` module from a source file, so a variant
+    /// constructed only by a test fixture does not read as emitted.
+    ///
+    /// #1146: this guard passed `RoomStateApplied` for as long as that variant
+    /// existed — declared, promised by the schema, emitted by nothing — because
+    /// three test fixtures name it. That is the exact failure the guard was
+    /// written to prevent, so the guard was checking the wrong thing: a
+    /// variant earns its place by being emitted in PRODUCTION, and a fixture
+    /// that constructs one is testing the schema, not using it.
+    ///
+    /// Brace-counted from the `#[cfg(test)]` attribute to the module's closing
+    /// brace. Crude, and adequate: it is reading Rust this crate wrote, where
+    /// a `#[cfg(test)] mod` is always a real module with balanced braces, and
+    /// the failure mode of over-stripping is a false alarm on a variant that
+    /// then has to prove itself — never a silent pass.
+    fn strip_test_modules(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut rest = text;
+        while let Some(at) = rest.find("#[cfg(test)]") {
+            out.push_str(&rest[..at]);
+            let after = &rest[at..];
+            let Some(open) = after.find('{') else {
+                // A `#[cfg(test)]` with no following block (an item attribute
+                // on a `use`, say) — nothing to strip.
+                break;
+            };
+            let mut depth = 0usize;
+            let mut end = None;
+            for (i, c) in after[open..].char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = Some(open + i + 1);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            match end {
+                Some(e) => rest = &after[e..],
+                // Unbalanced: stop stripping rather than silently discard the
+                // rest of the file, which would turn every remaining emit site
+                // invisible and fail the test for the wrong reason.
+                None => {
+                    rest = after;
+                    break;
+                }
+            }
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// Whether `name` is CONSTRUCTED in production code outside this file — a
+    /// match pattern reads a variant, it does not produce one, and neither
+    /// does a test fixture.
     fn is_emitted(name: &str, sources: &[(String, String)]) -> bool {
         let needle = format!("EventPayload::{name}");
         sources.iter().any(|(path, text)| {
             !path.ends_with("diagnostics/event.rs")
-                && text.lines().any(|line| {
+                && strip_test_modules(text).lines().any(|line| {
                     line.contains(&needle)
                         && !line.contains("=>")
                         && !line.contains("matches!")
@@ -1099,6 +1231,18 @@ mod tests {
         );
 
         let sources = crate_sources();
+        // #1146: `strip_test_modules` is what makes this guard mean what it
+        // says. Assert it actually found something to strip, so a future
+        // refactor that moves the fixtures (or renames the attribute) turns
+        // this back into the permissive check it used to be LOUDLY rather
+        // than silently.
+        assert!(
+            sources
+                .iter()
+                .any(|(_, text)| strip_test_modules(text).len() < text.len()),
+            "no #[cfg(test)] module was stripped — the guard has stopped \
+             distinguishing a production emit from a test fixture"
+        );
         let dead: Vec<&String> = declared
             .iter()
             .filter(|name| !is_emitted(name, &sources))

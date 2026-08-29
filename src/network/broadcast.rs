@@ -48,17 +48,64 @@ pub(super) fn broadcast_local_state(
         );
     }
 
-    if tick.is_multiple_of(config::network::IDENTITY_BROADCAST_INTERVAL_TICKS)
-        && let Some(sess) = &session
-    {
+    if tick.is_multiple_of(config::network::IDENTITY_BROADCAST_INTERVAL_TICKS) {
+        // Announce the wire layout on the same cadence as identity, but NOT
+        // behind the session gate (#1121): what a peer's messages decode as
+        // does not depend on either end being logged in, and a peer that has
+        // not authenticated is exactly the one whose silence we would
+        // otherwise misread as a stale build.
         sender.broadcast(
-            OverlandsMessage::Identity {
-                did: sess.did.clone(),
-                handle: sess.handle.clone(),
+            OverlandsMessage::Hello {
+                protocol: crate::protocol::PROTOCOL_VERSION,
+                build: crate::protocol::build_id(),
             },
             ChannelKind::Reliable,
         );
+        if let Some(sess) = &session {
+            sender.broadcast(
+                OverlandsMessage::Identity {
+                    did: sess.did.clone(),
+                    handle: sess.handle.clone(),
+                },
+                ChannelKind::Reliable,
+            );
+        }
     }
+}
+
+/// Announce our world digest whenever it changes (#1146).
+///
+/// Sent on the reliable channel, once per settled derivation rather than on a
+/// timer: the digest only moves when the terrain, the splat map or the compile
+/// moves, and a peer that joins later gets the next one (the room is
+/// re-derived on entry, and an owner's edit re-derives it for everyone).
+///
+/// Nothing is broadcast until all three parts of the digest have landed, so a
+/// peer never announces a digest of a world it is still building — see
+/// [`crate::world_digest::WorldDigest::combined`].
+pub(super) fn broadcast_world_digest(
+    digest: Res<crate::world_digest::WorldDigest>,
+    mut sender: SendMessage<OverlandsMessage>,
+    mut last_sent: Local<Option<(u64, u64)>>,
+) {
+    let Some(combined) = digest.combined() else {
+        return;
+    };
+    // Compared against what we last SENT rather than gated on `is_changed`:
+    // the resource is written by three producers, each of which may rewrite
+    // the same value, and re-announcing an unchanged digest is pure noise on
+    // an ordered channel that gifts and room updates share.
+    if *last_sent == Some((digest.record_fp, combined)) {
+        return;
+    }
+    *last_sent = Some((digest.record_fp, combined));
+    sender.broadcast(
+        OverlandsMessage::WorldDigest {
+            record_fp: digest.record_fp,
+            digest: combined,
+        },
+        ChannelKind::Reliable,
+    );
 }
 
 /// Broadcast a live-preview `AvatarStateUpdate` whenever the local avatar

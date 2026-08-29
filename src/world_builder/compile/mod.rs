@@ -38,7 +38,7 @@ mod environment;
 mod executor;
 pub(super) mod job;
 pub(crate) mod pad;
-mod scatter;
+pub(crate) mod scatter;
 mod slope;
 mod spawn_ctx;
 mod water;

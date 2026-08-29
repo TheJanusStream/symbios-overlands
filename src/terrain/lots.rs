@@ -325,7 +325,10 @@ fn inject_lot_buildings(
             generator_ref: name,
             transform: TransformData {
                 translation: Fp3([lot.position[0], -FOUNDATION_SINK_M, lot.position[1]]),
-                rotation: Fp4([0.0, half_yaw.sin(), 0.0, half_yaw.cos()]),
+                // libm (#1132): this rotation is written INTO the record, so
+                // it is not merely derived, it is the derivation's output — and
+                // #882 was a lots-and-roads desync.
+                rotation: Fp4([0.0, libm::sinf(half_yaw), 0.0, libm::cosf(half_yaw)]),
                 scale: Fp3([fit, fit, fit]),
             },
             snap_to_terrain: true,
@@ -400,7 +403,8 @@ fn inject_street_furniture(
             generator_ref: name,
             transform: TransformData {
                 translation: Fp3([spot.position[0], -FURNITURE_SINK_M, spot.position[1]]),
-                rotation: Fp4([0.0, half_yaw.sin(), 0.0, half_yaw.cos()]),
+                // libm (#1132), same reason as the lot rotation above.
+                rotation: Fp4([0.0, libm::sinf(half_yaw), 0.0, libm::cosf(half_yaw)]),
                 scale: Fp3([1.0, 1.0, 1.0]),
             },
             snap_to_terrain: true,

@@ -255,6 +255,7 @@ fn report_renders_timeline_and_loading_gate_stage_timings() {
                 2.0,
                 Severity::Info,
                 HeightmapGenCompleted {
+                    digest: 0xabc,
                     duration_secs: 1.5,
                     width: 256,
                     height: 256,
@@ -272,6 +273,7 @@ fn report_renders_timeline_and_loading_gate_stage_timings() {
                 3.0,
                 Severity::Info,
                 WorldCompileCompleted {
+                    digest: 0xdef,
                     entity_count: 1200,
                     duration_secs: 0.9,
                 },
@@ -300,7 +302,12 @@ fn report_renders_timeline_and_loading_gate_stage_timings() {
     // The failed fetch is a timeline milestone even though it's distro-excluded.
     assert!(r.contains("Inventory fetch Exhausted"), "{r}");
     assert!(r.contains("→ InGame (2.7s)"), "{r}");
-    assert!(r.contains("world compiled (1200 entities)"), "{r}");
+    // The digest rides the timeline line (#1146) so two peers' captured logs
+    // can be diffed after a desync report.
+    assert!(
+        r.contains("world compiled (1200 entities, 0000000000000def)"),
+        "{r}"
+    );
     assert!(r.contains("session end (app_exit)"), "{r}");
 
     // Loading-gate section: the gate total + per-stage distros.
@@ -625,7 +632,14 @@ fn baseline_log() -> ParsedLog {
                 metric_snapshot(3.0, 30.0, 1300.0, 384.0 * 1024.0 * 1024.0, 3),
             ),
             // No InGame transition, and the log runs long → gate_stall replays.
-            ev(200.0, Severity::Info, EventPayload::RoomStateApplied),
+            ev(
+                200.0,
+                Severity::Info,
+                EventPayload::RoomStateApplied {
+                    bytes: 4096,
+                    digest_of_record: 0xfeed,
+                },
+            ),
         ],
         unparseable: 0,
     }

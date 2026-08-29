@@ -55,9 +55,25 @@ pub(super) fn handle_peer_connections(
                         handle: None,
                         muted: false,
                         avatar: None,
+                        build: None,
+                        connected_at: elapsed,
                     },
                     TransformBuffer::default(),
                 ));
+
+                // Announce our wire layout to the newcomer immediately, for
+                // the reason the identity announce below gives — except that
+                // this one also matters in the failing direction: if we wait
+                // for the scheduled broadcast, a peer whose build predates
+                // #1121 and a peer whose Hello is merely in flight look
+                // identical for a whole second.
+                sender.broadcast(
+                    OverlandsMessage::Hello {
+                        protocol: crate::protocol::PROTOCOL_VERSION,
+                        build: crate::protocol::build_id(),
+                    },
+                    ChannelKind::Reliable,
+                );
 
                 // Proactively announce our identity to the newcomer.  Without
                 // this, they only learn our DID on the next scheduled identity
@@ -302,6 +318,49 @@ pub(super) fn dismiss_offer_dialog_from_muted_sender(
 
 /// Propagate each peer's mute flag to its `Visibility` component so that
 /// muted vessels and their child meshes are hidden automatically.
+/// Report a peer that never announced a wire protocol (#1121).
+///
+/// This is the arm that catches the incompatibility that already exists.
+/// Every build shipped before the `Hello` handshake announces nothing — and a
+/// GitHub-Pages wasm app serves cached bundles for as long as a browser keeps
+/// them, so "the other end is an older build" is not a migration window, it is
+/// the steady state. A version field alone would never fire for those peers,
+/// because the mismatch is precisely that they have no version to send.
+///
+/// One event per peer per session, and never one for a peer that is merely
+/// still connecting: `Hello` goes out on connect and again every second, so
+/// the grace period is several missed announcements, not one.
+pub(super) fn flag_unannounced_peers(
+    peers: Query<&RemotePeer>,
+    time: Res<Time>,
+    mut session_log: ResMut<SessionLog>,
+    mut reported: Local<std::collections::HashSet<PeerId>>,
+) {
+    let now = time.elapsed_secs_f64();
+    for peer in peers.iter() {
+        if peer.compatibility(now) != crate::state::PeerCompatibility::Unannounced
+            || !reported.insert(peer.peer_id)
+        {
+            continue;
+        }
+        warn!(
+            "Peer {} announced no protocol within {}s — it is running a build from before \
+             the wire handshake, so messages between us may not decode",
+            peer.peer_id,
+            config::network::PROTOCOL_ANNOUNCE_GRACE_SECS
+        );
+        session_log.error(
+            now,
+            EventPayload::PeerProtocolMismatch {
+                peer: peer.peer_id.to_string(),
+                ours: crate::protocol::PROTOCOL_VERSION,
+                theirs: None,
+                build: String::from("pre-handshake"),
+            },
+        );
+    }
+}
+
 pub(super) fn sync_mute_visibility(mut peers: Query<(&RemotePeer, &mut Visibility)>) {
     for (peer, mut vis) in peers.iter_mut() {
         let desired = if peer.muted {

@@ -117,7 +117,13 @@ pub(super) fn footprint_height(
     // The rim.
     for i in 0..RIM_SAMPLES {
         let a = i as f32 * std::f32::consts::TAU / RIM_SAMPLES as f32;
-        highest = highest.max(sample(x + a.sin() * radius, z + a.cos() * radius));
+        // libm (#1132): the rim samples decide the pad's height, which the
+        // placement is then SNAPPED to — so this feeds a value two peers must
+        // agree on exactly, not merely approximately.
+        highest = highest.max(sample(
+            x + libm::sinf(a) * radius,
+            z + libm::cosf(a) * radius,
+        ));
     }
 
     // The interior, at the grid vertices themselves. Between its

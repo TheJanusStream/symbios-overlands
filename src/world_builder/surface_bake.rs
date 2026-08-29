@@ -28,8 +28,8 @@ use std::sync::Arc;
 use bevy::prelude::*;
 use bevy::tasks::Task;
 use bevy_symbios_texture::{
-    GeneratedHandles, TextureCache, TextureCacheKey, TextureConfig, TextureMap, map_to_images,
-    map_to_images_card,
+    GeneratedHandles, TextureCache, TextureCacheKey, TextureConfig, TextureMap, apply_emissive_map,
+    map_to_images, map_to_images_card,
 };
 
 use crate::offload::{GenJob, GenResult};
@@ -80,25 +80,6 @@ macro_rules! define_surface_bake_job {
     };
 }
 gen_jobs::for_each_generator!(define_surface_bake_job);
-
-/// Mirror of the upstream (private) `apply_emissive_map` — assign a
-/// generator-produced emissive map, defaulting the emissive *factor* so the
-/// glow is visible: a map arriving while the factor is the black default sets
-/// it to white; a regeneration that drops the map undoes an auto-white; a
-/// caller-supplied non-black, non-white factor is left untouched. Keep in
-/// lock-step with `bevy_symbios_texture::material::apply_emissive_map` (the
-/// parity test in [`super::material`] guards the cache-hit path).
-pub(super) fn apply_emissive_map(material: &mut StandardMaterial, emissive: Option<Handle<Image>>) {
-    let e = material.emissive;
-    let factor_is_unset = e.red == 0.0 && e.green == 0.0 && e.blue == 0.0;
-    let factor_is_auto_white = e.red == 1.0 && e.green == 1.0 && e.blue == 1.0;
-    match &emissive {
-        Some(_) if factor_is_unset => material.emissive = LinearRgba::WHITE,
-        None if factor_is_auto_white => material.emissive = LinearRgba::BLACK,
-        _ => {}
-    }
-    material.emissive_texture = emissive;
-}
 
 /// Dispatch (or coalesce) one offloaded surface bake. Runs inside a
 /// [`Commands::queue`] closure from
@@ -307,26 +288,97 @@ mod tests {
         ));
     }
 
+    // The emissive-sentinel test that used to live here went with the mirror
+    // it guarded (#1133). It was a copy of an upstream test asserting the
+    // behaviour of a copy of an upstream function, so it could only ever
+    // confirm that the two copies had not drifted YET — and it passed for as
+    // long as a maintainer remembered to sync both. The function is now
+    // `bevy_symbios_texture::apply_emissive_map`, called directly, and its
+    // behaviour is that crate's to test.
+
+    /// **The two bake paths must produce the same pixels, for every generator**
+    /// (#1133).
+    ///
+    /// `build_procedural_material` forks completely by target: native spawns
+    /// the upstream `PendingTexture` onto that crate's rayon pool, wasm maps
+    /// the same config into a `gen_jobs::TextureBakeJob` and runs it in the
+    /// worker. Nothing checked they agreed. The parity test that existed
+    /// compared the two `StandardMaterial`s — base colour, roughness, alpha
+    /// mode, the cache-hit slot writes — and never a single texel, so an
+    /// upstream change to generator post-processing or to the mip chain would
+    /// have applied to native peers only, and the two targets would render the
+    /// same record differently with no compile error and no failing test.
+    ///
+    /// Cheap and native-only because both paths are callable here: the
+    /// upstream side is `generate_sync().with_mips()`, which is verbatim what
+    /// its rayon closure computes (`async_gen.rs`: `f().map(TextureMap::with_mips)`),
+    /// and the worker side is the job's own `run()`.
+    ///
+    /// Driven off `TextureConfig::all_defaults()` rather than a hand-listed
+    /// set, so a generator added upstream is covered the day it appears
+    /// instead of the day somebody remembers this file.
     #[test]
-    fn emissive_sentinel_matches_upstream_semantics() {
-        // Map arrives while factor is the black default → auto-white.
-        let mut mat = StandardMaterial {
-            emissive: LinearRgba::BLACK,
-            ..Default::default()
-        };
-        apply_emissive_map(&mut mat, Some(Handle::default()));
-        assert_eq!(mat.emissive, LinearRgba::WHITE);
+    fn both_bake_paths_produce_identical_pixels_for_every_generator() {
+        // 32² is four mip levels — enough that a chain difference shows,
+        // small enough that the whole registry bakes in well under a second.
+        const SIZE: u32 = 32;
 
-        // Regeneration drops the map while factor is the auto-white → black.
-        apply_emissive_map(&mut mat, None);
-        assert_eq!(mat.emissive, LinearRgba::BLACK);
+        let configs = TextureConfig::all_defaults();
+        assert!(
+            configs.len() > 5,
+            "the generator registry returned only {} entries — this test has \
+             stopped covering what it claims to",
+            configs.len()
+        );
 
-        // A caller-supplied tinted factor is left untouched in both directions.
-        let tinted = LinearRgba::new(0.5, 0.2, 0.1, 1.0);
-        mat.emissive = tinted;
-        apply_emissive_map(&mut mat, Some(Handle::default()));
-        assert_eq!(mat.emissive, tinted);
-        apply_emissive_map(&mut mat, None);
-        assert_eq!(mat.emissive, tinted);
+        for cfg in configs {
+            let label = cfg.label();
+            let upstream = cfg
+                .generate_sync(SIZE, SIZE)
+                .expect("every default config has a generator")
+                .expect("a default config bakes at 32²")
+                .with_mips();
+
+            let job = surface_bake_job(&cfg).expect("every default config maps to a bake job");
+            let GenResult::Texture(worker) = GenJob::TextureBake {
+                job: Box::new(job),
+                width: SIZE,
+                height: SIZE,
+            }
+            .run() else {
+                panic!("{label}: a texture bake yielded a non-texture result");
+            };
+
+            assert_eq!(
+                (worker.width, worker.height),
+                (upstream.width, upstream.height),
+                "{label}: dimensions differ between the two bake paths"
+            );
+            assert_eq!(
+                worker.mip_level_count, upstream.mip_level_count,
+                "{label}: mip chain length differs — one target would sample a \
+                 different level of detail than the other"
+            );
+            // Byte-equal, not approximately: the two paths run the same
+            // generator on the same config, so anything but equality is a
+            // divergence, however small.
+            assert_eq!(
+                worker.albedo, upstream.albedo,
+                "{label}: albedo pixels differ between the two bake paths"
+            );
+            assert_eq!(
+                worker.normal, upstream.normal,
+                "{label}: normal pixels differ between the two bake paths"
+            );
+            assert_eq!(
+                worker.roughness, upstream.roughness,
+                "{label}: ORM pixels differ between the two bake paths"
+            );
+            assert_eq!(
+                worker.emissive, upstream.emissive,
+                "{label}: emissive differs — including whether there IS one, \
+                 which decides the auto-white factor"
+            );
+        }
     }
 }

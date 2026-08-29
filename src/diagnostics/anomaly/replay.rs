@@ -226,7 +226,14 @@ mod tests {
                 },
             ),
             // No InGame transition; log runs past budget → gate_stall replay fires.
-            ev(200.0, Severity::Info, EventPayload::RoomStateApplied),
+            ev(
+                200.0,
+                Severity::Info,
+                EventPayload::RoomStateApplied {
+                    bytes: 4096,
+                    digest_of_record: 0xfeed,
+                },
+            ),
         ]
     }
 
@@ -317,10 +324,12 @@ mod tests {
                 "net.identity_spoof_burst",
                 "net.offer_acceptance_anomaly",
                 "net.peer_churn_spike",
+                "net.peer_protocol_mismatch",
                 "net.relay_connection_rejected",
                 "net.signal_glare_suspected",
                 "net.silent_decode_failure",
                 "net.wardrobe_unresolved",
+                "net.world_digest_mismatch",
                 "offload.ambient_bake_stall",
                 "offload.task_never_resolves",
             ]
@@ -368,7 +377,14 @@ mod tests {
                     reason: "bad".into(),
                 },
             ),
-            ev(400.0, Severity::Info, EventPayload::RoomStateApplied),
+            ev(
+                400.0,
+                Severity::Info,
+                EventPayload::RoomStateApplied {
+                    bytes: 4096,
+                    digest_of_record: 0xfeed,
+                },
+            ),
         ];
         let reg = default_registry();
         for rule in reg.rules() {

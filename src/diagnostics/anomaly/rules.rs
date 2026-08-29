@@ -22,6 +22,8 @@ pub fn register_builtins(reg: &mut InvariantRegistry) {
     reg.register(PeerChurnSpike);
     reg.register(OfferAcceptanceAnomaly);
     reg.register(IdentitySpoofBurst);
+    reg.register(PeerProtocolMismatched);
+    reg.register(WorldDigestMismatch);
     reg.register(SilentDecodeFailure);
     reg.register(GlareSuspected);
     reg.register(RelayConnectionRejected);
@@ -421,6 +423,81 @@ impl Rule for IdentitySpoofBurst {
     }
 }
 
+// --- PeerProtocolMismatched -------------------------------------------------
+struct PeerProtocolMismatched;
+const PEER_PROTOCOL_MISMATCHED: RuleHeader = RuleHeader {
+    id: "net.peer_protocol_mismatch",
+    subsystem: Subsystem::Network,
+    severity: Severity::Error,
+    debounce: DebouncePolicy::OncePerCondition,
+    description: "a peer speaks a different wire protocol, so messages between the two builds may not decode",
+    when_state: None,
+};
+impl Rule for PeerProtocolMismatched {
+    fn header(&self) -> &RuleHeader {
+        &PEER_PROTOCOL_MISMATCHED
+    }
+    fn is_replayable(&self) -> bool {
+        true
+    }
+    /// Replay-only, and deliberately so: there is no live counter to read
+    /// because the condition is not a rate. One incompatible peer in the room
+    /// is the whole finding — a second one adds nothing to the diagnosis, and
+    /// the emit sites already collapse a re-announcement to a single event.
+    fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
+        events
+            .iter()
+            .filter_map(|e| match &e.payload {
+                EventPayload::PeerProtocolMismatch {
+                    peer, ours, theirs, ..
+                } => Some(Verdict::violated(match theirs {
+                    Some(t) => format!("peer {peer} speaks protocol {t}, we speak {ours}"),
+                    None => format!("peer {peer} announced no protocol (we speak {ours})"),
+                })),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+// --- WorldDigestMismatch ----------------------------------------------------
+struct WorldDigestMismatch;
+const WORLD_DIGEST_MISMATCH: RuleHeader = RuleHeader {
+    id: "net.world_digest_mismatch",
+    subsystem: Subsystem::Network,
+    severity: Severity::Error,
+    debounce: DebouncePolicy::OncePerCondition,
+    description: "two peers derived different worlds from the same record",
+    when_state: None,
+};
+impl Rule for WorldDigestMismatch {
+    fn header(&self) -> &RuleHeader {
+        &WORLD_DIGEST_MISMATCH
+    }
+    fn is_replayable(&self) -> bool {
+        true
+    }
+    /// The rule the project has wanted twice (#51, #882) and could not have,
+    /// because nothing computed a digest to disagree about. It fires on the
+    /// event alone: the emit site has already established that both peers
+    /// claim the same record and that our own world had settled, which is the
+    /// entire condition — there is no rate or threshold to add on top, and one
+    /// occurrence is the whole finding.
+    fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
+        events
+            .iter()
+            .filter_map(|e| match &e.payload {
+                EventPayload::PeerWorldDigestMismatch {
+                    peer, ours, theirs, ..
+                } => Some(Verdict::violated(format!(
+                    "peer {peer} derived {theirs:016x} where we derived {ours:016x}"
+                ))),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
 // --- SilentDecodeFailure ----------------------------------------------------
 struct SilentDecodeFailure;
 const SILENT_DECODE_FAILURE: RuleHeader = RuleHeader {
@@ -651,7 +728,13 @@ mod tests {
         // Never transitioned but log continued past budget → stall.
         let never = vec![
             ev(0.0, EventPayload::LoadingPhaseStarted),
-            ev(200.0, EventPayload::RoomStateApplied),
+            ev(
+                200.0,
+                EventPayload::RoomStateApplied {
+                    bytes: 4096,
+                    digest_of_record: 0xfeed,
+                },
+            ),
         ];
         assert_eq!(LoadingGateStall.replay(&never).len(), 1);
     }
@@ -678,7 +761,13 @@ mod tests {
                     duration_secs: 2.0,
                 },
             ),
-            ev(100.0, EventPayload::RoomStateApplied),
+            ev(
+                100.0,
+                EventPayload::RoomStateApplied {
+                    bytes: 4096,
+                    digest_of_record: 0xfeed,
+                },
+            ),
         ];
         // ambient never resolved and the log ran 100s past its start.
         let v = TaskNeverResolves.replay(&events);
@@ -787,7 +876,13 @@ mod tests {
         // ran well past the budget → stall.
         let stalled = vec![
             ev(0.0, EventPayload::SocketPeerListReceived { count: 1 }),
-            ev(20.0, EventPayload::RoomStateApplied),
+            ev(
+                20.0,
+                EventPayload::RoomStateApplied {
+                    bytes: 4096,
+                    digest_of_record: 0xfeed,
+                },
+            ),
         ];
         assert_eq!(GlareSuspected.replay(&stalled).len(), 1);
 
@@ -801,7 +896,13 @@ mod tests {
         // An empty peer_list is never a glare candidate.
         let alone = vec![
             ev(0.0, EventPayload::SocketPeerListReceived { count: 0 }),
-            ev(20.0, EventPayload::RoomStateApplied),
+            ev(
+                20.0,
+                EventPayload::RoomStateApplied {
+                    bytes: 4096,
+                    digest_of_record: 0xfeed,
+                },
+            ),
         ];
         assert!(GlareSuspected.replay(&alone).is_empty());
     }

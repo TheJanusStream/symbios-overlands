@@ -288,6 +288,9 @@ pub(super) fn apply_splat_textures(
     stains: Option<Res<StainsImage>>,
     mut materials: ResMut<Assets<SplatTerrainMaterial>>,
     mut images: ResMut<Assets<Image>>,
+    // `Option` for the same reason as in `poll_terrain_task`: headless
+    // embedders build terrain without the network plugin that owns it.
+    mut digest: Option<ResMut<crate::world_digest::WorldDigest>>,
 ) {
     if state.applied || !state.all_ready() {
         return;
@@ -387,6 +390,23 @@ pub(super) fn apply_splat_textures(
         .iter()
         .flat_map(|pixel| pixel.iter().copied())
         .collect();
+
+    // The splat half of the world digest (#1146). These bytes are where a
+    // one-ULP arithmetic difference between two peers stops being invisible:
+    // `SplatRule` scoring runs on `powf`, and the result is quantised to a
+    // `u8` per channel — so a borderline score that rounds the other way is a
+    // texel of ground the two peers give a different material. Hashed as-is,
+    // with no further quantisation, because these bytes ARE the decision.
+    if let Some(digest) = digest.as_deref_mut() {
+        if let Some(record) = record.as_ref() {
+            digest.retarget(crate::world_digest::record_fingerprint(&record.0));
+        }
+        digest.splat = Some(crate::world_digest::splat_digest(
+            weight_map.width as u32,
+            weight_map.height as u32,
+            &wm_bytes,
+        ));
+    }
     let mut wm_image = Image::new(
         Extent3d {
             width: weight_map.width as u32,

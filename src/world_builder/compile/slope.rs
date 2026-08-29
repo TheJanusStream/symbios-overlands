@@ -69,7 +69,11 @@ pub(super) fn relocate_off_steep_ground(
         }
         (0..8).all(|i| {
             let a = i as f32 * std::f32::consts::TAU / 8.0;
-            let (px, pz) = (x + a.sin() * clearance, z + a.cos() * clearance);
+            // libm (#1132): these eight probes feed an accept/reject — a
+            // candidate site either clears the slope limit at all of them or
+            // the search moves on — so a one-ULP difference in a probe
+            // position can relocate a building between two peers.
+            let (px, pz) = (x + libm::sinf(a) * clearance, z + libm::cosf(a) * clearance);
             slope(px, pz) <= STEEP_LIMIT && water_y.is_none_or(|w| sample(px, pz) >= w + FREEBOARD)
         })
     };

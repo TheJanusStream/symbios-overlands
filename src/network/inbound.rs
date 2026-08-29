@@ -49,6 +49,9 @@ enum CoalesceKey {
     Identity,
     AvatarState,
     RoomState,
+    /// `Hello` rides the identity cadence and every instance carries the same
+    /// two values, so all but the last in a drain are literally redundant.
+    Hello,
 }
 
 fn coalesce_key(msg: &OverlandsMessage) -> Option<CoalesceKey> {
@@ -56,6 +59,7 @@ fn coalesce_key(msg: &OverlandsMessage) -> Option<CoalesceKey> {
         OverlandsMessage::Identity { .. } => Some(CoalesceKey::Identity),
         OverlandsMessage::AvatarStateUpdate { .. } => Some(CoalesceKey::AvatarState),
         OverlandsMessage::RoomStateUpdate { .. } => Some(CoalesceKey::RoomState),
+        OverlandsMessage::Hello { .. } => Some(CoalesceKey::Hello),
         _ => None,
     }
 }
@@ -101,6 +105,11 @@ pub(super) struct InboundBuffers<'w> {
     /// Chat-keyword emotes (#1068): an arriving message plays a gesture on
     /// its sender's own body.
     emotes: MessageWriter<'w, crate::player::emote::EmoteRequest>,
+    /// The local peer's world digest (#1146), for comparing against the
+    /// `WorldDigest` announcements peers broadcast. Bundled here rather than
+    /// taken as its own parameter because `handle_incoming_messages` is at
+    /// Bevy's 16-parameter `IntoSystem` ceiling.
+    world_digest: Res<'w, crate::world_digest::WorldDigest>,
 }
 
 /// Move a peer's existing rig resolution onto an incoming record when the
@@ -415,6 +424,92 @@ pub(super) fn handle_incoming_messages(
                     break;
                 }
             }
+            OverlandsMessage::Hello { protocol, build } => {
+                // The peer named its wire layout (#1121). Not authenticated
+                // and not authoritative — a peer can claim any number — but
+                // it does not need to be either: nothing is refused on the
+                // strength of it, so the worst a liar achieves is a wrong
+                // chip on its own row in the People window.
+                //
+                // Recorded on the peer rather than acted on, because the
+                // failure this describes has already happened by the time we
+                // could act: a message from an incompatible build does not
+                // arrive as a wrong message, it fails to decode inside
+                // `bevy_symbios_multiuser` and never reaches this dispatcher
+                // at all. All that is left to do is say which two builds
+                // could not talk.
+                let announced = crate::state::PeerBuild {
+                    protocol,
+                    build: build.clone(),
+                };
+                for (_, mut peer, _, _) in peers.iter_mut() {
+                    if peer.peer_id != msg.sender {
+                        continue;
+                    }
+                    // Re-announcements arrive every second; only a CHANGE is
+                    // news, so the log records one line per disagreement and
+                    // not one per second of it.
+                    if peer.build.as_ref() == Some(&announced) {
+                        break;
+                    }
+                    let ours = crate::protocol::PROTOCOL_VERSION;
+                    peer.build = Some(announced);
+                    if protocol != ours {
+                        warn!(
+                            "Peer {} speaks protocol {} ({}), we speak {} — messages between us may not decode",
+                            msg.sender, protocol, build, ours
+                        );
+                        session_log.error(
+                            now,
+                            EventPayload::PeerProtocolMismatch {
+                                peer: msg.sender.to_string(),
+                                ours,
+                                theirs: Some(protocol),
+                                build,
+                            },
+                        );
+                    }
+                    break;
+                }
+            }
+            OverlandsMessage::WorldDigest {
+                record_fp,
+                digest: theirs,
+            } => {
+                // A peer told us what it built (#1146). Compared only when we
+                // agree on the RECORD: during an owner's slider drag the two
+                // ends are legitimately a broadcast apart, and reporting that
+                // as a desync would bury the real thing under noise.
+                //
+                // Nothing is refused, corrected or re-derived on the strength
+                // of this. The event is the entire product: before it existed,
+                // two clients expanding one record into two different worlds
+                // (#51, #882) produced no evidence at all, so every such
+                // report was a user describing two screens from memory.
+                let Some(ours) = bufs.world_digest.combined() else {
+                    // We have not settled our own world yet, so we have
+                    // nothing to compare and no business calling anyone wrong.
+                    continue;
+                };
+                if bufs.world_digest.record_fp != record_fp || ours == theirs {
+                    continue;
+                }
+                // Once per (peer, disagreement): the sender only re-announces
+                // when its digest moves, and a moved digest is a new fact.
+                warn!(
+                    "World digest mismatch with {}: we built {:016x}, they built {:016x} from record {:016x}",
+                    msg.sender, ours, theirs, record_fp
+                );
+                session_log.error(
+                    now,
+                    EventPayload::PeerWorldDigestMismatch {
+                        peer: msg.sender.to_string(),
+                        record_fp,
+                        ours,
+                        theirs,
+                    },
+                );
+            }
             OverlandsMessage::AvatarRecordsPublished => {
                 // The sender saved their rigged body (#1122). Same rkeys,
                 // new bytes behind them — so drop the resolution we are
@@ -509,6 +604,23 @@ pub(super) fn handle_incoming_messages(
                 // observes the resource change and rebuilds every compiled
                 // entity (water, sun colour, scattered shapes) in one pass.
                 if let Some(record) = room_record.as_mut() {
+                    // The one inbound outcome the diagnostics suite never
+                    // recorded (#1146): `RoomStateApplied` has been declared
+                    // since the suite was built and emitted nowhere, so a
+                    // captured log could show a room broadcast being REJECTED
+                    // or failing to DECODE but never being accepted. Two peers
+                    // comparing logs after a desync therefore could not
+                    // establish the first thing worth knowing — whether they
+                    // were even deriving the same recipe. The record
+                    // fingerprint here is the same one the world digest is
+                    // keyed by, so the two line up.
+                    session_log.info(
+                        now,
+                        EventPayload::RoomStateApplied {
+                            bytes: record_json.len() as u64,
+                            digest_of_record: crate::world_digest::record_fingerprint(&new_record),
+                        },
+                    );
                     record.0 = new_record;
                     // Foreign wholesale write (#862): mostly guests (whose
                     // history is empty anyway), but a second session of

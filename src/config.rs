@@ -697,6 +697,18 @@ pub mod interaction {
 pub mod network {
     /// Broadcast identity to peers every N fixed-update ticks.
     pub const IDENTITY_BROADCAST_INTERVAL_TICKS: u32 = 60;
+    /// How long (seconds) after a peer connects we keep waiting for its
+    /// [`crate::protocol::OverlandsMessage::Hello`] before reading the silence
+    /// as "this build predates the protocol handshake" (#1121).
+    ///
+    /// `Hello` rides the same reliable broadcast as `Identity`, once every
+    /// [`IDENTITY_BROADCAST_INTERVAL_TICKS`] ticks — one second at the 60 Hz
+    /// fixed step — plus one immediately on connect. Three seconds is
+    /// therefore three chances missed, not one, so a slow handshake or a
+    /// single dropped announce does not accuse a compatible peer. The cost of
+    /// being wrong is one wrong chip on one row, and it corrects itself the
+    /// moment a `Hello` lands.
+    pub const PROTOCOL_ANNOUNCE_GRACE_SECS: f64 = 3.0;
     /// Fallback spacing (seconds) between consecutive Transform broadcasts
     /// from a given peer, used by the jitter buffer to assign synthetic
     /// playout timestamps when WebRTC delivers packets in a burst.

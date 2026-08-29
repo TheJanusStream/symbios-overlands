@@ -99,6 +99,7 @@ pub mod urban;
 pub mod water;
 pub mod wind;
 pub mod world_builder;
+pub mod world_digest;
 
 /// Headless render tool — drives the real spawn path to produce contact-sheet
 /// PNGs for self-validating geometry/materials. Native-only (the harness pulls

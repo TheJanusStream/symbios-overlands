@@ -56,6 +56,12 @@ pub(super) fn poll_terrain_task(
     time: Res<Time>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
+    record: Option<Res<LiveRoomRecord>>,
+    // `Option` for the reason `GeneratorCaches::metrics` is: headless
+    // embedders (the render tool, minimal test apps) run terrain generation
+    // without the network plugin that owns the digest resource, and a digest
+    // nobody exchanges is not worth making them insert.
+    mut digest: Option<ResMut<crate::world_digest::WorldDigest>>,
 ) {
     if let Some(result) =
         futures_lite::future::block_on(futures_lite::future::poll_once(&mut task_res.0))
@@ -69,6 +75,22 @@ pub(super) fn poll_terrain_task(
                     &mut metrics,
                     now - spawned_at,
                 );
+                // Content digest of what the generator produced (#1146). This
+                // is the part of the world digest that the cross-target
+                // determinism work (#1132) actually moves: erosion and the
+                // octave amplitudes run on `exp`/`powf`, whose results Rust
+                // documents as platform-dependent. It is quantised to a
+                // millimetre, so it reports a terrain two peers would SEE
+                // differently and stays quiet about last-bit arithmetic.
+                let hm_digest =
+                    crate::world_digest::heightmap_digest(data.width, data.height, &data.data);
+                if let Some(digest) = digest.as_deref_mut() {
+                    if let Some(record) = record.as_ref() {
+                        digest.retarget(crate::world_digest::record_fingerprint(&record.0));
+                    }
+                    digest.heightmap = Some(hm_digest);
+                }
+
                 // Typed completion for the B-2 loading-gate heightmap distro.
                 session_log.info(
                     now,
@@ -76,6 +98,7 @@ pub(super) fn poll_terrain_task(
                         duration_secs: now - spawned_at,
                         width: data.width,
                         height: data.height,
+                        digest: hm_digest,
                     },
                 );
                 // Generic offload-lifecycle completion (#631) — pairs with the

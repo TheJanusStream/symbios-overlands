@@ -15,6 +15,17 @@
 //! authenticated against the relay-signed `PeerSessionMapRes` so a peer
 //! cannot impersonate another DID over the unauthenticated data channel.
 //!
+//! Each peer also announces the wire layout it speaks
+//! ([`crate::protocol::OverlandsMessage::Hello`], #1121) on the same reliable
+//! cadence as Identity. It is advisory — nothing is gated on it — because by
+//! the time two builds disagree the damage is already done inside the
+//! transport, where a message from the other layout fails to decode and is
+//! dropped before this module sees it. What the announcement buys is a name
+//! for that: a chip on the peer's row and a `PeerProtocolMismatch` in the
+//! session log, on both ends. A peer that announces NOTHING is the case that
+//! exists today — every build older than the handshake — and
+//! [`lifecycle::flag_unannounced_peers`] reports it once the grace elapses.
+//!
 //! Avatar records are sovereign: after a peer announces its DID, we spawn
 //! an async `fetch_avatar_record` task against that peer's PDS. A live
 //! preview nudge via `AvatarStateUpdate` lets remote peers mirror
@@ -130,6 +141,9 @@ impl Plugin for NetworkPlugin {
 
         app.add_plugins(SymbiosMultiuserPlugin::<OverlandsMessage>::deferred())
             .init_resource::<PeerAvatarCache>()
+            // #1146: the local peer's world digest, written by the heightmap,
+            // splat and compile producers and compared against every peer's.
+            .init_resource::<crate::world_digest::WorldDigest>()
             // #716: buffer for reassembling chunked reliable payloads, and the
             // monotonic counter that stamps outbound chunk `msg_id`s.
             .init_resource::<chunk::ChunkReassembly>()
@@ -146,6 +160,7 @@ impl Plugin for NetworkPlugin {
                     lifecycle::evict_stale_offer_dialog,
                     lifecycle::dismiss_offer_dialog_from_muted_sender,
                     lifecycle::sweep_stale_pending_offers,
+                    lifecycle::flag_unannounced_peers,
                     smoother::smooth_remote_transforms,
                     lifecycle::sync_mute_visibility,
                 )
@@ -168,6 +183,7 @@ impl Plugin for NetworkPlugin {
                 (
                     broadcast::broadcast_avatar_state,
                     broadcast::broadcast_room_state,
+                    broadcast::broadcast_world_digest,
                 )
                     .run_if(in_state(AppState::InGame)),
             );

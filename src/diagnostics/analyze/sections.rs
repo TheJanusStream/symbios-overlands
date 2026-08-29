@@ -29,11 +29,18 @@ pub(super) fn timeline_label(p: &EventPayload) -> Option<String> {
         RecordFetchCompleted { record, status, .. } => format!("{record:?} fetch {status:?}"),
         RecordWriteCompleted { record, .. } => format!("{record:?} saved to PDS"),
         RecordWriteFailed { record, .. } => format!("{record:?} save FAILED"),
-        HeightmapGenCompleted { .. } => "heightmap generated".to_string(),
+        HeightmapGenCompleted { digest, .. } => format!("heightmap generated ({digest:016x})"),
         AmbientBakeCompleted { .. } => "ambient bake done".to_string(),
         AmbientBakeFallback { .. } => "ambient bake fell back to silence".to_string(),
-        WorldCompileCompleted { entity_count, .. } => {
-            format!("world compiled ({entity_count} entities)")
+        WorldCompileCompleted {
+            entity_count,
+            digest,
+            ..
+        } => {
+            // The digest rides the timeline (#1146) so two peers' captured
+            // logs can be diffed line-for-line after a desync report, without
+            // either of them having been live when the other was.
+            format!("world compiled ({entity_count} entities, {digest:016x})")
         }
         AvatarReseeded { seed } => format!("avatar reseeded (seed {seed})"),
         LoadingGateTransitionToInGame { elapsed_secs } => format!("→ InGame ({elapsed_secs:.1}s)"),

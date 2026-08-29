@@ -290,11 +290,32 @@ pub(crate) fn compile_room_record(
     );
     info!("{line}");
     let now = generator_caches.time.elapsed_secs_f64();
+
+    // The compile part of the world digest (#1146): the placement
+    // fingerprints in index order, plus the entity count this job actually
+    // produced. The count is the derived half and the one that matters — a
+    // scatter's slope accept/reject (#1132) changes how many instances land,
+    // so two peers that read the same record and placed a different number of
+    // trees disagree here even though their records are identical.
+    let compile_digest = crate::world_digest::compile_digest(
+        generator_caches
+            .world
+            .units
+            .iter()
+            .map(|u| u.fingerprint.as_deref()),
+        job.entities_spawned,
+    );
+    if let Some(digest) = generator_caches.digest.as_deref_mut() {
+        digest.retarget(crate::world_digest::record_fingerprint(record));
+        digest.compile = Some(compile_digest);
+    }
+
     generator_caches.session_log.info(
         now,
         crate::diagnostics::event::EventPayload::WorldCompileCompleted {
             entity_count: job.entities_spawned,
             duration_secs: job.work.as_secs_f64(),
+            digest: compile_digest,
         },
     );
 

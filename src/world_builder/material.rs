@@ -250,7 +250,7 @@ pub fn build_procedural_material(
         material.base_color_texture = Some(handles.albedo.clone());
         material.normal_map_texture = Some(handles.normal.clone());
         material.metallic_roughness_texture = Some(handles.roughness.clone());
-        super::surface_bake::apply_emissive_map(&mut material, handles.emissive.clone());
+        bevy_symbios_texture::apply_emissive_map(&mut material, handles.emissive.clone());
         bump_texture_cache_counter(commands, true);
         return std_materials.add(material);
     }

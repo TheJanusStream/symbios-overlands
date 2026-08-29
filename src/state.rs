@@ -16,6 +16,7 @@ use std::marker::PhantomData;
 
 use bevy::prelude::*;
 
+use crate::config;
 use crate::pds::{AvatarRecord, Generator, InventoryRecord, RoomRecord};
 
 /// Application state machine. `Loading` waits on all six loading tasks —
@@ -49,6 +50,66 @@ pub struct RemotePeer {
     /// Last-applied avatar record from this peer (used to detect changes and
     /// hot-swap archetypes). `None` until the async PDS fetch completes.
     pub avatar: Option<AvatarRecord>,
+    /// What wire protocol this peer announced (#1121), from its
+    /// [`crate::protocol::OverlandsMessage::Hello`]. `None` means no `Hello`
+    /// has arrived — which after
+    /// [`crate::config::network::PROTOCOL_ANNOUNCE_GRACE_SECS`] is itself the
+    /// answer: the peer is running a build from before the handshake existed,
+    /// and its wire layout is unknowable.
+    pub build: Option<PeerBuild>,
+    /// `Time::elapsed_secs_f64` at the moment this peer connected — the clock
+    /// the `Hello` grace period runs against.
+    pub connected_at: f64,
+}
+
+/// A peer's self-declared wire protocol and build string (#1121).
+///
+/// Both fields are peer-supplied over an unauthenticated data channel and
+/// nothing is gated on them: the protocol number only drives a chip on the
+/// peer's own row and a session-log line, and the build string is only ever
+/// displayed. A peer that lies mislabels itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PeerBuild {
+    /// The peer's [`crate::protocol::PROTOCOL_VERSION`].
+    pub protocol: u16,
+    /// Human-readable version+sha, for naming the two builds in a bug report.
+    pub build: String,
+}
+
+/// How this peer's wire compatibility reads right now (#1121). Derived, not
+/// stored: [`RemotePeer::compatibility`] computes it from the announcement and
+/// the elapsed grace.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PeerCompatibility {
+    /// A `Hello` arrived and its protocol equals ours.
+    Compatible,
+    /// A `Hello` arrived announcing a different protocol.
+    Mismatched(u16),
+    /// No `Hello` yet, and the grace period has not elapsed.
+    Pending,
+    /// No `Hello`, and the grace period has elapsed — a pre-handshake build.
+    Unannounced,
+}
+
+impl RemotePeer {
+    /// Read this peer's wire compatibility as of `now`.
+    ///
+    /// The `Unannounced` arm is the case that matters in practice and the one
+    /// a version field alone would miss: every build that shipped before
+    /// #1121 announces nothing, so silence — not a number — is how the live
+    /// incompatibility presents itself.
+    pub fn compatibility(&self, now: f64) -> PeerCompatibility {
+        match &self.build {
+            Some(b) if b.protocol == crate::protocol::PROTOCOL_VERSION => {
+                PeerCompatibility::Compatible
+            }
+            Some(b) => PeerCompatibility::Mismatched(b.protocol),
+            None if now - self.connected_at >= config::network::PROTOCOL_ANNOUNCE_GRACE_SECS => {
+                PeerCompatibility::Unannounced
+            }
+            None => PeerCompatibility::Pending,
+        }
+    }
 }
 
 /// Social-graph resonance state derived from the unauthenticated ATProto
@@ -509,5 +570,88 @@ impl PendingOutgoingOffers {
             },
         );
         id
+    }
+}
+
+#[cfg(test)]
+mod peer_compatibility_tests {
+    use super::*;
+    use crate::config::network::PROTOCOL_ANNOUNCE_GRACE_SECS;
+
+    /// Mint a `PeerId` without naming the `uuid` crate — it wraps a `Uuid`,
+    /// which deserializes from its hyphenated string form.
+    fn any_peer_id() -> bevy_symbios_multiuser::prelude::PeerId {
+        serde_json::from_value(serde_json::Value::String(String::from(
+            "00000000-0000-0000-0000-000000000001",
+        )))
+        .expect("valid uuid")
+    }
+
+    fn peer(build: Option<PeerBuild>) -> RemotePeer {
+        RemotePeer {
+            peer_id: any_peer_id(),
+            did: None,
+            handle: None,
+            muted: false,
+            avatar: None,
+            build,
+            connected_at: 100.0,
+        }
+    }
+
+    /// #1121. The sequence this reproduces is the one that shipped: a peer
+    /// running a build from before `ItemOffer` gained `wear_json` (59ff989)
+    /// connects, and every message it exchanges with us that touches a moved
+    /// variant fails to decode inside the transport and is dropped. Before
+    /// this reading existed there was nothing anywhere — not on the wire, not
+    /// on the peer, not in the log — that distinguished that peer from a
+    /// healthy one, so a failed gift was indistinguishable from a slow one.
+    ///
+    /// The grace period is the whole subtlety: such a peer sends no `Hello`,
+    /// and neither does a compatible peer during its first frames. Only the
+    /// elapsed time separates them, which is why the reading takes `now`.
+    #[test]
+    fn a_peer_that_never_announces_reads_as_incompatible_only_after_the_grace() {
+        let old_build = peer(None);
+        assert_eq!(
+            old_build.compatibility(100.0),
+            PeerCompatibility::Pending,
+            "a peer that just connected has not had a chance to announce"
+        );
+        assert_eq!(
+            old_build.compatibility(100.0 + PROTOCOL_ANNOUNCE_GRACE_SECS - 0.5),
+            PeerCompatibility::Pending
+        );
+        assert_eq!(
+            old_build.compatibility(100.0 + PROTOCOL_ANNOUNCE_GRACE_SECS),
+            PeerCompatibility::Unannounced,
+            "silence past the grace is the pre-handshake build reporting itself"
+        );
+    }
+
+    /// A peer that announces is read on its number alone, with no grace: the
+    /// answer is already known, so waiting would only delay the chip.
+    #[test]
+    fn an_announced_protocol_is_read_immediately_and_either_way() {
+        let ours = peer(Some(PeerBuild {
+            protocol: crate::protocol::PROTOCOL_VERSION,
+            build: String::from("0.7.0+abc"),
+        }));
+        assert_eq!(ours.compatibility(100.0), PeerCompatibility::Compatible);
+        assert_eq!(
+            ours.compatibility(100.0 + PROTOCOL_ANNOUNCE_GRACE_SECS * 10.0),
+            PeerCompatibility::Compatible,
+            "a compatible peer never ages into a warning"
+        );
+
+        let theirs = peer(Some(PeerBuild {
+            protocol: crate::protocol::PROTOCOL_VERSION + 7,
+            build: String::from("9.9.9+def"),
+        }));
+        assert_eq!(
+            theirs.compatibility(100.0),
+            PeerCompatibility::Mismatched(crate::protocol::PROTOCOL_VERSION + 7),
+            "a declared disagreement needs no grace — it is already the answer"
+        );
     }
 }
