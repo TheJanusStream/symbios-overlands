@@ -228,7 +228,11 @@ pub fn unsaved_guard_ui(
     current_room: Option<Res<CurrentRoomDid>>,
     mut next_state: ResMut<NextState<AppState>>,
     time: Res<Time>,
+    // Portal hops are milestone events the analyzer's timeline renders
+    // (#1144); this is where a travel is actually committed.
+    mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
+    let now = time.elapsed_secs_f64();
     let owns_room = match (session.as_deref(), current_room.as_deref()) {
         (Some(session), Some(room)) => session.did == room.0,
         _ => false,
@@ -250,7 +254,13 @@ pub fn unsaved_guard_ui(
             } else if !dirty.blocks(&guard.action) {
                 // Every relevant publish succeeded (the polls pinned
                 // stored = live) — nothing left to lose.
-                proceed(&guard.action, &mut commands, &mut next_state);
+                proceed(
+                    &guard.action,
+                    &mut commands,
+                    &mut next_state,
+                    &mut session_log,
+                    now,
+                );
                 return;
             } else {
                 // Drained but still dirty: at least one publish failed.
@@ -268,7 +278,13 @@ pub fn unsaved_guard_ui(
                 // Clean (or only irrelevant records differ): proceed
                 // without ever showing the dialog. This is the everyday
                 // path — callers open the guard unconditionally.
-                proceed(&guard.action, &mut commands, &mut next_state);
+                proceed(
+                    &guard.action,
+                    &mut commands,
+                    &mut next_state,
+                    &mut session_log,
+                    now,
+                );
                 return;
             }
         }
@@ -350,7 +366,13 @@ pub fn unsaved_guard_ui(
                     ))
                     .clicked()
                 {
-                    proceed(&guard.action, &mut commands, &mut next_state);
+                    proceed(
+                        &guard.action,
+                        &mut commands,
+                        &mut next_state,
+                        &mut session_log,
+                        now,
+                    );
                 }
             });
             return;
@@ -446,7 +468,13 @@ pub fn unsaved_guard_ui(
                     // No revert needed: portal travel overwrites the live
                     // room record with the destination's, and logout
                     // removes every record resource outright.
-                    proceed(&guard.action, &mut commands, &mut next_state);
+                    proceed(
+                        &guard.action,
+                        &mut commands,
+                        &mut next_state,
+                        &mut session_log,
+                        now,
+                    );
                 }
             });
         });
@@ -454,13 +482,19 @@ pub fn unsaved_guard_ui(
 }
 
 /// Execute the guarded action and drop the guard.
-fn proceed(action: &GuardedAction, commands: &mut Commands, next_state: &mut NextState<AppState>) {
+fn proceed(
+    action: &GuardedAction,
+    commands: &mut Commands,
+    next_state: &mut NextState<AppState>,
+    session_log: &mut crate::diagnostics::SessionLog,
+    now: f64,
+) {
     match action {
         GuardedAction::PortalTravel {
             target_did,
             target_pos,
         } => {
-            begin_portal_travel(commands, target_did.clone(), *target_pos);
+            begin_portal_travel(commands, session_log, now, target_did.clone(), *target_pos);
         }
         GuardedAction::Logout => {
             next_state.set(AppState::Login);

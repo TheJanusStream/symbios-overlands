@@ -152,6 +152,7 @@ fn diagnostic_tick(
     state: Res<State<AppState>>,
     mut loading_clock: ResMut<LoadingClock>,
     mut recent_respawns: ResMut<RecentRespawns>,
+    offload_watch: Res<crate::diagnostics::offload_watch::OffloadWatch>,
     hm_res: Option<Res<crate::terrain::FinishedHeightMap>>,
     player_q: Query<&Transform, With<LocalPlayer>>,
     bodies_q: Query<&Transform, With<avian3d::prelude::RigidBody>>,
@@ -225,6 +226,7 @@ fn diagnostic_tick(
         orphan_avatar_count,
         respawns_recent: recent_respawns.count_recent(now),
         colliders_seen_ingame: loading_clock.colliders_seen_ingame,
+        oldest_pending_job: offload_watch.oldest_pending,
     };
 
     run_rules(&mut invariants, &cx, &mut log);
@@ -312,6 +314,7 @@ mod tests {
             orphan_avatar_count: 0,
             respawns_recent: 0,
             colliders_seen_ingame: false,
+            oldest_pending_job: None,
         }
     }
 

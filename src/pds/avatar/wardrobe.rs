@@ -994,6 +994,40 @@ pub fn wear_new_engine_body(record: &mut super::AvatarRecord, did: &str) {
 // Resolution fan-out
 // ---------------------------------------------------------------------------
 
+/// What one [`resolve_rigged_body`] pass could and could not fetch (#1144).
+///
+/// Deliberately NOT a field on [`ResolvedRig`]: that type is compared by value
+/// to decide whether the avatar record is dirty
+/// ([`avatar_is_dirty`](crate::pds::avatar::avatar_is_dirty)), so a transient
+/// list of what failed would make two identical bodies read as unsaved work.
+/// The outcome travels beside the resolution instead.
+///
+/// The gap this closes: the whole wardrobe + attachment chain (#1086-#1108)
+/// reported NotFound and transport failures through `warn!` only, and the
+/// caller then `continue`d on a `None`. With gifting (#1108) making attachment
+/// records cross-owner, a guest fetching a peer depends on N+2 records — and
+/// "why is Bob a bare chassis for me but not for Alice" was unanswerable from
+/// a captured log.
+#[derive(Default, Clone, Debug)]
+pub(crate) struct ResolveReport {
+    /// Why the wardrobe record itself did not install. `None` = it did.
+    pub body_error: Option<String>,
+    /// Attachment rkeys that were not installed, each with its reason.
+    pub skipped: Vec<(String, String)>,
+}
+
+impl ResolveReport {
+    /// The report for a resolution that never ran to completion — a timeout
+    /// or a DID that would not resolve. Distinguished from a missing wardrobe
+    /// record, which is a real answer.
+    pub(crate) fn aborted(reason: &str) -> Self {
+        ResolveReport {
+            body_error: Some(reason.to_owned()),
+            skipped: Vec::new(),
+        }
+    }
+}
+
 /// Resolve a rigged body's references against the owner's (already resolved)
 /// PDS, writing the result onto [`RiggedBody::resolved`].
 ///
@@ -1007,7 +1041,8 @@ pub(crate) async fn resolve_rigged_body(
     pds: &str,
     did: &str,
     rig: &mut RiggedBody,
-) {
+) -> ResolveReport {
+    let mut report = ResolveReport::default();
     let body = match fetch_wardrobe_record_at(client, pds, did, &rig.avatar).await {
         Ok(Some(body)) => body,
         Ok(None) => {
@@ -1016,7 +1051,8 @@ pub(crate) async fn resolve_rigged_body(
                 WARDROBE_COLLECTION, rig.avatar
             );
             rig.resolved = None;
-            return;
+            report.body_error = Some(String::from("wardrobe record not found"));
+            return report;
         }
         Err(err) => {
             warn!(
@@ -1024,7 +1060,8 @@ pub(crate) async fn resolve_rigged_body(
                 WARDROBE_COLLECTION, rig.avatar
             );
             rig.resolved = None;
-            return;
+            report.body_error = Some(format!("wardrobe fetch failed: {err:?}"));
+            return report;
         }
     };
     let mut attachments = Vec::new();
@@ -1034,11 +1071,22 @@ pub(crate) async fn resolve_rigged_body(
                 rkey: rkey.clone(),
                 record,
             }),
-            Ok(None) => warn!("attachment record {rkey} not found for {did} — prop skipped"),
-            Err(err) => warn!("attachment fetch {rkey} failed for {did}: {err:?} — prop skipped"),
+            Ok(None) => {
+                warn!("attachment record {rkey} not found for {did} — prop skipped");
+                report
+                    .skipped
+                    .push((rkey.clone(), String::from("record not found")));
+            }
+            Err(err) => {
+                warn!("attachment fetch {rkey} failed for {did}: {err:?} — prop skipped");
+                report
+                    .skipped
+                    .push((rkey.clone(), format!("fetch failed: {err:?}")));
+            }
         }
     }
     rig.resolved = Some(ResolvedRig { body, attachments });
+    report
 }
 
 #[cfg(test)]

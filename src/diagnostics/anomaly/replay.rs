@@ -320,6 +320,7 @@ mod tests {
                 "net.relay_connection_rejected",
                 "net.signal_glare_suspected",
                 "net.silent_decode_failure",
+                "net.wardrobe_unresolved",
                 "offload.ambient_bake_stall",
                 "offload.task_never_resolves",
             ]

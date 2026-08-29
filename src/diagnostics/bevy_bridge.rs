@@ -40,6 +40,12 @@ impl Plugin for MetricsPlugin {
         registry.preseed(names::ALL);
         app.insert_resource(registry);
 
+        // Per-frame, in `Last`: a hitch is a single long frame, and the 1 Hz
+        // scrape below aliases it away (#1144). This folds every frame's delta
+        // into a running max the scrape then publishes and resets.
+        app.init_resource::<FrameHitches>();
+        app.add_systems(Last, fold_frame_hitches);
+
         app.add_systems(
             Update,
             (
@@ -110,12 +116,61 @@ struct AssetStores<'w> {
 /// Scrape the Bevy diagnostics + game asset/collider counts into the registry.
 /// Runs at 1 Hz. Reads `smoothed()` (falling back to the raw `value()`) so the
 /// gauges are stable rather than per-frame-noisy.
+/// The worst frame seen since the last scrape, and every frame that ran long.
+///
+/// Accumulated per frame because the thing being measured IS a single frame.
+/// The 1 Hz scrape's `FrameTimeDiagnosticsPlugin::FRAME_TIME` is an EMA with a
+/// ~16.5 ms time constant, so it has forgotten a 500 ms stall by the time the
+/// next scrape lands, and `runtime.frame_time_spike` — which reads that one
+/// sample — only ever fired on sustained load. The suite's stated purpose is
+/// catching jank on wasm, where the hitch sources that matter now (a
+/// rigged-body install, a world-compile slice, a texture upload, an egui panel
+/// rebuild after the 0.19 train) are all sub-second events.
+#[derive(Resource, Default)]
+pub struct FrameHitches {
+    /// Longest frame since the last scrape, in ms.
+    max_ms: f64,
+    /// Frames over [`FRAME_HITCH_MS`](crate::config::diagnostics::FRAME_HITCH_MS)
+    /// since the last scrape, in ms, oldest first.
+    hitches: Vec<f64>,
+}
+
+impl FrameHitches {
+    /// Fold one frame in.
+    fn observe(&mut self, ms: f64) {
+        self.max_ms = self.max_ms.max(ms);
+        if ms > crate::config::diagnostics::FRAME_HITCH_MS {
+            // Bounded: a session that stalls every frame must not grow this
+            // between two scrapes. Keeping the WORST is what a histogram of
+            // hitches is for; `max_ms` is unaffected either way.
+            const MAX_HELD: usize = 64;
+            if self.hitches.len() < MAX_HELD {
+                self.hitches.push(ms);
+            }
+        }
+    }
+
+    /// Publish and reset. Returns the max so the caller can gauge it.
+    fn drain_into(&mut self, reg: &mut MetricsRegistry) -> f64 {
+        for ms in self.hitches.drain(..) {
+            reg.observe_hist(names::RUNTIME_FRAME_HITCH_MS, ms);
+        }
+        std::mem::replace(&mut self.max_ms, 0.0)
+    }
+}
+
+/// `Last`-schedule fold of this frame's delta into [`FrameHitches`].
+fn fold_frame_hitches(time: Res<Time>, mut hitches: ResMut<FrameHitches>) {
+    hitches.observe(time.delta_secs_f64() * 1000.0);
+}
+
 fn scrape_bevy_diagnostics(
     store: Res<DiagnosticsStore>,
     assets: AssetStores<'_>,
     colliders: Query<(), With<avian3d::prelude::Collider>>,
     caches: CacheGauges<'_>,
     mut reg: ResMut<MetricsRegistry>,
+    mut hitches: ResMut<FrameHitches>,
     // Last-seen full-rebuild counter, for the per-rebuild asset marks below.
     mut last_rebuild_seen: Local<u64>,
 ) {
@@ -128,6 +183,11 @@ fn scrape_bevy_diagnostics(
     if let Some(v) = read(&FrameTimeDiagnosticsPlugin::FRAME_TIME) {
         reg.observe_gauge(names::RUNTIME_FRAME_TIME_MS, v);
     }
+    // The per-frame fold (#1144), published once per scrape and reset. The
+    // gauge is always written, including the healthy 16 ms case, so the rule
+    // below reads a current value rather than the last bad one.
+    let max_ms = hitches.drain_into(&mut reg);
+    reg.observe_gauge(names::RUNTIME_FRAME_TIME_MAX_MS, max_ms);
     if let Some(v) = read(&FrameTimeDiagnosticsPlugin::FPS) {
         reg.observe_gauge(names::RUNTIME_FPS, v);
     }

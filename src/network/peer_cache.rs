@@ -127,9 +127,16 @@ pub(super) struct PeerRigResolveTask {
     peer_id: PeerId,
     /// The peer this resolves for, so a failure can record its backoff.
     peer_entity: Entity,
+    /// The identity whose records these are — carried so the landing site can
+    /// name it in `WardrobeResolved` / `AttachmentFetchFailed` (#1144) without
+    /// re-reading the peer, which may have disconnected by then.
+    did: String,
     avatar_rkey: String,
     attachment_rkeys: Vec<String>,
-    task: bevy::tasks::Task<Option<crate::pds::avatar::ResolvedRig>>,
+    task: bevy::tasks::Task<(
+        Option<crate::pds::avatar::ResolvedRig>,
+        crate::pds::avatar::wardrobe::ResolveReport,
+    )>,
 }
 
 /// A reference set that failed to resolve, and when it may be tried again
@@ -272,23 +279,41 @@ pub(super) fn spawn_peer_rig_resolutions(
         let attachment_rkeys = rig.attachments.clone();
         let (rkey_for_task, attachments_for_task) = (avatar_rkey.clone(), attachment_rkeys.clone());
         let pool = bevy::tasks::IoTaskPool::get();
+        let did_for_event = did.clone();
         let task = pool.spawn(async move {
             let fut = async {
                 let client = config::http::default_client();
-                let pds = pds::xrpc::resolve_pds(&client, &did).await?;
+                let Some(pds) = pds::xrpc::resolve_pds(&client, &did).await else {
+                    return (
+                        None,
+                        pds::avatar::wardrobe::ResolveReport::aborted("PDS did not resolve"),
+                    );
+                };
                 let mut rig = crate::pds::avatar::RiggedBody {
                     avatar: rkey_for_task,
                     attachments: attachments_for_task,
                     resolved: None,
                 };
-                pds::avatar::wardrobe::resolve_rigged_body(&client, &pds, &did, &mut rig).await;
-                rig.resolved
+                let report =
+                    pds::avatar::wardrobe::resolve_rigged_body(&client, &pds, &did, &mut rig).await;
+                (rig.resolved, report)
             };
-            crate::config::http::run_or(fut, None).await
+            // The report travels with the resolution so the landing site can
+            // say what was skipped and why (#1144) — a `None` alone cannot
+            // distinguish a deleted wardrobe record from a timeout.
+            crate::config::http::run_or(
+                fut,
+                (
+                    None,
+                    pds::avatar::wardrobe::ResolveReport::aborted("request timed out"),
+                ),
+            )
+            .await
         });
         commands.spawn(PeerRigResolveTask {
             peer_id: peer.peer_id,
             peer_entity,
+            did: did_for_event,
             avatar_rkey,
             attachment_rkeys,
             task,
@@ -309,15 +334,57 @@ pub(super) fn poll_peer_rig_resolutions(
     mut tasks: Query<(Entity, &mut PeerRigResolveTask)>,
     mut peers: Query<(&mut RemotePeer, Option<&PeerRigResolveBackoff>)>,
     time: Res<Time>,
+    mut session_log: ResMut<SessionLog>,
+    mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
 ) {
     let now = time.elapsed_secs_f64();
     for (entity, mut task) in tasks.iter_mut() {
-        let Some(result) =
+        let Some((result, report)) =
             futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
         else {
             continue;
         };
         commands.entity(entity).despawn();
+
+        // Report the outcome before acting on it (#1144). This chain is N+2
+        // records per peer and, since gifting made attachment records
+        // cross-owner, the one most likely to fail partially — yet it used to
+        // leave nothing behind but console `warn!` lines, so "why is Bob a
+        // bare chassis for me but not for Alice" was unanswerable from a
+        // captured log.
+        let requested = task.attachment_rkeys.len() as u32;
+        let installed = result
+            .as_ref()
+            .map(|r| r.attachments.len() as u32)
+            .unwrap_or(0);
+        session_log.record(
+            now,
+            if result.is_some() {
+                crate::diagnostics::event::Severity::Info
+            } else {
+                crate::diagnostics::event::Severity::Warn
+            },
+            EventPayload::WardrobeResolved {
+                did: task.did.clone(),
+                requested,
+                resolved: installed,
+                body_ok: result.is_some(),
+            },
+        );
+        if let Some(reason) = &report.body_error {
+            debug!("wardrobe unresolved for {}: {reason}", task.did);
+        }
+        for (rkey, reason) in &report.skipped {
+            crate::diagnostics::samplers::attachment_fetch_failed(&mut metrics);
+            session_log.warn(
+                now,
+                EventPayload::AttachmentFetchFailed {
+                    did: task.did.clone(),
+                    rkey: rkey.clone(),
+                    reason: reason.clone(),
+                },
+            );
+        }
         let Some(resolved) = result else {
             // Nothing resolved (deleted wardrobe record, transport failure,
             // or a body the owner has not published yet): the peer keeps

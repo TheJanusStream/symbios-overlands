@@ -31,7 +31,10 @@ pub(super) fn session_line(log: &ParsedLog) -> String {
     let did = info
         .and_then(|i| i.session_did.clone().or_else(|| i.boot_target_did.clone()))
         .unwrap_or_else(|| "—".to_string());
-    let exit = session_end(events).unwrap_or("— (no SessionEnd)");
+    let exit = match session_end(events) {
+        Some(Exit::Clean(reason)) | Some(Exit::Hook { reason, .. }) => reason,
+        None => "— (no SessionEnd)",
+    };
     let unp = if log.unparseable > 0 {
         format!(", {} unparseable", log.unparseable)
     } else {

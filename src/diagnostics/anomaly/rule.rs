@@ -96,6 +96,12 @@ pub struct LiveCtx<'a> {
     /// in-game vanish. Maintained by the tick system, reset each time the
     /// loading gate opens.
     pub colliders_seen_ingame: bool,
+    /// The longest-waiting in-flight offload job and its age in seconds
+    /// (#1143), or `None` when nothing is dispatched. Fed from
+    /// [`OffloadWatch`](crate::diagnostics::offload_watch::OffloadWatch) so
+    /// the rule stays pure over its inputs rather than reaching into the
+    /// process-global census.
+    pub oldest_pending_job: Option<(&'a str, f64)>,
 }
 
 /// A diagnostic invariant. Implement [`eval`](Rule::eval) for live detection
@@ -180,6 +186,7 @@ mod tests {
             orphan_avatar_count: 0,
             respawns_recent: 0,
             colliders_seen_ingame: false,
+            oldest_pending_job: None,
         };
         assert_eq!(toy.eval(&cx), Some(Verdict::violated("12 entities")));
 

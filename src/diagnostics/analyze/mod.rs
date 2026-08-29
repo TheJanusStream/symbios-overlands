@@ -119,13 +119,27 @@ pub fn report_with(path: &str, log: &ParsedLog, filters: &Filters) -> String {
     );
 
     match session_end(full) {
-        Some(reason) => {
+        Some(Exit::Clean(reason)) => {
             let _ = writeln!(s, "exit:       {reason}");
         }
+        Some(Exit::Hook { reason, crashed }) => {
+            let note = if crashed {
+                "   (crash marker — the panic hook wrote this, not the app)"
+            } else {
+                "   (tab closed — written by the pagehide hook)"
+            };
+            let _ = writeln!(s, "exit:       {reason}{note}");
+        }
+        // The escalation case (#1145). Both hooks are best-effort but cheap
+        // and synchronous, so their ABSENCE is evidence: the process died
+        // without running either — a wasm OOM trap, a browser kill, or a
+        // truncated capture. This used to be what a normal tab close looked
+        // like too, which made the distinction unusable.
         None => {
             let _ = writeln!(
                 s,
-                "exit:       — no SessionEnd record (crash or truncated log)"
+                "exit:       — no terminal record: died without running a shutdown \
+                 hook (OOM trap, kill, or truncated log)"
             );
         }
     }

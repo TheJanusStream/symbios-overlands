@@ -106,21 +106,33 @@ impl SessionLog {
         // never lose a line from the on-disk file. The serialize is skipped
         // entirely when the sink is disabled (tests / wasm / SYMBIOS_DIAG=0),
         // where the ring is the only store.
-        if !matches!(self.sink, Sink::Disabled)
+        // Serialize when there is a durable sink to append to, and always on
+        // wasm — there the crash tail (#1145) is the only capture, so its
+        // rolling NDJSON store needs the line whether or not a sink exists.
+        // One serialize per event either way: the wasm tail used to be rebuilt
+        // from the whole ring on a 5 s timer instead.
+        let has_sink = !matches!(self.sink, Sink::Disabled);
+        if (has_sink || cfg!(target_arch = "wasm32"))
             && let Ok(line) = serde_json::to_string(&ev)
         {
-            self.sink.append_line(&line);
-            // Mirror into the process-global panic shadow so a crash can dump
-            // the recent tail the BufWriter hasn't flushed (no-op on wasm).
-            // High-frequency file-only telemetry (the 1 Hz `MetricsSnapshot`)
-            // goes into an overwrite slot instead of the ring, so it can't evict
-            // real pre-crash events (#633) while its latest vitals still dump.
+            if has_sink {
+                self.sink.append_line(&line);
+                self.since_flush += 1;
+            }
+            // Mirror into the process-global shadow so a hook can write the
+            // recent tail the BufWriter (native) or the persist timer (wasm)
+            // hasn't stored. High-frequency file-only telemetry (the 1 Hz
+            // `MetricsSnapshot`) goes into an overwrite slot on native so it
+            // can't evict real pre-crash events (#633) while its latest vitals
+            // still dump.
             if file_only {
                 crate::diagnostics::panic::shadow_push_snapshot(&line);
             } else {
                 crate::diagnostics::panic::shadow_push(&line);
             }
-            self.since_flush += 1;
+            // The clock is unreachable from a hook, so the shadow keeps the
+            // last stamp it saw and a terminal marker borrows it (#1142).
+            crate::diagnostics::panic::note_timestamp(t_mono_secs);
         }
         if to_ring {
             self.ring.push_back(ev);

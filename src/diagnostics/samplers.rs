@@ -64,6 +64,11 @@ pub fn avatar_fetch_failed(m: &mut MetricsRegistry) {
     m.incr(names::NET_AVATAR_FETCH_FAIL_COUNT);
 }
 
+/// One worn prop was skipped while resolving a peer's rigged body (#1144).
+pub fn attachment_fetch_failed(m: &mut MetricsRegistry) {
+    m.incr(names::NET_ATTACHMENT_FETCH_FAIL_COUNT);
+}
+
 /// The local user accepted an incoming item offer.
 pub fn offer_accepted(m: &mut MetricsRegistry) {
     m.incr(names::NET_OFFER_ACCEPTED_COUNT);

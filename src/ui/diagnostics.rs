@@ -585,6 +585,11 @@ fn render_health_tab(
                         c(names::NET_AVATAR_FETCH_FAIL_COUNT),
                         names::NET_AVATAR_FETCH_FAIL_COUNT,
                     ),
+                    (
+                        "Worn props failed",
+                        c(names::NET_ATTACHMENT_FETCH_FAIL_COUNT),
+                        names::NET_ATTACHMENT_FETCH_FAIL_COUNT,
+                    ),
                 ],
             );
             health_card(

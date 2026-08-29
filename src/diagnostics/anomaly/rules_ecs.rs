@@ -27,6 +27,7 @@ pub fn register_ecs_rules(reg: &mut InvariantRegistry) {
     reg.register(RespawnThrashing);
     reg.register(OrphanAvatarVisual);
     reg.register(FrameTimeSpike);
+    reg.register(FrameHitch);
     reg.register(LoopingVoicesOverload);
     reg.register(WasmMemoryHigh);
     reg.register(WasmMemoryCritical);
@@ -467,6 +468,36 @@ impl Rule for FrameTimeSpike {
     }
 }
 
+// --- FrameHitch --------------------------------------------------------------
+struct FrameHitch;
+const FRAME_HITCH: RuleHeader = RuleHeader {
+    id: "runtime.frame_hitch",
+    subsystem: Subsystem::Runtime,
+    severity: Severity::Warn,
+    debounce: DebouncePolicy::Interval(10.0),
+    description: "an individual frame ran long enough to be felt as a freeze",
+    when_state: None,
+};
+impl Rule for FrameHitch {
+    fn header(&self) -> &RuleHeader {
+        &FRAME_HITCH
+    }
+    /// The isolated-stall companion to [`FrameTimeSpike`], which is a
+    /// SUSTAINED-load rule and stays one (#1144). A 1 Hz read of a ~16.5 ms
+    /// EMA cannot register a 500 ms freeze — by the next scrape the average
+    /// has forgotten it — so the two questions need two rules over two
+    /// metrics: "is the frame rate bad right now" and "did any single frame
+    /// hang".
+    fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
+        let ms = gauge_last(cx, names::RUNTIME_FRAME_TIME_MAX_MS)?;
+        Some(if ms > crate::config::diagnostics::FRAME_HITCH_ALERT_MS {
+            Verdict::violated(format!("worst frame {ms:.0}ms in the last second"))
+        } else {
+            Verdict::Clear
+        })
+    }
+}
+
 // --- LoopingVoicesOverload ---------------------------------------------------
 /// Live looping spatial voices above this is audio overload (#802/#837):
 /// every voice is a per-frame spatialise-and-mix, and past this count the
@@ -587,6 +618,7 @@ mod tests {
             orphan_avatar_count: 0,
             respawns_recent: 0,
             colliders_seen_ingame: false,
+            oldest_pending_job: None,
         }
     }
 

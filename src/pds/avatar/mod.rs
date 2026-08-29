@@ -245,7 +245,10 @@ pub async fn fetch_avatar_record(
         return fallback_from_profile(client, &pds, did).await;
     }
     if let Some(rig) = record.body.rigged_mut() {
-        wardrobe::resolve_rigged_body(client, &pds, did, rig).await;
+        // The local user's own body: a partial resolve shows up in the editor,
+        // so the report is not worth an event here. It is the PEER path that
+        // needed one (#1144).
+        let _ = wardrobe::resolve_rigged_body(client, &pds, did, rig).await;
     }
     Ok(Some(record))
 }
@@ -269,7 +272,7 @@ async fn fallback_from_profile(
     };
     let mut record = AvatarRecord::wearing(rkey);
     if let Some(rig) = record.body.rigged_mut() {
-        wardrobe::resolve_rigged_body(client, pds, did, rig).await;
+        let _ = wardrobe::resolve_rigged_body(client, pds, did, rig).await;
         if rig.resolved.is_none() {
             return Ok(None);
         }

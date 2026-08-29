@@ -46,6 +46,7 @@ pub mod crash_log;
 pub mod event;
 pub mod log;
 pub mod names;
+pub mod offload_watch;
 pub mod panic;
 pub mod plugin;
 pub mod registry;

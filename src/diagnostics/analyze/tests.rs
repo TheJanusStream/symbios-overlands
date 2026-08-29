@@ -14,6 +14,54 @@ fn ev(t: f64, sev: Severity, payload: EventPayload) -> SessionEvent {
     SessionEvent::new(0, t, Some(1_700_000_000_000), sev, payload)
 }
 
+/// The panic hook's synthetic crash marker: `seq = CRASH_MARKER_SEQ`, and —
+/// as every panic file written before #1142 has it — `t_mono_secs = 0.0`.
+fn crash_marker(reason: &str) -> SessionEvent {
+    SessionEvent::new(
+        crate::diagnostics::event::CRASH_MARKER_SEQ,
+        0.0,
+        Some(1_700_000_000_000),
+        Severity::Critical,
+        EventPayload::SessionEnd {
+            reason: reason.into(),
+        },
+    )
+}
+
+/// The wasm `pagehide` hook's terminal record: a clean tab close.
+fn close_marker() -> SessionEvent {
+    SessionEvent::new(
+        crate::diagnostics::event::CLOSE_MARKER_SEQ,
+        95.0,
+        Some(1_700_000_000_000),
+        Severity::Critical,
+        EventPayload::SessionEnd {
+            reason: "pagehide".into(),
+        },
+    )
+}
+
+/// A panic-shaped log: a real session that ran for 90 s with an offload job
+/// kicked at 10 s and never answered, then the zero-stamped crash marker.
+/// This is the artefact the owner hands over after a native crash.
+fn panic_shaped_log() -> ParsedLog {
+    ParsedLog {
+        events: vec![
+            ev(0.0, Severity::Info, startup_info(Some("did:plc:alice"))),
+            ev(
+                10.0,
+                Severity::Info,
+                EventPayload::OffloadJobStarted {
+                    job: "heightmap".into(),
+                },
+            ),
+            ev(90.0, Severity::Info, EventPayload::LoadingPhaseStarted),
+            crash_marker("panic at src/x.rs:42: boom"),
+        ],
+        unparseable: 0,
+    }
+}
+
 fn startup_info(session_did: Option<&str>) -> EventPayload {
     EventPayload::StartupSnapshot(Box::new(StartupInfo {
         phase: if session_did.is_some() {
@@ -110,13 +158,14 @@ fn report_tallies_severities_and_flags_missing_exit() {
                     detail: "200s".into(),
                 },
             ),
-            // No SessionEnd → torn/crashed log.
+            // No SessionEnd → the process died without running a shutdown
+            // hook (#1145): an OOM trap, a kill, or a torn capture.
         ],
         unparseable: 2,
     };
     let r = report("crash.jsonl", &parsed);
     assert!(r.contains("1 critical, 1 warning"), "verdict tally: {r}");
-    assert!(r.contains("no SessionEnd record"));
+    assert!(r.contains("died without running a shutdown hook"), "{r}");
     assert!(r.contains("2 unparseable"));
 }
 
@@ -1005,4 +1054,139 @@ fn timeline_shows_avatar_reseed() {
     assert!(r.contains("avatar reseeded (seed 7)"), "{r}");
     // Counts under Loading/Generation, alongside region-regen events.
     assert!(r.contains("Generation 1"), "{r}");
+}
+
+/// #1142. The panic hook has no `World`, so it stamped the crash marker
+/// `t_mono_secs = 0.0`. `duration_secs` was last-minus-first, so the report
+/// header for the one artefact handed over after a crash read a NEGATIVE
+/// session length — and the same zero fed `rules::last_ts`, which every
+/// "started but never finished" arm subtracts from, so `LoadingGateStall`,
+/// `AmbientBakeStall`, `TaskNeverResolves` and `GlareSuspected` all quietly
+/// stopped detecting anything on exactly that log. Reading "nothing was
+/// pending" off a crash that a hung job most likely caused is the opposite
+/// of the truth.
+///
+/// Against the old code this asserts -90.0s and an empty findings list.
+#[test]
+fn a_panic_file_reports_its_real_duration_and_still_sees_a_hung_job() {
+    let parsed = panic_shaped_log();
+
+    assert_eq!(
+        duration_secs(&parsed.events),
+        90.0,
+        "the session ran for 90s before the fault, not minus ninety"
+    );
+
+    let findings = crate::diagnostics::anomaly::replay::replay_findings(&parsed.events);
+    assert!(
+        findings
+            .iter()
+            .any(|f| f.id == "offload.task_never_resolves"),
+        "a job kicked at 10s and never answered by 90s is the story the file is \
+         there to tell; got {findings:?}"
+    );
+
+    let r = report("session-panic-1234-1700000000000.jsonl", &parsed);
+    assert!(r.contains("duration:   90.0s"), "{r}");
+    assert!(
+        r.contains("exit:       panic at src/x.rs:42: boom"),
+        "the marker still names the fault: {r}"
+    );
+    assert!(
+        r.contains("crash marker — the panic hook wrote this"),
+        "and a crash must not read like a clean shutdown: {r}"
+    );
+}
+
+/// The marker is identified by its sentinel `seq`, not by being last — a
+/// truncated file can end anywhere, and a reader that keys on position would
+/// mistake a real trailing event for the marker.
+#[test]
+fn the_crash_marker_is_recognised_by_its_sentinel_seq() {
+    let marker = crash_marker("panic: boom");
+    assert!(marker.is_crash_marker());
+    assert!(
+        !ev(1.0, Severity::Info, EventPayload::LoadingPhaseStarted).is_crash_marker(),
+        "a real event never claims the sentinel"
+    );
+}
+
+/// #1145. On wasm all three exits looked identical: `flush_on_app_exit` runs
+/// on Bevy's `AppExit`, which a tab close never sends, and the only panic
+/// hook was `console_error_panic_hook` (console, nothing persisted). So every
+/// recovered tail ended without a `SessionEnd` and the report said
+/// "crash or truncated log" for a user who simply closed the tab — while a
+/// real OOM trap said exactly the same thing.
+///
+/// The three now read apart, and the case worth escalating is the one with NO
+/// record: both hooks are cheap and synchronous, so their absence is
+/// evidence.
+#[test]
+fn the_three_wasm_exits_are_told_apart() {
+    let base = || {
+        vec![
+            ev(0.0, Severity::Info, startup_info(Some("did:plc:alice"))),
+            ev(90.0, Severity::Info, EventPayload::LoadingPhaseStarted),
+        ]
+    };
+
+    let mut closed = base();
+    closed.push(close_marker());
+    let r = report(
+        "wasm.jsonl",
+        &ParsedLog {
+            events: closed,
+            unparseable: 0,
+        },
+    );
+    assert!(r.contains("exit:       pagehide"), "{r}");
+    assert!(r.contains("tab closed"), "a clean close must say so: {r}");
+    assert!(!r.contains("crash marker"), "{r}");
+
+    let mut panicked = base();
+    panicked.push(crash_marker("panic at src/x.rs:42: boom"));
+    let r = report(
+        "wasm.jsonl",
+        &ParsedLog {
+            events: panicked,
+            unparseable: 0,
+        },
+    );
+    assert!(r.contains("crash marker"), "{r}");
+    assert!(!r.contains("tab closed"), "{r}");
+
+    // Neither hook ran: the OOM trap the wasm crash tail exists for.
+    let r = report(
+        "wasm.jsonl",
+        &ParsedLog {
+            events: base(),
+            unparseable: 0,
+        },
+    );
+    assert!(
+        r.contains("died without running a shutdown hook"),
+        "no terminal record is the escalation case, not the default: {r}"
+    );
+
+    // And an exit the app itself recorded is neither of the hook cases.
+    let mut clean = base();
+    clean.push(ev(
+        91.0,
+        Severity::Info,
+        EventPayload::SessionEnd {
+            reason: "AppExit".into(),
+        },
+    ));
+    let r = report(
+        "native.jsonl",
+        &ParsedLog {
+            events: clean,
+            unparseable: 0,
+        },
+    );
+    assert!(r.contains("exit:       AppExit"), "{r}");
+    assert!(
+        !r.contains("crash marker") && !r.contains("tab closed"),
+        "{r}"
+    );
 }

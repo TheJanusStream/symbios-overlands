@@ -52,10 +52,31 @@ pub(super) fn startup(events: &[SessionEvent]) -> Option<&StartupInfo> {
     boot
 }
 
-/// The reason of the last `SessionEnd` record, if the session ended cleanly.
-pub(super) fn session_end(events: &[SessionEvent]) -> Option<&str> {
+/// How a session ended, as far as the capture can tell (#1142, #1145).
+///
+/// Three outcomes, and the difference between them is the whole reason the
+/// terminal record exists. A `SessionEnd` the app recorded means the process
+/// ran its own teardown. A marker means a shutdown hook wrote the last thing
+/// anyone will know about the run. And no record at all — [`session_end`]'s
+/// `None` — means neither got to run, which on wasm is the OOM trap the crash
+/// tail was built for and is the case worth escalating.
+pub(super) enum Exit<'a> {
+    /// The running app recorded it.
+    Clean(&'a str),
+    /// A shutdown hook wrote it; `crashed` distinguishes the panic hook from
+    /// a clean tab close.
+    Hook { reason: &'a str, crashed: bool },
+}
+
+/// The last `SessionEnd` record and who wrote it. `None` means the capture
+/// carries no terminal record at all.
+pub(super) fn session_end(events: &[SessionEvent]) -> Option<Exit<'_>> {
     events.iter().rev().find_map(|e| match &e.payload {
-        EventPayload::SessionEnd { reason } => Some(reason.as_str()),
+        EventPayload::SessionEnd { reason } if e.is_hook_marker() => Some(Exit::Hook {
+            reason: reason.as_str(),
+            crashed: e.is_crash_marker(),
+        }),
+        EventPayload::SessionEnd { reason } => Some(Exit::Clean(reason.as_str())),
         _ => None,
     })
 }
@@ -74,11 +95,13 @@ pub(super) fn severity_tally(events: &[SessionEvent]) -> [usize; 3] {
     t
 }
 
-/// Session wall-clock span: last minus first `t_mono_secs` (session-relative,
-/// so the first event is ~0 and this is effectively the session length).
+/// Session wall-clock span (session-relative, so the first event is ~0 and
+/// this is effectively the session length).
+///
+/// Widest minus narrowest rather than last minus first: a panic file's crash
+/// marker is appended last and older builds stamped it `0.0`, which made this
+/// report a NEGATIVE duration in the header (#1142). See
+/// [`crate::diagnostics::event::span_secs`].
 pub(super) fn duration_secs(events: &[SessionEvent]) -> f64 {
-    match (events.first(), events.last()) {
-        (Some(a), Some(b)) => b.t_mono_secs - a.t_mono_secs,
-        _ => 0.0,
-    }
+    crate::diagnostics::event::span_secs(events)
 }

@@ -143,9 +143,20 @@ pub(super) fn handle_portal_interaction(
 /// `default_landing` — see [`TravelingTo`].
 pub(crate) fn begin_portal_travel(
     commands: &mut Commands,
+    session_log: &mut SessionLog,
+    now: f64,
     target_did: String,
     target_pos: Option<Vec3>,
 ) {
+    // The `[Timeline]` has rendered "portal → did" since the analyzer was
+    // written, and docs/diagnostics.md promises it — but nothing emitted it,
+    // so a session with several hops read as a session with none (#1144).
+    session_log.info(
+        now,
+        EventPayload::PortalTravelInitiated {
+            target_did: target_did.clone(),
+        },
+    );
     commands.insert_resource(TravelingTo {
         target_did: target_did.clone(),
         target_pos,
@@ -400,6 +411,12 @@ pub(super) fn poll_portal_travel_tasks(
             ),
         );
         commands.remove_resource::<TravelingTo>();
+        session_log.info(
+            elapsed,
+            EventPayload::PortalTravelCompleted {
+                target_did: travel_data.target_did.clone(),
+            },
+        );
         // Engage the post-arrival cooldown so a portal at the
         // destination whose collider envelops the spawn position can't
         // immediately yank the player back through.

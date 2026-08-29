@@ -25,13 +25,18 @@ pub fn register_builtins(reg: &mut InvariantRegistry) {
     reg.register(SilentDecodeFailure);
     reg.register(GlareSuspected);
     reg.register(RelayConnectionRejected);
+    reg.register(WardrobeUnresolved);
     // D-3 ECS-state (live-only) rules.
     super::rules_ecs::register_ecs_rules(reg);
 }
 
-/// The last event's timestamp (session end), for "never resolved" checks.
+/// The last timestamp the log covers, for "never resolved" checks.
+///
+/// The maximum, not the final element — see
+/// [`crate::diagnostics::event::last_ts`] for why the distinction is what
+/// keeps these rules alive on a panic file (#1142).
 fn last_ts(events: &[SessionEvent]) -> f64 {
-    events.last().map(|e| e.t_mono_secs).unwrap_or(0.0)
+    crate::diagnostics::event::last_ts(events)
 }
 
 /// Durations of unresolved / over-budget start→end spans: for each event
@@ -62,6 +67,44 @@ fn stall_durations(
         }
     }
     out
+}
+
+// --- WardrobeUnresolved ------------------------------------------------------
+struct WardrobeUnresolved;
+const WARDROBE_UNRESOLVED: RuleHeader = RuleHeader {
+    id: "net.wardrobe_unresolved",
+    subsystem: Subsystem::Network,
+    severity: Severity::Error,
+    debounce: DebouncePolicy::OncePerCondition,
+    description: "a peer's wardrobe record did not resolve — they stand as a bare chassis",
+    when_state: None,
+};
+impl Rule for WardrobeUnresolved {
+    fn header(&self) -> &RuleHeader {
+        &WARDROBE_UNRESOLVED
+    }
+    fn is_replayable(&self) -> bool {
+        true
+    }
+    /// Replay-only on purpose: the live signal is per-peer and arrives as a
+    /// discrete event, not as a gauge a 1 Hz tick could sample. The captured
+    /// log is also where the question is actually asked — "why was Bob a bare
+    /// chassis for me but not for Alice" is a post-mortem question (#1144).
+    fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
+        events
+            .iter()
+            .filter_map(|e| match &e.payload {
+                EventPayload::WardrobeResolved {
+                    did,
+                    body_ok: false,
+                    ..
+                } => Some(Verdict::violated(format!(
+                    "{did} resolved no wardrobe record — rendered as a bare chassis"
+                ))),
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 // --- LoadingGateStall -------------------------------------------------------
@@ -183,7 +226,7 @@ impl Rule for AmbientBakeStall {
 }
 
 // --- TaskNeverResolves (offload jobs, keyed by job name) --------------------
-const TASK_TIMEOUT_SECS: f64 = 60.0;
+use crate::diagnostics::offload_watch::TASK_TIMEOUT_SECS;
 
 struct TaskNeverResolves;
 const TASK_NEVER_RESOLVES: RuleHeader = RuleHeader {
@@ -200,6 +243,21 @@ impl Rule for TaskNeverResolves {
     }
     fn is_replayable(&self) -> bool {
         true
+    }
+    /// Live body added in #1143. Before it this rule was replay-only, and its
+    /// replay had nothing to fold either — `OffloadJobStarted` had no emit
+    /// site in the crate, so the one rule written for "a worker job never
+    /// answered" could not fire on any log, live or captured. The offload
+    /// census now feeds both.
+    fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
+        let (job, elapsed) = cx.oldest_pending_job?;
+        Some(if elapsed > TASK_TIMEOUT_SECS {
+            Verdict::violated(format!(
+                "job '{job}' in flight {elapsed:.0}s (> {TASK_TIMEOUT_SECS:.0}s)"
+            ))
+        } else {
+            Verdict::Clear
+        })
     }
     fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
         let last = last_ts(events);
@@ -524,6 +582,52 @@ mod tests {
         SessionEvent::new(0, t, None, Severity::Info, payload)
     }
 
+    /// #1143. The live half of the one rule written for "a worker job never
+    /// answered". Before the offload census it had no `eval` body at all, and
+    /// its replay body had nothing to fold either — `OffloadJobStarted` was a
+    /// schema variant with zero emit sites in the crate. The failure it exists
+    /// for is a wasm deploy whose `gen-worker.js` is stale or missing: every
+    /// job is dispatched, none ever answers, and the log reads HEALTHY.
+    #[test]
+    fn task_never_resolves_fires_live_on_a_job_that_stopped_answering() {
+        use crate::diagnostics::MetricsRegistry;
+
+        fn ctx<'a>(metrics: &'a MetricsRegistry, job: Option<(&'a str, f64)>) -> LiveCtx<'a> {
+            LiveCtx {
+                now_secs: 120.0,
+                state: AppState::InGame,
+                metrics,
+                loading_elapsed_secs: None,
+                ingame_elapsed_secs: Some(120.0),
+                player_y: None,
+                ground_y: None,
+                nan_body_count: 0,
+                orphan_avatar_count: 0,
+                respawns_recent: 0,
+                colliders_seen_ingame: false,
+                oldest_pending_job: job,
+            }
+        }
+        let metrics = MetricsRegistry::default();
+
+        let stuck = TaskNeverResolves
+            .eval(&ctx(
+                &metrics,
+                Some(("avatar_build", TASK_TIMEOUT_SECS + 30.0)),
+            ))
+            .expect("the rule has a live body now");
+        assert!(stuck.is_violated());
+
+        // A job still inside its budget, and a session with nothing
+        // dispatched, must both stay quiet — a watchdog that cries at every
+        // heightmap bake is one nobody reads.
+        assert_eq!(
+            TaskNeverResolves.eval(&ctx(&metrics, Some(("heightmap", 1.0)))),
+            Some(Verdict::Clear)
+        );
+        assert_eq!(TaskNeverResolves.eval(&ctx(&metrics, None)), None);
+    }
+
     #[test]
     fn gate_stall_replay_flags_a_long_gate() {
         let over = vec![
@@ -656,6 +760,7 @@ mod tests {
                 orphan_avatar_count: 0,
                 respawns_recent: 0,
                 colliders_seen_ingame: false,
+                oldest_pending_job: None,
             }
         }
 
@@ -738,6 +843,7 @@ mod tests {
                 orphan_avatar_count: 0,
                 respawns_recent: 0,
                 colliders_seen_ingame: false,
+                oldest_pending_job: None,
             }
         }
         let mut metrics = MetricsRegistry::default();

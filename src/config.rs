@@ -1088,6 +1088,18 @@ pub mod diagnostics {
     /// Env var — set to `0` to disable native session-log persistence entirely
     /// (tests / CI). The in-memory ring still works.
     pub const DISABLE_ENV: &str = "SYMBIOS_DIAG";
+
+    /// A frame longer than this is a hitch worth recording individually
+    /// (#1144). Six 60 Hz frames: long enough that ordinary scheduling jitter
+    /// and a heavy-but-normal frame stay out of the histogram, short enough to
+    /// catch the sub-second stalls that actually matter now — a rigged-body
+    /// install, a world-compile slice, a texture upload, an egui panel rebuild.
+    pub const FRAME_HITCH_MS: f64 = 100.0;
+
+    /// The worst frame in a scrape window past which `runtime.frame_hitch`
+    /// fires. Well above [`FRAME_HITCH_MS`]: one long frame is worth counting,
+    /// a quarter-second freeze is worth telling the user about.
+    pub const FRAME_HITCH_ALERT_MS: f64 = 250.0;
 }
 
 // ---------------------------------------------------------------------------

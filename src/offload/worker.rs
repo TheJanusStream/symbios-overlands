@@ -97,6 +97,20 @@ fn is_urgent(job: &GenJob) -> bool {
 
 /// Spawn a fresh gen-worker.
 ///
+/// **There is no error path here, and it cannot be given one from this crate**
+/// (#1143). A 404 or CSP refusal on `./gen-worker.js` surfaces as an `error`
+/// event on the underlying `web_sys::Worker`, which `gloo-worker` 0.6 keeps
+/// private: `WorkerBridge` holds it as `native_worker` and exposes only `send`
+/// and `fork`, and the `#[oneshot]` wrapper adds another layer over that.
+/// Attaching a listener would mean spawning the worker by hand via `web_sys`
+/// and re-implementing the bridge, which is out of proportion to the signal.
+///
+/// The symptom is covered instead: a worker that never answers leaves its job
+/// in the offload census, and
+/// [`sample_offload_census`](crate::diagnostics::offload_watch::sample_offload_census)
+/// emits `OffloadTaskTimeout` for it. The `WorkerSpawnFailed` variant remains
+/// unemitted — its delete-or-keep decision belongs to the dead-variant sweep.
+///
 /// `gloo-worker` defaults (`as_module = true`, `with_loader = false`) match a
 /// `wasm-bindgen --target web` build: it generates the worker bootstrap and
 /// imports `gen-worker.js` as an ES module. Messages use

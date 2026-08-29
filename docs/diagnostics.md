@@ -127,7 +127,7 @@ prints, in order:
 
 | Section | What it tells you |
 | --- | --- |
-| header | `session-id` / `did` / `build` (version·sha·arch·profile) / `duration` / `exit` reason (or a crash/truncation note). |
+| header | `session-id` / `did` / `build` (version·sha·arch·profile) / `duration` / `exit`. The exit line names who wrote the terminal record: the app itself, the panic hook (with the panic's location), or the wasm `pagehide` hook. No record at all means the process died without running either — an OOM trap, a kill, or a truncated capture. |
 | `[Verdict]` | `HEALTHY`, or the count of `warning` / `error` / `critical` events. |
 | `[Event Tallies]` | A `subsystem × severity` matrix + a by-category line — *where* the noise came from. The 1 Hz metric snapshots are excluded (and the count noted) so they don't bury the counts. |
 | `[Timeline]` | The milestone events (startup snapshots, loading gate, record fetches *and* PDS saves, heightmap/ambient/world-compile, avatar re-seeds, `→ InGame`, portals, segment resets, session end) at their timestamps. Capped at 60 rows with an explicit `… N more milestone(s)` line — never a silent truncation. |

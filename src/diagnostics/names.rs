@@ -20,6 +20,20 @@ use crate::diagnostics::registry::MetricKind;
 // ---- runtime health -------------------------------------------------------
 /// Smoothed frame time (ms), scraped from `FrameTimeDiagnosticsPlugin` at 1 Hz.
 pub const RUNTIME_FRAME_TIME_MS: &str = "runtime.frame_time.ms";
+/// Worst single frame observed since the last 1 Hz scrape, in ms (#1144).
+///
+/// The smoothed gauge above cannot see a hitch. Bevy 0.19's "smoothed" frame
+/// time is an EMA with a ~16.5 ms time constant, so it tracks roughly the last
+/// frame — and sampling it once a second catches a 500 ms stall only if the
+/// scrape happens to land in the very frame after it. A per-frame running max,
+/// published and reset on each scrape, catches the stall wherever in the
+/// second it fell.
+pub const RUNTIME_FRAME_TIME_MAX_MS: &str = "runtime.frame_time.max_ms";
+/// Distribution of individual frames that ran long (over
+/// [`crate::config::diagnostics::FRAME_HITCH_MS`]), in ms. A histogram rather
+/// than a counter because "one 900 ms stall" and "forty 110 ms stalls" are
+/// different problems.
+pub const RUNTIME_FRAME_HITCH_MS: &str = "runtime.frame_time.hitch_ms";
 /// Smoothed frames per second.
 pub const RUNTIME_FPS: &str = "runtime.fps";
 /// Live entity count (`EntityCountDiagnosticsPlugin`).
@@ -174,6 +188,12 @@ pub const NET_AVATAR_FETCH_LATENCY_MS: &str = "net.avatar_fetch.latency_ms";
 pub const NET_AVATAR_FETCH_SUCCESS_COUNT: &str = "net.avatar_fetch.success_count";
 /// Peer avatar fetches that errored.
 pub const NET_AVATAR_FETCH_FAIL_COUNT: &str = "net.avatar_fetch.fail_count";
+/// Worn props that could not be fetched while resolving a peer's rigged body
+/// (#1144). Distinct from the avatar-fetch failure above: that one counts the
+/// record, this one counts the N attachment records hanging off it — the
+/// chain gifting (#1108) made cross-owner and therefore the one most likely
+/// to fail partially.
+pub const NET_ATTACHMENT_FETCH_FAIL_COUNT: &str = "net.attachment_fetch.fail_count";
 /// Item offers the local user accepted.
 pub const NET_OFFER_ACCEPTED_COUNT: &str = "net.offer.accepted_count";
 /// Item offers the local user declined.
@@ -271,6 +291,8 @@ pub const AUDIO_VOICE_BAKE_BYTES: &str = "audio.voice_bake.bytes";
 pub const ALL: &[(&str, MetricKind)] = &[
     // runtime
     (RUNTIME_FRAME_TIME_MS, MetricKind::Gauge),
+    (RUNTIME_FRAME_TIME_MAX_MS, MetricKind::Gauge),
+    (RUNTIME_FRAME_HITCH_MS, MetricKind::Histogram),
     (RUNTIME_FPS, MetricKind::Gauge),
     (RUNTIME_ENTITY_COUNT, MetricKind::Gauge),
     (RUNTIME_MESH_HANDLE_COUNT, MetricKind::Gauge),
@@ -308,6 +330,7 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (NET_AVATAR_FETCH_LATENCY_MS, MetricKind::Histogram),
     (NET_AVATAR_FETCH_SUCCESS_COUNT, MetricKind::Counter),
     (NET_AVATAR_FETCH_FAIL_COUNT, MetricKind::Counter),
+    (NET_ATTACHMENT_FETCH_FAIL_COUNT, MetricKind::Counter),
     (NET_OFFER_ACCEPTED_COUNT, MetricKind::Counter),
     (NET_OFFER_DECLINED_COUNT, MetricKind::Counter),
     (NET_OFFER_AUTO_DECLINED_BUSY_COUNT, MetricKind::Counter),

@@ -173,11 +173,6 @@ pub enum EventPayload {
     // ---- Loading / state machine ------------------------------------------
     /// Entered `AppState::Loading`.
     LoadingPhaseStarted,
-    RecordFetchInitiated {
-        record: RecordKind,
-        did: String,
-        attempt: u32,
-    },
     RecordFetchRetrying {
         record: RecordKind,
         did: String,
@@ -223,20 +218,10 @@ pub enum EventPayload {
     RoomRecoveryBannerRaised {
         reason: String,
     },
-    HeightmapGenStarted {
-        seed: u64,
-    },
     HeightmapGenCompleted {
         duration_secs: f64,
         width: u32,
         height: u32,
-    },
-    SplatTexturesStarted {
-        layer_count: u32,
-    },
-    SplatTexturesCompleted {
-        layer_count: u32,
-        duration_secs: f64,
     },
     AmbientBakeStarted {
         variant: String,
@@ -247,9 +232,6 @@ pub enum EventPayload {
     },
     AmbientBakeFallback {
         reason: String,
-    },
-    WorldCompileStarted {
-        placement_count: u32,
     },
     WorldCompileCompleted {
         entity_count: u32,
@@ -271,10 +253,6 @@ pub enum EventPayload {
         duration_secs: f64,
         ok: bool,
     },
-    /// All nine loading-gate resources are present.
-    LoadingGateReady {
-        elapsed_secs: f64,
-    },
     /// Transitioned Loading → InGame.
     LoadingGateTransitionToInGame {
         elapsed_secs: f64,
@@ -282,17 +260,6 @@ pub enum EventPayload {
     LoadingGateWarning {
         stage: String,
         message: String,
-    },
-    LoadingGateTimeout {
-        stage: String,
-        elapsed_secs: f64,
-        expected_max_secs: f64,
-    },
-    LoginFeedFetchInitiated,
-    LoginFeedFetchCompleted {
-        post_count: u32,
-        duration_secs: f64,
-        success: bool,
     },
     AmbientSettleCompleted {
         settled_at_secs: f64,
@@ -326,24 +293,10 @@ pub enum EventPayload {
         peer: String,
         label: String,
     },
-    PeerIdentityVerified {
-        peer: String,
-        did: String,
-        handle: String,
-    },
     PeerIdentitySpoofRejected {
         peer: String,
         claimed_did: String,
         authenticated_did: String,
-    },
-    AvatarFetchStarted {
-        peer: String,
-        did: String,
-    },
-    AvatarFetchSucceeded {
-        peer: String,
-        did: String,
-        from_cache: bool,
     },
     AvatarFetchFailed {
         peer: String,
@@ -354,8 +307,22 @@ pub enum EventPayload {
         peer: String,
         reason: String,
     },
-    TransformSampleRejected {
-        peer: String,
+    /// One peer's rigged body finished resolving against its owner's PDS
+    /// (#1144): the wardrobe record plus `requested` attachment records, of
+    /// which `resolved` installed. `body_ok == false` means the peer is
+    /// standing as a bare chassis.
+    WardrobeResolved {
+        did: String,
+        requested: u32,
+        resolved: u32,
+        body_ok: bool,
+    },
+    /// One worn prop could not be fetched while resolving a peer's body
+    /// (#1144). Emitted per skipped rkey, so "the third of five props 5xx'd"
+    /// is answerable from a captured log.
+    AttachmentFetchFailed {
+        did: String,
+        rkey: String,
         reason: String,
     },
     RoomStateRejected {
@@ -387,9 +354,6 @@ pub enum EventPayload {
         sender_did: String,
         item_name: String,
     },
-    ItemOfferAutoDeclinedMuted {
-        offer_id: u64,
-    },
     ItemOfferAutoDeclinedBusy {
         offer_id: u64,
     },
@@ -403,10 +367,6 @@ pub enum EventPayload {
     ItemOfferRejected {
         offer_id: u64,
         reason: String,
-    },
-    ItemOfferDialogShown {
-        offer_id: u64,
-        item_name: String,
     },
     ItemOfferDialogAutoDeclinedTimeout {
         offer_id: u64,
@@ -429,10 +389,6 @@ pub enum EventPayload {
     SocialResonanceCompleted {
         peer: String,
         resonance: String,
-    },
-    SocialResonanceFailed {
-        peer: String,
-        error: String,
     },
     /// A reliable broadcast was refused before send because its serialized
     /// size exceeded [`crate::config::network::MAX_RELIABLE_PAYLOAD_BYTES`]
@@ -467,9 +423,6 @@ pub enum EventPayload {
     /// sequence across events is a `Vec` doubling caught red-handed.
     GiantAllocation {
         bytes: u64,
-    },
-    WorkerSpawnFailed {
-        reason: String,
     },
 
     // ---- Runtime health ----------------------------------------------------
@@ -523,43 +476,32 @@ impl EventPayload {
             | MetricsSnapshot(_) => Subsystem::Session,
 
             LoadingPhaseStarted
-            | RecordFetchInitiated { .. }
             | RecordFetchRetrying { .. }
             | RecordFetchCompleted { .. }
             | RecordWriteCompleted { .. }
             | RecordWriteFailed { .. }
             | RecordSizeMeasured { .. }
             | RoomRecoveryBannerRaised { .. }
-            | HeightmapGenStarted { .. }
             | HeightmapGenCompleted { .. }
-            | SplatTexturesStarted { .. }
-            | SplatTexturesCompleted { .. }
             | AmbientBakeStarted { .. }
             | AmbientBakeCompleted { .. }
             | AmbientBakeFallback { .. }
-            | WorldCompileStarted { .. }
             | WorldCompileCompleted { .. }
             | AvatarReseeded { .. }
             | RiggedBuildCompleted { .. }
-            | LoadingGateReady { .. }
             | LoadingGateTransitionToInGame { .. }
             | LoadingGateWarning { .. }
-            | LoadingGateTimeout { .. }
-            | LoginFeedFetchInitiated
-            | LoginFeedFetchCompleted { .. }
             | AmbientSettleCompleted { .. } => Subsystem::Loading,
 
             SocketPeerListReceived { .. }
             | RelayAuthRejected { .. }
             | PeerJoined { .. }
             | PeerLeft { .. }
-            | PeerIdentityVerified { .. }
             | PeerIdentitySpoofRejected { .. }
-            | AvatarFetchStarted { .. }
-            | AvatarFetchSucceeded { .. }
             | AvatarFetchFailed { .. }
+            | WardrobeResolved { .. }
+            | AttachmentFetchFailed { .. }
             | AvatarStateDecodeFailed { .. }
-            | TransformSampleRejected { .. }
             | RoomStateRejected { .. }
             | RoomStateDecodeFailed { .. }
             | RoomStateApplied
@@ -567,25 +509,21 @@ impl EventPayload {
             | ChatDroppedMuted { .. }
             | ItemOfferSent { .. }
             | ItemOfferReceived { .. }
-            | ItemOfferAutoDeclinedMuted { .. }
             | ItemOfferAutoDeclinedBusy { .. }
             | ItemOfferDecodeFailed { .. }
             | ItemOfferRejected { .. }
-            | ItemOfferDialogShown { .. }
             | ItemOfferDialogAutoDeclinedTimeout { .. }
             | ItemOfferUserResponded { .. }
             | ItemOfferResponseReceived { .. }
             | PendingOfferTimedOut { .. }
             | PeerMuteToggled { .. }
             | SocialResonanceCompleted { .. }
-            | SocialResonanceFailed { .. }
             | OutboundMessageOversize { .. } => Subsystem::Network,
 
             OffloadJobStarted { .. }
             | OffloadJobCompleted { .. }
             | OffloadJobFailed { .. }
-            | OffloadTaskTimeout { .. }
-            | WorkerSpawnFailed { .. } => Subsystem::Offload,
+            | OffloadTaskTimeout { .. } => Subsystem::Offload,
 
             RespawnTriggered { .. }
             | PhysicsBodyRebuilt { .. }
@@ -606,27 +544,18 @@ impl EventPayload {
             MetricsSnapshot(_) => Category::Snapshot,
 
             LoadingPhaseStarted
-            | LoadingGateReady { .. }
             | LoadingGateTransitionToInGame { .. }
             | LoadingGateWarning { .. }
-            | LoadingGateTimeout { .. }
             | AmbientSettleCompleted { .. } => Category::Lifecycle,
 
-            RecordFetchInitiated { .. }
-            | RecordFetchRetrying { .. }
+            RecordFetchRetrying { .. }
             | RecordFetchCompleted { .. }
             | RecordWriteCompleted { .. }
             | RecordWriteFailed { .. }
             | RecordSizeMeasured { .. }
-            | RoomRecoveryBannerRaised { .. }
-            | LoginFeedFetchInitiated
-            | LoginFeedFetchCompleted { .. } => Category::Fetch,
+            | RoomRecoveryBannerRaised { .. } => Category::Fetch,
 
-            HeightmapGenStarted { .. }
-            | HeightmapGenCompleted { .. }
-            | SplatTexturesStarted { .. }
-            | SplatTexturesCompleted { .. }
-            | WorldCompileStarted { .. }
+            HeightmapGenCompleted { .. }
             | WorldCompileCompleted { .. }
             | AvatarReseeded { .. }
             | RiggedBuildCompleted { .. } => Category::Generation,
@@ -639,16 +568,14 @@ impl EventPayload {
             | RelayAuthRejected { .. }
             | PeerJoined { .. }
             | PeerLeft { .. }
-            | PeerIdentityVerified { .. }
             | PeerIdentitySpoofRejected { .. }
-            | AvatarFetchStarted { .. }
-            | AvatarFetchSucceeded { .. }
             | AvatarFetchFailed { .. }
+            | WardrobeResolved { .. }
+            | AttachmentFetchFailed { .. }
             | AvatarStateDecodeFailed { .. }
             | PeerMuteToggled { .. } => Category::Peer,
 
-            TransformSampleRejected { .. }
-            | RoomStateRejected { .. }
+            RoomStateRejected { .. }
             | RoomStateDecodeFailed { .. }
             | RoomStateApplied
             | OutboundMessageOversize { .. } => Category::Transport,
@@ -657,23 +584,20 @@ impl EventPayload {
 
             ItemOfferSent { .. }
             | ItemOfferReceived { .. }
-            | ItemOfferAutoDeclinedMuted { .. }
             | ItemOfferAutoDeclinedBusy { .. }
             | ItemOfferDecodeFailed { .. }
             | ItemOfferRejected { .. }
-            | ItemOfferDialogShown { .. }
             | ItemOfferDialogAutoDeclinedTimeout { .. }
             | ItemOfferUserResponded { .. }
             | ItemOfferResponseReceived { .. }
             | PendingOfferTimedOut { .. } => Category::Offer,
 
-            SocialResonanceCompleted { .. } | SocialResonanceFailed { .. } => Category::Social,
+            SocialResonanceCompleted { .. } => Category::Social,
 
             OffloadJobStarted { .. }
             | OffloadJobCompleted { .. }
             | OffloadJobFailed { .. }
-            | OffloadTaskTimeout { .. }
-            | WorkerSpawnFailed { .. } => Category::Job,
+            | OffloadTaskTimeout { .. } => Category::Job,
 
             RespawnTriggered { .. } | PhysicsBodyRebuilt { .. } => Category::Physics,
 
@@ -712,11 +636,6 @@ impl EventPayload {
             ),
 
             LoadingPhaseStarted => "loading started".to_string(),
-            RecordFetchInitiated {
-                record, attempt, ..
-            } => {
-                format!("{record:?} fetch (attempt {attempt})")
-            }
             RecordFetchRetrying {
                 record,
                 attempt,
@@ -766,22 +685,12 @@ impl EventPayload {
                 )
             }
             RoomRecoveryBannerRaised { reason } => format!("room recovery banner ({reason})"),
-            HeightmapGenStarted { seed } => format!("heightmap gen started (seed {seed})"),
             HeightmapGenCompleted {
                 duration_secs,
                 width,
                 height,
             } => {
                 format!("heightmap gen done {width}×{height} in {duration_secs:.1}s")
-            }
-            SplatTexturesStarted { layer_count } => {
-                format!("splat textures started ({layer_count} layers)")
-            }
-            SplatTexturesCompleted {
-                layer_count,
-                duration_secs,
-            } => {
-                format!("splat textures done ({layer_count} layers) in {duration_secs:.1}s")
             }
             AmbientBakeStarted { variant } => format!("ambient bake started ({variant})"),
             AmbientBakeCompleted {
@@ -791,9 +700,6 @@ impl EventPayload {
                 format!("ambient bake done ({bytes} B) in {duration_secs:.1}s")
             }
             AmbientBakeFallback { reason } => format!("ambient bake fallback ({reason})"),
-            WorldCompileStarted { placement_count } => {
-                format!("world compile started ({placement_count} placements)")
-            }
             WorldCompileCompleted {
                 entity_count,
                 duration_secs,
@@ -809,28 +715,10 @@ impl EventPayload {
                 "rigged build {} at atlas {atlas} in {duration_secs:.2}s",
                 if *ok { "landed" } else { "FAILED" },
             ),
-            LoadingGateReady { elapsed_secs } => {
-                format!("loading gate ready ({elapsed_secs:.1}s)")
-            }
             LoadingGateTransitionToInGame { elapsed_secs } => {
                 format!("→ InGame ({elapsed_secs:.1}s)")
             }
             LoadingGateWarning { stage, message } => format!("gate warning [{stage}]: {message}"),
-            LoadingGateTimeout {
-                stage,
-                elapsed_secs,
-                expected_max_secs,
-            } => {
-                format!("gate TIMEOUT [{stage}] {elapsed_secs:.1}s > {expected_max_secs:.1}s")
-            }
-            LoginFeedFetchInitiated => "login feed fetch".to_string(),
-            LoginFeedFetchCompleted {
-                post_count,
-                duration_secs,
-                success,
-            } => {
-                format!("login feed {post_count} posts in {duration_secs:.1}s (ok={success})")
-            }
             AmbientSettleCompleted { settled_at_secs } => {
                 format!("ambient settled ({settled_at_secs:.1}s)")
             }
@@ -848,7 +736,6 @@ impl EventPayload {
             }
             PeerJoined { peer } => format!("peer joined: {peer}"),
             PeerLeft { peer, label } => format!("peer left: {label} ({peer})"),
-            PeerIdentityVerified { did, handle, .. } => format!("identity: @{handle} {did}"),
             PeerIdentitySpoofRejected {
                 claimed_did,
                 authenticated_did,
@@ -856,18 +743,21 @@ impl EventPayload {
             } => {
                 format!("SPOOF rejected: claimed {claimed_did} ≠ {authenticated_did}")
             }
-            AvatarFetchStarted { did, .. } => format!("avatar fetch: {did}"),
-            AvatarFetchSucceeded {
-                did, from_cache, ..
-            } => {
-                format!("avatar ok: {did} (cache={from_cache})")
-            }
             AvatarFetchFailed { did, error, .. } => format!("avatar FAILED: {did} ({error})"),
+            WardrobeResolved {
+                did,
+                requested,
+                resolved,
+                body_ok,
+            } => format!(
+                "wardrobe resolved: {did} body={} props {resolved}/{requested}",
+                if *body_ok { "ok" } else { "MISSING" }
+            ),
+            AttachmentFetchFailed { did, rkey, reason } => {
+                format!("attachment {rkey} FAILED for {did} ({reason})")
+            }
             AvatarStateDecodeFailed { peer, reason } => {
                 format!("avatar state decode failed [{peer}]: {reason}")
-            }
-            TransformSampleRejected { peer, reason } => {
-                format!("transform rejected [{peer}]: {reason}")
             }
             RoomStateRejected { sender_did, reason } => {
                 format!("room-state rejected from {sender_did} ({reason})")
@@ -898,21 +788,12 @@ impl EventPayload {
             } => {
                 format!("offer #{offer_id} '{item_name}' from {sender_did}")
             }
-            ItemOfferAutoDeclinedMuted { offer_id } => {
-                format!("offer #{offer_id} auto-declined (muted)")
-            }
             ItemOfferAutoDeclinedBusy { offer_id } => {
                 format!("offer #{offer_id} auto-declined (busy)")
             }
             ItemOfferDecodeFailed { reason } => format!("offer decode failed ({reason})"),
             ItemOfferRejected { offer_id, reason } => {
                 format!("offer #{offer_id} rejected ({reason})")
-            }
-            ItemOfferDialogShown {
-                offer_id,
-                item_name,
-            } => {
-                format!("offer #{offer_id} '{item_name}' shown")
             }
             ItemOfferDialogAutoDeclinedTimeout { offer_id } => {
                 format!("offer #{offer_id} dialog timed out")
@@ -931,9 +812,6 @@ impl EventPayload {
             SocialResonanceCompleted { peer, resonance } => {
                 format!("resonance [{peer}]: {resonance}")
             }
-            SocialResonanceFailed { peer, error } => {
-                format!("resonance failed [{peer}]: {error}")
-            }
 
             OffloadJobStarted { job } => format!("offload '{job}' started"),
             OffloadJobCompleted { job, duration_secs } => {
@@ -949,7 +827,6 @@ impl EventPayload {
                     *bytes as f64 / (1024.0 * 1024.0)
                 )
             }
-            WorkerSpawnFailed { reason } => format!("worker spawn FAILED ({reason})"),
 
             RespawnTriggered {
                 fell_to_y,
@@ -1025,7 +902,73 @@ pub struct SessionEvent {
     pub payload: EventPayload,
 }
 
+/// `seq` of the synthetic marker the PANIC hook appends (#1142). The real
+/// sequence counter lives on `SessionLog`, which is a Bevy `Resource` and
+/// therefore unreachable from a hook — so a marker claims a value no real
+/// event can ever hold, and readers key on that rather than on its position
+/// in the file.
+pub const CRASH_MARKER_SEQ: u64 = u64::MAX;
+
+/// `seq` of the marker the wasm `pagehide` hook appends on a CLEAN tab close
+/// (#1145).
+///
+/// A separate sentinel rather than a reason string the reader has to parse,
+/// because the three wasm exits have to be told apart structurally: this
+/// marker means the tab closed, [`CRASH_MARKER_SEQ`] means a Rust panic ran a
+/// hook, and NO marker at all means the tab died without either — an OOM trap
+/// or a browser kill, which is the case worth escalating and was previously
+/// indistinguishable from simply closing the tab.
+pub const CLOSE_MARKER_SEQ: u64 = u64::MAX - 1;
+
+/// The last session-relative timestamp the log covers.
+///
+/// The MAXIMUM, not the final element (#1142). The crash marker is appended
+/// last but was stamped `t_mono_secs = 0.0` for want of a clock inside the
+/// panic hook, so reading "the last event's timestamp" off a panic file
+/// returned zero — which made the session look like it ended before it
+/// began, and silently switched off every "started but never finished"
+/// check on the one artefact where a hung job is the likeliest story. The
+/// hook stamps the marker properly now; taking the max also repairs the
+/// reading of every panic file already on disk.
+pub fn last_ts(events: &[SessionEvent]) -> f64 {
+    events
+        .iter()
+        .map(|e| e.t_mono_secs)
+        .fold(f64::NEG_INFINITY, f64::max)
+        .max(0.0)
+}
+
+/// The session-relative span the log covers: its widest timestamp minus its
+/// narrowest. Min/max rather than last-minus-first for the reason in
+/// [`last_ts`] — a zero-stamped marker at the end of a panic file otherwise
+/// yields a NEGATIVE duration in the report header.
+pub fn span_secs(events: &[SessionEvent]) -> f64 {
+    if events.is_empty() {
+        return 0.0;
+    }
+    let mut lo = f64::INFINITY;
+    let mut hi = f64::NEG_INFINITY;
+    for e in events {
+        lo = lo.min(e.t_mono_secs);
+        hi = hi.max(e.t_mono_secs);
+    }
+    (hi - lo).max(0.0)
+}
+
 impl SessionEvent {
+    /// Whether this is the panic hook's synthetic crash marker rather than
+    /// something the running app recorded. See [`CRASH_MARKER_SEQ`].
+    pub fn is_crash_marker(&self) -> bool {
+        self.seq == CRASH_MARKER_SEQ
+    }
+
+    /// Whether a shutdown hook wrote this rather than the running app — a
+    /// panic ([`CRASH_MARKER_SEQ`]) or a clean tab close
+    /// ([`CLOSE_MARKER_SEQ`]).
+    pub fn is_hook_marker(&self) -> bool {
+        self.seq >= CLOSE_MARKER_SEQ
+    }
+
     /// Build an event, deriving `subsystem` and `category` from the payload so
     /// call sites only pass the payload + severity (+ the two stamps). Nothing
     /// overrides the derived pair afterwards, so `subsystem` / `category` are
@@ -1052,6 +995,121 @@ impl SessionEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every `EventPayload` variant declared in this file.
+    ///
+    /// Read out of the source rather than listed by hand: a hand-kept list
+    /// would only prove that somebody remembered to extend the list.
+    fn declared_variants(source: &str) -> Vec<String> {
+        let body = source
+            .split_once("pub enum EventPayload {")
+            .and_then(|(_, rest)| rest.split_once("\n}\n"))
+            .expect("the payload enum is in this file")
+            .0;
+        let mut out = Vec::new();
+        for line in body.lines() {
+            // A declaration sits at four-space indent and is followed by its
+            // shape: `Foo {`, `Foo(`, or a bare `Foo,`.
+            let Some(rest) = line.strip_prefix("    ") else {
+                continue;
+            };
+            if rest.starts_with(' ') || rest.starts_with("//") || rest.starts_with('#') {
+                continue;
+            }
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric())
+                .collect();
+            // `Foo {`, `Foo(` or a bare `Foo,` — the space before a brace is
+            // why this trims first.
+            if name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+                && rest[name.len()..].trim_start().starts_with(['{', '(', ','])
+            {
+                out.push(name);
+            }
+        }
+        out
+    }
+
+    /// Whether `name` is CONSTRUCTED anywhere outside this file — a match
+    /// pattern reads a variant, it does not produce one.
+    fn is_emitted(name: &str, sources: &[(String, String)]) -> bool {
+        let needle = format!("EventPayload::{name}");
+        sources.iter().any(|(path, text)| {
+            !path.ends_with("diagnostics/event.rs")
+                && text.lines().any(|line| {
+                    line.contains(&needle)
+                        && !line.contains("=>")
+                        && !line.contains("matches!")
+                        && !line.trim_start().starts_with('|')
+                })
+        })
+    }
+
+    fn crate_sources() -> Vec<(String, String)> {
+        fn walk(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs")
+                    && let Ok(text) = std::fs::read_to_string(&path)
+                {
+                    out.push((path.to_string_lossy().replace('\\', "/"), text));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut out,
+        );
+        assert!(!out.is_empty(), "found no sources to scan");
+        out
+    }
+
+    /// #1144. A third of this schema was fiction: 25 variants had no emit site
+    /// anywhere in the crate, several of which the analyzer and the docs
+    /// actively promise — `[Timeline]` rendered "portal → did" for an event
+    /// nothing ever wrote, so a session with several hops read as a session
+    /// with none. An agent reading this file (documented as the authoritative
+    /// schema) builds filters and expectations around records that never
+    /// occur.
+    ///
+    /// This is deliberately a source scan rather than a hand-maintained
+    /// `EMITTED_KINDS` list, because a list only proves somebody remembered to
+    /// extend it. The rule (#672) is: a typed variant earns its place by being
+    /// emitted; otherwise delete it and let a generic channel carry the
+    /// signal. A variant added ahead of its emit site fails here — add the
+    /// emit, or do not add the variant yet.
+    #[test]
+    fn every_declared_event_variant_has_an_emit_site() {
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/diagnostics/event.rs"),
+        )
+        .expect("this file");
+        let declared = declared_variants(&source);
+        assert!(
+            declared.len() > 40,
+            "the variant scan found only {} — it has stopped matching the file's shape",
+            declared.len()
+        );
+
+        let sources = crate_sources();
+        let dead: Vec<&String> = declared
+            .iter()
+            .filter(|name| !is_emitted(name, &sources))
+            .collect();
+        assert!(
+            dead.is_empty(),
+            "declared but never emitted: {dead:?}\n\
+             Either emit it, or delete the variant — a schema that promises \
+             records nothing writes sends its readers looking for them."
+        );
+    }
 
     /// One representative event per subsystem group + a unit variant + the
     /// boxed snapshot, so the round-trip test exercises the tag machinery

@@ -56,13 +56,29 @@ impl Plugin for DiagnosticsPlugin {
             }
         }
 
+        // Wasm has no file sink, but it does have a capture: the panic +
+        // pagehide hooks that give it a terminal record (#1145). Installed
+        // here so both targets arm their crash path in the same place.
+        #[cfg(target_arch = "wasm32")]
+        crate::diagnostics::panic::install_hook();
+
         // The boot snapshot is always seq 0 — the self-describing header.
         if let Some(payload) = boot_payload {
             log.record(0.0, Severity::Info, payload);
         }
 
         app.insert_resource(log)
-            .add_systems(Last, (flush_periodically, flush_on_app_exit));
+            .init_resource::<crate::diagnostics::offload_watch::OffloadWatch>()
+            .add_systems(Last, (flush_periodically, flush_on_app_exit))
+            // Every frame, not on the 1 Hz scrape: the census turns in-flight
+            // offload jobs into session events and drives the stuck-job
+            // watchdog (#1143). Registered here rather than with the metrics
+            // bridge because it writes to `SessionLog`, which this plugin
+            // owns.
+            .add_systems(
+                Update,
+                crate::diagnostics::offload_watch::sample_offload_census,
+            );
     }
 }
 

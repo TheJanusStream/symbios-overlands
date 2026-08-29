@@ -464,6 +464,16 @@ pub(super) fn handle_incoming_messages(
                 };
 
                 if !is_owner {
+                    // Dropped correctly, but silently until #1144 — and this
+                    // is the one inbound drop with a hostile reading: a guest
+                    // broadcasting forged room state at frame rate.
+                    session_log.warn(
+                        now,
+                        EventPayload::RoomStateRejected {
+                            sender_did: sender_did.clone().unwrap_or_default(),
+                            reason: String::from("sender does not own this room"),
+                        },
+                    );
                     continue;
                 }
 
@@ -527,6 +537,21 @@ pub(super) fn handle_incoming_messages(
                     .map(|(_, peer, _, _)| peer.muted)
                     .unwrap_or(false);
 
+                let sender_did_for_log = peers
+                    .iter()
+                    .find(|(_, peer, _, _)| peer.peer_id == msg.sender)
+                    .and_then(|(_, peer, _, _)| peer.did.clone())
+                    .unwrap_or_else(|| msg.sender.to_string());
+                if sender_muted {
+                    // The mute worked — but silently, so a log could not tell
+                    // "nobody spoke" from "the person you muted did" (#1144).
+                    session_log.info(
+                        now,
+                        EventPayload::ChatDroppedMuted {
+                            sender_did: sender_did_for_log.clone(),
+                        },
+                    );
+                }
                 if !sender_muted {
                     // Defend against over-long chat payloads from a malicious
                     // peer: the local sender throttles via the chat UI, but a
@@ -568,6 +593,17 @@ pub(super) fn handle_incoming_messages(
                     {
                         bufs.emotes.write(request);
                     }
+                    // Length, never the text: the session log is an artefact
+                    // handed to an agent, and a room's conversation is not
+                    // diagnostic data (#1144).
+                    session_log.info(
+                        now,
+                        EventPayload::ChatReceived {
+                            sender_did: sender_did_for_log,
+                            text_len: clipped.len() as u32,
+                            muted: false,
+                        },
+                    );
                     // Capped + wall-clock-stamped (#846).
                     chat.push(did, author, clipped);
                     // With the window closed this message would be
