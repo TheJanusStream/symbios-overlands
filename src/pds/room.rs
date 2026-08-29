@@ -346,6 +346,26 @@ pub struct RoomRecord {
     /// the world origin — so pre-#745 records round-trip unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_landing: Option<DefaultLanding>,
+    /// Manifest refs (name → child rkey) whose child record was **listed on
+    /// the PDS but could not be decoded by this build** (#1175).
+    ///
+    /// These are somebody else's content, not ours: a newer client wrote a
+    /// child generator in a shape this build's `Generator` cannot parse. We
+    /// cannot render it, so it is absent from `generators` — but it exists,
+    /// the owner authored it, and the next publish from this client would
+    /// otherwise rewrite the manifest without its ref and then GC the child
+    /// as an orphan. Carrying the ref through fetch → edit → publish keeps
+    /// the record referenced and the bytes intact, so upgrading the client
+    /// brings the generator back rather than finding it gone.
+    ///
+    /// A ref whose child is missing from the listing *entirely* does NOT
+    /// land here — that is a torn write pointing at nothing, and preserving
+    /// it would resurrect a dangling ref forever. Only present-but-opaque.
+    ///
+    /// `BTreeMap` because it feeds `generator_refs`, whose ordering the
+    /// manifest's byte-canonicality depends on.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub opaque_refs: std::collections::BTreeMap<String, String>,
 }
 
 impl RoomRecord {
@@ -1057,6 +1077,7 @@ impl RoomRecord {
             traits,
             contact_effects: ContactEffects::default(),
             default_landing,
+            opaque_refs: std::collections::BTreeMap::new(),
         }
     }
 
@@ -1853,14 +1874,25 @@ struct RoomManifestOut {
 
 impl RoomManifestOut {
     fn from_record(record: &RoomRecord) -> Self {
+        // Refs this build could not decode go in FIRST, so a live generator
+        // authored under the same name wins (#1175). That collision is the
+        // one case where dropping an opaque ref is right: the owner has
+        // deliberately put something else at that name, and a manifest must
+        // not point two ways at once. Everywhere else the opaque ref rides
+        // through untouched, which is what keeps the child referenced and so
+        // out of the orphan sweep.
+        let mut generator_refs: std::collections::BTreeMap<String, String> =
+            record.opaque_refs.clone();
+        generator_refs.extend(
+            record
+                .generators
+                .iter()
+                .map(|(name, generator)| (name.clone(), child_rkey(name, generator))),
+        );
         Self {
             lex_type: COLLECTION.into(),
             environment: record.environment.clone(),
-            generator_refs: record
-                .generators
-                .iter()
-                .map(|(name, generator)| (name.clone(), child_rkey(name, generator)))
-                .collect(),
+            generator_refs,
             placements: record.placements.clone(),
             traits: record
                 .traits
@@ -1873,13 +1905,24 @@ impl RoomManifestOut {
     }
 }
 
-/// Join a decoded `room/self` with the child-generator map (rkey →
-/// generator) fetched from [`super::ROOM_GENERATOR_COLLECTION`]. Inline
-/// legacy generators and resolved refs merge into one map; a ref whose
-/// child is missing (a torn historical write, or a hostile PDS dropping
-/// records) skips that generator with a warning rather than failing the
-/// whole room — the same degrade-don't-crash policy the open unions use.
-fn assemble_room(wire: RoomSelfWire, children: &HashMap<String, Generator>) -> RoomRecord {
+/// Join a decoded `room/self` with the child-generator listing (rkey →
+/// `Some(generator)` when this build decoded it, `None` when the record is
+/// there but opaque to us) fetched from
+/// [`super::ROOM_GENERATOR_COLLECTION`].
+///
+/// A ref resolves one of three ways, and the difference matters on the way
+/// back out (#1175):
+///
+/// * **decoded** — merges into `generators` alongside the inline legacy ones.
+/// * **listed but undecodable** — recorded in
+///   [`RoomRecord::opaque_refs`] so the next publish keeps pointing at it.
+///   The room loads without that generator, which is unavoidable; what is
+///   avoidable is this client then deleting somebody else's content because
+///   it could not read it.
+/// * **absent from the listing** — skipped with a warning, as before. A ref
+///   pointing at nothing is a torn historical write (or a hostile PDS
+///   dropping records); preserving it would carry a dangling ref forever.
+fn assemble_room(wire: RoomSelfWire, children: &HashMap<String, Option<Generator>>) -> RoomRecord {
     let RoomSelfWire {
         environment,
         mut generators,
@@ -1889,10 +1932,19 @@ fn assemble_room(wire: RoomSelfWire, children: &HashMap<String, Generator>) -> R
         contact_effects,
         default_landing,
     } = wire;
+    let mut opaque_refs = std::collections::BTreeMap::new();
     for (name, rkey) in generator_refs {
         match children.get(&rkey) {
-            Some(generator) => {
+            Some(Some(generator)) => {
                 generators.insert(name, generator.clone());
+            }
+            Some(None) => {
+                warn!(
+                    "room child generator {rkey} for '{name}' is not decodable by \
+                     this build — preserving the reference so a newer client can \
+                     still read it"
+                );
+                opaque_refs.insert(name, rkey);
             }
             None => warn!(
                 "room manifest references missing child generator {rkey} for '{name}' — skipping"
@@ -1907,12 +1959,14 @@ fn assemble_room(wire: RoomSelfWire, children: &HashMap<String, Generator>) -> R
         traits,
         contact_effects,
         default_landing,
+        opaque_refs,
     }
 }
 
 /// `com.atproto.repo.listRecords` envelope for the child walk. Values stay
-/// raw so one foreign / undecodable record skips instead of failing a page;
-/// the rkey is recovered from the record's `at://` URI tail.
+/// raw so one foreign / undecodable record degrades instead of failing a
+/// page; the rkey is recovered from the record's `at://` URI tail and is
+/// kept whether or not the value decodes (#1175).
 #[derive(Deserialize)]
 struct ListChildrenResponse {
     #[serde(default)]
@@ -1926,16 +1980,53 @@ struct ListedChild {
     value: serde_json::Value,
 }
 
+/// Fold one page of listed children into the rkey → decode-outcome map.
+///
+/// Split out of the walk so the decode half is testable without a PDS: it
+/// is the half that decides whether a child is content we can render or
+/// content we must merely preserve, and that decision is the whole of
+/// #1175.
+///
+/// The rkey is keyed from the listed `at://` URI, never from the value —
+/// that is the point. `list_attachment_rkeys` (avatar/wardrobe.rs) takes
+/// the same shape for the same reason: a record we cannot read still has
+/// to count as PRESENT, or the publish planner will try to create over it
+/// and the orphan sweep will delete it.
+fn fold_listed_children(records: Vec<ListedChild>, out: &mut HashMap<String, Option<Generator>>) {
+    for rec in records {
+        let Some(rkey) = rec.uri.rsplit('/').next() else {
+            continue;
+        };
+        let decoded = serde_json::from_value::<RoomGeneratorRecord>(rec.value)
+            .ok()
+            .map(|child| child.generator);
+        out.insert(rkey.to_string(), decoded);
+    }
+}
+
 /// Walk the child-generator collection for `did`, returning rkey →
-/// generator. Bounded by
+/// `Some(generator)` for every child this build decoded and `None` for
+/// every child that is there but opaque to us (#1175). Bounded by
 /// [`crate::config::state::MAX_ROOM_GENERATOR_PAGES`] pages of 100 so a
 /// hostile PDS handing out endless cursors cannot keep the client paging.
+///
+/// The walk is not reported as complete-or-truncated the way the
+/// attachment listing is (#1185), because the room never uses it as
+/// evidence of ABSENCE for a delete: every delete in `plan_room_writes`
+/// comes out of this listing, so a short walk can only under-delete. It
+/// *is* evidence of absence for the create half, and a truncated walk
+/// there would emit `#create` over a record that exists — an opaque 500
+/// that fails the whole save (#1186). That cannot happen for a legal room:
+/// four pages hold 400 records against `sanitize`'s
+/// `MAX_GENERATORS = 256` cap, and the surplus is orphan-swept on every
+/// publish. It would take a repo that had already accumulated >400
+/// children — i.e. a GC that had already failed — to get there.
 async fn list_room_children(
     client: &reqwest::Client,
     pds: &str,
     did: &str,
-) -> Result<HashMap<String, Generator>, FetchError> {
-    let mut children: HashMap<String, Generator> = HashMap::new();
+) -> Result<HashMap<String, Option<Generator>>, FetchError> {
+    let mut children: HashMap<String, Option<Generator>> = HashMap::new();
     let mut cursor: Option<String> = None;
     for _ in 0..crate::config::state::MAX_ROOM_GENERATOR_PAGES {
         let url = format!("{}/xrpc/com.atproto.repo.listRecords", pds);
@@ -1959,14 +2050,7 @@ async fn list_room_children(
         }
         let page: ListChildrenResponse = decode_record_json(resp).await?;
         let empty_page = page.records.is_empty();
-        for rec in page.records {
-            let Some(rkey) = rec.uri.rsplit('/').next() else {
-                continue;
-            };
-            if let Ok(child) = serde_json::from_value::<RoomGeneratorRecord>(rec.value) {
-                children.insert(rkey.to_string(), child.generator);
-            }
-        }
+        fold_listed_children(page.records, &mut children);
         cursor = page.cursor;
         if cursor.is_none() || empty_page {
             break;
@@ -2105,11 +2189,20 @@ fn plan_room_writes(
     }
     let creates: Vec<RepoWrite> = desired.into_values().collect();
 
-    let referenced: std::collections::HashSet<String> = record
-        .generators
-        .iter()
-        .map(|(name, generator)| child_rkey(name, generator))
-        .collect();
+    // Orphaned means "the manifest we are about to write does not point at
+    // it" — read off `manifest.generator_refs`, not recomputed from
+    // `record.generators`. The two differ by exactly the opaque refs
+    // (#1175): children this build could not decode, which the manifest
+    // still names and which must therefore survive the sweep. Deriving the
+    // set from the thing actually being written means there is no second
+    // place to keep in step.
+    //
+    // Deletes are still sourced purely from `existing_children`, so a short
+    // listing can only leave an orphan for a later sweep — never delete a
+    // record the repo does not have. That asymmetry is why this sweep needs
+    // no completeness gate, unlike `attachment_retirements`, whose delete
+    // set has a derived half the listing cannot vouch for.
+    let referenced: std::collections::HashSet<&String> = manifest.generator_refs.values().collect();
     let mut orphans: Vec<&String> = existing_children
         .iter()
         .filter(|rkey| !referenced.contains(*rkey))
@@ -3210,10 +3303,10 @@ mod split_wire_tests {
             let record = RoomRecord::default_for_seed(seed, "did:plc:split");
             // Write side.
             let manifest = RoomManifestOut::from_record(&record);
-            let children: HashMap<String, Generator> = record
+            let children: HashMap<String, Option<Generator>> = record
                 .generators
                 .iter()
-                .map(|(name, g)| (child_rkey(name, g), g.clone()))
+                .map(|(name, g)| (child_rkey(name, g), Some(g.clone())))
                 .collect();
             // Read side: decode the manifest bytes and join the children.
             let wire: RoomSelfWire =
@@ -3251,9 +3344,9 @@ mod split_wire_tests {
         record.generators.insert("kept".into(), cuboid_at(1.0));
         record.generators.insert("lost".into(), cuboid_at(2.0));
         let manifest = RoomManifestOut::from_record(&record);
-        let children: HashMap<String, Generator> = [(
+        let children: HashMap<String, Option<Generator>> = [(
             child_rkey("kept", &record.generators["kept"]),
-            record.generators["kept"].clone(),
+            Some(record.generators["kept"].clone()),
         )]
         .into_iter()
         .collect();
@@ -3263,6 +3356,130 @@ mod split_wire_tests {
         assert_eq!(assembled.generators.len(), 1);
         assert!(assembled.generators.contains_key("kept"));
         assert_eq!(assembled.placements.len(), record.placements.len());
+    }
+
+    /// #1175 — the whole sequence, end to end: a newer client's child
+    /// record lands in the listing in a shape this build cannot decode, and
+    /// the next publish from this build must leave it exactly where it is.
+    ///
+    /// Before the fix the listing dropped the rkey entirely, so
+    /// `existing_children` never held it, `assemble_room` never mentioned
+    /// it, the manifest was rewritten without its ref, and the owner's
+    /// generator was gone from the room with the bytes stranded on the PDS
+    /// — invisible to the very orphan sweep that would have tidied them.
+    #[test]
+    fn an_undecodable_child_is_preserved_across_a_publish() {
+        let mut record = RoomRecord::default_for_did("did:plc:opaque");
+        record.generators.clear();
+        record.generators.insert("mine".into(), cuboid_at(1.0));
+
+        // What the PDS hands back: our own child, plus one written by a
+        // client whose child schema this build cannot parse (here: no
+        // `name`, which `RoomGeneratorRecord` requires). This is a listing
+        // response, not a hand-built map — the decode is the defect.
+        let ours = child_rkey("mine", &record.generators["mine"]);
+        let theirs = "0123456789abcdef".to_string();
+        let did = "did:plc:opaque";
+        let coll = super::super::ROOM_GENERATOR_COLLECTION;
+        let listed = vec![
+            ListedChild {
+                uri: format!("at://{did}/{coll}/{ours}"),
+                value: serde_json::to_value(RoomGeneratorRecord::new(
+                    "mine",
+                    &record.generators["mine"],
+                ))
+                .unwrap(),
+            },
+            ListedChild {
+                uri: format!("at://{did}/{coll}/{theirs}"),
+                value: serde_json::json!({
+                    "$type": coll,
+                    "generator": { "$type": "network.symbios.gen.future2027" },
+                }),
+            },
+        ];
+        let mut children: HashMap<String, Option<Generator>> = HashMap::new();
+        fold_listed_children(listed, &mut children);
+        assert_eq!(
+            children.get(&theirs),
+            Some(&None),
+            "the undecodable child is PRESENT with no body, not absent"
+        );
+
+        // The manifest the newer client wrote names both.
+        let mut manifest = RoomManifestOut::from_record(&record);
+        manifest
+            .generator_refs
+            .insert("theirs".into(), theirs.clone());
+        let wire: RoomSelfWire =
+            serde_json::from_value(serde_json::to_value(&manifest).unwrap()).unwrap();
+        let assembled = assemble_room(wire, &children);
+
+        // The room loads with one renderable generator and still REFERENCES
+        // the other. Losing it from `generators` is unavoidable; losing it
+        // from the record is not.
+        assert_eq!(assembled.generators.len(), 1);
+        assert_eq!(assembled.opaque_refs.get("theirs"), Some(&theirs));
+        assert_eq!(
+            RoomManifestOut::from_record(&assembled)
+                .generator_refs
+                .get("theirs"),
+            Some(&theirs),
+            "the republished manifest still points at the child we could not read"
+        );
+
+        // Now publish it back. `existing_children` is every LISTED rkey,
+        // opaque ones included — that is what the fix keys on.
+        let existing: HashSet<String> = children.keys().cloned().collect();
+        let batches = plan_room_writes(&assembled, &existing, true).unwrap();
+        let writes: Vec<&RepoWrite> = batches.iter().flatten().collect();
+        assert!(
+            !writes.iter().any(|w| matches!(
+                w,
+                RepoWrite::Delete { rkey, .. } if *rkey == theirs
+            )),
+            "the orphan sweep must not delete a child it merely failed to read"
+        );
+        assert!(
+            !writes.iter().any(|w| matches!(
+                w,
+                RepoWrite::Create { rkey, .. } if *rkey == theirs
+            )),
+            "and must not #create over it — the record is already there, and \
+             applyWrites answers that with an opaque 500 that fails the save"
+        );
+        // Nothing else regressed: our own unchanged child is still free.
+        assert!(!writes.iter().any(|w| matches!(
+            w,
+            RepoWrite::Create { rkey, .. } if *rkey == ours
+        )));
+    }
+
+    /// A live generator authored under an opaque ref's name wins, and the
+    /// now-unreferenced child becomes a normal orphan. This is the one case
+    /// where #1175 deliberately lets the child go: the owner has put
+    /// something else at that name, and a manifest cannot point two ways.
+    #[test]
+    fn a_reused_name_overrides_its_opaque_ref() {
+        let mut record = RoomRecord::default_for_did("did:plc:reuse");
+        record.generators.clear();
+        record.generators.insert("shared".into(), cuboid_at(3.0));
+        record
+            .opaque_refs
+            .insert("shared".into(), "deadbeefdeadbeef".into());
+
+        let refs = RoomManifestOut::from_record(&record).generator_refs;
+        assert_eq!(
+            refs.get("shared"),
+            Some(&child_rkey("shared", &record.generators["shared"])),
+            "the live generator's rkey, not the opaque one"
+        );
+        let existing: HashSet<String> = ["deadbeefdeadbeef".to_string()].into_iter().collect();
+        let batches = plan_room_writes(&record, &existing, true).unwrap();
+        assert!(batches.iter().flatten().any(|w| matches!(
+            w,
+            RepoWrite::Delete { rkey, .. } if rkey == "deadbeefdeadbeef"
+        )));
     }
 
     #[test]

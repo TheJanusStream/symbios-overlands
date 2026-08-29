@@ -209,6 +209,11 @@ pub struct RoomEditorState {
     /// early-returns (visiting another room, mid-Loading), which would
     /// otherwise leave a stale baseline after a room transition.
     stored_baseline: Option<(bevy::ecs::change_detection::Tick, Option<serde_json::Value>)>,
+    /// Serialized size of the whole-room live-sync broadcast, refreshed on
+    /// the same throttle as the per-record gauge (#1123). Cached rather
+    /// than measured per frame because it costs a full bincode encode of
+    /// the record — the same encode the broadcaster pays.
+    live_sync_bytes: Option<usize>,
 }
 
 impl RoomEditorState {
@@ -356,6 +361,60 @@ pub struct RoomEditorExtras<'w, 's> {
     face_pick: ResMut<'w, crate::editor_gizmo::FacePick>,
 }
 
+/// Live-sync gauge (#1123): what the whole-room peer broadcast weighs
+/// against the reliable-payload ceiling, beside the per-record PDS budget
+/// the row above shows.
+///
+/// Two gauges because there are two limits and they move independently. A
+/// room split across a slim manifest and many small children can sit deep
+/// inside the per-record budget — green, saveable — while the monolithic
+/// `RoomStateUpdate` that carries the owner's *unsaved* edits to guests is
+/// past the wire ceiling and being refused. That is the whole of #1123: the
+/// one number the owner could see was the one that was fine.
+///
+/// Kept quiet under the ceiling — this is a limit almost no room reaches,
+/// and a second permanent line of alarm-coloured text in the footer would
+/// cost every owner for a case that costs a few of them. It warns from 75%
+/// and names the consequence at the ceiling.
+fn live_sync_gauge(ui: &mut egui::Ui, bytes: Option<usize>) {
+    use crate::config::network::MAX_RELIABLE_PAYLOAD_BYTES as CEILING;
+    let Some(bytes) = bytes else {
+        return;
+    };
+    let theme = crate::ui::theme::current(ui.ctx());
+    let (text, color) = if bytes > CEILING {
+        (
+            format!(
+                "{} Live sync paused — {} over the {} peer-sync limit",
+                crate::ui::affordances::CROSS,
+                crate::pds::record_size::human_bytes(bytes),
+                crate::pds::record_size::human_bytes(CEILING),
+            ),
+            theme.status.error,
+        )
+    } else if bytes * 4 >= CEILING * 3 {
+        (
+            format!(
+                "⚠ Live sync {} of the {} peer-sync limit",
+                crate::pds::record_size::human_bytes(bytes),
+                crate::pds::record_size::human_bytes(CEILING),
+            ),
+            theme.status.warn,
+        )
+    } else {
+        return;
+    };
+    ui.label(egui::RichText::new(text).color(color).small())
+        .on_hover_text(format!(
+            "Your unsaved edits reach guests as one peer-to-peer message \
+             carrying the whole room. Past {} that message is refused and \
+             guests keep seeing your last saved version until you save again. \
+             This is a separate limit from the record size beside \"Save to \
+             PDS\", which measures the largest single record a save writes.",
+            crate::pds::record_size::human_bytes(CEILING),
+        ));
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn room_admin_ui(
     mut contexts: EguiContexts,
@@ -447,6 +506,7 @@ pub fn room_admin_ui(
         recovery_reset_confirm,
         default_cache,
         stored_baseline,
+        live_sync_bytes,
         ..
     } = &mut *editor;
 
@@ -861,6 +921,15 @@ pub fn room_admin_ui(
                             publish_feedback.live_bytes =
                                 pds::room::max_publish_record_bytes(&*record_mut);
                             publish_feedback.live_bytes_at = Some(now);
+                            // Second measurement on the same throttle
+                            // (#1123): what the live-sync broadcast puts on
+                            // the wire, which is the WHOLE room in one
+                            // message — not the largest single record the
+                            // publish splits it into.
+                            *live_sync_bytes =
+                                crate::protocol::OverlandsMessage::room_state_update(record_mut)
+                                    .as_ref()
+                                    .and_then(crate::network::chunk::wire_payload_bytes);
                         }
                         let record_bytes = publish_feedback.live_bytes;
                         let ctrl_s = publish_shortcut.take(crate::ui::shortcuts::EditorKind::World);
@@ -915,6 +984,7 @@ pub fn room_admin_ui(
                             }
                         }
 
+                        live_sync_gauge(ui, *live_sync_bytes);
                         publish_status_line(ui, &publish_feedback.status, time.elapsed_secs_f64());
                     });
 

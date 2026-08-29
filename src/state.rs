@@ -548,18 +548,31 @@ pub struct PendingOutgoingOffer {
 }
 
 impl PendingOutgoingOffers {
-    /// Allocate a fresh `offer_id` and insert the pending record. Returns
-    /// the allocated id so the caller can ship it in the
-    /// [`crate::protocol::OverlandsMessage::ItemOffer`].
+    /// The id the next [`Self::register`] will use, without consuming it.
+    ///
+    /// The gift path needs an `offer_id` to build the
+    /// [`crate::protocol::OverlandsMessage::ItemOffer`] with, but must not
+    /// arm the offer's expiry timer until that message has actually been
+    /// handed to the transport (#1123). Registering first meant a send the
+    /// chunker refused still logged `ItemOfferSent` and still expired
+    /// minutes later as "no answer" — blaming a recipient who was never
+    /// asked. Peeking costs nothing if the send is refused: the id is not
+    /// consumed and the next gift reuses it.
+    pub fn peek_next_id(&self) -> u64 {
+        self.next_id
+    }
+
+    /// Insert the pending record under an id from [`Self::peek_next_id`],
+    /// consuming it.
     pub fn register(
         &mut self,
+        id: u64,
         target_did: String,
         target_handle: String,
         item_name: String,
         sent_at_secs: f64,
-    ) -> u64 {
-        let id = self.next_id;
-        self.next_id = self.next_id.wrapping_add(1);
+    ) {
+        self.next_id = id.wrapping_add(1);
         self.by_id.insert(
             id,
             PendingOutgoingOffer {
@@ -569,7 +582,6 @@ impl PendingOutgoingOffers {
                 sent_at_secs,
             },
         );
-        id
     }
 }
 

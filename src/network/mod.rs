@@ -148,6 +148,7 @@ impl Plugin for NetworkPlugin {
             // monotonic counter that stamps outbound chunk `msg_id`s.
             .init_resource::<chunk::ChunkReassembly>()
             .init_resource::<chunk::OutboundChunkSeq>()
+            .init_resource::<chunk::OversizeNotices>()
             .insert_resource(SmootherConfigRes::from_fixed_timestep(fixed_timestep_secs))
             .add_systems(
                 Update,

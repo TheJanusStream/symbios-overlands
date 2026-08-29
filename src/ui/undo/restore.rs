@@ -151,6 +151,7 @@ mod tests {
             traits: HashMap::new(),
             contact_effects: ContactEffects::default(),
             default_landing: None,
+            opaque_refs: Default::default(),
         }
     }
 

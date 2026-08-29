@@ -147,13 +147,12 @@ pub fn handle_generator_drop(
         }
 
         let now = time.elapsed_secs_f64();
-        let offer_id =
-            pending_offers.register(target.did.clone(), target.handle.clone(), name.clone(), now);
+        let offer_id = pending_offers.peek_next_id();
         // Route through the chunker (#717): a gifted `Generator` can be a
         // large Shape-grammar / L-system blueprint whose `generator_json`
         // pushes the offer past the 64 KiB WebRTC message ceiling, which would
         // otherwise fail silently and leave the recipient without the gift.
-        chunk.broadcast(
+        let outcome = chunk.broadcast(
             &mut sender,
             &mut session_log,
             now,
@@ -165,24 +164,16 @@ pub fn handle_generator_drop(
                 wear.as_ref(),
             ),
         );
-        session_log.info(
+        record_gift_outcome(
+            outcome,
+            offer_id,
+            &target.did,
+            &target.handle,
+            &name,
+            &mut pending_offers,
+            &mut session_log,
+            &mut toasts,
             now,
-            EventPayload::ItemOfferSent {
-                offer_id,
-                target_did: target.did.clone(),
-                item_name: name.clone(),
-            },
-        );
-        // Sender-side feedback (#843): releasing on a peer row used to
-        // confirm NOTHING — the offer's whole lifecycle lived in the
-        // diagnostics log.
-        toasts.success(
-            format!("Offer sent to @{} — \"{}\".", target.handle, name),
-            now,
-        );
-        info!(
-            "Sent ItemOffer #{} \"{}\" to @{} ({})",
-            offer_id, name, target.handle, target.did
         );
         // `sess` served its purpose as a session presence guard — silence
         // the unused warning without sprinkling `#[allow]` across the fn.
@@ -455,4 +446,154 @@ pub fn preview_generator_drop(
         color,
     );
     gizmos.line(hit_point, hit_point + Vec3::Y * cfg::POST_HEIGHT_M, color);
+}
+
+/// Book the aftermath of a gift send: what the sender is told, what the
+/// diagnostics log records, and whether the offer's expiry timer is armed
+/// at all (#1123).
+///
+/// Split out of [`handle_generator_drop`] because that system's dozen
+/// `SystemParam`s — an egui context, a window, a camera, a spatial query —
+/// put the branch that matters out of reach of a test, and this branch is
+/// precisely the one that was wrong: the offer used to be registered and
+/// logged as `ItemOfferSent` BEFORE the send, so a message the chunker
+/// refused still armed the expiry timer. The sender saw "Offer sent to
+/// @them", then minutes later "expired without an answer" — an accusation
+/// against a peer who was never asked for anything.
+///
+/// Bookkeeping now follows the send. The `offer_id` was only *peeked*, so
+/// the refused path consumes nothing and the next gift reuses it.
+#[allow(clippy::too_many_arguments)]
+fn record_gift_outcome(
+    outcome: crate::network::chunk::SendOutcome,
+    offer_id: u64,
+    target_did: &str,
+    target_handle: &str,
+    item_name: &str,
+    pending_offers: &mut PendingOutgoingOffers,
+    session_log: &mut SessionLog,
+    toasts: &mut crate::ui::toast::Toasts,
+    now: f64,
+) {
+    if !outcome.is_sent() {
+        toasts.error(
+            format!(
+                "Couldn't send \"{item_name}\" to @{target_handle} — the item is \
+                 too large for a peer-to-peer transfer."
+            ),
+            now,
+        );
+        warn!(
+            "ItemOffer \"{item_name}\" to @{target_handle} ({target_did}) was not sent: {outcome:?}"
+        );
+        return;
+    }
+    pending_offers.register(
+        offer_id,
+        target_did.to_string(),
+        target_handle.to_string(),
+        item_name.to_string(),
+        now,
+    );
+    session_log.info(
+        now,
+        EventPayload::ItemOfferSent {
+            offer_id,
+            target_did: target_did.to_string(),
+            item_name: item_name.to_string(),
+        },
+    );
+    // Sender-side feedback (#843): releasing on a peer row used to
+    // confirm NOTHING — the offer's whole lifecycle lived in the
+    // diagnostics log.
+    toasts.success(
+        format!("Offer sent to @{target_handle} — \"{item_name}\"."),
+        now,
+    );
+    info!("Sent ItemOffer #{offer_id} \"{item_name}\" to @{target_handle} ({target_did})");
+}
+
+#[cfg(test)]
+mod gift_outcome_tests {
+    use super::*;
+    use crate::network::chunk::SendOutcome;
+    use crate::ui::toast::ToastKind;
+
+    fn book(outcome: SendOutcome) -> (PendingOutgoingOffers, SessionLog, crate::ui::toast::Toasts) {
+        let mut offers = PendingOutgoingOffers::default();
+        let mut log = SessionLog::default();
+        let mut toasts = crate::ui::toast::Toasts::default();
+        let id = offers.peek_next_id();
+        record_gift_outcome(
+            outcome,
+            id,
+            "did:plc:them",
+            "them.test",
+            "brass lantern",
+            &mut offers,
+            &mut log,
+            &mut toasts,
+            0.0,
+        );
+        (offers, log, toasts)
+    }
+
+    /// #1123 — the sequence that produced the lie: drag an item onto a peer
+    /// row, the chunker refuses the `ItemOffer` for exceeding the wire
+    /// ceiling, and the sender is congratulated for a gift that never left
+    /// the machine — then blamed on the recipient when it "expires".
+    #[test]
+    fn a_refused_offer_is_not_registered_logged_or_congratulated() {
+        let (offers, log, toasts) = book(SendOutcome::Refused { bytes: 1_000_000 });
+
+        assert!(
+            offers.by_id.is_empty(),
+            "no expiry timer for a message nobody received"
+        );
+        assert_eq!(
+            offers.peek_next_id(),
+            0,
+            "and the id is not burned — the next gift reuses it"
+        );
+        assert!(
+            !log.iter()
+                .any(|e| matches!(e.payload, EventPayload::ItemOfferSent { .. })),
+            "ItemOfferSent is a claim about the wire, not about the click"
+        );
+        let shown = toasts.shown();
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].0, ToastKind::Error);
+        assert!(
+            shown[0].1.contains("brass lantern") && shown[0].1.contains("them.test"),
+            "the failure names the item and the peer: {}",
+            shown[0].1
+        );
+    }
+
+    /// The success path is unchanged — the fix must not have cost the
+    /// sender-side confirmation #843 added.
+    #[test]
+    fn a_sent_offer_still_registers_logs_and_confirms() {
+        let (offers, log, toasts) = book(SendOutcome::Sent);
+
+        assert_eq!(offers.by_id.len(), 1);
+        assert_eq!(offers.by_id[&0].target_handle, "them.test");
+        assert_eq!(offers.peek_next_id(), 1, "the id is consumed");
+        assert!(
+            log.iter()
+                .any(|e| matches!(e.payload, EventPayload::ItemOfferSent { .. }))
+        );
+        let shown = toasts.shown();
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].0, ToastKind::Success);
+    }
+
+    /// A message that would not serialize is the same news to the sender as
+    /// one that was too big: it did not go.
+    #[test]
+    fn an_unserializable_offer_is_treated_as_not_sent() {
+        let (offers, _, toasts) = book(SendOutcome::NotSerialized);
+        assert!(offers.by_id.is_empty());
+        assert_eq!(toasts.shown()[0].0, ToastKind::Error);
+    }
 }

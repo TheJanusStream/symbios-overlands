@@ -28,6 +28,8 @@ pub(super) fn handle_peer_connections(
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
     mut seq: ResMut<super::chunk::OutboundChunkSeq>,
     mut chat: ResMut<crate::state::ChatHistory>,
+    mut notices: ResMut<super::chunk::OversizeNotices>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
 ) {
     let elapsed = time.elapsed_secs_f64();
     for event in peer_events.drain() {
@@ -112,14 +114,26 @@ pub(super) fn handle_peer_connections(
                         // PDS version (or nothing). Fragmenting it here is what
                         // makes the join actually deliver the live room.
                         if let Some(message) = OverlandsMessage::room_state_update(&record.0) {
-                            super::chunk::send_chunked(
-                                &mut sender,
-                                &mut seq,
-                                &mut metrics,
-                                &mut session_log,
-                                super::chunk::ChunkDest::To(event.peer),
+                            // A refusal here is the same fact as the
+                            // broadcaster's, learned on a different trigger
+                            // (#1123) — this newcomer will see only the
+                            // PDS-saved room. Shares the "world" latch, so
+                            // an owner already warned by the broadcaster is
+                            // not told again per arriving guest.
+                            super::chunk::warn_once_on_refusal(
+                                super::chunk::send_chunked(
+                                    &mut sender,
+                                    &mut seq,
+                                    &mut metrics,
+                                    &mut session_log,
+                                    super::chunk::ChunkDest::To(event.peer),
+                                    elapsed,
+                                    message,
+                                ),
+                                &mut notices,
+                                &mut toasts,
+                                "world",
                                 elapsed,
-                                message,
                             );
                         }
                     }

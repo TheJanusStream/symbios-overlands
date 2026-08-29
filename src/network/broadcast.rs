@@ -122,6 +122,8 @@ pub(super) fn broadcast_avatar_state(
     mut sender: SendMessage<OverlandsMessage>,
     mut chunk: super::chunk::ChunkSend,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
+    mut notices: ResMut<super::chunk::OversizeNotices>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
     time: Res<Time>,
 ) {
     if !live.is_changed() {
@@ -139,11 +141,16 @@ pub(super) fn broadcast_avatar_state(
     let Some(message) = OverlandsMessage::avatar_state_update(&live.0) else {
         return;
     };
-    chunk.broadcast(
-        &mut sender,
-        &mut session_log,
-        time.elapsed_secs_f64(),
-        message,
+    // A refusal here means the owner's live avatar edits stop reaching
+    // guests while the size gauge in the Avatar editor stays green — the
+    // per-record budget and the wire ceiling are different limits (#1123).
+    let now = time.elapsed_secs_f64();
+    super::chunk::warn_once_on_refusal(
+        chunk.broadcast(&mut sender, &mut session_log, now, message),
+        &mut notices,
+        &mut toasts,
+        "avatar",
+        now,
     );
 }
 
@@ -171,6 +178,8 @@ pub(super) fn broadcast_room_state(
     mut sender: SendMessage<OverlandsMessage>,
     mut chunk: super::chunk::ChunkSend,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
+    mut notices: ResMut<super::chunk::OversizeNotices>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
     time: Res<Time>,
     mut dirty: Local<bool>,
     mut last_sent: Local<Option<f64>>,
@@ -203,5 +212,16 @@ pub(super) fn broadcast_room_state(
     };
     *dirty = false;
     *last_sent = Some(now);
-    chunk.broadcast(&mut sender, &mut session_log, now, message);
+    // The refusal that used to be console-only (#1123). The owner is the
+    // one person who can act on it and the only one who cannot see it: the
+    // World Editor's size gauge measures the largest single PDS record,
+    // which stays comfortably green while the whole-room broadcast — a
+    // different quantity against a different ceiling — is being dropped.
+    super::chunk::warn_once_on_refusal(
+        chunk.broadcast(&mut sender, &mut session_log, now, message),
+        &mut notices,
+        &mut toasts,
+        "world",
+        now,
+    );
 }

@@ -284,7 +284,7 @@ impl ChunkSend<'_> {
         session_log: &mut SessionLog,
         now: f64,
         msg: OverlandsMessage,
-    ) {
+    ) -> SendOutcome {
         send_chunked(
             sender,
             &mut self.seq,
@@ -293,8 +293,96 @@ impl ChunkSend<'_> {
             ChunkDest::Broadcast,
             now,
             msg,
-        );
+        )
     }
+}
+
+/// What actually happened to a [`send_chunked`] call (#1123).
+///
+/// The refusal branch used to `return ()`, so every caller was written as
+/// though the send had happened: the room broadcaster kept clearing its
+/// dirty flag, and the gift handler kept registering a pending offer for a
+/// message no peer would ever see. The console learned; nobody else did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SendOutcome {
+    /// Handed to the transport, whole or as fragments.
+    Sent,
+    /// Past [`config::network::MAX_RELIABLE_PAYLOAD_BYTES`], so nothing was
+    /// handed to the transport at all. Carries the measured size because
+    /// "too big" is not actionable and "1.1 MiB against a 900 KiB limit" is.
+    Refused { bytes: usize },
+    /// The message could not be serialized, so there was nothing to send.
+    /// A bug rather than a user condition, but it is still not `Sent`.
+    NotSerialized,
+}
+
+impl SendOutcome {
+    pub(crate) fn is_sent(self) -> bool {
+        matches!(self, SendOutcome::Sent)
+    }
+}
+
+/// Remembers which message kinds the owner has already been warned about,
+/// so crossing the wire ceiling reports once per crossing rather than once
+/// per send (#1123).
+///
+/// Latched on the KIND, not on a timer: `broadcast_room_state` fires every
+/// [`config::network::ROOM_BROADCAST_MIN_INTERVAL_SECS`] while the record is
+/// dirty, and a toast every interval would bury the queue it shares with
+/// every other notification. Cleared on the next successful send of the same
+/// kind, so an owner who trims the world back under the ceiling and later
+/// crosses it again is told again — the news is the crossing.
+#[derive(Resource, Default)]
+pub struct OversizeNotices(std::collections::HashSet<&'static str>);
+
+/// Report a refused send to the person who caused it, at most once per
+/// crossing, and pass the outcome through.
+///
+/// `subject` is both the latch key and the noun in the sentence, so the
+/// avatar and the world each get their own latch and their own wording.
+pub(crate) fn warn_once_on_refusal(
+    outcome: SendOutcome,
+    notices: &mut OversizeNotices,
+    toasts: &mut crate::ui::toast::Toasts,
+    subject: &'static str,
+    now: f64,
+) -> SendOutcome {
+    match outcome {
+        SendOutcome::Refused { bytes } => {
+            if notices.0.insert(subject) {
+                toasts.warn(
+                    format!(
+                        "Live sync paused — your {subject} is {}, over the {} peer-sync \
+                         limit. Guests see your last saved version until you trim it.",
+                        human_bytes(bytes),
+                        human_bytes(config::network::MAX_RELIABLE_PAYLOAD_BYTES),
+                    ),
+                    now,
+                );
+            }
+        }
+        SendOutcome::Sent => {
+            notices.0.remove(subject);
+        }
+        SendOutcome::NotSerialized => {}
+    }
+    outcome
+}
+
+/// How many bytes `msg` would put on the wire — the exact quantity
+/// [`send_chunked`] measures against
+/// [`config::network::MAX_RELIABLE_PAYLOAD_BYTES`].
+///
+/// Exposed so a readout can show the owner the number the refusal is
+/// actually decided on (#1123). The World Editor's existing gauge measures
+/// the largest single PDS record, which is a different quantity against a
+/// different limit — and a green record gauge beside a dead live sync is
+/// exactly what made the drop unreadable.
+///
+/// `None` when the message will not serialize, which is the same condition
+/// [`SendOutcome::NotSerialized`] reports.
+pub fn wire_payload_bytes(msg: &OverlandsMessage) -> Option<usize> {
+    msg.to_chunk_bytes().ok().map(|b| b.len())
 }
 
 /// Where a chunked reliable send is addressed — every peer, or one peer.
@@ -323,8 +411,9 @@ fn emit_reliable(
 /// * Over [`config::network::MAX_RELIABLE_PAYLOAD_BYTES`] → refused, counted
 ///   ([`samplers::broadcast_oversize_dropped`]) and logged as an
 ///   [`EventPayload::OutboundMessageOversize`] error rather than handed to a
-///   send that would silently fail. The recipient does not receive it — but
-///   the drop is now visible instead of an unobservable SCTP error.
+///   send that would silently fail. The recipient does not receive it — and
+///   the caller is told so ([`SendOutcome::Refused`]) rather than left to
+///   assume it landed (#1123).
 /// * In between → split into `ceil(len / chunk)` fragments, all sharing a
 ///   fresh `msg_id`.
 ///
@@ -341,7 +430,7 @@ pub(crate) fn send_chunked(
     dest: ChunkDest,
     now: f64,
     msg: OverlandsMessage,
-) {
+) -> SendOutcome {
     let bytes = match msg.to_chunk_bytes() {
         Ok(b) => b,
         Err(e) => {
@@ -349,7 +438,7 @@ pub(crate) fn send_chunked(
                 "Failed to serialize {} for chunked send: {e}",
                 variant_label(&msg)
             );
-            return;
+            return SendOutcome::NotSerialized;
         }
     };
     let len = bytes.len();
@@ -372,12 +461,12 @@ pub(crate) fn send_chunked(
             human_bytes(len),
             human_bytes(config::network::MAX_RELIABLE_PAYLOAD_BYTES),
         );
-        return;
+        return SendOutcome::Refused { bytes: len };
     }
 
     if len <= config::network::RELIABLE_CHUNK_DATA_BYTES {
         emit_reliable(sender, &dest, msg);
-        return;
+        return SendOutcome::Sent;
     }
 
     let chunk_size = config::network::RELIABLE_CHUNK_DATA_BYTES;
@@ -396,6 +485,7 @@ pub(crate) fn send_chunked(
             },
         );
     }
+    SendOutcome::Sent
 }
 
 /// Stable human label for a message variant, for logs and the oversize event.
@@ -450,6 +540,148 @@ mod tests {
             .enumerate()
             .map(|(i, c)| (i as u16, total, c.to_vec()))
             .collect()
+    }
+
+    /// Drive `send_chunked` through a real `SendMessage`, returning both
+    /// the outcome and what actually reached the transport.
+    ///
+    /// `SendMessage` is two `MessageWriter`s over `Broadcast`/`SendTo`, so a
+    /// bare `App` with those two message types registered is enough to
+    /// observe the send for real — no relay, no socket. Counting the emitted
+    /// messages is what separates "refused" from "sent and lost".
+    fn drive_send(msg: OverlandsMessage) -> (SendOutcome, usize) {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut app = App::new();
+        app.add_message::<Broadcast<OverlandsMessage>>()
+            .add_message::<SendTo<OverlandsMessage>>()
+            .init_resource::<OutboundChunkSeq>()
+            .init_resource::<MetricsRegistry>()
+            .init_resource::<SessionLog>();
+        let outcome = app
+            .world_mut()
+            .run_system_once(
+                move |mut sender: SendMessage<OverlandsMessage>,
+                      mut seq: ResMut<OutboundChunkSeq>,
+                      mut metrics: ResMut<MetricsRegistry>,
+                      mut log: ResMut<SessionLog>| {
+                    send_chunked(
+                        &mut sender,
+                        &mut seq,
+                        &mut metrics,
+                        &mut log,
+                        ChunkDest::Broadcast,
+                        0.0,
+                        msg.clone(),
+                    )
+                },
+            )
+            .expect("system runs");
+        let emitted = app
+            .world()
+            .resource::<Messages<Broadcast<OverlandsMessage>>>()
+            .iter_current_update_messages()
+            .count();
+        (outcome, emitted)
+    }
+
+    /// #1123 — the refusal has to be a fact the caller receives, not a line
+    /// in a console the owner does not have.
+    ///
+    /// Before the fix `send_chunked` returned `()` on every path, so the
+    /// room broadcaster cleared its dirty flag and the gift handler armed an
+    /// offer timer for a message that never left the machine.
+    #[test]
+    fn an_oversize_payload_is_refused_with_its_size_and_nothing_is_sent() {
+        let over = OverlandsMessage::RoomStateUpdate {
+            record_json: vec![7u8; config::network::MAX_RELIABLE_PAYLOAD_BYTES + 1],
+        };
+        let (outcome, emitted) = drive_send(over);
+        match outcome {
+            SendOutcome::Refused { bytes } => assert!(
+                bytes > config::network::MAX_RELIABLE_PAYLOAD_BYTES,
+                "the refusal carries the measured size, not just a flag"
+            ),
+            other => panic!("expected Refused, got {other:?}"),
+        }
+        assert_eq!(emitted, 0, "nothing reached the transport");
+    }
+
+    /// The other two paths report `Sent`, and a chunked send emits every
+    /// fragment — so a caller keying bookkeeping on `is_sent` is not
+    /// throwing away large-but-legal messages.
+    #[test]
+    fn sends_under_the_ceiling_report_sent() {
+        let (small, emitted) = drive_send(OverlandsMessage::RoomStateUpdate {
+            record_json: vec![1u8; 16],
+        });
+        assert_eq!(small, SendOutcome::Sent);
+        assert_eq!(emitted, 1, "one whole message, unfragmented");
+
+        let msg = big_message(3);
+        let expected = msg.to_chunk_bytes().unwrap().len();
+        let expected = expected.div_ceil(config::network::RELIABLE_CHUNK_DATA_BYTES);
+        let (chunked, emitted) = drive_send(msg);
+        assert_eq!(chunked, SendOutcome::Sent);
+        assert_eq!(emitted, expected, "every fragment reached the transport");
+    }
+
+    /// The owner is told once per crossing, not once per send — and told
+    /// again if they cross back over later.
+    ///
+    /// `broadcast_room_state` fires every `ROOM_BROADCAST_MIN_INTERVAL_SECS`
+    /// while the record is dirty, so an unlatched toast would evict every
+    /// other notification from a queue capped at a handful of entries.
+    #[test]
+    fn the_owner_is_warned_once_per_crossing() {
+        let mut notices = OversizeNotices::default();
+        let mut toasts = crate::ui::toast::Toasts::default();
+        let refused = SendOutcome::Refused { bytes: 1_000_000 };
+
+        warn_once_on_refusal(refused, &mut notices, &mut toasts, "world", 0.0);
+        warn_once_on_refusal(refused, &mut notices, &mut toasts, "world", 0.1);
+        warn_once_on_refusal(refused, &mut notices, &mut toasts, "world", 0.2);
+        let shown = toasts.shown();
+        assert_eq!(shown.len(), 1, "three refusals, one toast");
+        assert_eq!(shown[0].0, crate::ui::toast::ToastKind::Warn);
+        assert!(
+            shown[0].1.contains("976.6 KiB") && shown[0].1.contains("900.0 KiB"),
+            "the toast names the measured size and the limit: {}",
+            shown[0].1
+        );
+        assert!(
+            shown[0].1.contains("world"),
+            "and which of the owner's records is stuck: {}",
+            shown[0].1
+        );
+
+        // A different subject latches independently — the avatar and the
+        // world cross the ceiling for different reasons.
+        warn_once_on_refusal(refused, &mut notices, &mut toasts, "avatar", 0.3);
+        assert_eq!(toasts.shown().len(), 2);
+
+        // Trimming back under the ceiling re-arms the warning: the news is
+        // the crossing, and an owner who crosses twice should hear twice.
+        warn_once_on_refusal(SendOutcome::Sent, &mut notices, &mut toasts, "world", 1.0);
+        warn_once_on_refusal(refused, &mut notices, &mut toasts, "world", 2.0);
+        assert_eq!(toasts.shown().len(), 3);
+    }
+
+    /// A serialize failure is not a send. It is a bug rather than a user
+    /// condition, so it carries no toast — but a caller must not treat it
+    /// as delivery either.
+    #[test]
+    fn a_serialize_failure_is_not_reported_as_sent() {
+        let mut notices = OversizeNotices::default();
+        let mut toasts = crate::ui::toast::Toasts::default();
+        assert!(!SendOutcome::NotSerialized.is_sent());
+        warn_once_on_refusal(
+            SendOutcome::NotSerialized,
+            &mut notices,
+            &mut toasts,
+            "world",
+            0.0,
+        );
+        assert!(toasts.shown().is_empty());
     }
 
     #[test]
