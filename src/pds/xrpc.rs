@@ -449,6 +449,86 @@ pub(crate) fn describe_batch(writes: &[RepoWrite]) -> String {
     )
 }
 
+/// The widest integer the AT Data Model can carry: `Number.MAX_SAFE_INTEGER`.
+///
+/// **Not `i64::MAX`, and the difference is the whole of #1186.** The spec
+/// describes integers as signed 64-bit, and every atproto implementation in
+/// the ecosystem parses records with JavaScript's `JSON.parse`, where a number
+/// is an IEEE-754 double. Past 2^53 the parse is lossy — 8399497595966614310
+/// comes back as 8399497595966615000 — and the reference encoder refuses to
+/// store the result rather than write a value it cannot round-trip:
+///
+/// ```text
+/// Non-integer numbers (8399497595966615000) are not supported by the AT Data Model
+/// ```
+///
+/// That throw escapes the PDS's handler, so what the client sees is a bare
+/// `500 Internal Server Error` with an empty message — no field named, no
+/// indication the fault is its own. Measured against `@atproto/common`'s
+/// `cborEncode`: 2^53-1 and -(2^53-1) encode, 2^53 and beyond throw.
+pub(crate) const MAX_WIRE_INT: i64 = 9_007_199_254_740_991;
+
+/// Every integer in `value` that the PDS cannot store, as `(path, value)`.
+///
+/// Walks the record rather than trusting the types that built it, because the
+/// hazard is spread across records nothing relates: `seed` is `u64` on the
+/// terrain config, on two generator shapes and on an avatar part, and any of
+/// them past [`MAX_WIRE_INT`] is the same opaque 500.
+fn unstorable_ints(value: &serde_json::Value, path: &str, out: &mut Vec<(String, i128)>) {
+    match value {
+        serde_json::Value::Number(n) => {
+            let magnitude = n
+                .as_i64()
+                .map(i128::from)
+                .or_else(|| n.as_u64().map(i128::from));
+            if let Some(v) = magnitude
+                && (v > i128::from(MAX_WIRE_INT) || v < -i128::from(MAX_WIRE_INT))
+            {
+                out.push((path.to_string(), v));
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for (key, child) in map {
+                unstorable_ints(child, &format!("{path}.{key}"), out);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for (index, child) in items.iter().enumerate() {
+                unstorable_ints(child, &format!("{path}[{index}]"), out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Refuse a record carrying an integer the PDS cannot store (#1186).
+///
+/// Named here so the failure says WHICH FIELD. The PDS's answer is a bare 500
+/// that names nothing, and #1186 was invisible for exactly that reason: the
+/// rigged-avatar publish path has never worked for any identity — the wardrobe
+/// record's `seed` is drawn from a full-width `u64` and clears 2^53 with
+/// probability 1 - 2^-11 — and the only symptom was a save that failed with an
+/// error indistinguishable from the PDS being down.
+pub(crate) fn preflight_wire_ints(value: &serde_json::Value, label: &str) -> Result<(), String> {
+    let mut bad = Vec::new();
+    unstorable_ints(value, "", &mut bad);
+    if bad.is_empty() {
+        return Ok(());
+    }
+    let named: Vec<String> = bad
+        .iter()
+        .take(4)
+        .map(|(path, v)| format!("{}{path} = {v}", label))
+        .collect();
+    Err(format!(
+        "{} carries {} integer(s) past ±{MAX_WIRE_INT}, which the PDS cannot store \
+         (it answers with an opaque 500): {}",
+        label,
+        bad.len(),
+        named.join(", ")
+    ))
+}
+
 /// Refuse a batch that addresses the same record twice (#1185).
 ///
 /// **The PDS answers a malformed batch with a 500, not a 400.** The reference
@@ -619,6 +699,24 @@ pub(crate) async fn apply_writes(
     // place a contradictory batch can be caught before it becomes a 500 the
     // user cannot act on (#1185).
     validate_batch(&writes)?;
+    // And refuse a record the PDS would choke on rather than reject (#1186).
+    // Here rather than in each planner because the hazard is spread across
+    // record types that share nothing but this wire.
+    for write in &writes {
+        match write {
+            RepoWrite::Create {
+                collection,
+                rkey,
+                value,
+            }
+            | RepoWrite::Update {
+                collection,
+                rkey,
+                value,
+            } => preflight_wire_ints(value, &format!("{collection}/{rkey}"))?,
+            RepoWrite::Delete { .. } => {}
+        }
+    }
     let url = format!("{}/xrpc/com.atproto.repo.applyWrites", pds);
     let shape = describe_batch(&writes);
     let body = serde_json::json!({ "repo": session.did, "writes": writes });
@@ -711,6 +809,63 @@ mod tests {
         assert!(
             !shape.contains("do not log me"),
             "a record value must never reach a log line: {shape}"
+        );
+    }
+
+    /// **#1186.** The PDS answers an unstorable integer with a bare 500, so
+    /// this is the only place the field can be named. Measured against
+    /// `@atproto/common`'s `cborEncode`: 2^53-1 encodes, 2^53 throws
+    /// "Non-integer numbers ... are not supported by the AT Data Model" —
+    /// because `JSON.parse` has already turned it into a different number by
+    /// the time the encoder sees it.
+    #[test]
+    fn an_integer_past_the_wire_ceiling_is_named_rather_than_500ed() {
+        // The exact value from the failing save, and its neighbours at the
+        // boundary the reference encoder actually enforces.
+        let record = serde_json::json!({
+            "$type": "network.symbios.avatar.avatar",
+            "seed": 8_399_497_595_966_614_310u64,
+        });
+        let err = preflight_wire_ints(&record, "wardrobe")
+            .expect_err("a full-width seed is not storable");
+        assert!(err.contains(".seed"), "the field must be named: {err}");
+        assert!(err.contains("8399497595966614310"), "{err}");
+
+        preflight_wire_ints(
+            &serde_json::json!({ "seed": MAX_WIRE_INT }),
+            "at the ceiling",
+        )
+        .expect("2^53-1 is the largest the PDS stores");
+        preflight_wire_ints(
+            &serde_json::json!({ "seed": -MAX_WIRE_INT }),
+            "at the floor",
+        )
+        .expect("and its negative");
+        preflight_wire_ints(&serde_json::json!({ "seed": MAX_WIRE_INT + 1 }), "one past")
+            .expect_err("one past the ceiling is not");
+    }
+
+    /// The walk has to reach a value wherever it is, because the hazard is
+    /// spread across records that share nothing: `seed` is a `u64` on the
+    /// terrain config, on two generator shapes and on an avatar part.
+    #[test]
+    fn the_wire_int_walk_reaches_nested_and_arrayed_values() {
+        let deep = serde_json::json!({
+            "environment": {
+                "generators": [
+                    { "name": "ok", "seed": 12_345 },
+                    { "name": "bad", "seed": 9_007_199_254_740_992i64 },
+                ]
+            }
+        });
+        let err = preflight_wire_ints(&deep, "room").expect_err("the nested seed is unstorable");
+        assert!(
+            err.contains(".environment.generators[1].seed"),
+            "the path must locate it: {err}"
+        );
+        assert!(
+            !err.contains("[0]"),
+            "the safe sibling is not reported: {err}"
         );
     }
 
