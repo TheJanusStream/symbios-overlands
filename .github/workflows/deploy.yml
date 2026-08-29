@@ -42,12 +42,6 @@ jobs:
         # a schema it does not recognise.
         run: cargo tree -i wasm-bindgen --target wasm32-unknown-unknown --depth 0
 
-      - name: Install Binaryen (wasm-opt)
-        run: |
-          wget https://github.com/WebAssembly/binaryen/releases/download/version_130/binaryen-version_130-x86_64-linux.tar.gz
-          tar -xzf binaryen-version_130-x86_64-linux.tar.gz
-          echo "$(pwd)/binaryen-version_130/bin" >> $GITHUB_PATH
-
       - name: Build WASM (app + gen-worker)
         # --workspace builds both the app and the gen-worker binary (the slim,
         # no-Bevy off-thread generation Web Worker) for wasm in one pass.
@@ -66,8 +60,31 @@ jobs:
             --no-typescript \
             target/wasm32-unknown-unknown/release/gen-worker.wasm
 
-      #- name: Optimize WASM
-      #  run: wasm-opt -Oz -o ./dist/symbios-overlands_bg.wasm ./dist/symbios-overlands_bg.wasm
+      # No wasm-opt step, and no Binaryen download to feed one (#1149).
+      #
+      # Binaryen had been fetched on every deploy since the scaffold commit
+      # to run a `wasm-opt -Oz` step that was commented out the whole time,
+      # on the assumption it would take a further 10-20% off the download.
+      # Measured locally against binaryen 130 and this release profile, it
+      # does not — the app's transfer size gets BIGGER:
+      #
+      #                      raw          gzip -9      brotli -11
+      #   app        60.7 MB -> 51.2 MB   -0.79%       +2.18%
+      #   gen-worker  3.41 MB -> 3.09 MB  +4.90%       +4.42%
+      #
+      # -Oz shrinks the module by restructuring code into forms that
+      # compress worse, and every browser fetching this site gets it
+      # compressed. So the raw column is a real saving in decoded module
+      # bytes (9.5 MB less for the browser to hold), bought with ~226 KB
+      # more on the wire per page load, against a boot download that is
+      # already the recorded pain point (#850, #1063). That is a trade for
+      # whoever owns the deploy to make deliberately, not a free win to
+      # switch on — so it stays off, and the numbers stay here so the next
+      # person to read the commented-out step does not have to re-measure.
+      #
+      # What the step below adds is the half that was unambiguously
+      # missing: a printed size per artifact. `du -sh ./dist` is dominated
+      # by 16.7 MB of CJK fonts and could not have shown any of this.
 
       - name: Assemble Site
         run: |
@@ -79,6 +96,45 @@ jobs:
         run: |
           find ./dist -type l -delete
           du -sh ./dist
+
+      - name: Report wasm bundle sizes
+        # Raw and compressed bytes per .wasm artifact (#1149). Raw is what
+        # the browser holds and compiles; gzip approximates what it
+        # downloads. Both are printed because a change can move them in
+        # opposite directions — see the note above the Assemble step, where
+        # exactly that happened.
+        #
+        # The budgets are soft ceilings a few percent above the sizes
+        # measured on 2026-08-29, not targets: they exist so a dependency
+        # bump or a feature-flag change that adds megabytes fails the deploy
+        # instead of landing unremarked, which is how the app reached 57.9 MB
+        # raw without anyone noticing. Raising one is fine — raising it in
+        # the same commit as the change that needed it is the point.
+        run: |
+          set -euo pipefail
+          fail=0
+          check() {
+            local file="$1" raw_budget="$2" gz_budget="$3"
+            local raw gz
+            raw=$(stat -c %s "$file")
+            gz=$(gzip -9c "$file" | wc -c)
+            printf '%-30s raw %10d B (%6.2f MB)  gzip %10d B (%6.2f MB)\n' \
+              "$(basename "$file")" "$raw" "$(echo "scale=2; $raw/1048576" | bc)" \
+              "$gz" "$(echo "scale=2; $gz/1048576" | bc)"
+            if [ "$raw" -gt "$raw_budget" ]; then
+              echo "::error::$(basename "$file") raw $raw B exceeds the $raw_budget B budget"
+              fail=1
+            fi
+            if [ "$gz" -gt "$gz_budget" ]; then
+              echo "::error::$(basename "$file") gzip $gz B exceeds the $gz_budget B budget"
+              fail=1
+            fi
+          }
+          # app:        57.9 MB raw / 15.95 MB gzip on 2026-08-29
+          check ./dist/symbios-overlands_bg.wasm 65000000 18000000
+          # gen-worker:  3.25 MB raw /  0.68 MB gzip on 2026-08-29
+          check ./dist/gen-worker_bg.wasm 4000000 800000
+          exit $fail
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

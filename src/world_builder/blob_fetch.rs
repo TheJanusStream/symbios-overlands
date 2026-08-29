@@ -120,25 +120,57 @@ pub(crate) async fn fetch_blob_bytes(
     fetch_url_bytes(client, &blob_url, max_bytes, ctx).await
 }
 
-/// Largest per-axis pixel dimension accepted from a fetched image.
+/// Largest number of pixels a fetched image may declare before it is
+/// refused without being decoded.
 ///
-/// The byte caps above bound the *compressed* transfer, but a "pixel
-/// bomb" — a kilobyte-sized PNG declaring e.g. 30000×30000 of uniform
-/// colour — expands by orders of magnitude on decode and can OOM the
-/// WASM heap in one allocation. Capping each axis bounds the decoded
-/// frame to 4096×4096×4 B ≈ 64 MiB worst-case, generous for every
-/// legitimate avatar / sign / splat source.
-pub(crate) const MAX_IMAGE_DIMENSION: u32 = 4096;
+/// The byte caps above bound the *compressed* transfer, but a "pixel bomb" —
+/// a kilobyte-sized PNG declaring e.g. 30000×30000 of uniform colour —
+/// expands by orders of magnitude on decode and can OOM the wasm heap in one
+/// allocation. Pixels are the unit that actually costs memory: this bound is
+/// 4096×4096, exactly the worst case the old per-axis cap of 4096 permitted,
+/// so nothing that decoded before is refused now.
+///
+/// **Why pixels and not axes (#1130).** A per-axis cap turned away shapes that
+/// cost *less* than an accepted square — a 6000×1200 panorama is 7 MP against
+/// a 4096-square's 16.7 MP, yet only the panorama was refused. That mattered
+/// because the wasm profile-picture path fetches the owner's ORIGINAL upload
+/// from their PDS (cdn.bsky.app serves no CORS headers, so the resized CDN
+/// copy the native path uses is unreachable): a peer whose avatar happened to
+/// be a wide or tall photograph rendered normally for native peers and as a
+/// permanent blank spacer for everyone on the web build. Same ceiling on
+/// memory, fewer people missing from the room.
+pub(crate) const MAX_IMAGE_PIXELS: u64 = 4096 * 4096;
 
-/// Decode fetched image bytes after a header-only dimension probe.
+/// Per-axis sanity bound, held well above anything a real source produces.
 ///
-/// Returns `None` (logged at warn, tagged with `ctx`) when the format
-/// can't be sniffed or either axis exceeds [`MAX_IMAGE_DIMENSION`] —
-/// the full-frame allocation never happens for a rejected image. All
-/// decode paths for network-supplied image bytes (peer avatars, sign
-/// sources, Referenced splat layers) must come through here rather
-/// than calling `image::load_from_memory` directly.
-pub(crate) fn decode_image_capped(bytes: &[u8], ctx: &str) -> Option<image::DynamicImage> {
+/// [`MAX_IMAGE_PIXELS`] is the memory bound; this only refuses degenerate
+/// aspect ratios (a 1×16777216 strip is inside the pixel budget and is not an
+/// image anybody uploaded), where decoder row-handling is least exercised.
+pub(crate) const MAX_IMAGE_AXIS: u32 = 16384;
+
+/// Decode fetched image bytes after a header-only dimension probe, then
+/// downscale to fit `working_max` on both axes.
+///
+/// Returns `None` (logged at warn, tagged with `ctx`) when the format can't be
+/// sniffed or the declared frame exceeds [`MAX_IMAGE_PIXELS`] /
+/// [`MAX_IMAGE_AXIS`] — the full-frame allocation never happens for a rejected
+/// image. All decode paths for network-supplied image bytes (peer avatars,
+/// sign sources, Referenced splat layers) must come through here rather than
+/// calling `image::load_from_memory` directly.
+///
+/// **What `working_max` does and does not bound (#1128).** It bounds what is
+/// *retained*: the returned image, whatever the caller does with it, and the
+/// GPU texture it becomes. It does NOT bound the decode itself, which still
+/// materialises the source frame at full size — `image` exposes no
+/// general decode-at-reduced-scale, so the only bound available on the spike
+/// is [`MAX_IMAGE_PIXELS`]. Every caller must name a working size rather than
+/// defaulting to "as large as the cap allows", because on wasm the retained
+/// half is permanent and the transient half is merely a high-water mark.
+pub(crate) fn decode_image_capped(
+    bytes: &[u8],
+    ctx: &str,
+    working_max: u32,
+) -> Option<image::DynamicImage> {
     let reader = match image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format() {
         Ok(reader) => reader,
         Err(e) => {
@@ -153,17 +185,43 @@ pub(crate) fn decode_image_capped(bytes: &[u8], ctx: &str) -> Option<image::Dyna
             return None;
         }
     };
-    if w == 0 || h == 0 || w > MAX_IMAGE_DIMENSION || h > MAX_IMAGE_DIMENSION {
-        warn!("{ctx} image rejected: {w}×{h} px exceeds the {MAX_IMAGE_DIMENSION} px per-axis cap");
+    if w == 0 || h == 0 || w > MAX_IMAGE_AXIS || h > MAX_IMAGE_AXIS {
+        warn!("{ctx} image rejected: {w}×{h} px is outside the {MAX_IMAGE_AXIS} px axis bound");
         return None;
     }
-    match image::load_from_memory(bytes) {
-        Ok(img) => Some(img),
+    if u64::from(w) * u64::from(h) > MAX_IMAGE_PIXELS {
+        warn!(
+            "{ctx} image rejected: {w}×{h} px is {} pixels, over the {MAX_IMAGE_PIXELS}-pixel cap",
+            u64::from(w) * u64::from(h)
+        );
+        return None;
+    }
+    let img = match image::load_from_memory(bytes) {
+        Ok(img) => img,
         Err(e) => {
             warn!("{ctx} image decode failed: {e}");
-            None
+            return None;
         }
+    };
+    Some(downscale_to_fit(img, working_max))
+}
+
+/// Shrink `img` so neither axis exceeds `working_max`, preserving aspect
+/// ratio. Returns it untouched when it already fits — the common case, and
+/// one that must not pay a resample.
+fn downscale_to_fit(img: image::DynamicImage, working_max: u32) -> image::DynamicImage {
+    if img.width() <= working_max && img.height() <= working_max {
+        return img;
     }
+    // `resize` fits inside the box and keeps the aspect ratio, so a 4096×1024
+    // sign resolved against a 2048 box lands at 2048×512 rather than being
+    // squashed square. Triangle is the same filter the avatar and splat paths
+    // already use.
+    img.resize(
+        working_max,
+        working_max,
+        image::imageops::FilterType::Triangle,
+    )
 }
 
 #[cfg(test)]
@@ -209,6 +267,10 @@ mod tests {
         bytes
     }
 
+    /// A working box big enough never to resample, for the tests that are
+    /// about acceptance rather than about downscaling.
+    const NO_SHRINK: u32 = MAX_IMAGE_AXIS;
+
     #[test]
     fn rejects_pixel_bomb_before_decode() {
         // ~3.4 GiB decoded from under 100 bytes on the wire. The
@@ -216,13 +278,66 @@ mod tests {
         // allocation.
         let bomb = png_declaring(30_000, 30_000);
         assert!(bomb.len() < 100, "bomb should be tiny on the wire");
-        assert!(decode_image_capped(&bomb, "test").is_none());
+        assert!(decode_image_capped(&bomb, "test", NO_SHRINK).is_none());
     }
 
+    /// A strip inside the pixel budget but absurd in shape is still refused:
+    /// [`MAX_IMAGE_PIXELS`] is the memory bound, [`MAX_IMAGE_AXIS`] the
+    /// shape one, and dropping the second along with the per-axis cap would
+    /// have handed the decoders a row length nothing legitimate produces.
     #[test]
-    fn rejects_single_oversized_axis() {
-        assert!(decode_image_capped(&png_declaring(1, MAX_IMAGE_DIMENSION + 1), "test").is_none());
-        assert!(decode_image_capped(&png_declaring(MAX_IMAGE_DIMENSION + 1, 1), "test").is_none());
+    fn rejects_a_degenerate_strip_even_inside_the_pixel_budget() {
+        let strip = png_declaring(MAX_IMAGE_AXIS + 1, 4);
+        assert!(
+            u64::from(MAX_IMAGE_AXIS + 1) * 4 < MAX_IMAGE_PIXELS,
+            "the strip must be inside the pixel budget for this test to mean anything"
+        );
+        assert!(decode_image_capped(&strip, "test", NO_SHRINK).is_none());
+        assert!(
+            decode_image_capped(&png_declaring(4, MAX_IMAGE_AXIS + 1), "test", NO_SHRINK).is_none()
+        );
+    }
+
+    /// The #1130 sequence, stated as a policy test.
+    ///
+    /// A peer's avatar blob is 6000×1200 — a panorama, 7.2 MP, well under half
+    /// what a 4096-square costs to decode. The old per-axis cap refused it on
+    /// its width alone, so that peer had a profile picture on native (which
+    /// fetches the resized CDN copy) and a permanent blank spacer on wasm
+    /// (which must fetch the original from the PDS, because cdn.bsky.app
+    /// serves no CORS headers). Same person, two different rooms, depending
+    /// on which build you joined from.
+    #[test]
+    fn a_wide_image_inside_the_pixel_budget_is_accepted() {
+        const WIDE_PIXELS: u64 = 6000 * 1200;
+        const _: () = assert!(
+            WIDE_PIXELS < MAX_IMAGE_PIXELS,
+            "a 6000×1200 panorama is inside the pixel budget"
+        );
+        let wide = png_declaring(6000, 1200);
+        // The header-only fixture has no pixel data, so the decode itself
+        // fails — but it must fail at the DECODER, having passed the policy
+        // gate, which is what the old per-axis cap denied it.
+        let (w, h) = image::ImageReader::new(std::io::Cursor::new(&wide))
+            .with_guessed_format()
+            .expect("probe")
+            .into_dimensions()
+            .expect("dimensions");
+        assert_eq!((w, h), (6000, 1200));
+        assert!(
+            u64::from(w) * u64::from(h) <= MAX_IMAGE_PIXELS && w <= MAX_IMAGE_AXIS,
+            "6000×1200 must pass the policy gate — this is the shape #1130 blanked"
+        );
+    }
+
+    /// And the ceiling has not moved: the worst case a decode may attempt is
+    /// still exactly a 4096-square, which is what the old per-axis cap
+    /// permitted. The point of #1130 was to stop refusing images that cost
+    /// LESS than that, not to start accepting ones that cost more.
+    #[test]
+    fn the_worst_case_decode_is_still_a_4096_square() {
+        assert_eq!(MAX_IMAGE_PIXELS, 4096 * 4096);
+        assert!(decode_image_capped(&png_declaring(4097, 4097), "test", NO_SHRINK).is_none());
     }
 
     #[test]
@@ -231,8 +346,39 @@ mod tests {
         let mut buf = Vec::new();
         img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
             .unwrap();
-        let decoded = decode_image_capped(&buf, "test").expect("4×4 PNG must decode");
+        let decoded = decode_image_capped(&buf, "test", NO_SHRINK).expect("4×4 PNG must decode");
         assert_eq!((decoded.width(), decoded.height()), (4, 4));
+    }
+
+    /// The retention half of #1128: what comes back is the working size, not
+    /// the source size. A sign whose source is 512-square resolved against a
+    /// 64 px box must land at 64 px — otherwise the cache's byte budget is
+    /// measuring a number the caller never controls.
+    #[test]
+    fn a_source_larger_than_the_working_box_comes_back_shrunk() {
+        let img = image::DynamicImage::new_rgba8(512, 256);
+        let mut buf = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+            .unwrap();
+        let decoded = decode_image_capped(&buf, "test", 64).expect("512×256 PNG must decode");
+        assert_eq!(
+            (decoded.width(), decoded.height()),
+            (64, 32),
+            "the aspect ratio must survive the shrink — a squashed sign is a \
+             visible bug, and `resize` fits the box rather than filling it"
+        );
+    }
+
+    /// And an image already inside the box is handed back untouched, so the
+    /// overwhelmingly common case pays no resample.
+    #[test]
+    fn a_source_inside_the_working_box_is_not_resampled() {
+        let img = image::DynamicImage::new_rgba8(32, 16);
+        let mut buf = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+            .unwrap();
+        let decoded = decode_image_capped(&buf, "test", 64).expect("32×16 PNG must decode");
+        assert_eq!((decoded.width(), decoded.height()), (32, 16));
     }
 
     /// The blob policy, stated declaratively (#1153).
@@ -298,7 +444,7 @@ mod tests {
             ("bmp", bmp),
         ] {
             assert!(
-                decode_image_capped(&bytes, "test").is_none(),
+                decode_image_capped(&bytes, "test", NO_SHRINK).is_none(),
                 "{name} must not decode"
             );
         }
@@ -317,7 +463,7 @@ mod tests {
             let mut buf = Vec::new();
             img.write_to(&mut std::io::Cursor::new(&mut buf), format)
                 .unwrap_or_else(|e| panic!("{format:?} must encode: {e}"));
-            let decoded = decode_image_capped(&buf, "test")
+            let decoded = decode_image_capped(&buf, "test", NO_SHRINK)
                 .unwrap_or_else(|| panic!("{format:?} must decode"));
             assert_eq!((decoded.width(), decoded.height()), (4, 4));
         }
@@ -325,7 +471,7 @@ mod tests {
 
     #[test]
     fn rejects_garbage_bytes() {
-        assert!(decode_image_capped(&[0u8; 16], "test").is_none());
-        assert!(decode_image_capped(&[], "test").is_none());
+        assert!(decode_image_capped(&[0u8; 16], "test", NO_SHRINK).is_none());
+        assert!(decode_image_capped(&[], "test", NO_SHRINK).is_none());
     }
 }

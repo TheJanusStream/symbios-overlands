@@ -238,13 +238,34 @@ impl SessionLog {
     /// Serialize the whole ring as newline-delimited JSON — the payload for the
     /// wasm "Download session log" button (A-8). Byte-compatible with the
     /// native `.jsonl` file so both feed the same `--analyze-session` analyzer.
+    ///
+    /// Reserved from the first line rather than grown from empty (#1136). A
+    /// full ring is several megabytes of NDJSON, and a `String` growing into
+    /// that from zero doubles a dozen times, each step allocating the new
+    /// buffer while the old one is still live — so the peak is around 1.5x the
+    /// result and the intermediate buffers are pure churn. That is worth
+    /// avoiding here specifically because this is the wasm path, where the
+    /// allocator never gives any of it back to the browser (#565), and the
+    /// button exists to be pressed on a session that is already in trouble.
+    ///
+    /// The estimate does not have to be right — `push_str` still grows if it
+    /// is short. Events vary in size, so this is one sample times the count
+    /// with headroom, not a computed total, which would cost a second
+    /// serialize of the whole ring to learn.
     pub fn drain_ndjson(&self) -> String {
-        let mut out = String::new();
-        for ev in &self.ring {
-            if let Ok(line) = serde_json::to_string(ev) {
-                out.push_str(&line);
-                out.push('\n');
-            }
+        let mut lines = self
+            .ring
+            .iter()
+            .filter_map(|ev| serde_json::to_string(ev).ok());
+        let Some(first) = lines.next() else {
+            return String::new();
+        };
+        let mut out = String::with_capacity((first.len() + 1) * self.ring.len() * 5 / 4);
+        out.push_str(&first);
+        out.push('\n');
+        for line in lines {
+            out.push_str(&line);
+            out.push('\n');
         }
         out
     }
@@ -336,6 +357,36 @@ mod tests {
         for line in lines {
             let _: SessionEvent = serde_json::from_str(line).expect("each line parses");
         }
+    }
+
+    /// The empty ring must not fall off the reserve path — a session that
+    /// pressed Download before anything was recorded would otherwise index
+    /// a first line that does not exist.
+    #[test]
+    fn drain_ndjson_of_an_empty_ring_is_empty() {
+        let log = SessionLog::with_capacity(8);
+        assert!(log.drain_ndjson().is_empty());
+    }
+
+    /// #1136: the dump is reserved from a sample rather than grown from zero,
+    /// so a full ring is one allocation instead of a dozen doublings on a heap
+    /// that never shrinks. The sample is an estimate, so this asserts the
+    /// contract that matters — that the reserve is at least the result, i.e.
+    /// nothing reallocated — rather than an exact figure.
+    #[test]
+    fn drain_ndjson_reserves_enough_not_to_regrow() {
+        let mut log = SessionLog::with_capacity(64);
+        for i in 0..64 {
+            log.info(i as f64, ev("padding-event-name"));
+        }
+        let dump = log.drain_ndjson();
+        assert!(
+            dump.capacity() >= dump.len(),
+            "capacity {} under length {} — the reserve was short and it regrew",
+            dump.capacity(),
+            dump.len()
+        );
+        assert_eq!(dump.lines().count(), 64);
     }
 
     #[test]

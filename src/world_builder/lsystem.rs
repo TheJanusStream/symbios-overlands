@@ -526,6 +526,22 @@ pub(super) fn spawn_lsystem_entity(
                 }
             };
             ctx.record_grammar_status(generator_ref, None);
+            // These buckets stay MAIN_WORLD, unlike the terrain mesh (#1134).
+            //
+            // Two facts decide it. First, the win would be small: this cache
+            // keys on `generator_ref`, so a scatter of 100_000 trees shares
+            // ONE set of bucket meshes — the retained vertex data scales with
+            // the number of distinct grammars in a room (single digits), not
+            // with the plant count, which is what makes it look large.
+            // Second, the cost would be real and there is no cheap way back:
+            // a plant is click- and right-click-selectable through the
+            // `PrimMarker` on the parent this returns, found by walking up
+            // from whichever bucket the mesh ray hit. Terrain could give that
+            // up because it already has a heightfield collider standing in
+            // for its triangles; a plant carries no collider at all, and
+            // spawning proxy colliders to restore the pick would cost more
+            // memory per scatter instance than the shared vertex copies this
+            // would have saved.
             let built = LSystemGeometry {
                 mesh_buckets: mesh_buckets_raw
                     .into_iter()

@@ -123,6 +123,23 @@ pub(super) struct AttachmentsApplied {
     worn: Vec<(ResolvedAttachment, Entity)>,
 }
 
+/// Latch marking a rigged root as dressed exactly as its record says (#1135).
+///
+/// Sibling of `rigged::RiggedSteady`, and for the same reason: the compare it
+/// guards is a value-equality over the full `ResolvedAttachment` list, which
+/// carries every worn prop's `AttachmentRecord` `Generator` tree. A room of
+/// peers in elaborate outfits paid that per body per frame to conclude
+/// "unchanged" for thousands of consecutive frames.
+///
+/// A latch and not a `Changed<>` gate because the answer depends on more than
+/// the record: props are also despawned by the orphan sweeps at the top of
+/// this system, so the sweeps clear every latch on any frame they fire and
+/// the whole set is re-derived from scratch. One frame of full work after a
+/// sweep, which happens during outfit editing, is not worth being clever
+/// about.
+#[derive(Component)]
+pub(super) struct AttachmentsSteady;
+
 impl AttachmentsApplied {
     /// The prop entities currently worn, in record order.
     #[cfg(test)]
@@ -167,7 +184,8 @@ pub(super) fn sync_rigged_attachments(
     mut commands: Commands,
     live: Option<Res<LiveAvatarRecord>>,
     locals: Query<(), With<LocalPlayer>>,
-    peers: Query<&RemotePeer>,
+    peers: Query<Ref<RemotePeer>>,
+    dressed: Query<(), With<AttachmentsSteady>>,
     // Props orphaned from every hierarchy (#1077). Arming the in-world gizmo
     // on a worn prop deliberately detaches it from its joint — that is how
     // the gizmo renders a world pose mid-drag — and a body REBUILD landing
@@ -233,17 +251,23 @@ pub(super) fn sync_rigged_attachments(
     mut images: ResMut<Assets<Image>>,
     mut deps: AvatarSpawnDeps,
 ) {
+    // Any sweep below removes a prop from under the record's feet, so the
+    // dressed latches stop describing the world and every root is re-derived
+    // this frame (#1135).
+    let mut swept = false;
     for (ghost, _, detached) in &part_orphans {
         let drag_is_live = detached.is_some_and(|d| part_parents.contains(d.original_parent));
         if drag_is_live {
             continue;
         }
+        swept = true;
         commands.entity(ghost).despawn();
         if let Some(metrics) = deps.caches.metrics.as_deref_mut() {
             crate::diagnostics::samplers::attachment_orphan_swept(metrics);
         }
     }
     for orphan in &orphans {
+        swept = true;
         commands.entity(orphan).despawn();
         // Routed through the caches bundle (#924): this system already
         // carries `GeneratorCaches` inside `AvatarSpawnDeps`, and a sibling
@@ -260,13 +284,24 @@ pub(super) fn sync_rigged_attachments(
         // Whose record dresses this body: the local player's live record, or
         // the peer's fetched one. A chassis that is neither (mid-despawn)
         // keeps whatever it wears until it goes.
-        let desired = if locals.contains(chassis) {
-            live.as_ref().map(|live| dressed_by(&live.0))
+        let (desired, source_changed) = if locals.contains(chassis) {
+            match live.as_ref() {
+                Some(live) => (Some(dressed_by(&live.0)), live.is_changed()),
+                None => (None, false),
+            }
         } else if let Ok(peer) = peers.get(chassis) {
-            peer.avatar.as_ref().map(dressed_by)
+            let changed = peer.is_changed();
+            (peer.into_inner().avatar.as_ref().map(dressed_by), changed)
         } else {
             continue;
         };
+        // See `AttachmentsSteady`: skip the whole-outfit value comparison
+        // below while nothing that feeds it can have moved.
+        if source_changed || swept {
+            commands.entity(root).remove::<AttachmentsSteady>();
+        } else if dressed.contains(root) {
+            continue;
+        }
         // `None` is a WAIT, not an empty outfit (#1112) — the same rule
         // `kick_rigged_builds` applies to the body itself. A rigged record
         // whose references have not resolved yet cannot say what is worn,
@@ -277,13 +312,17 @@ pub(super) fn sync_rigged_attachments(
             continue;
         };
 
-        let already_worn: Vec<&ResolvedAttachment> = applied
-            .as_ref()
-            .map(|worn| worn.worn.iter().map(|(record, _)| record).collect())
-            .unwrap_or_default();
+        // Compared through a borrowed slice rather than a collected `Vec` of
+        // references: this ran per body per frame and the allocation was pure
+        // churn on a heap that, on wasm, never shrinks (#1135).
+        let already_worn: &[(ResolvedAttachment, Entity)] =
+            applied.as_ref().map(|w| w.worn.as_slice()).unwrap_or(&[]);
         if already_worn.len() == desired.len()
-            && already_worn.iter().zip(desired).all(|(a, b)| *a == b)
+            && already_worn.iter().zip(desired).all(|((a, _), b)| a == b)
         {
+            // Dressed as described — latch it so the comparison is skipped
+            // until the record changes or a sweep fires.
+            commands.entity(root).insert(AttachmentsSteady);
             continue;
         }
         // Keep every standing prop the record still describes verbatim;
@@ -767,6 +806,73 @@ pub(super) mod tests {
             .query_filtered::<Entity, With<AttachmentRoot>>();
         let prop = props.single(app.world()).expect("one worn prop");
         (app, prop)
+    }
+
+    /// #1135: a body already dressed as its record says latches, so the
+    /// per-frame value comparison over the whole `ResolvedAttachment` list —
+    /// every worn prop's `Generator` tree — stops running.
+    ///
+    /// Sequence: dress once, then stand still. Before the latch, every
+    /// subsequent frame re-derived the same answer.
+    #[test]
+    fn a_dressed_body_latches_so_the_outfit_compare_stops_running() {
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut app, _) = dressed_app();
+        // `dressed_app` dresses on a frame where nothing was latched; the
+        // next pass is the first that can conclude "already dressed".
+        app.world_mut()
+            .run_system_once(sync_rigged_attachments)
+            .expect("second pass");
+
+        let mut latched = app
+            .world_mut()
+            .query_filtered::<Entity, (With<AttachmentsSteady>, With<RiggedRoot>)>();
+        assert_eq!(
+            latched.iter(app.world()).count(),
+            1,
+            "the dressed root did not latch — the outfit compare will run every frame"
+        );
+    }
+
+    /// And the latch releases on a record edit, or a wardrobe change would
+    /// never reach the body. This is the failure a naive latch would ship:
+    /// cheap, and permanently wrong.
+    #[test]
+    fn editing_the_record_releases_the_latch_and_the_outfit_follows() {
+        use bevy::ecs::system::RunSystemOnce;
+        let (mut app, prop) = dressed_app();
+        app.world_mut()
+            .run_system_once(sync_rigged_attachments)
+            .expect("latching pass");
+
+        // Take the crown off — a real record edit, which trips the resource's
+        // change tick exactly as an editor click would.
+        {
+            let mut live = app
+                .world_mut()
+                .resource_mut::<crate::state::LiveAvatarRecord>();
+            if let Some(rig) = live.0.body.rigged_mut()
+                && let Some(resolved) = rig.resolved.as_mut()
+            {
+                resolved.attachments.clear();
+            }
+        }
+        app.world_mut()
+            .run_system_once(sync_rigged_attachments)
+            .expect("undress");
+
+        assert!(
+            app.world().get_entity(prop).is_err(),
+            "the crown is still worn — the latch swallowed a record edit"
+        );
+        let mut latched = app
+            .world_mut()
+            .query_filtered::<Entity, With<AttachmentsSteady>>();
+        assert_eq!(
+            latched.iter(app.world()).count(),
+            0,
+            "the latch survived the edit that released it"
+        );
     }
 
     /// The parts editor's addressing contract (#1098): every node of the

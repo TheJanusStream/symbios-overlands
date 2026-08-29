@@ -48,9 +48,7 @@
 use std::cell::RefCell;
 
 use bevy::ecs::hierarchy::ChildOf;
-use bevy::picking::mesh_picking::ray_cast::{MeshRayCast, MeshRayCastSettings};
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use transform_gizmo_bevy::GizmoTarget;
@@ -61,7 +59,6 @@ use crate::player::attachments::LocalAttachment;
 use crate::state::{
     CurrentRoomDid, LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord, LocalPlayer,
 };
-use crate::terrain::TerrainMesh;
 use crate::ui::avatar::AvatarEditorState;
 use crate::ui::catalogue::catalogue_menu;
 use crate::ui::room::construct::{ROOM_ROOT_KINDS, make_default_for_kind};
@@ -190,18 +187,15 @@ pub(super) fn detect_scene_right_click(
     gizmo_targets: Query<&GizmoTarget>,
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    mut raycast: MeshRayCast,
+    mut pick: super::ScenePick,
     prim_markers: Query<&PrimMarker>,
     placement_markers: Query<&PlacementMarker>,
     avatar_prims: Query<&AvatarVisualPrim>,
     parents: Query<&ChildOf>,
-    terrain: Query<(), With<TerrainMesh>>,
     avatar_hits: AvatarHits,
     mut menu: ResMut<SceneContextMenu>,
 ) {
-    let cursor_now = windows.single().ok().and_then(|w| w.cursor_position());
+    let cursor_now = pick.cursor_position();
 
     // Click-vs-drag bookkeeping. The right button also drives camera orbit,
     // so a gesture only counts as a menu click if the pointer barely moved
@@ -253,19 +247,22 @@ pub(super) fn detect_scene_right_click(
     let Some(cursor) = cursor_now else {
         return;
     };
-    let Ok((camera, cam_tf)) = cameras.single() else {
-        return;
-    };
-    let Ok(ray) = camera.viewport_to_world(cam_tf, cursor) else {
+    let Some(ray) = pick.cursor_ray() else {
         return;
     };
 
-    // Nearest rendered mesh under the cursor. Mesh raycast, not physics —
-    // most catalogue props carry no collider (same rationale as the picker).
-    let (hit_entity, hit_point) = {
-        let hits = raycast.cast_ray(ray, &MeshRayCastSettings::default());
-        match hits.first() {
-            Some((entity, hit)) => (*entity, hit.point),
+    // Nearest surface under the cursor: a rendered mesh by mesh raycast (most
+    // catalogue props carry no collider, same rationale as the picker), or the
+    // ground by a physics ray against the heightfield collider, because the
+    // terrain mesh holds no main-world vertices since #1134. Merged by
+    // distance, so a hill still hides what stands behind it.
+    let (hit_entity, hit_point, hit_is_terrain) = {
+        match pick.hit_along(ray) {
+            Some(super::SceneHit::Mesh { entity, point, .. }) => (Some(entity), point, false),
+            // A ground hit is the menu's "place an object here" anchor, and
+            // its world point is what the placement transform is built from —
+            // so it has to be the terrain ray's point, not the mesh ray's.
+            Some(super::SceneHit::Terrain { point }) => (None, point, true),
             None => {
                 // Empty sky — dismiss any open menu.
                 menu.open = false;
@@ -275,18 +272,20 @@ pub(super) fn detect_scene_right_click(
     };
 
     // Walk from the hit mesh up the hierarchy: the deepest `PrimMarker` is
-    // the sub-part, the enclosing `PlacementMarker` is the placement, any
-    // `TerrainMesh` on the path marks a ground hit, and an
+    // the sub-part, the enclosing `PlacementMarker` is the placement, and an
     // `AvatarVisualPrim` marks the player's own avatar (#824 — the marker
-    // is only ever attached to LOCAL-player visuals).
+    // is only ever attached to LOCAL-player visuals). A ground hit never
+    // enters this loop: it comes from the terrain ray above, which answers
+    // "was this the ground" directly instead of by finding `TerrainMesh` on
+    // an ancestor path.
     let mut picked_prim: Option<PrimMarker> = None;
     let mut picked_placement: Option<usize> = None;
     let mut picked_avatar: Option<Vec<usize>> = None;
     let mut picked_worn: Option<WornHit> = None;
     let mut picked_part: Option<Vec<usize>> = None;
     let mut own_body = false;
-    let mut is_terrain = false;
-    let mut cursor_entity = Some(hit_entity);
+    let mut is_terrain = hit_is_terrain;
+    let mut cursor_entity = hit_entity;
     while let Some(entity) = cursor_entity {
         // The deepest part marker on the path is the part under the cursor
         // (#1098); it is attached to its prop once the prop is found.
@@ -322,9 +321,6 @@ pub(super) fn detect_scene_right_click(
             && avatar_hits.local_players.contains(child_of.parent())
         {
             own_body = true;
-        }
-        if terrain.get(entity).is_ok() {
-            is_terrain = true;
         }
         if let Ok(marker) = placement_markers.get(entity) {
             picked_placement = Some(marker.0);

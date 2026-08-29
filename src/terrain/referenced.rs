@@ -144,7 +144,12 @@ fn decode_and_upload_splat_layer(
     texture_size: u32,
     images: &mut Assets<Image>,
 ) -> Option<bevy_symbios_texture::GeneratedHandles> {
-    let dyn_img = crate::world_builder::blob_fetch::decode_image_capped(bytes, "Splat layer")?;
+    // The working size IS the layer size: a splat layer is resampled to a
+    // square `texture_size` two lines below regardless, so decoding straight
+    // to that box means the oversized frame is released before the resample
+    // rather than after it (#1128).
+    let dyn_img =
+        crate::world_builder::blob_fetch::decode_image_capped(bytes, "Splat layer", texture_size)?;
     let resized = dyn_img
         .resize_exact(
             texture_size,

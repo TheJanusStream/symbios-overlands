@@ -88,6 +88,7 @@ mod sync;
 pub use blob::BlobEditContext;
 pub use face_pick::FacePick;
 
+use avian3d::prelude::{SpatialQuery, SpatialQueryFilter};
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::mesh::Mesh3d;
 use bevy::picking::mesh_picking::ray_cast::{MeshRayCast, MeshRayCastSettings};
@@ -404,9 +405,11 @@ impl Plugin for EditorGizmoPlugin {
 /// gizmo vanish via [`sync`]. On any other tab, or with the editors
 /// closed, a scene click just clears — the pre-#702 behaviour.
 ///
-/// Mesh raycast, not physics: most catalogue props carry no collider, so
-/// `SpatialQuery` would see through them; `MeshRayCast` hits anything
-/// rendered.
+/// Mesh raycast for everything selectable: most catalogue props carry no
+/// collider, so `SpatialQuery` would see through them, while `MeshRayCast`
+/// hits anything rendered. The one exception is the ground, which since
+/// #1134 has no main-world vertices to hit — see [`ScenePick::hit_under_cursor`]
+/// for why terrain still has to be found, given that it can never be picked.
 ///
 /// **Drag safety.** Picking is suppressed whenever any [`GizmoTarget`]
 /// reports `is_focused()` (pointer hovering a handle) or `is_active()` (a
@@ -431,9 +434,7 @@ fn pick_on_scene_click(
     panels: Res<crate::ui::toolbar::UiPanels>,
     session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
     room_did: Option<Res<crate::state::CurrentRoomDid>>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    mut raycast: MeshRayCast,
+    mut pick: ScenePick,
     prim_markers: Query<&PrimMarker>,
     placement_markers: Query<&PlacementMarker>,
     parents: Query<&ChildOf>,
@@ -476,18 +477,36 @@ fn pick_on_scene_click(
         return;
     }
 
-    // Cursor → world ray → nearest rendered mesh, cast ONCE and shared by
-    // the proxy, avatar (#823), and room pick branches below. The hit
-    // triangle rides along for face picking (#961).
-    let hit = scene_hit_under_cursor(&windows, &cameras, &mut raycast);
-    let hit_entity = hit.map(|(entity, _)| entity);
+    // Cursor → world ray → nearest surface, cast ONCE and shared by the
+    // proxy, avatar (#823), and room pick branches below. The hit triangle
+    // rides along for face picking (#961).
+    //
+    // A terrain hit is deliberately NOT an entity here: terrain has never
+    // been selectable, and the doc above says so — the ground clears the
+    // selection. Since #1134 it takes a physics ray to notice the ground at
+    // all, and the reason to keep noticing is occlusion: without it, a click
+    // on a hillside would reach through the hill and select whatever stands
+    // behind it.
+    let hit = pick.hit_under_cursor();
+    let hit_entity = match hit {
+        Some(SceneHit::Mesh { entity, .. }) => Some(entity),
+        Some(SceneHit::Terrain { .. }) | None => None,
+    };
 
     // Which face the cursor landed on, resolved only while the panel asks
     // for one. The group table is per render entity — a split prim's child
     // mesh carries its own — so the hit entity is the one to ask, and the
     // ancestor walks below only decide *whose* face it is.
     let picked_face = if face_pick.armed {
-        hit.and_then(|(entity, triangle)| {
+        hit.and_then(|hit| {
+            let SceneHit::Mesh {
+                entity,
+                triangle_index: triangle,
+                ..
+            } = hit
+            else {
+                return None;
+            };
             let (group, mesh) = face_groups.get(entity).ok()?;
             let face = face_pick::face_at(&group.faces, triangle)?;
             let outline = meshes
@@ -737,23 +756,139 @@ fn select_prim_in_tree(
     room_state.pending_tree_focus = true;
 }
 
-/// Cursor position → world ray → nearest rendered mesh under it, with the
-/// index of the triangle that was hit. Cast once per click at the top of
-/// [`pick_on_scene_click`] and shared by the proxy, avatar, and room
-/// branches; only face picking (#961) reads the triangle.
-fn scene_hit_under_cursor(
-    windows: &Query<&Window, With<PrimaryWindow>>,
-    cameras: &Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    raycast: &mut MeshRayCast,
-) -> Option<(Entity, Option<usize>)> {
-    let cursor = windows.single().ok()?.cursor_position()?;
-    let (camera, cam_tf) = cameras.single().ok()?;
-    let ray = camera.viewport_to_world(cam_tf, cursor).ok()?;
-    raycast
-        .cast_ray(ray, &MeshRayCastSettings::default())
-        .first()
-        .map(|(entity, hit)| (*entity, hit.triangle_index))
+/// What a click into the 3D viewport landed on.
+///
+/// Two surfaces, because they are reached by two different rays. Everything
+/// the room draws is a rendered mesh with main-world vertices, found by
+/// [`MeshRayCast`]. The terrain is not: since #1134 its mesh is
+/// `RENDER_WORLD`-only, so the mesh ray is blind to it and the ground is
+/// found by a physics ray against the heightfield collider instead.
+#[derive(Clone, Copy)]
+pub(super) enum SceneHit {
+    /// A rendered mesh. `triangle_index` is what face picking (#961) reads;
+    /// `point` is the world-space intersection.
+    Mesh {
+        entity: Entity,
+        triangle_index: Option<usize>,
+        point: Vec3,
+    },
+    /// The ground, at this world-space point.
+    Terrain { point: Vec3 },
 }
+
+/// The two rays a scene click needs, bundled so both pick sites cast them the
+/// same way — and so neither blows past Bevy's system-parameter ceiling.
+///
+/// Cast once per click and shared by every branch that wants to know what was
+/// clicked: the proxy, avatar and room branches of [`pick_on_scene_click`],
+/// and the context menu's ground/object split.
+///
+/// **Why two rays.** Terrain meshes carry no main-world vertex data (#1134 —
+/// ~19 MB per re-roll that would never be returned to a wasm heap), so
+/// [`MeshRayCast`] returns `None` for them and would happily report a prop
+/// *behind* a hill as the nearest hit. The heightfield collider
+/// `spawn_terrain_mesh` builds from the same `HeightMap` describes the same
+/// surface, so a physics ray recovers exactly what the mesh ray lost. The two
+/// results are then merged by distance, which restores the single ordering
+/// the old one-ray version had: the nearest surface wins, and terrain occludes
+/// what is behind it.
+///
+/// The physics ray is predicate-filtered to the terrain rather than run
+/// unfiltered, because from most camera angles the nearest collider under the
+/// cursor is the player chassis, a peer or a prop sensor — none of which is
+/// the ground, and all of which the mesh ray already accounts for.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(super) struct ScenePick<'w, 's> {
+    windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
+    cameras: Query<'w, 's, (&'static Camera, &'static GlobalTransform), With<Camera3d>>,
+    raycast: MeshRayCast<'w, 's>,
+    spatial: SpatialQuery<'w, 's>,
+    terrain: Query<'w, 's, Entity, With<crate::terrain::TerrainMesh>>,
+}
+
+impl ScenePick<'_, '_> {
+    /// Where the pointer is in the primary window, if it is in it at all.
+    pub(super) fn cursor_position(&self) -> Option<Vec2> {
+        self.windows.single().ok()?.cursor_position()
+    }
+
+    /// The world ray under the cursor, or `None` when there is no cursor,
+    /// no camera, or the cursor sits outside the viewport.
+    pub(super) fn cursor_ray(&self) -> Option<Ray3d> {
+        let cursor = self.cursor_position()?;
+        let (camera, cam_tf) = self.cameras.single().ok()?;
+        camera.viewport_to_world(cam_tf, cursor).ok()
+    }
+
+    /// Cast both rays along `ray` and return whichever surface is nearer.
+    pub(super) fn hit_along(&mut self, ray: Ray3d) -> Option<SceneHit> {
+        let mesh_hit = self
+            .raycast
+            .cast_ray(ray, &MeshRayCastSettings::default())
+            .first()
+            .map(|(entity, hit)| (*entity, hit.triangle_index, hit.point, hit.distance));
+        // Predicate-filtered rather than layer-filtered because from most
+        // camera angles the nearest collider under the cursor is the player
+        // chassis, a peer or a prop sensor — none of them the ground, and all
+        // of them already accounted for by the mesh ray.
+        let filter = SpatialQueryFilter::default();
+        let terrain = &self.terrain;
+        let terrain_hit = self
+            .spatial
+            .cast_ray_predicate(
+                ray.origin,
+                ray.direction,
+                SCENE_PICK_RANGE,
+                true,
+                &filter,
+                &|e| terrain.get(e).is_ok(),
+            )
+            .map(|hit| (ray.origin + *ray.direction * hit.distance, hit.distance));
+
+        nearer_hit(mesh_hit, terrain_hit)
+    }
+
+    /// Cursor → ray → nearest surface, in one call. The context menu splits
+    /// the two steps because it needs the ray itself for its own bookkeeping.
+    pub(super) fn hit_under_cursor(&mut self) -> Option<SceneHit> {
+        let ray = self.cursor_ray()?;
+        self.hit_along(ray)
+    }
+}
+
+/// Merge the mesh ray's answer with the terrain ray's: nearest wins.
+///
+/// Split out from [`ScenePick::hit_along`] so the ordering rule — the one
+/// thing #1134 could silently get wrong — is testable without a window, a
+/// camera or a physics world.
+pub(super) fn nearer_hit(
+    mesh: Option<(Entity, Option<usize>, Vec3, f32)>,
+    terrain: Option<(Vec3, f32)>,
+) -> Option<SceneHit> {
+    match (mesh, terrain) {
+        (Some((entity, triangle_index, point, mesh_d)), Some((_, terrain_d)))
+            if mesh_d <= terrain_d =>
+        {
+            Some(SceneHit::Mesh {
+                entity,
+                triangle_index,
+                point,
+            })
+        }
+        (_, Some((point, _))) => Some(SceneHit::Terrain { point }),
+        (Some((entity, triangle_index, point, _)), None) => Some(SceneHit::Mesh {
+            entity,
+            triangle_index,
+            point,
+        }),
+        (None, None) => None,
+    }
+}
+
+/// How far a scene-pick ray reaches, in metres. Matches the inventory drop
+/// ray's reach; a room's terrain is a few hundred metres across, so this only
+/// ever runs out over open sky.
+const SCENE_PICK_RANGE: f32 = 4096.0;
 
 /// Drag session state spanning all the frames between mouse-down and
 /// mouse-release on the gizmo. Holds the identity of the entity being
@@ -772,4 +907,93 @@ pub(crate) struct DragState {
     /// the routing snapshot for the element writeback. Captured at the
     /// rising edge so mid-drag selection changes can't reroute it.
     pub(crate) blob: Option<blob::write::BlobDragInfo>,
+}
+
+#[cfg(test)]
+mod pick_tests {
+    use super::*;
+
+    fn mesh(distance: f32) -> Option<(Entity, Option<usize>, Vec3, f32)> {
+        Some((
+            Entity::from_raw_u32(1).expect("raw entity 1 is valid"),
+            Some(7),
+            Vec3::new(0.0, 0.0, -distance),
+            distance,
+        ))
+    }
+
+    fn ground(distance: f32) -> Option<(Vec3, f32)> {
+        Some((Vec3::new(0.0, 0.0, -distance), distance))
+    }
+
+    /// The regression #1134 could have shipped silently.
+    ///
+    /// Sequence: the owner points at a hillside with a prop standing on the
+    /// far side of the hill and left-clicks. Before #1134 the terrain mesh was
+    /// in the mesh ray's list and won on distance, so the click cleared the
+    /// selection. Making the terrain mesh `RENDER_WORLD`-only takes it out of
+    /// that list without any error, and the mesh ray then happily reports the
+    /// hidden prop as the nearest hit — the owner would select something they
+    /// cannot see, through a hill. Merging the terrain ray back in by distance
+    /// is what restores the old answer.
+    #[test]
+    fn ground_in_front_of_a_prop_wins_so_a_hill_still_hides_what_is_behind_it() {
+        let hit = nearer_hit(mesh(40.0), ground(12.0));
+        assert!(
+            matches!(hit, Some(SceneHit::Terrain { .. })),
+            "a prop 28 m behind the hillside was picked through it"
+        );
+    }
+
+    /// The other half of the same ordering: a prop standing in front of the
+    /// ground is still the thing that was clicked. Without this the fix would
+    /// over-correct and make every click a ground click, since the terrain ray
+    /// hits somewhere for nearly every ray that leaves the camera.
+    #[test]
+    fn a_prop_in_front_of_the_ground_still_wins() {
+        let hit = nearer_hit(mesh(5.0), ground(12.0));
+        match hit {
+            Some(SceneHit::Mesh { triangle_index, .. }) => assert_eq!(
+                triangle_index,
+                Some(7),
+                "the hit triangle must survive the merge — face picking reads it"
+            ),
+            _ => panic!("the nearer prop was not picked"),
+        }
+    }
+
+    /// Sequence: the owner right-clicks bare ground to place an object. The
+    /// mesh ray now returns nothing at all there, so without the terrain ray
+    /// the menu reads it as empty sky and dismisses — "place here" would stop
+    /// working on exactly the surface it exists for.
+    #[test]
+    fn bare_ground_is_a_hit_even_though_the_mesh_ray_returns_nothing() {
+        let hit = nearer_hit(None, ground(30.0));
+        match hit {
+            Some(SceneHit::Terrain { point }) => assert_eq!(
+                point,
+                Vec3::new(0.0, 0.0, -30.0),
+                "the placement anchor must be the terrain ray's point"
+            ),
+            _ => panic!("bare ground read as empty sky — the context menu would dismiss"),
+        }
+    }
+
+    /// A ray that leaves the world hits neither. Both callers key their
+    /// dismiss/clear behaviour off this, so it has to stay distinguishable
+    /// from a ground hit rather than collapsing into one.
+    #[test]
+    fn open_sky_is_still_a_miss() {
+        assert!(nearer_hit(None, None).is_none());
+    }
+
+    /// A tie goes to the mesh. Water planes and the road decals are drawn at
+    /// or very near the ground, and the pre-#1134 single-ray ordering resolved
+    /// a coincident hit in the mesh's favour because the ground was just
+    /// another entry in the same sorted list.
+    #[test]
+    fn a_coincident_hit_resolves_to_the_mesh_as_it_did_before() {
+        let hit = nearer_hit(mesh(12.0), ground(12.0));
+        assert!(matches!(hit, Some(SceneHit::Mesh { .. })));
+    }
 }

@@ -40,7 +40,6 @@ use crate::diagnostics::event::{EventPayload, RecordKind};
 use crate::pds::{Generator, GeneratorKind, InventoryRecord};
 use crate::state::{
     CurrentRoomDid, LiveInventoryRecord, PublishFeedback, PublishStatus, StoredInventoryRecord,
-    records_differ,
 };
 use crate::ui::editable::{RecordAction, publish_status_line, save_load_reset_row};
 
@@ -58,6 +57,29 @@ pub struct InventoryEditorState {
     /// shows the empty default and saving would wipe the stored one —
     /// the first publish asks first.
     pub publish_guard: crate::ui::confirm::ConfirmState<()>,
+    /// Serialized form of [`StoredInventoryRecord`] for the per-frame dirty
+    /// check (#1135), the same cache the room editor got in #674.
+    ///
+    /// The uncached form ran `records_differ` twice — live-vs-stored and
+    /// live-vs-default — and `records_differ` is
+    /// `serde_json::to_value(a) != serde_json::to_value(b)`, so an open panel
+    /// built three whole `Value` trees of the stash every frame. The stash
+    /// holds up to `MAX_INVENTORY_ITEMS` generator trees, each allowed the
+    /// full 100 KiB record budget, and a decorating session parks this panel
+    /// open for minutes at a time. #674 fixed exactly this for the room and
+    /// avatar editors and said the pattern applied here too; inventory was
+    /// left behind.
+    ///
+    /// Keyed by the resource's `last_changed` tick rather than
+    /// `is_changed()`, for the reason #674 records: the change flag is
+    /// consumed even on frames where this system early-returns, which would
+    /// leave a stale baseline behind afterwards.
+    stored_baseline: Option<(bevy::ecs::change_detection::Tick, Option<serde_json::Value>)>,
+    /// Serialized form of the default (empty) stash, for the `can_reset`
+    /// comparison. Unlike the room's, this has no DID to key on and no
+    /// procedural build behind it — `InventoryRecord::default()` is empty —
+    /// so it is built once on first use and never invalidated.
+    default_baseline: Option<Option<serde_json::Value>>,
 }
 
 /// Async task for publishing the inventory record to the owner's PDS. Carries
@@ -549,13 +571,39 @@ pub fn inventory_ui(
 
             // Shared Save / Load / Reset row + status line
             // (`ui::editable`), identical to the World and Avatar
-            // editors. Dirty is derived (`records_differ` vs the stored
+            // editors. Dirty is derived (a serialized diff against the stored
             // snapshot) so the row needs no per-edit flag; Inventory now
             // also gets Load-from-PDS (revert) and Reset-to-default
             // (empty the stash) — it previously had Publish only.
-            let dirty = records_differ(&live.0, &stored.0);
-            let default_record = InventoryRecord::default();
-            let can_reset = records_differ(&live.0, &default_record);
+            //
+            // Both baselines are cached (#1135, the #674 pattern): the stored
+            // side re-serializes only when the resource changes and the empty
+            // default only once, so an open panel serializes the LIVE stash
+            // ONCE per frame instead of three whole trees. The comparisons are
+            // value-identical to `records_differ` — `Option<Value>` on both
+            // sides, `.ok()` semantics preserved — so dirty and can_reset are
+            // frame-accurate exactly as before.
+            if state
+                .stored_baseline
+                .as_ref()
+                .is_none_or(|(tick, _)| *tick != stored.last_changed())
+            {
+                state.stored_baseline =
+                    Some((stored.last_changed(), serde_json::to_value(&stored.0).ok()));
+            }
+            if state.default_baseline.is_none() {
+                state.default_baseline =
+                    Some(serde_json::to_value(InventoryRecord::default()).ok());
+            }
+            let live_value = serde_json::to_value(&live.0).ok();
+            let dirty = match state.stored_baseline.as_ref() {
+                Some((_, baseline)) => *baseline != live_value,
+                None => true,
+            };
+            let can_reset = state
+                .default_baseline
+                .as_ref()
+                .is_none_or(|baseline| *baseline != live_value);
             // Publishing is blocked while over the cap (#841) — the red
             // header line explains; mirrors the hard-ceiling size block.
             let within_cap = live.0.generators.len() <= crate::config::state::MAX_INVENTORY_ITEMS;
@@ -615,7 +663,10 @@ pub fn inventory_ui(
                     live.0 = stored.0.clone();
                 }
                 RecordAction::Reset => {
-                    live.0 = default_record;
+                    // The baseline above is the default's serialized FORM; the
+                    // record itself is `default()`, which for an inventory is
+                    // simply empty and costs nothing to rebuild here.
+                    live.0 = InventoryRecord::default();
                 }
             }
             if state

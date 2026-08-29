@@ -128,6 +128,29 @@ const DRAFT_ATLAS: u32 = 256;
 /// How long the record must be still before the full-atlas build is owed.
 const SETTLE_SECS: f32 = 0.8;
 
+/// When the resolved record under this chassis last differed from the body
+/// standing on it — the settle ladder's clock (#1059).
+///
+/// A component rather than the `Local<HashMap<Entity, f32>>` it used to be
+/// (#1135). That map was insert-only: nothing pruned it when a chassis
+/// despawned, so a session that met peers accumulated an entry per peer for
+/// the life of the process. Hanging the timestamp on the chassis makes the
+/// despawn the cleanup, which is the property the map could never have.
+#[derive(Component)]
+pub(super) struct RiggedSettle {
+    changed_at: f32,
+}
+
+/// Latch marking a chassis as reconciled: the right record is standing, at
+/// the full atlas, under a live root (#1135).
+///
+/// Its presence is what lets [`kick_rigged_builds`] skip the per-frame
+/// `AvatarRecord` deep compare. Deliberately a latch and not a change tick —
+/// see the gate's own comment for why a `Changed<>` gate would drop a record
+/// edit that arrives while a build is in flight.
+#[derive(Component)]
+pub(super) struct RiggedSteady;
+
 /// The engine record whose build is currently standing under this chassis,
 /// and the atlas it was built at. Compared by value against the resolved
 /// reference to decide rebuilds; a draft-atlas build owes a full one once
@@ -334,14 +357,59 @@ pub(super) fn kick_rigged_builds(
     time: Res<Time>,
     live: Option<Res<LiveAvatarRecord>>,
     locals: Query<Entity, With<LocalPlayer>>,
-    peers: Query<(Entity, &RemotePeer)>,
+    peers: Query<(Entity, Ref<RemotePeer>)>,
     applied: Query<&RiggedApplied>,
     building: Query<&RiggedBuild>,
+    steady: Query<(), With<RiggedSteady>>,
+    settle: Query<&RiggedSettle>,
     roots: Query<(Entity, &ChildOf), With<RiggedRoot>>,
-    mut last_change: Local<bevy::platform::collections::HashMap<Entity, f32>>,
 ) {
     let now = time.elapsed_secs();
-    let mut visit = |chassis: Entity, record: Option<&crate::pds::AvatarRecord>| {
+    // One pass over the roots instead of one per body (#1135). The inner scan
+    // was `O(bodies × roots)` every frame, and both terms are the peer count
+    // — so the cost of standing in a room grew with its square.
+    let chassis_with_root: bevy::platform::collections::HashSet<Entity> = roots
+        .iter()
+        .map(|(_, child_of)| child_of.parent())
+        .collect();
+    let full_atlas = symbios_avatar::AvatarConfig::default().atlas;
+
+    let mut visit = |chassis: Entity,
+                     record: Option<&crate::pds::AvatarRecord>,
+                     source_changed: bool| {
+        // The gate that makes standing still free (#1135).
+        //
+        // Everything below this — a full `AvatarRecord` deep-equality against
+        // the body that is standing, per body, every frame — used to run for
+        // thousands of consecutive frames to conclude "unchanged". It can be
+        // skipped only when nothing that feeds it can have moved, and that is
+        // three conditions, not one:
+        //
+        //   * the record this chassis draws from has not changed since the
+        //     last look. A bare `Changed<>` gate would stop here and be
+        //     WRONG, because the record can change while a build is in flight
+        //     — the change is noticed, no build is kicked (one at a time per
+        //     chassis), and it is the NEXT frame's mismatch that kicks the
+        //     newer one. `RiggedSteady` is therefore a latch, not a tick: set
+        //     only once the chassis is genuinely reconciled, and cleared by
+        //     any change, so a change noticed mid-flight stays noticed.
+        //   * the standing body was built at the FULL atlas. This is what
+        //     keeps the settle ladder (#1059) working: a draft-atlas body is
+        //     owed a full-atlas rebuild on a TIMER with no record change
+        //     behind it, so while one is owed the answer really can change
+        //     with nothing but the clock, and the ladder has to keep being
+        //     re-evaluated. At the full atlas there is no rung above.
+        //   * a root is actually standing, and no build is in flight.
+        if source_changed {
+            commands.entity(chassis).remove::<RiggedSteady>();
+        } else if steady.contains(chassis)
+            && chassis_with_root.contains(&chassis)
+            && !building.contains(chassis)
+            && applied.get(chassis).is_ok_and(|b| b.atlas >= full_atlas)
+        {
+            return;
+        }
+
         let rigged = record.and_then(|r| r.body.rigged_ref());
         // Rigged but unresolved is a WAIT, not a teardown: a live-preview
         // broadcast arrives with its references unresolved (`resolved` never
@@ -354,9 +422,7 @@ pub(super) fn kick_rigged_builds(
         let resolved = rigged.and_then(|rig| rig.resolved.as_ref());
         match resolved {
             Some(resolved) => {
-                let has_root = roots
-                    .iter()
-                    .any(|(_, child_of)| child_of.parent() == chassis);
+                let has_root = chassis_with_root.contains(&chassis);
                 let built = applied.get(chassis).ok();
                 let same_record = built.is_some_and(|built| built.record == resolved.body);
                 // The draft/settle ladder (#1059): while a record is moving —
@@ -365,18 +431,20 @@ pub(super) fn kick_rigged_builds(
                 // obsoletes it; once it has been still for SETTLE_SECS the
                 // full-atlas build is owed, even though nothing changed.
                 if !same_record {
-                    last_change.insert(chassis, now);
+                    commands
+                        .entity(chassis)
+                        .insert(RiggedSettle { changed_at: now });
                 }
-                let settled = last_change
-                    .get(&chassis)
-                    .is_none_or(|&at| now - at >= SETTLE_SECS);
-                let atlas = if settled {
-                    symbios_avatar::AvatarConfig::default().atlas
-                } else {
-                    DRAFT_ATLAS
-                };
+                let settled = settle
+                    .get(chassis)
+                    .ok()
+                    .is_none_or(|s| now - s.changed_at >= SETTLE_SECS);
+                let atlas = if settled { full_atlas } else { DRAFT_ATLAS };
                 let atlas_owed = built.is_some_and(|built| built.atlas < atlas);
                 if same_record && has_root && !atlas_owed {
+                    // Reconciled: latch it so the compare above is skipped
+                    // until something clears the latch.
+                    commands.entity(chassis).insert(RiggedSteady);
                     return;
                 }
                 // One in flight per chassis: a stale target lands, and the
@@ -407,9 +475,12 @@ pub(super) fn kick_rigged_builds(
                 // chassis. Drop any rigged residue so switching back later
                 // rebuilds from scratch.
                 if applied.contains(chassis) || building.contains(chassis) {
-                    commands
-                        .entity(chassis)
-                        .remove::<(RiggedApplied, RiggedBuild)>();
+                    commands.entity(chassis).remove::<(
+                        RiggedApplied,
+                        RiggedBuild,
+                        RiggedSteady,
+                        RiggedSettle,
+                    )>();
                     for (root, child_of) in &roots {
                         if child_of.parent() == chassis {
                             commands.entity(root).despawn();
@@ -421,12 +492,14 @@ pub(super) fn kick_rigged_builds(
     };
 
     if let Some(live) = live.as_ref() {
+        let changed = live.is_changed();
         for chassis in &locals {
-            visit(chassis, Some(&live.0));
+            visit(chassis, Some(&live.0), changed);
         }
     }
     for (chassis, peer) in &peers {
-        visit(chassis, peer.avatar.as_ref());
+        let changed = peer.is_changed();
+        visit(chassis, peer.avatar.as_ref(), changed);
     }
 }
 
@@ -2504,6 +2577,150 @@ mod tests {
             .expect("runs");
         assert!(app.world().get::<RiggedBuild>(chassis).is_none());
         assert!(app.world().get::<RiggedApplied>(chassis).is_none());
+    }
+
+    /// #1135: once a body is standing at the full atlas under the record it
+    /// was built from, the per-frame `AvatarRecord` deep compare stops.
+    ///
+    /// Sequence: a chassis with a rigged record, its full-atlas body already
+    /// installed, and no editing going on — a peer standing in a room, which
+    /// is the state a session spends nearly all of its frames in.
+    #[test]
+    fn a_standing_full_atlas_body_latches_out_of_the_per_frame_compare() {
+        bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default);
+        let mut app = test_app();
+        let body = engine_default_for_did("did:plc:rigged-test");
+        let resolved = ResolvedRig {
+            body: body.clone(),
+            attachments: Vec::new(),
+        };
+        app.insert_resource(LiveAvatarRecord(rigged_record(resolved)));
+        let chassis = app
+            .world_mut()
+            .spawn((
+                LocalPlayer,
+                Transform::default(),
+                GlobalTransform::default(),
+                // What a landed full-atlas build leaves behind.
+                RiggedApplied {
+                    record: body,
+                    atlas: symbios_avatar::AvatarConfig::default().atlas,
+                },
+            ))
+            .id();
+        // …under a root, which is the other half of "already standing".
+        app.world_mut()
+            .spawn((RiggedRoot, Transform::default(), ChildOf(chassis)));
+
+        // First pass reconciles and latches; it must not kick a build.
+        app.world_mut()
+            .run_system_once(kick_rigged_builds)
+            .expect("runs");
+        assert!(
+            app.world().get::<RiggedBuild>(chassis).is_none(),
+            "a matching full-atlas body must not be rebuilt"
+        );
+        assert!(
+            app.world().get::<RiggedSteady>(chassis).is_some(),
+            "a reconciled chassis did not latch — the deep compare runs every frame"
+        );
+
+        // Standing still keeps the latch.
+        app.world_mut()
+            .run_system_once(kick_rigged_builds)
+            .expect("runs");
+        assert!(app.world().get::<RiggedSteady>(chassis).is_some());
+        assert!(app.world().get::<RiggedBuild>(chassis).is_none());
+    }
+
+    /// And the latch releases on a record edit, which is the failure a
+    /// cheaper gate would ship: an avatar that stops following its own
+    /// editor.
+    #[test]
+    fn editing_the_record_releases_the_latch_and_kicks_a_rebuild() {
+        bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default);
+        let mut app = test_app();
+        let body = engine_default_for_did("did:plc:rigged-test");
+        app.insert_resource(LiveAvatarRecord(rigged_record(ResolvedRig {
+            body: body.clone(),
+            attachments: Vec::new(),
+        })));
+        let chassis = app
+            .world_mut()
+            .spawn((
+                LocalPlayer,
+                Transform::default(),
+                GlobalTransform::default(),
+                RiggedApplied {
+                    record: body,
+                    atlas: symbios_avatar::AvatarConfig::default().atlas,
+                },
+            ))
+            .id();
+        app.world_mut()
+            .spawn((RiggedRoot, Transform::default(), ChildOf(chassis)));
+        app.world_mut()
+            .run_system_once(kick_rigged_builds)
+            .expect("latching pass");
+        assert!(app.world().get::<RiggedSteady>(chassis).is_some());
+
+        // A different body under the same chassis — an editor slider, or a
+        // peer's next broadcast.
+        app.insert_resource(LiveAvatarRecord(rigged_record(ResolvedRig {
+            body: engine_default_for_did("did:plc:someone-else"),
+            attachments: Vec::new(),
+        })));
+        app.world_mut()
+            .run_system_once(kick_rigged_builds)
+            .expect("runs");
+        assert!(
+            app.world().get::<RiggedBuild>(chassis).is_some(),
+            "the record changed and no rebuild was kicked — the latch swallowed the edit"
+        );
+    }
+
+    /// The settle ladder (#1059) is time-driven with no record change behind
+    /// it, so a DRAFT-atlas body must keep being re-evaluated. This is the
+    /// case the issue warns a pure `Changed<>` gate would break, and the
+    /// reason the latch requires the full atlas rather than merely a match.
+    #[test]
+    fn a_draft_atlas_body_does_not_latch_so_the_settle_rung_still_arrives() {
+        bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default);
+        let mut app = test_app();
+        let body = engine_default_for_did("did:plc:rigged-test");
+        app.insert_resource(LiveAvatarRecord(rigged_record(ResolvedRig {
+            body: body.clone(),
+            attachments: Vec::new(),
+        })));
+        let chassis = app
+            .world_mut()
+            .spawn((
+                LocalPlayer,
+                Transform::default(),
+                GlobalTransform::default(),
+                RiggedApplied {
+                    record: body,
+                    atlas: DRAFT_ATLAS,
+                },
+            ))
+            .id();
+        app.world_mut()
+            .spawn((RiggedRoot, Transform::default(), ChildOf(chassis)));
+
+        app.world_mut()
+            .run_system_once(kick_rigged_builds)
+            .expect("runs");
+        assert!(
+            app.world().get::<RiggedSteady>(chassis).is_none(),
+            "a draft-atlas body latched — its full-atlas rung is owed on a TIMER, \
+             and a latched chassis would never look at the clock again"
+        );
+        // With no `RiggedSettle` stamped, `settled` is true immediately, so
+        // the full-atlas rung is owed right now and gets kicked.
+        assert!(
+            app.world().get::<RiggedBuild>(chassis).is_some(),
+            "the settle ladder's full-atlas rung was never claimed"
+        );
     }
 
     #[test]

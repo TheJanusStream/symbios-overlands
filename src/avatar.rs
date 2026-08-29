@@ -135,6 +135,37 @@ pub struct AvatarFetchTask {
     pub task: bevy::tasks::Task<AvatarFetchResult>,
 }
 
+/// Fetched profile-picture bytes waiting for a frame with decode budget left
+/// (#1128).
+///
+/// The fetch's OTHER result — the profile-verified handle — is promoted the
+/// moment the task completes, before any of this: a peer's name in the chat
+/// HUD must not wait behind a queue of image decodes, and the join line is
+/// written from it. Only the picture waits.
+#[derive(Component)]
+pub struct PendingAvatarImage {
+    did: String,
+    bytes: Vec<u8>,
+    /// The profile-verified handle from the same fetch. Already written to
+    /// the peer entity; carried here too because the cache entry records it
+    /// alongside the picture and is only created once the picture decodes.
+    handle: Option<String>,
+}
+
+/// How many profile pictures this build will decode in one frame.
+///
+/// Same argument as the sign cache's
+/// [`MAX_DECODES_PER_FRAME`](crate::world_builder::image_cache::MAX_DECODES_PER_FRAME),
+/// applied to the other fetched-image path: the transfer is off-thread but
+/// `image::load_from_memory` runs in this poll system, and on wasm that is the
+/// frame thread — `IoTaskPool` there is `spawn_local`, so moving the decode
+/// into the task would move it nowhere. A portal hop that brings in a dozen
+/// peers at once resolves a dozen profile fetches within a frame or two of
+/// each other, and each is a full-resolution decode of whatever that peer
+/// uploaded. Spread over frames they are icons appearing; taken together they
+/// are a stall.
+const MAX_AVATAR_DECODES_PER_FRAME: usize = 1;
+
 fn fetch_local_avatar(
     mut commands: Commands,
     session: Option<Res<AtprotoSession>>,
@@ -205,12 +236,36 @@ fn spawn_avatar_task(commands: &mut Commands, entity: Entity, did: String) {
 fn poll_avatar_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut AvatarFetchTask)>,
+    mut parked: Query<(Entity, &mut PendingAvatarImage)>,
     mut peers: Query<&mut RemotePeer>,
     mut images: ResMut<Assets<Image>>,
     mut egui_textures: ResMut<EguiUserTextures>,
     mut cache: ResMut<BskyProfileCache>,
     mut chat: ResMut<crate::state::ChatHistory>,
 ) {
+    let mut decoded_this_frame = 0usize;
+
+    // Bytes parked on an earlier frame go first, so a picture cannot be
+    // starved by a room that keeps producing new arrivals.
+    for (entity, mut pending) in parked.iter_mut() {
+        if decoded_this_frame >= MAX_AVATAR_DECODES_PER_FRAME {
+            break;
+        }
+        decoded_this_frame += 1;
+        let did = pending.did.clone();
+        let bytes = std::mem::take(&mut pending.bytes);
+        let handle = pending.handle.take();
+        commands.entity(entity).remove::<PendingAvatarImage>();
+        decode_and_cache_avatar(
+            &did,
+            &bytes,
+            handle,
+            &mut images,
+            &mut egui_textures,
+            &mut cache,
+        );
+    }
+
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
             futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
@@ -239,49 +294,82 @@ fn poll_avatar_tasks(
 
         let Some(bytes) = result.bytes else { continue };
 
-        let Some(dyn_img) =
-            crate::world_builder::blob_fetch::decode_image_capped(&bytes, "Avatar image")
-        else {
-            continue;
-        };
-
-        // Downscale BEFORE the image reaches `Assets<Image>` (#1125): what
-        // is retained is what is stored, and this is only ever drawn at
-        // `AVATAR_ICON_PX`. On wasm the source comes from the DID's own
-        // PDS rather than the resizing bsky CDN, so without this an entry
-        // is whatever the owner uploaded — up to 64 MiB of RGBA each.
-        let icon_px = crate::config::network::BSKY_PROFILE_ICON_PX;
-        let dyn_img = if dyn_img.width() > icon_px || dyn_img.height() > icon_px {
-            dyn_img.resize(icon_px, icon_px, image::imageops::FilterType::Triangle)
-        } else {
-            dyn_img
-        };
-        let img = Image::from_dynamic(
-            dyn_img,
-            true,
-            bevy::asset::RenderAssetUsages::MAIN_WORLD
-                | bevy::asset::RenderAssetUsages::RENDER_WORLD,
-        );
-        let image_handle = images.add(img);
-        // `add_image` takes an `EguiTextureHandle`; wrap the strong
-        // handle so egui shares ownership and the texture survives any
-        // later release on our side. The cloned handle still lives in
-        // `CachedBskyProfile.image` so the asset stays GC-anchored even
-        // if egui drops its half.
-        let egui_texture = egui_textures.add_image(EguiTextureHandle::Strong(image_handle.clone()));
-
-        for evicted in cache.insert(
-            did.clone(),
-            CachedBskyProfile {
-                image: image_handle,
-                egui_texture,
+        // Past the frame's decode budget — park the bytes and pick them up
+        // next frame. The handle above has already landed, so nothing the
+        // player reads by name is waiting on this.
+        if decoded_this_frame >= MAX_AVATAR_DECODES_PER_FRAME {
+            commands.entity(entity).insert(PendingAvatarImage {
+                did,
+                bytes,
                 handle: verified_handle,
-            },
-        ) {
-            // Releases egui's strong handle; the asset is freed once ours
-            // goes out of scope with `evicted`.
-            egui_textures.remove_image(&evicted.image);
+            });
+            continue;
         }
+        decoded_this_frame += 1;
+        decode_and_cache_avatar(
+            &did,
+            &bytes,
+            verified_handle,
+            &mut images,
+            &mut egui_textures,
+            &mut cache,
+        );
+    }
+}
+
+/// Decode fetched profile-picture bytes at icon size and record them against
+/// `did`, evicting whatever the bounded cache pushes out.
+///
+/// Split out of [`poll_avatar_tasks`] so a fetch that lands past the frame's
+/// decode budget and one that is picked up a frame later run the identical
+/// path — the only difference between them being when.
+fn decode_and_cache_avatar(
+    did: &str,
+    bytes: &[u8],
+    handle: Option<String>,
+    images: &mut Assets<Image>,
+    egui_textures: &mut EguiUserTextures,
+    cache: &mut BskyProfileCache,
+) {
+    // Downscale BEFORE the image reaches `Assets<Image>` (#1125): what is
+    // retained is what is stored, and this is only ever drawn at
+    // `AVATAR_ICON_PX`. On wasm the source comes from the DID's own PDS
+    // rather than the resizing bsky CDN, so without this an entry is
+    // whatever the owner uploaded. The shrink is `decode_image_capped`'s
+    // job now (#1128) so that every fetched-image path has to name a
+    // working size, and none can quietly retain a source-sized frame.
+    let Some(dyn_img) = crate::world_builder::blob_fetch::decode_image_capped(
+        bytes,
+        "Avatar image",
+        crate::config::network::BSKY_PROFILE_ICON_PX,
+    ) else {
+        return;
+    };
+
+    let img = Image::from_dynamic(
+        dyn_img,
+        true,
+        bevy::asset::RenderAssetUsages::MAIN_WORLD | bevy::asset::RenderAssetUsages::RENDER_WORLD,
+    );
+    let image_handle = images.add(img);
+    // `add_image` takes an `EguiTextureHandle`; wrap the strong
+    // handle so egui shares ownership and the texture survives any
+    // later release on our side. The cloned handle still lives in
+    // `CachedBskyProfile.image` so the asset stays GC-anchored even
+    // if egui drops its half.
+    let egui_texture = egui_textures.add_image(EguiTextureHandle::Strong(image_handle.clone()));
+
+    for evicted in cache.insert(
+        did.to_string(),
+        CachedBskyProfile {
+            image: image_handle,
+            egui_texture,
+            handle,
+        },
+    ) {
+        // Releases egui's strong handle; the asset is freed once ours
+        // goes out of scope with `evicted`.
+        egui_textures.remove_image(&evicted.image);
     }
 }
 

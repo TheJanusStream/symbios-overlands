@@ -108,6 +108,40 @@ pub(super) fn poll_terrain_task(
     }
 }
 
+/// The room's ground mesh: heightfield triangles, area-weighted normals, one
+/// UV tile across the whole world, tangents for the splat material's normal
+/// maps — and no CPU copy.
+///
+/// **Why `RENDER_WORLD` only (#1134).** At the default 512-square grid this
+/// mesh is roughly 19 MB of positions, normals, UVs, tangents and indices.
+/// With `MAIN_WORLD` set — the `RenderAssetUsages` default, which this used
+/// to take — Bevy keeps that copy alive in `Assets<Mesh>` for the room's whole
+/// life, and builds a fresh one on every re-roll. On wasm linear memory is
+/// never returned to the browser, so each of those copies is a permanent floor
+/// under the heap: the #565/#625 ratchet, of which this was the single largest
+/// identified contributor. #565 established `RENDER_WORLD`-only as the safe
+/// pattern for textures and stopped there; this is the mesh half of it.
+///
+/// Nothing in the main world reads terrain vertices any more. The editor's two
+/// `MeshRayCast` pick sites used to — a `RENDER_WORLD` mesh answers
+/// `try_attribute` with `ExtractedToRenderWorld`, so the mesh ray silently
+/// stops seeing the ground — and they now ask the heightfield collider built
+/// beside this mesh instead. That is the same surface described as physics
+/// rather than as triangles, and it costs nothing extra because the collider
+/// has to exist regardless: the player stands on it.
+fn build_terrain_mesh(hm: &HeightMap, world_extent: f32) -> Mesh {
+    let mut mesh = HeightMapMeshBuilder::new()
+        .with_normal_method(NormalMethod::AreaWeighted)
+        .with_uv_tile_size(world_extent)
+        .build(hm);
+
+    mesh.generate_tangents()
+        .expect("terrain tangent generation failed");
+
+    mesh.asset_usage = RenderAssetUsages::RENDER_WORLD;
+    mesh
+}
+
 pub(super) fn spawn_terrain_mesh(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -130,13 +164,7 @@ pub(super) fn spawn_terrain_mesh(
     let world_extent = (hm.width() - 1) as f32 * hm.scale();
     let half = world_extent * 0.5;
 
-    let mut mesh = HeightMapMeshBuilder::new()
-        .with_normal_method(NormalMethod::AreaWeighted)
-        .with_uv_tile_size(world_extent)
-        .build(hm);
-
-    mesh.generate_tangents()
-        .expect("terrain tangent generation failed");
+    let mesh = build_terrain_mesh(hm, world_extent);
 
     let collider = build_heightfield_collider(hm);
 
@@ -265,4 +293,79 @@ pub(super) fn heightmap_from_data(d: gen_jobs::HeightmapData) -> HeightMap {
     let mut hm = HeightMap::new(d.width as usize, d.height as usize, d.scale);
     hm.data_mut().copy_from_slice(&d.data);
     hm
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The terrain mesh must reach `Assets<Mesh>` without a CPU copy.
+    ///
+    /// The sequence this guards is a room re-roll: `spawn_terrain_mesh` runs
+    /// once per completed heightmap, and with the `RenderAssetUsages` default
+    /// each run leaves its ~19 MB of vertex data resident in the main world
+    /// for the life of the room. On wasm the allocator never hands that back
+    /// to the browser, so every roll raises the floor (#565/#625). A single
+    /// bit is all that separates the two behaviours, and nothing else in the
+    /// build would notice it flipping back, so it is asserted directly.
+    #[test]
+    fn terrain_mesh_keeps_no_main_world_vertex_copy() {
+        let hm = HeightMap::new(16, 16, 1.0);
+        let mesh = build_terrain_mesh(&hm, 15.0);
+
+        assert_eq!(
+            mesh.asset_usage,
+            RenderAssetUsages::RENDER_WORLD,
+            "terrain mesh must be RENDER_WORLD-only: a MAIN_WORLD copy is \
+             permanent on wasm, and the editor's pick sites no longer read it"
+        );
+        assert!(
+            !mesh.asset_usage.contains(RenderAssetUsages::MAIN_WORLD),
+            "MAIN_WORLD set — the vertex data will be retained per re-roll"
+        );
+    }
+
+    /// The size of what the flag stops retaining, at the shipped default
+    /// grid. Printed rather than merely asserted so the number in #1134 has a
+    /// measurement behind it and not an estimate; `--nocapture` shows it.
+    ///
+    /// Asserted loosely (tens of MB, not an exact figure) because the exact
+    /// total moves whenever the upstream mesher changes its attribute set,
+    /// and the point of the test is the order of magnitude: this is a large
+    /// buffer, once per re-roll, permanent on wasm.
+    #[test]
+    fn the_default_grid_mesh_is_tens_of_megabytes() {
+        let hm = HeightMap::new(512, 512, 1.0);
+        let mesh = build_terrain_mesh(&hm, 511.0);
+
+        let vertex_bytes = mesh.get_vertex_size() as usize * mesh.count_vertices();
+        let index_bytes = mesh.indices().map(|i| i.len() * 4).unwrap_or(0);
+        let total = vertex_bytes + index_bytes;
+        println!(
+            "terrain mesh at the default 512-square grid: {} vertices, \
+             {vertex_bytes} vertex bytes + {index_bytes} index bytes = {:.1} MB",
+            mesh.count_vertices(),
+            total as f64 / 1_048_576.0,
+        );
+
+        assert!(
+            total > 8 * 1_048_576,
+            "expected tens of MB, measured {total} bytes — if the mesher got \
+             this much cheaper, #1134's premise is worth re-reading"
+        );
+    }
+
+    /// The mesh is still fully built before its usage is narrowed: the splat
+    /// material samples a normal map, which needs tangents, and a mesh whose
+    /// tangent generation was skipped renders flat-lit rather than failing.
+    #[test]
+    fn terrain_mesh_carries_tangents_for_the_splat_normal_maps() {
+        let hm = HeightMap::new(16, 16, 1.0);
+        let mesh = build_terrain_mesh(&hm, 15.0);
+
+        assert!(
+            mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_some(),
+            "no tangents — the splat material's normal maps would be unlit"
+        );
+    }
 }
