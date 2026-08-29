@@ -2269,13 +2269,44 @@ mod tests {
         //
         // Measured like for like under the current metric: 225.3 mm before the
         // fix, 35.2 after.
+        //
+        // **THE THRESHOLD IS SET FOR CROSS-ENVIRONMENT SPREAD, NOT FOR THE
+        // MEASUREMENT** (#1182). This simulation is deterministic — a fixed
+        // seed, a fixed 1/60 s step, no wall clock — and it still reads
+        // differently depending on where it is COMPILED:
+        //
+        //     25.4 mm   this repo's dev box (Gentoo-packaged rustc 1.96.1)
+        //     35.2 mm   whatever box recorded the figure above
+        //     50.1 mm   a GitHub ubuntu-latest runner (official rustup 1.96.1)
+        //
+        // Same source, same lockfile, same profile; a 2x spread. Rust
+        // documents `f32` transcendentals as platform-dependent, and the gait
+        // is built out of them, so the rig's arithmetic is only reproducible
+        // against a fixed toolchain BUILD, not merely a fixed version. That is
+        // #1132's finding — recorded there against terrain and scatter —
+        // reaching locomotion.
+        //
+        // Ruled out while chasing it, so nobody re-runs these: it is not the
+        // test profile (dev and test-release agree here), not the floating
+        // lockfile (a fresh CI-style resolve reads the same 25.4 mm, and the
+        // glam that moved is a different major from the 0.32.1 bevy_math and
+        // symbios-avatar actually link), and not in-process interference (the
+        // full threaded suite agrees with the test run alone).
+        //
+        // So the guard is at 100 mm: comfortably above the worst reading any
+        // environment has produced, and still four-fold below the 225.3 mm
+        // regression it exists to catch. Tightening it back toward the
+        // measurement needs the transcendentals in the locomotion path routed
+        // through `libm` first (#1183) — until then a tighter number is not a
+        // stricter test, just one that fails on some machines and not others.
         let worst = (100..=130)
             .map(|frames| skid_through_a_stop(frames).0)
             .fold(0.0f32, f32::max);
         assert!(
-            worst < 0.05,
-            "a foot standing on the ground slid {:.1} mm through a stop, against 35.2 mm \
-             measured when engine #276 landed and 225.3 before it",
+            worst < 0.1,
+            "a foot standing on the ground slid {:.1} mm through a stop, against 25.4-50.1 mm \
+             across build environments after engine #276 and 225.3 mm before it — this is \
+             the pre-fix regime returning, not the cross-environment spread of #1182",
             worst * 1000.0
         );
     }
