@@ -409,6 +409,7 @@ fn variant_label(msg: &OverlandsMessage) -> &'static str {
         OverlandsMessage::ItemOffer { .. } => "ItemOffer",
         OverlandsMessage::ItemOfferResponse { .. } => "ItemOfferResponse",
         OverlandsMessage::ChunkedPayload { .. } => "ChunkedPayload",
+        OverlandsMessage::AvatarRecordsPublished => "AvatarRecordsPublished",
     }
 }
 

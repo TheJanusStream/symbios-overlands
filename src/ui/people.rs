@@ -356,6 +356,7 @@ pub fn incoming_offer_ui(
     // blocks background input, so it can never end up buried under the
     // (previously also center-anchored) Controls sheet with its
     // buttons unreachable.
+    crate::ui::confirm::note_modal_open(ctx);
     let modal = egui::Modal::new(egui::Id::new("incoming-item-offer")).show(ctx, |ui| {
         ui.heading("Incoming item offer");
         ui.add_space(4.0);

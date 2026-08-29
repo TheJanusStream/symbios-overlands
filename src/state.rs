@@ -111,6 +111,13 @@ pub struct ChatHistory {
     /// incoming message is visible at all with the window shut. Cleared
     /// by the toolbar whenever the window is open.
     pub unread: usize,
+    /// The half-typed line sitting in the chat input (#1140). It lived in
+    /// a `Local<String>` on `chat_ui`, which no teardown can reach — so a
+    /// sentence typed before logging out was still in the box when the
+    /// NEXT user logged in on the same machine. Anything session-scoped
+    /// has to live somewhere logout can scrub, and the history it belongs
+    /// to is already that place.
+    pub draft: String,
 }
 
 impl ChatHistory {

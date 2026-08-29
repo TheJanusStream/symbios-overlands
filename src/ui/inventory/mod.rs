@@ -755,29 +755,24 @@ pub fn poll_publish_inventory_tasks(
                     },
                 );
             }
-            Err(e) => {
-                warn!("Failed to save inventory record: {}", e);
-                session_log.error(
-                    now,
-                    EventPayload::RecordWriteFailed {
-                        record: RecordKind::Inventory,
-                        did,
-                        reason: e.clone(),
-                    },
-                );
-                // Surfaced OUTSIDE the Inventory window (#843): the
-                // accept-a-gift flow publishes without the window open,
-                // so its failure used to be invisible — the item looked
-                // saved and evaporated on the next login. Toast + open
-                // the window, where the status line and Save button
-                // offer the retry.
-                toasts.error(format!("Couldn't save your inventory — {e}"), now);
-                panels.inventory = true;
-                feedback.status = PublishStatus::Failed {
-                    at_secs: now,
-                    message: e,
-                };
-            }
+            // Surfaced OUTSIDE the Inventory window (#843): the
+            // accept-a-gift flow publishes without the window open, so its
+            // failure used to be invisible — the item looked saved and
+            // evaporated on the next login. Since #1137 all three records
+            // report through the one helper.
+            Err(e) => crate::ui::editable::report_publish_failure(
+                RecordKind::Inventory,
+                crate::ui::editable::WriteOp::Save,
+                did,
+                e,
+                now,
+                crate::ui::editable::FailureSinks {
+                    session_log: &mut session_log,
+                    feedback: &mut feedback,
+                    toasts: &mut toasts,
+                    panels: &mut panels,
+                },
+            ),
         }
     }
 }

@@ -141,6 +141,10 @@ pub fn poll_publish_tasks(
     mut session_log: ResMut<SessionLog>,
     mut metrics: ResMut<MetricsRegistry>,
     time: Res<Time>,
+    // A failed write is reported OUTSIDE this window (#1137): the toast and
+    // the auto-open are what make it visible when the editor is closed.
+    mut panels: ResMut<crate::ui::toolbar::UiPanels>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
 ) {
     for (entity, mut task) in publish_tasks.iter_mut() {
         let spawned_at = task.spawned_at;
@@ -180,21 +184,19 @@ pub fn poll_publish_tasks(
                     },
                 );
             }
-            Err(e) => {
-                warn!("Failed to save room record: {}", e);
-                session_log.error(
-                    now,
-                    EventPayload::RecordWriteFailed {
-                        record: RecordKind::Room,
-                        did,
-                        reason: e.clone(),
-                    },
-                );
-                publish_feedback.status = PublishStatus::Failed {
-                    at_secs: now,
-                    message: e,
-                };
-            }
+            Err(e) => crate::ui::editable::report_publish_failure(
+                RecordKind::Room,
+                crate::ui::editable::WriteOp::Save,
+                did,
+                e,
+                now,
+                crate::ui::editable::FailureSinks {
+                    session_log: &mut session_log,
+                    feedback: &mut publish_feedback,
+                    toasts: &mut toasts,
+                    panels: &mut panels,
+                },
+            ),
         }
     }
     for (entity, mut task) in reset_tasks.iter_mut() {
@@ -235,21 +237,19 @@ pub fn poll_publish_tasks(
                     },
                 );
             }
-            Err(e) => {
-                warn!("Failed to reset room record: {}", e);
-                session_log.error(
-                    now,
-                    EventPayload::RecordWriteFailed {
-                        record: RecordKind::Room,
-                        did,
-                        reason: e.clone(),
-                    },
-                );
-                publish_feedback.status = PublishStatus::Failed {
-                    at_secs: now,
-                    message: e,
-                };
-            }
+            Err(e) => crate::ui::editable::report_publish_failure(
+                RecordKind::Room,
+                crate::ui::editable::WriteOp::Reset,
+                did,
+                e,
+                now,
+                crate::ui::editable::FailureSinks {
+                    session_log: &mut session_log,
+                    feedback: &mut publish_feedback,
+                    toasts: &mut toasts,
+                    panels: &mut panels,
+                },
+            ),
         }
     }
 }

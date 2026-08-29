@@ -254,6 +254,89 @@ pub fn log_record_size(
     };
 }
 
+/// Which PDS write failed — the two verbs the poll systems dispatch. Only
+/// the room's "Reset to default" takes the delete-then-put path, but a
+/// failed reset reads as "couldn't reset", not "couldn't save", and the
+/// user-facing wording has to say which.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WriteOp {
+    Save,
+    Reset,
+}
+
+/// Where a failed PDS write is reported: the log it is recorded in, the
+/// editor's own status line, the toast stack, and the panel set that decides
+/// which window is on screen. Bundled so [`report_publish_failure`] states
+/// one destination rather than four parameters.
+pub struct FailureSinks<'a, R: 'static + Send + Sync> {
+    pub session_log: &'a mut SessionLog,
+    pub feedback: &'a mut crate::state::PublishFeedback<R>,
+    pub toasts: &'a mut crate::ui::toast::Toasts,
+    pub panels: &'a mut crate::ui::toolbar::UiPanels,
+}
+
+/// Everything a failed PDS write owes the user, in one place (#1137).
+///
+/// A failed write is the one outcome a thin client must make loud: the
+/// record IS the world, so a save that did not land means the next session
+/// starts from older state. Three everyday flows leave the editor's own
+/// footer unread when the failure arrives — Ctrl+S then Esc-closing the
+/// window (the request TTL lets the save proceed with the window shut), the
+/// unsaved guard's "Continue in background", and a publish fired just
+/// before a portal hop. So the report is: log it, record the typed session
+/// event, toast it, and re-open the window that carries the Retry.
+///
+/// Inventory got exactly this treatment in #843(e) and Room and Avatar did
+/// not, which left the three editors — written against one shared row
+/// precisely so their behaviour could not diverge — surfacing the same
+/// failure three different ways. One function now, so the next one cannot
+/// drift either.
+pub fn report_publish_failure<R: 'static + Send + Sync>(
+    record: RecordKind,
+    op: WriteOp,
+    did: String,
+    error: String,
+    now: f64,
+    sinks: FailureSinks<'_, R>,
+) {
+    let FailureSinks {
+        session_log,
+        feedback,
+        toasts,
+        panels,
+    } = sinks;
+    let noun = match record {
+        RecordKind::Room => "world",
+        RecordKind::Avatar => "avatar",
+        RecordKind::Inventory => "inventory",
+    };
+    let verb = match op {
+        WriteOp::Save => "save",
+        WriteOp::Reset => "reset",
+    };
+    bevy::log::warn!("Failed to {verb} {noun} record: {error}");
+    session_log.error(
+        now,
+        EventPayload::RecordWriteFailed {
+            record,
+            did,
+            reason: error.clone(),
+        },
+    );
+    toasts.error(format!("Couldn't {verb} your {noun} — {error}"), now);
+    // The window is where the status line and the Save button that retries
+    // live, so the toast has somewhere to point.
+    match record {
+        RecordKind::Room => panels.world_editor = true,
+        RecordKind::Avatar => panels.avatar = true,
+        RecordKind::Inventory => panels.inventory = true,
+    }
+    feedback.status = PublishStatus::Failed {
+        at_secs: now,
+        message: error,
+    };
+}
+
 /// Render the uniform publish status line. `Idle` draws nothing; every
 /// other state is a single coloured line, and **both** Success and
 /// Failed carry the same live `(Ns ago)` counter (Avatar used to drop
@@ -637,5 +720,131 @@ mod publish_deadline_tests {
         let result = poll_or_expire(&mut task, 0.0, far_future, "test")
             .expect("a finished task always yields its result");
         assert!(result.is_ok(), "the task's own Ok must survive");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pds::{AvatarRecord, RoomRecord};
+    use crate::state::PublishFeedback;
+    use crate::ui::toast::{ToastKind, Toasts};
+    use crate::ui::toolbar::UiPanels;
+
+    /// #1137. Sequence: press Ctrl+S in the Avatar editor, then Esc to
+    /// close the window — the request TTL lets the save proceed with the
+    /// window shut, and the 30 s request timeout means the answer can be
+    /// half a minute away. (Same shape via the unsaved guard's "Continue in
+    /// background", and via a publish fired just before a portal hop.) The
+    /// failure used to land as `warn!` + a `PublishStatus::Failed` that only
+    /// `publish_status_line` renders — i.e. in the footer of a window
+    /// nobody has open. The user believes the save landed; the next guard
+    /// prompt is the first hint, by which time the dirty diff is large.
+    #[test]
+    fn a_failed_avatar_save_reaches_a_user_who_closed_the_window() {
+        let mut log = SessionLog::default();
+        let mut feedback = PublishFeedback::<AvatarRecord>::default();
+        let mut toasts = Toasts::default();
+        // Default is every window shut, which is the state the sequence
+        // above leaves behind — the failure has to reach the user anyway.
+        let mut panels = UiPanels::default();
+
+        report_publish_failure(
+            RecordKind::Avatar,
+            WriteOp::Save,
+            String::from("did:plc:alice"),
+            String::from("502 Bad Gateway"),
+            12.0,
+            FailureSinks {
+                session_log: &mut log,
+                feedback: &mut feedback,
+                toasts: &mut toasts,
+                panels: &mut panels,
+            },
+        );
+
+        assert!(
+            panels.avatar,
+            "the window carrying the status line and the retry has to be on screen"
+        );
+        let shown = toasts.shown();
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].0, ToastKind::Error);
+        assert_eq!(shown[0].1, "Couldn't save your avatar — 502 Bad Gateway");
+        assert!(matches!(feedback.status, PublishStatus::Failed { .. },));
+    }
+
+    /// The room's Reset-to-default is a delete-then-put, and a failure
+    /// there is not a failed save. Saying "couldn't save" over a reset
+    /// would send the user looking for edits they never made.
+    #[test]
+    fn a_failed_room_reset_says_reset() {
+        let mut log = SessionLog::default();
+        let mut feedback = PublishFeedback::<RoomRecord>::default();
+        let mut toasts = Toasts::default();
+        let mut panels = UiPanels::default();
+
+        report_publish_failure(
+            RecordKind::Room,
+            WriteOp::Reset,
+            String::from("did:plc:alice"),
+            String::from("timed out"),
+            3.0,
+            FailureSinks {
+                session_log: &mut log,
+                feedback: &mut feedback,
+                toasts: &mut toasts,
+                panels: &mut panels,
+            },
+        );
+
+        assert!(panels.world_editor);
+        assert_eq!(toasts.shown()[0].1, "Couldn't reset your world — timed out");
+    }
+
+    /// The three editors report identically — that is the whole point of
+    /// the shared helper. Inventory had the toast + auto-open since
+    /// #843(e); Room and Avatar reached #1137 without it, so the same
+    /// failure surfaced three different ways from one shared row.
+    #[test]
+    fn every_record_kind_toasts_and_opens_its_own_window() {
+        type PanelProbe = fn(&UiPanels) -> bool;
+        let opens: [(RecordKind, &str, PanelProbe); 3] = [
+            (RecordKind::Room, "Couldn't save your world — nope", |p| {
+                p.world_editor
+            }),
+            (
+                RecordKind::Avatar,
+                "Couldn't save your avatar — nope",
+                |p| p.avatar,
+            ),
+            (
+                RecordKind::Inventory,
+                "Couldn't save your inventory — nope",
+                |p| p.inventory,
+            ),
+        ];
+        for (record, expected, opened) in opens {
+            let mut log = SessionLog::default();
+            let mut feedback = PublishFeedback::<RoomRecord>::default();
+            let mut toasts = Toasts::default();
+            let mut panels = UiPanels::default();
+            report_publish_failure(
+                record,
+                WriteOp::Save,
+                String::from("did:plc:alice"),
+                String::from("nope"),
+                1.0,
+                FailureSinks {
+                    session_log: &mut log,
+                    feedback: &mut feedback,
+                    toasts: &mut toasts,
+                    panels: &mut panels,
+                },
+            );
+            assert_eq!(toasts.shown()[0].1, expected);
+            assert!(opened(&panels), "{record:?} must open its own window");
+            assert_eq!(log.len(), 1, "and the failure is in the session log");
+        }
     }
 }

@@ -36,6 +36,7 @@ use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::oauth::OauthRefreshCtx;
+use crate::pds::avatar::avatar_is_dirty;
 use crate::pds::{AvatarRecord, InventoryRecord, RoomRecord};
 use crate::player::{PortalCooldown, begin_portal_travel};
 use crate::state::{
@@ -150,9 +151,10 @@ impl GuardRecords<'_> {
             };
         // Avatar-specific (#1059): a rigged body's payload rides on the
         // serde-skipped `resolved`, so a plain wire compare would call a
-        // sculpted body clean and let the logout guard drop the work.
+        // sculpted body clean and let the logout guard drop the work. One
+        // shared derivation with the Save row and Ctrl+S (#1138).
         let differ_avatar = match (&self.live_avatar, &self.stored_avatar) {
-            (Some(live), Some(stored)) => live.0.publishes_differently_from(&stored.0),
+            (Some(live), Some(stored)) => avatar_is_dirty(&live.0, &stored.0),
             _ => false,
         };
         let differ_inventory = match (&self.live_inventory, &self.stored_inventory) {
@@ -282,6 +284,7 @@ pub fn unsaved_guard_ui(
         GuardedAction::Quit => ("Publish & quit", "Discard & quit", "Cancel"),
     };
 
+    crate::ui::confirm::note_modal_open(ctx);
     egui::Modal::new(egui::Id::new("unsaved-guard")).show(ctx, |ui| {
         ui.heading("Unpublished changes");
         ui.add_space(4.0);

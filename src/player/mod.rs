@@ -72,6 +72,7 @@ mod spawn;
 pub mod visuals;
 
 pub use portal::PortalCooldown;
+pub(crate) use portal::PortalTravelTask;
 pub(crate) use portal::begin_portal_travel;
 pub use preset::{
     AirplanePreset, CarPreset, HelicopterPreset, HoverBoatPreset, HumanoidPreset, VehicleChassis,

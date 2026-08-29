@@ -14,10 +14,22 @@ use crate::state::{
 use crate::ui::unsaved_guard::{GuardedAction, UnsavedGuard};
 use crate::world_builder::PortalMarker;
 
+/// An in-flight destination room-record fetch.
+///
+/// `pub(crate)` so `logout::clear_editor_state_on_logout` can sweep these
+/// entities (#1140): the task carries neither `LocalPlayer` nor
+/// `RoomEntity`, so the logout despawn passes it by — and on wasm dropping
+/// a `Task` does not cancel the work behind it, so an abandoned fetch
+/// really does resolve inside the NEXT session.
 #[derive(Component)]
-pub(super) struct PortalTravelTask(
-    pub(super) bevy::tasks::Task<Result<Option<RoomRecord>, FetchError>>,
-);
+pub(crate) struct PortalTravelTask {
+    pub(super) task: bevy::tasks::Task<Result<Option<RoomRecord>, FetchError>>,
+    /// The DID this fetch was dispatched for. [`poll_portal_travel_tasks`]
+    /// refuses a result whose target does not match the travel that is
+    /// actually pending, so a task outliving its own `TravelingTo` can
+    /// never install a room nobody asked for.
+    target_did: String,
+}
 
 /// Suppresses portal interactions for a brief window after a successful
 /// teleport. Without this, a portal whose `target_pos` lands the player
@@ -149,10 +161,11 @@ pub(crate) fn begin_portal_travel(
     // `network::spawn_peer_avatar_fetch` /
     // `lib::spawn_avatar_record_fetch`). wasm32 has no tokio; the
     // browser's JS runtime backs `fetch`, so the bare future works.
+    let fetch_did = target_did.clone();
     let task = pool.spawn(async move {
         let fut = async {
             let client = crate::config::http::default_client();
-            fetch_room_record(&client, &target_did).await
+            fetch_room_record(&client, &fetch_did).await
         };
         crate::config::http::run_or(
             fut,
@@ -162,7 +175,7 @@ pub(crate) fn begin_portal_travel(
         )
         .await
     });
-    commands.spawn(PortalTravelTask(task));
+    commands.spawn(PortalTravelTask { task, target_did });
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -188,7 +201,7 @@ pub(super) fn poll_portal_travel_tasks(
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) = bevy::tasks::futures_lite::future::block_on(
-            bevy::tasks::futures_lite::future::poll_once(&mut task.0),
+            bevy::tasks::futures_lite::future::poll_once(&mut task.task),
         ) else {
             continue;
         };
@@ -197,6 +210,15 @@ pub(super) fn poll_portal_travel_tasks(
         let Some(travel_data) = traveling.as_deref() else {
             continue;
         };
+        // The result has to belong to the travel that is still pending
+        // (#1140). Logout despawns these tasks, but on wasm the work
+        // behind a dropped `Task` keeps running and a survivor landing in
+        // a later session would hot-swap the room, the socket and the
+        // player's position for a portal nobody walked through. Comparing
+        // targets makes the poll answer only its own question.
+        if task.target_did != travel_data.target_did {
+            continue;
+        }
 
         // 1. Resolve the new record. The four arms preserve the original
         // owner's PDS contents — substituting the default on a transient

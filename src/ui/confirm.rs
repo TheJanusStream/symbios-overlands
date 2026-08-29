@@ -28,6 +28,43 @@
 
 use bevy_egui::egui;
 
+/// egui temp-data key under which every modal renderer records the pass it
+/// drew on. See [`note_modal_open`].
+const MODAL_OPEN_ID: &str = "overlands-modal-open";
+
+/// Record that a modal dialog owned attention on this egui pass (#1139).
+///
+/// Every modal in the app calls this as it draws: the destructive confirm,
+/// the rename dialog, the unsaved-edits guard and the incoming-gift offer.
+///
+/// egui knows which layer is the top modal but keeps
+/// `Memory::top_modal_layer` `pub(crate)`, and the obvious substitute —
+/// `egui_wants_keyboard_input()` — is literally "some widget has focus",
+/// which a dialog made only of buttons never has: egui 0.35 does not give a
+/// clicked button focus. So `global_shortcuts` believed nothing was in the
+/// way and ran the Esc back-out ladder in the same frame the modal consumed
+/// the Esc that cancelled it, closing the window BEHIND the dialog. This
+/// stamp is the missing signal, kept in egui's own per-context store so a
+/// renderer holding nothing but a `&Context` can set it.
+pub fn note_modal_open(ctx: &egui::Context) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|data| data.insert_temp(egui::Id::new(MODAL_OPEN_ID), pass));
+}
+
+/// True when a modal owned attention on the most recent egui pass.
+///
+/// Read from `Update`, which runs BEFORE the egui pass that will draw this
+/// frame's modals — so the freshest stamp available is the previous pass's,
+/// and one pass of slack is the whole tolerance. That lag is wanted rather
+/// than merely accepted: the press that dismisses a modal must not also
+/// step the ladder, and it is the frame *after* the dialog drew that the
+/// keypress arrives in.
+pub fn modal_is_open(ctx: &egui::Context) -> bool {
+    let now = ctx.cumulative_pass_nr();
+    ctx.data(|data| data.get_temp::<u64>(egui::Id::new(MODAL_OPEN_ID)))
+        .is_some_and(|stamped| now.saturating_sub(stamped) <= 1)
+}
+
 /// A danger-styled button: white label on the theme's danger red
 /// ([`crate::ui::theme::Theme::danger_fill`], #856). Shared by the
 /// confirm modal and the unsaved-guard's Discard action so "this loses
@@ -100,6 +137,7 @@ impl<T> ConfirmState<T> {
     /// `ConfirmState`s (different editors) on distinct egui ids.
     pub fn show(&mut self, ctx: &egui::Context, salt: &str) -> Option<T> {
         let pending = self.pending.as_ref()?;
+        note_modal_open(ctx);
         let mut outcome: Option<bool> = None; // Some(true)=confirm, Some(false)=cancel
 
         let modal =
@@ -185,6 +223,7 @@ pub fn rename_dialog(
     draft: &mut String,
     is_taken: impl Fn(&str) -> bool,
 ) -> RenameOutcome {
+    note_modal_open(ctx);
     let modal_id = egui::Id::new(("rename-dialog", title));
     // First frame = egui has no area rect for the modal yet.
     let first_frame = ctx.memory(|m| m.area_rect(modal_id).is_none());
@@ -279,6 +318,56 @@ mod tests {
         });
         assert_eq!(returned, None);
         assert!(state.is_pending(), "unanswered modal must stay pending");
+    }
+
+    /// #1139: the signal `global_shortcuts` reads instead of egui's
+    /// `pub(crate)` top-modal layer. A confirm modal is buttons only, so
+    /// `egui_wants_keyboard_input()` — the gate the ladder used to share —
+    /// stays false while it is up; the stamp is what tells the next
+    /// `Update` that a dialog owns attention.
+    #[test]
+    fn a_confirm_modal_stamps_the_pass_it_drew_on() {
+        let ctx = egui::Context::default();
+        assert!(
+            !modal_is_open(&ctx),
+            "nothing has drawn yet — the ladder is free"
+        );
+
+        let mut state: ConfirmState<&'static str> = ConfirmState::default();
+        state.request("Delete item?", "Cannot be undone.", "Delete", "payload");
+        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+            state.show(root.ctx(), "test");
+        });
+
+        assert!(
+            !ctx.egui_wants_keyboard_input(),
+            "precondition: a buttons-only modal focuses nothing, which is the whole bug"
+        );
+        assert!(
+            modal_is_open(&ctx),
+            "the ladder must stand down while the dialog is up"
+        );
+    }
+
+    /// And the stamp expires: it is a per-pass mark, not a latch, so
+    /// closing the dialog releases the shortcuts again. Without this the
+    /// first modal of a session would disable Esc for good.
+    #[test]
+    fn the_modal_stamp_goes_stale_once_nothing_draws() {
+        let ctx = egui::Context::default();
+        let mut state: ConfirmState<&'static str> = ConfirmState::default();
+        state.request("Delete item?", "Cannot be undone.", "Delete", "payload");
+        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+            state.show(root.ctx(), "test");
+        });
+        assert!(modal_is_open(&ctx));
+
+        // Two quiet passes: one is within the tolerance that covers the
+        // Update-runs-before-the-egui-pass ordering.
+        for _ in 0..2 {
+            let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        }
+        assert!(!modal_is_open(&ctx));
     }
 
     /// Headless egui frame: the rename dialog renders, reports Open on

@@ -23,11 +23,23 @@
 //!   native doc build) because `prevent_default_event_handling` is
 //!   deliberately `false` (F5, Ctrl+R and friends must keep working).
 //!
-//! Non-Esc keys are gated on egui not wanting keyboard input, so typing
-//! "s" in chat never publishes a record. Esc is state-gated instead:
-//! while a text field has focus egui itself consumes Esc to release it,
-//! and the ladder stays out of the way. Gizmo-style S/R/G/X/Y/Z keys
-//! are deliberately NOT bound — they collide with WASD/Shift movement.
+//! Routing — which chord may fire at all — is [`ShortcutGate`], and it
+//! answers two questions, not one (#1139):
+//!
+//! * **Is a modal up?** If so nothing global fires. A dialog made only of
+//!   buttons focuses no widget, so the keyboard-focus test below sees
+//!   nothing in the way; Esc used to cancel the dialog AND close the
+//!   window behind it in the same frame.
+//! * **Is a text field focused?** Plain keys stand down, so typing "s" in
+//!   chat never publishes and Enter keeps its in-widget meaning. The Ctrl
+//!   chords are the exception for Ctrl+S: egui's `TextEdit` does not claim
+//!   it, so saving from inside a name or seed field is a legitimate thing
+//!   to want — and on wasm the browser's own dialog is suppressed anyway,
+//!   so the chord produced literally nothing. Ctrl+Z/Y keep the gate:
+//!   `TextEdit` owns those for text undo/redo.
+//!
+//! Gizmo-style S/R/G/X/Y/Z keys are deliberately NOT bound — they collide
+//! with WASD/Shift movement.
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
@@ -104,8 +116,17 @@ pub struct EditorDirtyState<'w> {
 }
 
 impl EditorDirtyState<'_> {
-    /// The same live-vs-stored derivation the editors' own save rows
-    /// use — no per-edit flags to drift out of sync with.
+    /// The same live-vs-stored derivation the editors' own save rows use —
+    /// no per-edit flags to drift out of sync with.
+    ///
+    /// Per record type, because they do not share one (#1138): World and
+    /// Inventory compare serialised forms, but an avatar's rigged payload
+    /// lives on a `serde(skip)` field, so it asks
+    /// [`avatar_is_dirty`](crate::pds::avatar::avatar_is_dirty). This doc
+    /// used to claim all three were the same derivation, which is how the
+    /// avatar arm stayed on `records_differ` after the Save row moved off
+    /// it — a green, enabled "Save to PDS" button beside a Ctrl+S that did
+    /// nothing at all for a sculpted body.
     fn dirty(&self, kind: EditorKind) -> bool {
         match kind {
             EditorKind::World => match (&self.live_room, &self.stored_room) {
@@ -113,7 +134,9 @@ impl EditorDirtyState<'_> {
                 _ => false,
             },
             EditorKind::Avatar => match (&self.live_avatar, &self.stored_avatar) {
-                (Some(live), Some(stored)) => records_differ(&live.0, &stored.0),
+                (Some(live), Some(stored)) => {
+                    crate::pds::avatar::avatar_is_dirty(&live.0, &stored.0)
+                }
                 _ => false,
             },
             EditorKind::Inventory => match (&self.live_inventory, &self.stored_inventory) {
@@ -121,6 +144,52 @@ impl EditorDirtyState<'_> {
                 _ => false,
             },
         }
+    }
+}
+
+/// Which global chords may fire this frame (#1139).
+///
+/// The routing policy in one place, as data, so it can be stated once and
+/// tested without an egui context: `global_shortcuts` builds one of these
+/// per frame from egui's focus state and the modal stamp
+/// ([`crate::ui::confirm::modal_is_open`]) and asks it per branch.
+#[derive(Clone, Copy, Debug)]
+struct ShortcutGate {
+    /// A modal dialog owned attention on the last egui pass.
+    modal_open: bool,
+    /// Some egui widget has keyboard focus — in practice a text field,
+    /// since egui 0.35 does not focus a clicked button.
+    text_focus: bool,
+}
+
+impl ShortcutGate {
+    /// The Esc back-out ladder. A modal answers its own Esc; a focused
+    /// text field has egui consume Esc to release focus, and the ladder
+    /// resumes on the next press.
+    fn allows_esc(self) -> bool {
+        !self.modal_open && !self.text_focus
+    }
+
+    /// Enter opens/focuses Chat. Behind a modal this was the worst of the
+    /// three: the user pressing Enter to answer a gift offer or an
+    /// unsaved-edits dialog got a Chat window opened behind it with the
+    /// focus moved into its input, while the modal still blocked the
+    /// pointer.
+    fn allows_enter(self) -> bool {
+        !self.modal_open && !self.text_focus
+    }
+
+    /// Ctrl+S. Deliberately NOT gated on text focus: `TextEdit` ignores
+    /// the chord, and a save requested from inside a name field is a save
+    /// the user meant.
+    fn allows_save(self) -> bool {
+        !self.modal_open
+    }
+
+    /// Ctrl+Z / Ctrl+Y. Gated on text focus because `TextEdit` owns those
+    /// chords for editing the text itself.
+    fn allows_undo(self) -> bool {
+        !self.modal_open && !self.text_focus
     }
 }
 
@@ -185,12 +254,13 @@ pub fn global_shortcuts(
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
-    let egui_wants_keyboard = ctx.egui_wants_keyboard_input();
+    let gate = ShortcutGate {
+        modal_open: crate::ui::confirm::modal_is_open(ctx),
+        text_focus: ctx.egui_wants_keyboard_input(),
+    };
 
     // ── Esc: the back-out ladder ─────────────────────────────────────
-    // While a text field is focused egui consumes Esc to release it;
-    // the ladder resumes on the next press.
-    if keyboard.just_pressed(KeyCode::Escape) && !egui_wants_keyboard {
+    if keyboard.just_pressed(KeyCode::Escape) && gate.allows_esc() {
         if gizmo_targets.iter().any(|t| t.is_active()) {
             // Step 1 — abort the active gizmo drag. Owned by
             // `editor_gizmo::drag::manage_gizmo_drag` (PostUpdate, later
@@ -247,10 +317,10 @@ pub fn global_shortcuts(
     }
 
     // ── Enter: open / focus chat ─────────────────────────────────────
-    // Gated on egui not wanting keys: pressing Enter INSIDE the chat
-    // input keeps its existing send semantics untouched.
+    // Pressing Enter INSIDE the chat input keeps its existing send
+    // semantics untouched, and a modal answers its own Enter.
     if (keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::NumpadEnter))
-        && !egui_wants_keyboard
+        && gate.allows_enter()
     {
         panels.chat = true;
         chat_focus.0 = true;
@@ -262,7 +332,7 @@ pub fn global_shortcuts(
         || keyboard.pressed(KeyCode::ControlRight)
         || keyboard.pressed(KeyCode::SuperLeft)
         || keyboard.pressed(KeyCode::SuperRight);
-    if ctrl && keyboard.just_pressed(KeyCode::KeyS) && !egui_wants_keyboard {
+    if ctrl && keyboard.just_pressed(KeyCode::KeyS) && gate.allows_save() {
         let candidates: Vec<(egui::Id, EditorKind)> = [
             (
                 UiWindow::WorldEditor,
@@ -287,9 +357,16 @@ pub fn global_shortcuts(
     // no-op). Suppressed mid-gizmo-drag: restoring the record under an
     // active drag would let the drag-end commit write stale transforms
     // into the restored state; Esc-abort the drag first.
+    //
+    // Inventory is a CANDIDATE even though it has no undo stack (#1139):
+    // it is an `EditorKind` and a Ctrl+S target, so skipping it here meant
+    // Ctrl+Z with the Inventory window front-most silently restored the
+    // World editor stacked beneath it — a whole-record replacement, with
+    // a peer broadcast, from a keypress aimed at another window. As a
+    // candidate it wins the scan and `apply_undo_shortcut` says so.
     let z = keyboard.just_pressed(KeyCode::KeyZ);
     let y = keyboard.just_pressed(KeyCode::KeyY);
-    if ctrl && (z || y) && !egui_wants_keyboard && !gizmo_targets.iter().any(|t| t.is_active()) {
+    if ctrl && (z || y) && gate.allows_undo() && !gizmo_targets.iter().any(|t| t.is_active()) {
         let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
         let kind = if y || shift {
             crate::ui::undo::StepKind::Redo
@@ -303,6 +380,7 @@ pub fn global_shortcuts(
                 panels.world_editor,
             ),
             (UiWindow::Avatar, EditorKind::Avatar, panels.avatar),
+            (UiWindow::Inventory, EditorKind::Inventory, panels.inventory),
         ]
         .into_iter()
         .filter(|(_, _, open)| *open)
@@ -341,4 +419,133 @@ pub fn install_ctrl_s_blocker() {
         warn!("failed to install Ctrl+S blocker: {e:?}");
     }
     closure.forget();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pds::AvatarRecord;
+    use crate::pds::avatar::{body, wardrobe};
+    use bevy::ecs::system::RunSystemOnce;
+
+    const NOTHING_IN_THE_WAY: ShortcutGate = ShortcutGate {
+        modal_open: false,
+        text_focus: false,
+    };
+
+    /// #1139, finding 114. Sequence: click into the World Editor's name or
+    /// seed field, type, press Ctrl+S. The chord shared one gate with the
+    /// plain letters, so a focused text field killed it — and on wasm the
+    /// capture-phase blocker had already eaten the browser's own save
+    /// dialog, so the keypress produced nothing whatsoever. `TextEdit`
+    /// never claims Ctrl+S, so there is nothing to yield to.
+    #[test]
+    fn ctrl_s_still_fires_from_inside_a_text_field() {
+        let typing = ShortcutGate {
+            modal_open: false,
+            text_focus: true,
+        };
+        assert!(typing.allows_save());
+        // The plain keys still stand down, or typing "s" would publish and
+        // Enter would lose its in-widget send.
+        assert!(!typing.allows_esc());
+        assert!(!typing.allows_enter());
+        // And Ctrl+Z stays with the text field, which owns it for text
+        // undo.
+        assert!(!typing.allows_undo());
+    }
+
+    /// #1139, findings 107 and 124. Sequence: click "Revert to saved",
+    /// then press Esc to back out of the confirm — or press Enter meaning
+    /// "yes" on a gift offer. A modal made only of buttons focuses no
+    /// widget (egui 0.35 does not focus a clicked button), so the focus
+    /// test saw nothing in the way: one Esc cancelled the dialog AND closed
+    /// the window behind it, and Enter opened Chat behind the modal and
+    /// pulled focus into it.
+    #[test]
+    fn nothing_global_fires_while_a_modal_owns_attention() {
+        let modal = ShortcutGate {
+            modal_open: true,
+            text_focus: false,
+        };
+        assert!(!modal.allows_esc());
+        assert!(!modal.allows_enter());
+        assert!(!modal.allows_save());
+        assert!(!modal.allows_undo());
+    }
+
+    #[test]
+    fn every_chord_fires_with_nothing_in_the_way() {
+        assert!(NOTHING_IN_THE_WAY.allows_esc());
+        assert!(NOTHING_IN_THE_WAY.allows_enter());
+        assert!(NOTHING_IN_THE_WAY.allows_save());
+        assert!(NOTHING_IN_THE_WAY.allows_undo());
+    }
+
+    /// A rigged record and a copy of it whose ONLY difference is a sculpt —
+    /// a value on the serde-skipped `resolved`, so the two are byte-identical
+    /// on the wire.
+    fn saved_and_sculpted() -> (AvatarRecord, AvatarRecord) {
+        let mut saved = AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = saved.body.rigged_mut() {
+            rig.resolved = Some(body::ResolvedRig {
+                body: wardrobe::engine_default_for_did("did:plc:ctrl-s-test"),
+                attachments: Vec::new(),
+            });
+        }
+        let mut sculpted = saved.clone();
+        if let Some(resolved) = sculpted
+            .body
+            .rigged_mut()
+            .and_then(|rig| rig.resolved.as_mut())
+        {
+            resolved.body.composites.femininity += 0.25;
+        }
+        (saved, sculpted)
+    }
+
+    /// #1138. Sequence: open the Avatar window on a rigged body, drag a
+    /// sculpt slider (or nudge a worn prop's offset), press Ctrl+S. The
+    /// chord filters its candidate windows on `dirty(kind)`, so an avatar
+    /// this gate calls clean is never even requested — the keypress does
+    /// nothing at all, while the green "Save to PDS" button beside it is
+    /// enabled and works. This gate asked `records_differ`, which cannot
+    /// see a rigged edit.
+    #[test]
+    fn ctrl_s_sees_a_sculpted_rigged_body_as_dirty() {
+        let (saved, sculpted) = saved_and_sculpted();
+        assert!(
+            !records_differ(&sculpted, &saved),
+            "precondition: the wire forms are identical, which is why the old gate said clean"
+        );
+
+        let mut world = World::new();
+        world.insert_resource(LiveAvatarRecord(sculpted));
+        world.insert_resource(StoredAvatarRecord(saved));
+
+        let dirty = world
+            .run_system_once(|state: EditorDirtyState| state.dirty(EditorKind::Avatar))
+            .expect("dirty query");
+        assert!(
+            dirty,
+            "Ctrl+S must see the same unsaved work the Save row does"
+        );
+    }
+
+    /// The other half of "one derivation": a rigged body nobody has touched
+    /// must not arm the shortcut, or Ctrl+S would publish on every press and
+    /// the Save button would never grey out.
+    #[test]
+    fn an_untouched_rigged_body_is_not_dirty() {
+        let (saved, _) = saved_and_sculpted();
+
+        let mut world = World::new();
+        world.insert_resource(LiveAvatarRecord(saved.clone()));
+        world.insert_resource(StoredAvatarRecord(saved));
+
+        let dirty = world
+            .run_system_once(|state: EditorDirtyState| state.dirty(EditorKind::Avatar))
+            .expect("dirty query");
+        assert!(!dirty);
+    }
 }

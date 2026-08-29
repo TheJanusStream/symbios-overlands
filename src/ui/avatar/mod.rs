@@ -18,11 +18,33 @@
 //!     tuning. Each preset's panel lives in `locomotion`.
 //!
 //! Live UX is preserved: every widget mutates [`LiveAvatarRecord`] in
-//! place, the player module rebuilds visuals or swaps locomotion the same
-//! frame the resource changes, and `network::broadcast_avatar_state`
-//! pushes a preview update to peers so they see the edit before the
-//! author commits. Three explicit buttons drive persistence and discard
-//! flows:
+//! place, and the player module rebuilds visuals or swaps locomotion the
+//! same frame the resource changes.
+//!
+//! **What peers see, and when (#1122).** `network::broadcast_avatar_state`
+//! pushes the record to the room on every edit, and for a **generator**
+//! body that record IS the payload — peers do see the edit before the
+//! author commits. A **rigged** body is different and the contract here is
+//! deliberate: its payload lives in separate wardrobe and attachment
+//! records, and the broadcast can only carry their rkeys (`resolved` is
+//! `serde(skip)`), so a peer resolves those names against the owner's PDS
+//! and renders the owner's last SAVED body. A sculpt or an offset nudge
+//! therefore reaches the room when it is saved, not while it is being
+//! dragged; [`poll_publish_avatar_tasks`] broadcasts
+//! `AvatarRecordsPublished` at that moment so peers re-resolve instead of
+//! sitting on the pre-save body indefinitely.
+//!
+//! This module used to claim the unqualified "peers see the edit before
+//! the author commits", which was false for every rigged body in the app.
+//! The alternative — inlining the resolved records in the broadcast — was
+//! weighed and declined: it would put an unsigned, peer-authored body on
+//! screen where every other avatar comes from its owner's repo, re-send a
+//! multi-hundred-KiB payload per preview burst on the ordered reliable
+//! channel, and can exceed the 900 KiB wire ceiling, past which the send is
+//! refused in console silence (#1123, open). It remains available if the
+//! preview fidelity is ever worth those three.
+//!
+//! Three explicit buttons drive persistence and discard flows:
 //!
 //!   * **Save to PDS** writes the current `LiveAvatarRecord` to the
 //!     owner's PDS via `com.atproto.repo.putRecord` and then syncs the
@@ -868,15 +890,17 @@ pub fn avatar_ui(
 
                         // --- Publish / Revert / Reset -------------------------
                         // Same shared row + status line as the World and
-                        // Inventory editors (`ui::editable`). Dirty is derived
-                        // through `records_differ` — the *same* canonical
-                        // equality the other two use — instead of
-                        // `AvatarRecord`'s `PartialEq`, so all three editors
-                        // behave identically.
+                        // Inventory editors (`ui::editable`). Dirty is NOT
+                        // `records_differ` here, unlike the other two: a
+                        // rigged body's payload rides on the serde-skipped
+                        // `resolved`, so the wire compare calls a sculpted
+                        // body clean (#1059). `avatar_is_dirty` is the single
+                        // derivation this row, Ctrl+S and the unsaved-edits
+                        // guard all ask (#1138).
 
                         let dirty = stored
                             .as_ref()
-                            .is_some_and(|s| live_mut.0.publishes_differently_from(&s.0));
+                            .is_some_and(|s| pds::avatar::avatar_is_dirty(&live_mut.0, &s.0));
                         let can_publish = session.is_some() && refresh_ctx.is_some();
                         // Rebuild the seeded default only when the session DID
                         // changes, not every frame (#637) — full
@@ -890,8 +914,10 @@ pub fn avatar_ui(
                             _ => {}
                         }
                         let default_record = default_cache.as_ref().map(|(_, r)| r);
+                        // Same question, different baseline: "would Reset
+                        // change anything?" is live-vs-default.
                         let can_reset = default_record
-                            .is_some_and(|d| live_mut.0.publishes_differently_from(d));
+                            .is_some_and(|d| pds::avatar::avatar_is_dirty(&live_mut.0, d));
 
                         let record_bytes = crate::ui::editable::refresh_size_readout(
                             &mut *feedback,
@@ -1411,7 +1437,8 @@ pub(crate) fn spawn_publish_avatar_task(
 
 /// Poll outstanding avatar publish tasks. On success, sync the record the
 /// task actually published into `StoredAvatarRecord` so the "Load from PDS"
-/// button is disabled until the next edit.
+/// button is disabled until the next edit, and — for a rigged body — tell
+/// the room the referenced records have moved (#1122).
 ///
 /// Deliberately does not read `LiveAvatarRecord` (#1116) — see
 /// [`PublishAvatarTask::published`].
@@ -1424,6 +1451,13 @@ pub fn poll_publish_avatar_tasks(
     mut session_log: ResMut<SessionLog>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
     time: Res<Time>,
+    // A failed write is reported OUTSIDE this window (#1137): "Continue in
+    // background" and Esc-closing the editor mid-save both leave the footer
+    // where the failure lands unread.
+    mut panels: ResMut<crate::ui::toolbar::UiPanels>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    // The post-publish nudge (#1122).
+    mut network: bevy_symbios_multiuser::prelude::SendMessage<crate::protocol::OverlandsMessage>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let spawned_at = task.spawned_at;
@@ -1452,6 +1486,25 @@ pub fn poll_publish_avatar_tasks(
                 if let Some(stored) = stored.as_mut() {
                     stored.0 = task.published.clone();
                 }
+                // Tell the room (#1122). A rigged body's payload is in the
+                // wardrobe + attachment records this write just changed, and
+                // they sit at the SAME rkeys the live-preview broadcast
+                // already named — so peers holding a resolution have no way
+                // to notice from the references alone. Nothing here made
+                // `LiveAvatarRecord` changed, so no broadcast fired at all,
+                // and even one that did would have carried the pre-save body
+                // forward (`network::inbound::carry_resolution`). Peers kept
+                // the old body until their wearer next edited something.
+                //
+                // Only for a rigged body: a generator body's payload IS the
+                // record, so the preview already showed peers the final
+                // state and there is nothing to re-fetch.
+                if task.published.body.rigged_ref().is_some() {
+                    network.broadcast(
+                        crate::protocol::OverlandsMessage::AvatarRecordsPublished,
+                        bevy_symbios_multiuser::prelude::ChannelKind::Reliable,
+                    );
+                }
                 feedback.status = PublishStatus::Success { at_secs: now };
                 session_log.info(
                     now,
@@ -1462,21 +1515,19 @@ pub fn poll_publish_avatar_tasks(
                     },
                 );
             }
-            Err(e) => {
-                warn!("Failed to save avatar record: {}", e);
-                session_log.error(
-                    now,
-                    EventPayload::RecordWriteFailed {
-                        record: RecordKind::Avatar,
-                        did,
-                        reason: e.clone(),
-                    },
-                );
-                feedback.status = PublishStatus::Failed {
-                    at_secs: now,
-                    message: e,
-                };
-            }
+            Err(e) => crate::ui::editable::report_publish_failure(
+                RecordKind::Avatar,
+                crate::ui::editable::WriteOp::Save,
+                did,
+                e,
+                now,
+                crate::ui::editable::FailureSinks {
+                    session_log: &mut session_log,
+                    feedback: &mut feedback,
+                    toasts: &mut toasts,
+                    panels: &mut panels,
+                },
+            ),
         }
     }
 }

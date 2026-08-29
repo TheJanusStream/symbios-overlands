@@ -207,6 +207,17 @@ impl PeerRigResolveFloor {
     }
 }
 
+/// Whether a rigged body's resolution covers every reference it names.
+///
+/// A resolution is a fetch of the records the reference list names, so it is
+/// finished only when it came back with one record per attachment; a shorter
+/// list means at least one record 404'd or failed in transit (#1122).
+fn rig_is_fully_resolved(rig: &crate::pds::avatar::RiggedBody) -> bool {
+    rig.resolved
+        .as_ref()
+        .is_some_and(|resolved| resolved.attachments.len() >= rig.attachments.len())
+}
+
 /// Start a resolution for every peer whose record is rigged but unresolved.
 pub(super) fn spawn_peer_rig_resolutions(
     mut commands: Commands,
@@ -231,7 +242,17 @@ pub(super) fn spawn_peer_rig_resolutions(
         else {
             continue;
         };
-        if rig.resolved.is_some() || inflight.iter().any(|t| t.peer_id == peer.peer_id) {
+        // "Resolved" means resolved COMPLETELY (#1122). A prop worn from
+        // the inventory has a minted TID that is not on the owner's PDS
+        // until they save, so its record 404s and `resolve_rigged_body`
+        // skips it — leaving `resolved` `Some` with a SHORT attachment
+        // list. Treating that as done meant the prop was never fetched
+        // again, not even after the owner published it: peers saw the
+        // circlet only once its wearer next changed something else.
+        // Re-resolution is bounded by the backoff below, which
+        // `poll_peer_rig_resolutions` records for a short set exactly as it
+        // does for an outright failure.
+        if rig_is_fully_resolved(rig) || inflight.iter().any(|t| t.peer_id == peer.peer_id) {
             continue;
         }
         // A reference set that just failed is not retried until its wait has
@@ -319,7 +340,9 @@ pub(super) fn poll_peer_rig_resolutions(
             }
             continue;
         };
-        let Some((mut peer, _)) = peers.iter_mut().find(|(p, _)| p.peer_id == task.peer_id) else {
+        let Some((mut peer, previous_backoff)) =
+            peers.iter_mut().find(|(p, _)| p.peer_id == task.peer_id)
+        else {
             continue;
         };
         let Some(record) = peer.avatar.as_mut() else {
@@ -331,11 +354,29 @@ pub(super) fn poll_peer_rig_resolutions(
         if rig.avatar != task.avatar_rkey || rig.attachments != task.attachment_rkeys {
             continue;
         }
+        let complete = resolved.attachments.len() >= rig.attachments.len();
+        // A short set is a partial failure (#1122): the body is installed so
+        // the peer is not left bare, but the missing props are worth another
+        // try — most often because their owner has not saved them yet, and
+        // the record appears at that rkey the moment they do. The doubling
+        // backoff that bounds an outright failure bounds this too, so a prop
+        // that is never published settles into a slow poll rather than a
+        // per-frame fan-out.
+        let backoff =
+            (!complete).then(|| PeerRigResolveBackoff::after_failure(previous_backoff, rig, now));
         rig.resolved = Some(resolved);
-        // Resolved: any wait recorded for these references is spent.
-        commands
-            .entity(task.peer_entity)
-            .remove::<PeerRigResolveBackoff>();
+        match backoff {
+            // Resolved in full: any wait recorded for these references is
+            // spent.
+            None => {
+                commands
+                    .entity(task.peer_entity)
+                    .remove::<PeerRigResolveBackoff>();
+            }
+            Some(backoff) => {
+                commands.entity(task.peer_entity).insert(backoff);
+            }
+        }
     }
 }
 
@@ -441,6 +482,52 @@ mod tests {
             attachments: attachments.iter().map(|a| (*a).to_string()).collect(),
             resolved: None,
         }
+    }
+
+    /// #1122. Sequence: a peer wears a prop from their inventory, which
+    /// mints a fresh TID; the preview broadcast names it, every guest
+    /// resolves, and that record is not on the owner's PDS yet — so it 404s
+    /// and `resolve_rigged_body` skips the prop. The result is `Some` with a
+    /// SHORT attachment list, and treating `Some` as "done" meant no guest
+    /// ever fetched that prop again, not even after the owner saved it: the
+    /// circlet appeared only when its wearer next changed something else.
+    #[test]
+    fn a_prop_that_is_not_on_the_pds_yet_is_not_a_finished_resolution() {
+        let mut worn = rig("3jzfcijpj2z2a", &["att-1"]);
+        worn.resolved = Some(crate::pds::avatar::body::ResolvedRig {
+            body: crate::pds::avatar::wardrobe::engine_default_for_did("did:plc:short"),
+            attachments: Vec::new(),
+        });
+        assert!(
+            !rig_is_fully_resolved(&worn),
+            "one reference, no record: there is still something to fetch"
+        );
+
+        worn.resolved = Some(crate::pds::avatar::body::ResolvedRig {
+            body: crate::pds::avatar::wardrobe::engine_default_for_did("did:plc:short"),
+            attachments: vec![crate::pds::avatar::ResolvedAttachment {
+                rkey: String::from("att-1"),
+                record: crate::pds::avatar::wardrobe::AttachmentRecord::new(
+                    crate::pds::Generator::default(),
+                    symbios_avatar::Socket::Crown,
+                ),
+            }],
+        });
+        assert!(rig_is_fully_resolved(&worn));
+    }
+
+    /// A body with nothing worn is finished the moment it resolves — the
+    /// completeness rule must not turn every plain avatar into a re-fetch
+    /// loop.
+    #[test]
+    fn a_body_wearing_nothing_resolves_once() {
+        let mut bare = rig("3jzfcijpj2z2a", &[]);
+        assert!(!rig_is_fully_resolved(&bare), "not fetched yet");
+        bare.resolved = Some(crate::pds::avatar::body::ResolvedRig {
+            body: crate::pds::avatar::wardrobe::engine_default_for_did("did:plc:bare"),
+            attachments: Vec::new(),
+        });
+        assert!(rig_is_fully_resolved(&bare));
     }
 
     /// #1113: a reference set that cannot resolve is left alone for a while

@@ -126,6 +126,18 @@ fn carry_resolution(existing: Option<&AvatarRecord>, incoming: &mut AvatarRecord
     }
 }
 
+/// Forget the rig resolution a peer's record is carrying (#1122).
+///
+/// The counterpart to [`carry_resolution`], for the one event that changes
+/// the records behind an unchanged reference set: their owner saved. Only
+/// the resolution goes — the references stay, because they still name the
+/// right records; it is the bytes at those rkeys that moved.
+fn forget_rig_resolution(record: &mut AvatarRecord) {
+    if let Some(rig) = record.body.rigged_mut() {
+        rig.resolved = None;
+    }
+}
+
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn handle_incoming_messages(
     mut commands: Commands,
@@ -400,6 +412,36 @@ pub(super) fn handle_incoming_messages(
                     // live-preview state instead of the stale PDS record.
                     avatar_cache.insert(peer_did, new_record.clone());
                     peer.avatar = Some(new_record);
+                    break;
+                }
+            }
+            OverlandsMessage::AvatarRecordsPublished => {
+                // The sender saved their rigged body (#1122). Same rkeys,
+                // new bytes behind them — so drop the resolution we are
+                // carrying and let `spawn_peer_rig_resolutions` fetch the
+                // published records. Without this the owner's Save reached
+                // nobody: the re-broadcast preview names the same
+                // references, `carry_resolution` keeps the pre-save body,
+                // and peers stayed on it until the owner happened to edit
+                // something that changed a reference.
+                //
+                // Deliberately does NOT clear `PeerRigResolveFloor` (#1126):
+                // the floor is the per-peer cap on how often one identity can
+                // make every guest fan out to hosts of its choosing, and a
+                // message a peer sends at will must not lift it. The
+                // reference-set backoff does go, because it records that
+                // THESE references failed to resolve — which a publish is
+                // precisely the news that invalidates.
+                for (peer_entity, mut peer, _, _) in peers.iter_mut() {
+                    if peer.peer_id != msg.sender {
+                        continue;
+                    }
+                    if let Some(record) = peer.avatar.as_mut() {
+                        forget_rig_resolution(record);
+                    }
+                    commands
+                        .entity(peer_entity)
+                        .remove::<super::peer_cache::PeerRigResolveBackoff>();
                     break;
                 }
             }
@@ -825,6 +867,51 @@ mod tests {
                 .rigged_ref()
                 .is_some_and(|rig| rig.resolved.is_some()),
             "same references: the fetched records are still the right ones"
+        );
+    }
+
+    /// #1122. Sequence: a peer wears a circlet, sculpts their face, then
+    /// presses Save to PDS. The records their references name now hold new
+    /// bytes at the SAME rkeys — so the obvious fix, re-broadcasting the
+    /// record on publish success, changes nothing: the rule above correctly
+    /// carries the pre-save resolution forward and the peer keeps the old
+    /// body until its owner happens to change what they wear. That is why
+    /// the publish sends its own notice, and why the notice's whole job is
+    /// to drop the resolution the reference set would otherwise preserve.
+    #[test]
+    fn only_a_publish_notice_can_dislodge_a_resolution_the_references_still_match() {
+        let standing = resolved_record("3jzfcijpj2z2a", &["att-1"]);
+
+        // What a re-broadcast on publish success would do, by itself:
+        let mut re_broadcast = AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = re_broadcast.body.rigged_mut() {
+            rig.attachments = vec![String::from("att-1")];
+        }
+        carry_resolution(Some(&standing), &mut re_broadcast);
+        assert!(
+            re_broadcast
+                .body
+                .rigged_ref()
+                .is_some_and(|rig| rig.resolved.is_some()),
+            "the references are unchanged, so the stale body survives the nudge"
+        );
+
+        // What `AvatarRecordsPublished` does:
+        let mut notified = standing.clone();
+        forget_rig_resolution(&mut notified);
+        assert!(
+            notified
+                .body
+                .rigged_ref()
+                .is_some_and(|rig| rig.resolved.is_none()),
+            "the peer must re-fetch, and the references still name what to fetch"
+        );
+        assert!(
+            notified
+                .body
+                .rigged_ref()
+                .is_some_and(|rig| rig.attachments == vec![String::from("att-1")]),
+            "the outfit is not forgotten — only the copy of the records"
         );
     }
 

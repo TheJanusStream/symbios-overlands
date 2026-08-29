@@ -19,8 +19,8 @@ use crate::oauth::OauthRefreshCtx;
 use crate::pds::{AvatarRecord, InventoryRecord, RoomRecord};
 use crate::protocol::OverlandsMessage;
 use crate::state::{
-    AppState, ChatHistory, LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord, LocalPlayer,
-    PendingOutgoingOffers, PublishFeedback, RelayHost, RemotePeer, RoomRecordRecovery,
+    AppState, ChatHistory, CurrentRoomDid, LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord,
+    LocalPlayer, PendingOutgoingOffers, PublishFeedback, RelayHost, RemotePeer, RoomRecordRecovery,
     StoredAvatarRecord, StoredInventoryRecord, StoredRoomRecord,
 };
 use crate::world_builder::RoomEntity;
@@ -30,7 +30,146 @@ pub struct LogoutPlugin;
 
 impl Plugin for LogoutPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnExit(AppState::InGame), cleanup_on_logout);
+        app.add_systems(
+            OnExit(AppState::InGame),
+            (cleanup_on_logout, clear_editor_state_on_logout),
+        );
+    }
+}
+
+/// The resources one logged-in session owns, and the teardown that drops
+/// them — declared **once** so the two can never disagree (#1140, finding
+/// 118 of #1152).
+///
+/// The bug this exists to prevent: `CurrentRoomDid` was installed by
+/// `ui::login::complete::install_completed_session` and had no remove site
+/// anywhere in the crate, so the previous session's room DID sat in the
+/// world across a logout. It was harmless only because the next login
+/// happened to overwrite it — `TravelingTo` next door was not harmless at
+/// all. Every entry below is a resource whose value is a claim about ONE
+/// session (who is logged in, which room, what is in flight); an
+/// app-lifetime resource that merely needs *resetting* is not listed here,
+/// because removing it would panic the next frame that reads it — those
+/// live in `cleanup_on_logout` as `insert_resource(Default)` instead.
+///
+/// The list generates both the teardown and the name set the drift test
+/// diffs the login install set against, so adding a type here is the whole
+/// change; forgetting to add one fails
+/// `every_resource_login_installs_is_torn_down_at_logout`.
+macro_rules! session_scoped_resources {
+    ($($ty:ty),* $(,)?) => {
+        /// Drop every session-scoped resource. Split out of
+        /// [`cleanup_on_logout`] so the list is one declaration rather
+        /// than a run of hand-written lines a new resource can miss.
+        fn remove_session_scoped_resources(commands: &mut Commands) {
+            $(commands.remove_resource::<$ty>();)*
+        }
+
+        /// The same list as type names, for the drift test.
+        #[cfg(test)]
+        fn session_scoped_resource_names() -> Vec<&'static str> {
+            vec![$(std::any::type_name::<$ty>()),*]
+        }
+    };
+}
+
+session_scoped_resources! {
+    // Identity. Removing `SymbiosMultiuserConfig` tears down the matchbox
+    // socket on the next frame (see the module docs above).
+    AtprotoSession,
+    crate::oauth::OauthRefreshCtx,
+    TokenSourceRes,
+    SymbiosMultiuserConfig<OverlandsMessage>,
+    RelayHost,
+    // Which overland this session was visiting, and the arrival pose the
+    // login handed forward. `PendingSpawnPlacement` is normally consumed by
+    // `player::spawn`, but a logout from the loading screen (#849) never
+    // reaches it.
+    CurrentRoomDid,
+    crate::state::PendingSpawnPlacement,
+    // In-flight portal travel (#1140). `TravelingTo` is otherwise removed
+    // only inside `poll_portal_travel_tasks`, so logging out mid-fetch left
+    // it pinned: every drive system early-returns while it is present, so
+    // the next login started frozen under a travel overlay that never
+    // cleared. The entity carrying the fetch is swept in
+    // `clear_editor_state_on_logout`.
+    crate::state::TravelingTo,
+    crate::player::PortalCooldown,
+    // The three records and their stored mirrors: the previous user's
+    // world, body and stash.
+    LiveRoomRecord,
+    StoredRoomRecord,
+    LiveAvatarRecord,
+    StoredAvatarRecord,
+    LiveInventoryRecord,
+    StoredInventoryRecord,
+    // Recovery markers (#840): a fresh login must not open with the
+    // previous session's "incompatible record" banner offering to reset a
+    // repo it has never read.
+    RoomRecordRecovery,
+    crate::state::AvatarRecordRecovery,
+    crate::state::InventoryRecordRecovery,
+    // Defensive: the unsaved-edits guard removes itself when it proceeds,
+    // but if anything else ever drives the InGame->Login edge while a
+    // dialog is open, a stale guard must not greet the next login.
+    crate::ui::unsaved_guard::UnsavedGuard,
+    // The gateway picker pair (#748): logging out while standing in a
+    // gateway zone must not leave the picker (or its dismissal latch)
+    // armed for the next session.
+    crate::ui::gateway::GatewayPicker,
+    crate::ui::gateway::GatewayDismissed,
+    // The world this session compiled is despawned in `cleanup_on_logout`,
+    // so the next login's loading gate must wait for a fresh compile pass —
+    // and the per-unit fingerprints must not short-circuit it into skipping
+    // the rebuild of a now-empty scene. Any in-flight sliced job is dropped
+    // with them (its queue indexes the old record). `WorldCompileArmed`
+    // re-arms the one-frame compile delay for the next Loading pass (#849).
+    crate::world_builder::WorldCompiled,
+    crate::world_builder::WorldCompileArmed,
+}
+
+/// Reset the two editor windows' cross-frame state and sweep any in-flight
+/// portal fetch (#1140).
+///
+/// Kept out of [`cleanup_on_logout`], which already sits at Bevy's 16-param
+/// ceiling — the same reason `ui::undo::clear_history_on_logout` is its own
+/// system.
+///
+/// `AvatarEditorState` and `RoomEditorState` are app-lifetime
+/// `init_resource`s, so they are *reset*, never removed. The avatar half is
+/// the one that bit: a worn-prop selection made before logging out keeps
+/// `holds_avatar_still()` true on the first `InGame` frame of the NEXT
+/// login, which parks the new chassis with ALL_LOCKED and pins the rig to
+/// rest — while `sync_gizmo_selection` finds no entity carrying that rkey,
+/// so there is no gizmo on screen to explain it or to click away. The
+/// release path (`release_hidden_selections`) only runs under
+/// `in_state(InGame)`, so nothing between the two sessions could ever have
+/// cleared it. The same resource also carried the previous account's
+/// wardrobe listing across the boundary, where one click on a row would
+/// have made the new user wear — and republish under the old user's rkey —
+/// a body from a repo they do not own.
+///
+/// `RoomEditorState` is reset alongside it. Its stale selection names a
+/// generator in a room that no longer exists, so nothing freezes and no
+/// other identity's data is exposed — but it is the same resource with the
+/// same lifetime and the same absence of any other teardown, and leaving
+/// exactly one of the pair behind is how the next reader concludes that
+/// editor state is meant to survive a logout.
+fn clear_editor_state_on_logout(
+    mut commands: Commands,
+    travel_tasks: Query<Entity, With<crate::player::PortalTravelTask>>,
+    mut avatar_editor: ResMut<crate::ui::avatar::AvatarEditorState>,
+    mut room_editor: ResMut<crate::ui::room::RoomEditorState>,
+) {
+    *avatar_editor = crate::ui::avatar::AvatarEditorState::default();
+    *room_editor = crate::ui::room::RoomEditorState::default();
+    // Neither `LocalPlayer` nor `RoomEntity`, so `cleanup_on_logout`'s
+    // despawn sweep never reaches these. Dropping the `Task` is enough on
+    // native; on wasm the work behind it keeps running (project memory,
+    // #560-563), which is why `poll_portal_travel_tasks` also refuses a
+    // result whose target does not match the pending travel.
+    for entity in &travel_tasks {
+        commands.entity(entity).try_despawn();
     }
 }
 
@@ -157,37 +296,12 @@ pub(crate) fn cleanup_on_logout(
     }
     playing_ambient.clear();
 
-    // Drop the active recipe so a later login does not compile the old
-    // room's contents into the new session's scene graph.
-    commands.remove_resource::<LiveRoomRecord>();
-    commands.remove_resource::<StoredRoomRecord>();
-    commands.remove_resource::<LiveAvatarRecord>();
-    commands.remove_resource::<StoredAvatarRecord>();
-    commands.remove_resource::<LiveInventoryRecord>();
-    commands.remove_resource::<StoredInventoryRecord>();
-    // Clear any recovery markers from this session so a fresh login does
-    // not start with the "incompatible record" banners still showing
-    // (avatar/inventory markers added in #840).
-    commands.remove_resource::<RoomRecordRecovery>();
-    commands.remove_resource::<crate::state::AvatarRecordRecovery>();
-    commands.remove_resource::<crate::state::InventoryRecordRecovery>();
-    // Defensive: the unsaved-edits guard removes itself when it proceeds,
-    // but if anything else ever drives the InGame→Login edge while a
-    // dialog is open, a stale guard must not greet the next login.
-    commands.remove_resource::<crate::ui::unsaved_guard::UnsavedGuard>();
-    // Same for the gateway picker pair (#748): logging out while standing
-    // in a gateway zone must not leave the picker (or its dismissal
-    // latch) armed for the next session.
-    commands.remove_resource::<crate::ui::gateway::GatewayPicker>();
-    commands.remove_resource::<crate::ui::gateway::GatewayDismissed>();
-    // The world this session compiled is being despawned just below, so
-    // the next login's loading gate must wait for a fresh compile pass —
-    // and the per-unit fingerprints must not short-circuit it into
-    // skipping the rebuild of a now-empty scene. Any in-flight sliced
-    // job is dropped with them (its queue indexes the old record).
-    commands.remove_resource::<crate::world_builder::WorldCompiled>();
-    // Re-arm the one-frame compile delay for the next Loading pass (#849).
-    commands.remove_resource::<crate::world_builder::WorldCompileArmed>();
+    // Every resource that belongs to the departing session, in one
+    // declaration shared with the login-install drift test — see
+    // [`session_scoped_resources`]. Hand-written runs of `remove_resource`
+    // are what let `CurrentRoomDid` and `TravelingTo` survive a logout
+    // (#1140).
+    remove_session_scoped_resources(&mut commands);
     commands.insert_resource(crate::world_builder::compile::CompiledWorld::default());
     commands.insert_resource(crate::world_builder::compile::CompileJob::default());
 
@@ -211,21 +325,17 @@ pub(crate) fn cleanup_on_logout(
     // the next login's arrival compile rewrites its own set.
     commands.insert_resource(crate::world_builder::grammar_diag::GrammarDiagnostics::default());
 
-    // Hard logout path: tear down every session + networking resource.
-    commands.remove_resource::<AtprotoSession>();
-    commands.remove_resource::<crate::oauth::OauthRefreshCtx>();
-    commands.remove_resource::<TokenSourceRes>();
-    commands.remove_resource::<SymbiosMultiuserConfig<OverlandsMessage>>();
-    commands.remove_resource::<RelayHost>();
-
     // Drop the persisted session blob so the next page load lands back
     // on the login screen instead of silently restoring the stale
     // identity. WASM-only: native sessions aren't persisted today.
     #[cfg(target_arch = "wasm32")]
     crate::oauth::wasm::clear_persisted();
 
-    // Reset in-memory buffers so the next session starts fresh.
-    chat.messages.clear();
+    // Reset in-memory buffers so the next session starts fresh. Whole
+    // resource, not just `messages`: `unread` drove the toolbar badge into
+    // the next login, and since #1140 the half-typed input line lives here
+    // too — a draft is one keystroke from being sent under a new identity.
+    *chat = ChatHistory::default();
     // Roll the diagnostic stream into a fresh segment: flush the departing
     // session to disk, then clear the in-memory tail so the next user's HUD
     // starts blank. The on-disk NDJSON file keeps the full history (the segment
@@ -296,4 +406,182 @@ pub(crate) fn cleanup_on_logout(
     // logout — its retained `Handle<Image>`s are the dominant texture memory the
     // next session would inherit. Re-insert a fresh one to release them (#625).
     commands.insert_resource(crate::world_builder::fresh_texture_cache());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::ecs::world::CommandQueue;
+
+    /// Apply `f` against a scratch world through a real `Commands`, so the
+    /// tests exercise the same deferred path the systems do.
+    fn with_commands(world: &mut World, f: impl FnOnce(&mut Commands)) {
+        let mut queue = CommandQueue::default();
+        let mut commands = Commands::new(&mut queue, world);
+        f(&mut commands);
+        queue.apply(world);
+    }
+
+    fn resource_names(world: &World) -> Vec<String> {
+        world
+            .iter_resources()
+            .map(|(info, _)| info.name().to_string())
+            .collect()
+    }
+
+    /// A minimal but real [`crate::ui::login::CompletedSession`]. Nothing
+    /// here talks to the network — the point is only that
+    /// `install_completed_session` runs its full body and inserts exactly
+    /// the resources it inserts in production.
+    fn completed_session() -> crate::ui::login::CompletedSession {
+        use proto_blue_oauth::types::TokenSet;
+        use proto_blue_oauth::{DpopKey, DpopNonceCache, OAuthSession};
+
+        let token_set = TokenSet {
+            issuer: "https://example.invalid".into(),
+            sub: "did:plc:alice".into(),
+            scope: "atproto".into(),
+            access_token: "access".into(),
+            refresh_token: Some("refresh".into()),
+            token_type: "DPoP".into(),
+            expires_at: Some("2099-01-01T00:00:00Z".into()),
+            aud: None,
+        };
+        let session = std::sync::Arc::new(OAuthSession::new(
+            token_set,
+            DpopKey::generate().expect("dpop keygen"),
+            DpopNonceCache::new(),
+        ));
+        // Deserialised rather than hand-built: `OAuthServerMetadata` has no
+        // `Default` and its optional half is irrelevant here.
+        let server_metadata = serde_json::from_str(
+            r#"{"issuer":"https://example.invalid",
+                "authorization_endpoint":"https://example.invalid/authorize",
+                "token_endpoint":"https://example.invalid/token"}"#,
+        )
+        .expect("server metadata");
+
+        crate::ui::login::CompletedSession {
+            session: AtprotoSession {
+                did: "did:plc:alice".into(),
+                handle: "alice.test".into(),
+                pds_url: "https://example.invalid".into(),
+                session,
+            },
+            refresh_ctx: OauthRefreshCtx {
+                client: crate::oauth::OauthClientRes::default().0,
+                server_metadata,
+            },
+            service_token: "service-token".into(),
+            room_did: "did:plc:bob".into(),
+            spawn_pos: Some(crate::boot_params::TargetPos {
+                x: 1.0,
+                y: None,
+                z: 2.0,
+            }),
+            spawn_yaw_deg: Some(90.0),
+        }
+    }
+
+    /// The guard for the `CurrentRoomDid` class of leak (#1140): a login
+    /// installs a resource, nobody ever removes it, and it sits in the
+    /// world across the logout into the next user's session. Diffing the
+    /// two sets means the omission fails here rather than surfacing as
+    /// "the game is broken" three sessions later.
+    ///
+    /// It fails against the pre-#1140 teardown: `CurrentRoomDid` and
+    /// `PendingSpawnPlacement` were installed at `complete.rs:73`/`:88` and
+    /// had zero remove sites in the crate.
+    #[test]
+    fn every_resource_login_installs_is_torn_down_at_logout() {
+        let mut world = World::new();
+        // `World::new()` seeds its own bookkeeping resources (Bevy's
+        // `DefaultQueryFilters`, for one), so the install set is the
+        // difference, not the whole world.
+        let before: Vec<String> = resource_names(&world);
+
+        let mut next_state = NextState::<AppState>::default();
+        with_commands(&mut world, |commands| {
+            crate::ui::login::complete::install_completed_session(
+                commands,
+                &mut next_state,
+                completed_session(),
+                Some(&RelayHost("relay.test".into())),
+            );
+        });
+
+        let installed: Vec<String> = resource_names(&world)
+            .into_iter()
+            .filter(|name| !before.contains(name))
+            .collect();
+        assert!(
+            !installed.is_empty(),
+            "the install path inserted nothing — the test is measuring the wrong thing"
+        );
+
+        let torn_down = session_scoped_resource_names();
+        for name in installed {
+            assert!(
+                torn_down.contains(&name.as_str()),
+                "login installs {name} but logout never removes it; add it to \
+                 `session_scoped_resources!` or explain in that list why it outlives a session"
+            );
+        }
+    }
+
+    /// The travel half of #1140. Sequence: walk into a portal, let the
+    /// destination fetch start, and log out from the toolbar before it
+    /// lands. `TravelingTo` was removed only inside
+    /// `poll_portal_travel_tasks`, so it survived — and every drive system
+    /// early-returns while it is present, which is a frozen avatar under a
+    /// "Traveling to …" overlay on the next login, followed by an
+    /// unrequested room swap when the old fetch finally resolves.
+    #[test]
+    fn logging_out_mid_travel_leaves_no_travel_state_behind() {
+        let mut world = World::new();
+        world.insert_resource(CurrentRoomDid("did:plc:alice".into()));
+        world.insert_resource(crate::state::TravelingTo {
+            target_did: "did:plc:bob".into(),
+            target_pos: None,
+        });
+        world.insert_resource(crate::player::PortalCooldown { until_secs: 12.0 });
+
+        with_commands(&mut world, remove_session_scoped_resources);
+
+        assert!(!world.contains_resource::<crate::state::TravelingTo>());
+        assert!(!world.contains_resource::<crate::player::PortalCooldown>());
+        assert!(!world.contains_resource::<CurrentRoomDid>());
+    }
+
+    /// The avatar-editor half of #1140. Sequence: select a worn prop so the
+    /// offset gizmo comes up, log out with the Avatar window still open
+    /// (`UiPanels` is deliberately persisted, #820), log back in — as
+    /// anyone. `AvatarEditorState` is an app-lifetime `init_resource` that
+    /// no teardown touched, so `holds_avatar_still()` was already true on
+    /// the new session's first frame and parked the fresh chassis with no
+    /// gizmo on screen to release.
+    #[test]
+    fn a_worn_prop_selection_does_not_survive_logout() {
+        let mut world = World::new();
+        let mut editor = crate::ui::avatar::AvatarEditorState::default();
+        editor.select_attachment_from_scene_pick("3lkabcxyz".into());
+        assert!(
+            editor.holds_avatar_still(),
+            "precondition: the freeze holds"
+        );
+        world.insert_resource(editor);
+        world.insert_resource(crate::ui::room::RoomEditorState::default());
+
+        world
+            .run_system_once(clear_editor_state_on_logout)
+            .expect("teardown system");
+
+        let editor = world.resource::<crate::ui::avatar::AvatarEditorState>();
+        assert!(
+            !editor.holds_avatar_still(),
+            "a selection made in the previous session still freezes the new one's body"
+        );
+        assert_eq!(editor.selected_attachment(), None);
+    }
 }

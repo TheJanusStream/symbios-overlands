@@ -3,9 +3,11 @@
 //! An attachment is an owned copy (epic #1054 decision): picking an
 //! inventory item clones its `Generator` into a fresh attachment record at
 //! a minted TID, so later edits or deletion of the stash item never mutate
-//! an outfit already dressed. Detaching queues the record's rkey for
-//! deletion — executed by the publish bundle *after* the avatar record
-//! stops referencing it, and only cleared once that save lands.
+//! an outfit already dressed. Detaching drops the reference and stops
+//! there; the orphaned record is retired by the next save, whose delete set
+//! is derived from the published record's reference list (#1110). There is
+//! no session-held delete queue — an earlier design had one, and this
+//! paragraph still described it long after it was gone.
 //!
 //! Offsets are edited numerically here as a **full transform** (#1095):
 //! translation in the joint's rest-pose frame, yaw / pitch / roll, and
@@ -62,6 +64,23 @@ pub(super) fn draw_attachments_tab(
 ) -> AttachmentsTabOutcome {
     let mut outcome = AttachmentsTabOutcome::default();
     let mut inventory = inventory;
+
+    // A gizmo aim is only meaningful while some worn record still carries
+    // that rkey (#1140). Every known path that takes a prop off already
+    // calls `forget_attachments`, but a selection that outlives its prop
+    // is the shape that freezes the chassis with nothing on screen to
+    // release — so the tab that owns the selection re-checks it rather
+    // than trusting every producer to have remembered.
+    if let Some(rkey) = selected.clone() {
+        let still_worn = record
+            .body
+            .rigged_ref()
+            .and_then(|rig| rig.resolved.as_ref())
+            .is_some_and(|resolved| resolved.attachments.iter().any(|a| a.rkey == rkey));
+        if !still_worn {
+            *selected = None;
+        }
+    }
 
     let Some(rig) = record.body.rigged_mut() else {
         ui.label("Attachments dress a rigged body — switch on the Body tab first.");

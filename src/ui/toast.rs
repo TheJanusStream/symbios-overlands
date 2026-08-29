@@ -114,6 +114,17 @@ impl Toasts {
         self.queue.clear();
     }
 
+    /// What the user was actually told, oldest first. For tests in other
+    /// modules that assert a code path reached the human — the queue itself
+    /// stays private so nothing outside can reorder or mutate it.
+    #[cfg(test)]
+    pub(crate) fn shown(&self) -> Vec<(ToastKind, &str)> {
+        self.queue
+            .iter()
+            .map(|t| (t.kind, t.text.as_str()))
+            .collect()
+    }
+
     fn prune(&mut self, now: f64) {
         self.queue.retain(|t| t.expires_at > now);
     }

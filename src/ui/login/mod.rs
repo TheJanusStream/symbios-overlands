@@ -29,7 +29,10 @@
 //!   fetched unauthenticated via `app.bsky.feed.getAuthorFeed`.
 
 mod begin;
-mod complete;
+// `pub(crate)`: `install_completed_session` is the login half of the
+// session-scoped resource pair `logout::session_scoped_resources!`
+// declares, and the drift test guarding that pair runs it directly (#1140).
+pub(crate) mod complete;
 mod errors;
 #[cfg(not(target_arch = "wasm32"))]
 mod native_callback;

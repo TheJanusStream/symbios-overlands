@@ -94,9 +94,17 @@ pub fn apply_undo_shortcut(
             };
             step_avatar(kind, &mut avatar_history, &mut record, &mut avatar_editor)
         }
-        // Inventory has no undo stack (decision 2026-07-18) and is
-        // never stamped as a target.
-        Some(EditorKind::Inventory) => return,
+        // Inventory has no undo stack (decision 2026-07-18), but it IS a
+        // Ctrl+Z candidate since #1139 — precisely so the chord stops at
+        // the window the user was looking at instead of falling through
+        // to the editor beneath it. Say so rather than eating the press.
+        Some(EditorKind::Inventory) => {
+            toasts.info(
+                format!("Inventory has no {verb} — use Revert to saved"),
+                now,
+            );
+            return;
+        }
     };
     match (stepped, kind) {
         (Some(label), StepKind::Undo) => toasts.info(format!("Undid: {label}"), now),

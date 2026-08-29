@@ -55,7 +55,7 @@ pub fn poll_complete_auth_task(
 /// `Loading`. Used by both fresh-login (`poll_complete_auth_task`) and
 /// resume (`poll_resume_task`) so the two paths can never drift on the
 /// installation step.
-pub(super) fn install_completed_session(
+pub(crate) fn install_completed_session(
     commands: &mut Commands,
     next_state: &mut NextState<AppState>,
     completed: CompletedSession,

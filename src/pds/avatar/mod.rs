@@ -135,28 +135,6 @@ impl AvatarRecord {
         }
     }
 
-    /// Whether this record would publish differently from `other` (#1059).
-    ///
-    /// [`crate::state::records_differ`] compares serialised forms, which is
-    /// right for every other record — but a rigged body's payload lives on
-    /// `resolved`, which is deliberately `serde(skip)`. Sculpting a body or
-    /// nudging a prop's offset would therefore look *clean* to a plain
-    /// serde compare, and the Save button would sit disabled over unsaved
-    /// work. This asks the wire question about the record and a value
-    /// question about the resolution the bundle publishes alongside it.
-    pub fn publishes_differently_from(&self, other: &Self) -> bool {
-        if crate::state::records_differ(self, other) {
-            return true;
-        }
-        let resolved = |record: &Self| {
-            record
-                .body
-                .rigged_ref()
-                .and_then(|rig| rig.resolved.clone())
-        };
-        resolved(self) != resolved(other)
-    }
-
     /// A record wearing the identity's cross-app default body (#1056): the
     /// fallback for an identity with no overlands avatar record but a
     /// wardrobe published by another symbios application. Locomotion is the
@@ -171,6 +149,38 @@ impl AvatarRecord {
             gait: None,
         }
     }
+}
+
+/// **The** answer to "does this avatar record hold unsaved work?" (#1138).
+///
+/// [`crate::state::records_differ`] compares serialised forms, which is right
+/// for every other record — but a rigged body's payload lives on
+/// `RiggedBody::resolved`, which is deliberately `serde(skip)` (#1059).
+/// Sculpting a body or nudging a worn prop's offset is therefore invisible to
+/// a plain serde compare. So this asks the wire question about the record
+/// *and* a value question about the resolution the publish bundle carries
+/// alongside it.
+///
+/// Every avatar dirty gate routes through here — the editor's Save row, the
+/// Ctrl+S shortcut, and the unsaved-edits guard. It is a free function and
+/// not a method precisely so no site can reach for `records_differ` by
+/// habit: two derivations of "avatar dirty" is what left Ctrl+S a silent
+/// no-op for exactly the edits the rigged-body epic added, while the green
+/// Save button beside it worked.
+///
+/// `stored` is whatever the comparison is against — the last published
+/// record for a dirty check, the seeded default for "is Reset meaningful?".
+pub fn avatar_is_dirty(live: &AvatarRecord, stored: &AvatarRecord) -> bool {
+    if crate::state::records_differ(live, stored) {
+        return true;
+    }
+    let resolved = |record: &AvatarRecord| {
+        record
+            .body
+            .rigged_ref()
+            .and_then(|rig| rig.resolved.clone())
+    };
+    resolved(live) != resolved(stored)
 }
 
 // ---------------------------------------------------------------------------
@@ -339,10 +349,10 @@ mod tests {
             "the wire form is identical — which is exactly why the plain check is not enough"
         );
         assert!(
-            edited.publishes_differently_from(&saved),
+            avatar_is_dirty(&edited, &saved),
             "a sculpted body is unsaved work"
         );
-        assert!(!saved.publishes_differently_from(&saved.clone()));
+        assert!(!avatar_is_dirty(&saved, &saved.clone()));
     }
 
     #[test]

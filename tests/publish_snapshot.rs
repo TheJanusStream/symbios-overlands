@@ -19,7 +19,9 @@
 //! Against the old behaviour every one of them ends with `stored == live`.
 
 use bevy::prelude::*;
+use bevy_symbios_multiuser::prelude::{Broadcast, SendTo};
 use symbios_overlands::pds::{AvatarRecord, InventoryRecord, RoomRecord};
+use symbios_overlands::protocol::OverlandsMessage;
 use symbios_overlands::state::{
     LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord, PublishFeedback, StoredAvatarRecord,
     StoredInventoryRecord, StoredRoomRecord, records_differ,
@@ -28,12 +30,32 @@ use symbios_overlands::state::{
 /// A minimal app with the schedulers, task pools and clock the poll systems
 /// need, and nothing else — these systems are pure state transitions once
 /// their task has resolved.
+///
+/// `UiPanels` + `Toasts` are here for all three since #1137: a failed write
+/// is reported outside its editor window, so every poll system now writes to
+/// the toast stack and the panel set (the Inventory one already did).
 fn harness() -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
     app.init_resource::<symbios_overlands::diagnostics::SessionLog>();
     app.init_resource::<symbios_overlands::diagnostics::MetricsRegistry>();
+    app.init_resource::<symbios_overlands::ui::toolbar::UiPanels>();
+    app.init_resource::<symbios_overlands::ui::toast::Toasts>();
+    // The avatar poll broadcasts `AvatarRecordsPublished` on success (#1122);
+    // registering the message types is what `SymbiosMultiuserPlugin` does in
+    // the real app, and it lets the tests read what went on the wire.
+    app.add_message::<Broadcast<OverlandsMessage>>();
+    app.add_message::<SendTo<OverlandsMessage>>();
     app
+}
+
+/// Every message the app broadcast this run.
+fn broadcasts(app: &mut App) -> Vec<OverlandsMessage> {
+    app.world_mut()
+        .resource_mut::<Messages<Broadcast<OverlandsMessage>>>()
+        .drain()
+        .map(|b| b.payload)
+        .collect()
 }
 
 /// A `Task` that is already finished, standing in for a completed round
@@ -109,8 +131,6 @@ fn an_inventory_edit_made_during_a_save_stays_dirty() {
         symbios_overlands::ui::inventory::poll_publish_inventory_tasks,
     );
     app.init_resource::<PublishFeedback<InventoryRecord>>();
-    app.init_resource::<symbios_overlands::ui::toolbar::UiPanels>();
-    app.init_resource::<symbios_overlands::ui::toast::Toasts>();
 
     // The sequence from the report: accept gift A (published), then accept
     // gift B inside the round trip. B must not be marked saved.
@@ -200,6 +220,58 @@ fn an_avatar_edit_made_during_a_save_stays_dirty() {
     assert!(
         records_differ(&stored.0, &edited),
         "the mid-flight edit must still read dirty"
+    );
+    // A generator body's payload IS the record, so the live preview already
+    // showed peers everything and there is nothing to re-fetch (#1122).
+    assert!(
+        broadcasts(&mut app).is_empty(),
+        "a generator body needs no post-publish nudge"
+    );
+}
+
+/// #1122. Sequence: wear a circlet (a freshly minted TID, not on the PDS),
+/// sculpt the face, press Save to PDS. A rigged body's payload lives in the
+/// wardrobe and attachment records this write just changed, at the SAME
+/// rkeys the live preview already broadcast — so a peer holding a resolution
+/// has nothing in the references to notice. Nothing here marked
+/// `LiveAvatarRecord` changed, so no broadcast fired at all, and peers kept
+/// the pre-save body until their wearer next edited something.
+#[test]
+fn saving_a_rigged_body_tells_the_room_its_records_moved() {
+    let mut app = harness();
+    app.add_systems(
+        Update,
+        symbios_overlands::ui::avatar::poll_publish_avatar_tasks,
+    );
+    app.init_resource::<PublishFeedback<AvatarRecord>>();
+
+    let published = AvatarRecord::wearing("3jzfcijpj2z2a");
+    app.insert_resource(LiveAvatarRecord(published.clone()));
+    app.insert_resource(StoredAvatarRecord(AvatarRecord::default_for_did(
+        "did:plc:stale",
+    )));
+
+    app.world_mut()
+        .spawn(symbios_overlands::ui::avatar::PublishAvatarTask {
+            task: landed_ok(),
+            did: "did:plc:snapshot-rigged".into(),
+            spawned_at: 0.0,
+            record_bytes: Some(1),
+            published: published.clone(),
+        });
+
+    run_until_landed(&mut app, |app| {
+        app.world()
+            .iter_entities()
+            .any(|e| e.contains::<symbios_overlands::ui::avatar::PublishAvatarTask>())
+    });
+
+    let sent = broadcasts(&mut app);
+    assert!(
+        sent.iter()
+            .any(|m| matches!(m, OverlandsMessage::AvatarRecordsPublished)),
+        "peers must be told to re-resolve, or they hold the pre-save body \
+         indefinitely; sent instead: {sent:?}"
     );
 }
 

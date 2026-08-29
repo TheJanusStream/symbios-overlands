@@ -10,6 +10,14 @@
 //! so guests mirror mid-slider tweaks before the author presses "Save to
 //! PDS".
 //!
+//! That preview is whole for a **generator** body, whose payload is the
+//! record, and partial for a **rigged** one, whose payload lives in
+//! separate wardrobe and attachment records that `AvatarStateUpdate` can
+//! only name (#1122). A peer resolves those names against the owner's PDS,
+//! so what it renders is the owner's last SAVED body — and
+//! `AvatarRecordsPublished` is how it learns that the bytes behind those
+//! names have moved.
+//!
 //! Peer-to-peer inventory gifts travel as an [`OverlandsMessage::ItemOffer`]
 //! / [`OverlandsMessage::ItemOfferResponse`] pair: both are broadcast over
 //! the Reliable channel and addressed by the recipient DID inside the
@@ -114,6 +122,26 @@ pub enum OverlandsMessage {
         total: u16,
         data: Vec<u8>,
     },
+    /// The sender just committed their rigged body to their PDS (#1122):
+    /// the records their [`Self::AvatarStateUpdate`] references now hold
+    /// different CONTENT at the same rkeys, so any resolution a peer is
+    /// carrying for them is stale and must be re-fetched.
+    ///
+    /// It carries nothing — the sender is the message's identity, and the
+    /// references are already on the peer's copy of the record. It exists
+    /// because references alone cannot express "same rkey, new bytes": a
+    /// re-broadcast `AvatarStateUpdate` names the same wardrobe and
+    /// attachment rkeys, so `carry_resolution` (#1113, the fix for
+    /// re-resolving on every keystroke) correctly carries the old
+    /// resolution forward and the peer never re-fetches.
+    ///
+    /// **Added last on purpose.** The wire has no protocol version (#1121),
+    /// and bincode encodes a variant by index — so a new arm may only be
+    /// appended, where an older build meets an unknown discriminant and
+    /// drops the message rather than mis-reading an existing one. An older
+    /// peer therefore keeps today's behaviour (it sees the saved body on
+    /// its next resolution) instead of decoding something else.
+    AvatarRecordsPublished,
 }
 
 /// Serialize a record for the wire, or `None` with one log line naming the
@@ -329,5 +357,85 @@ mod item_offer_tests {
             OverlandsMessage::decode_item_offer_wear(b"{\"socket\": 12}"),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every variant, in declaration order — the list the discriminant pin
+    /// below walks. A new arm belongs at the END of both.
+    fn one_of_each() -> Vec<OverlandsMessage> {
+        vec![
+            OverlandsMessage::Transform {
+                position: [0.0; 3],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+            },
+            OverlandsMessage::Identity {
+                did: String::from("did:plc:alice"),
+                handle: String::from("alice.test"),
+            },
+            OverlandsMessage::Chat {
+                text: String::from("hi"),
+            },
+            OverlandsMessage::RoomStateUpdate {
+                record_json: Vec::new(),
+            },
+            OverlandsMessage::AvatarStateUpdate {
+                record_json: Vec::new(),
+            },
+            OverlandsMessage::ItemOffer {
+                offer_id: 1,
+                target_did: String::from("did:plc:bob"),
+                item_name: String::from("hat"),
+                generator_json: Vec::new(),
+                wear_json: Vec::new(),
+            },
+            OverlandsMessage::ItemOfferResponse {
+                offer_id: 1,
+                target_did: String::from("did:plc:alice"),
+                accepted: true,
+            },
+            OverlandsMessage::ChunkedPayload {
+                msg_id: 1,
+                seq: 0,
+                total: 1,
+                data: Vec::new(),
+            },
+            OverlandsMessage::AvatarRecordsPublished,
+        ]
+    }
+
+    /// The wire carries no protocol version (#1121), and bincode identifies
+    /// a variant by its INDEX — so an arm inserted anywhere but the end
+    /// silently re-points every later one, and two builds in the same room
+    /// would read each other's messages as the wrong kind with no error.
+    /// This pins the mapping: #1122's `AvatarRecordsPublished` is last, and
+    /// the eight before it kept the numbers they shipped with.
+    #[test]
+    fn variant_discriminants_are_append_only() {
+        for (index, message) in one_of_each().into_iter().enumerate() {
+            let bytes = message.to_chunk_bytes().expect("serializes");
+            assert_eq!(
+                bytes.first().copied(),
+                Some(index as u8),
+                "variant {index} moved on the wire — a new arm must be appended, never inserted"
+            );
+        }
+    }
+
+    /// And the new notice survives the chunk codec it will actually travel
+    /// through. It has no payload, so this is really a check that a unit
+    /// variant round-trips at all.
+    #[test]
+    fn the_publish_notice_round_trips() {
+        let bytes = OverlandsMessage::AvatarRecordsPublished
+            .to_chunk_bytes()
+            .expect("serializes");
+        assert!(matches!(
+            OverlandsMessage::from_chunk_bytes(&bytes),
+            Some(OverlandsMessage::AvatarRecordsPublished)
+        ));
     }
 }

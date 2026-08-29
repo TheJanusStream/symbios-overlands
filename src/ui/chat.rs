@@ -37,7 +37,6 @@ pub fn chat_ui(
     mut chat: ResMut<ChatHistory>,
     profile_cache: Res<BskyProfileCache>,
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
-    mut input: Local<String>,
     peers: Query<(&RemotePeer, Option<&SocialResonance>)>,
     local: Query<Entity, With<crate::state::LocalPlayer>>,
     mut emotes: MessageWriter<crate::player::emote::EmoteRequest>,
@@ -66,6 +65,14 @@ pub fn chat_ui(
         .filter(|(_, r)| matches!(r, Some(SocialResonance::Mutual)))
         .filter_map(|(p, _)| p.did.as_deref())
         .collect();
+
+    // The half-typed line lives on `ChatHistory` (#1140), not in a
+    // `Local<String>`: a Local is unreachable from every teardown path, so
+    // a draft typed before logout was still sitting in the box for whoever
+    // logged in next. Worked on a frame-local copy and written back only
+    // when it actually changed — the guarded-dirty rule (#879), so an open
+    // Chat window does not flag the resource every frame.
+    let mut input = chat.draft.clone();
 
     let ctx = contexts.ctx_mut().unwrap();
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Chat, ctx);
@@ -151,7 +158,7 @@ pub fn chat_ui(
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let send = ui.button("Send");
                     let response = ui.add(
-                        egui::TextEdit::singleline(&mut *input).desired_width(ui.available_width()),
+                        egui::TextEdit::singleline(&mut input).desired_width(ui.available_width()),
                     );
                     // Global Enter shortcut (#836): consume the one-shot
                     // focus request so typing starts immediately.
@@ -225,6 +232,9 @@ pub fn chat_ui(
                 });
             });
         });
+    if chat.draft != input {
+        chat.draft = input;
+    }
     if let Some(response) = response {
         chrome.remember(crate::ui::layout::UiWindow::Chat, response.response.rect);
     }
