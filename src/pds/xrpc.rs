@@ -388,6 +388,95 @@ impl RepoWrite {
     pub(crate) fn wire_bytes(&self) -> usize {
         serde_json::to_vec(self).map_or(0, |v| v.len()) + 1
     }
+
+    /// The record this write addresses. Two writes with the same key in one
+    /// batch are a contradiction whatever their verbs.
+    pub(crate) fn key(&self) -> (&str, &str) {
+        match self {
+            Self::Create {
+                collection, rkey, ..
+            }
+            | Self::Update {
+                collection, rkey, ..
+            }
+            | Self::Delete { collection, rkey } => (collection.as_str(), rkey.as_str()),
+        }
+    }
+
+    /// The lexicon verb, for error messages and the batch summary.
+    pub(crate) fn verb(&self) -> &'static str {
+        match self {
+            Self::Create { .. } => "create",
+            Self::Update { .. } => "update",
+            Self::Delete { .. } => "delete",
+        }
+    }
+}
+
+/// A one-line description of a batch: how many of each verb, and the keys.
+///
+/// Attached to an `applyWrites` failure (#1185) because the PDS's answer to a
+/// malformed batch is a bare `500 Internal Server Error` with no indication of
+/// WHICH write it choked on — and until this existed, neither did ours. A
+/// report of "save failed on one target and not the other" was unactionable:
+/// the request that failed left no trace of its own shape.
+///
+/// Keys only, never values: a record body can be ~90 KiB and carries the
+/// owner's content, neither of which belongs in a log line.
+pub(crate) fn describe_batch(writes: &[RepoWrite]) -> String {
+    let (mut creates, mut updates, mut deletes) = (0usize, 0usize, 0usize);
+    for write in writes {
+        match write {
+            RepoWrite::Create { .. } => creates += 1,
+            RepoWrite::Update { .. } => updates += 1,
+            RepoWrite::Delete { .. } => deletes += 1,
+        }
+    }
+    let keys: Vec<String> = writes
+        .iter()
+        .map(|w| {
+            let (collection, rkey) = w.key();
+            // The collection NSID's last segment is enough to tell the
+            // wardrobe from an attachment from the avatar record.
+            let short = collection.rsplit('.').next().unwrap_or(collection);
+            format!("{} {short}/{rkey}", w.verb())
+        })
+        .collect();
+    format!(
+        "{} write(s) [{creates} create, {updates} update, {deletes} delete]: {}",
+        writes.len(),
+        keys.join(", ")
+    )
+}
+
+/// Refuse a batch that addresses the same record twice (#1185).
+///
+/// **The PDS answers a malformed batch with a 500, not a 400.** The reference
+/// implementation validates each write against its lexicon and then hands the
+/// batch to the repo layer, where a second operation on a key already touched
+/// in the same commit throws out of the MST — an exception, not an XRPC error,
+/// so it surfaces as a bare `InternalServerError`. That is indistinguishable
+/// from the PDS having a bad day, and it is what a user sees: "Save failed:
+/// 500", with no way to tell that their own client sent a contradiction.
+///
+/// Keyed on `(collection, rkey)` regardless of verb, because every pairing is
+/// wrong: two creates race, a create beside a delete cannot both be intended,
+/// and an update beside a delete is a plan that has not decided.
+pub(crate) fn validate_batch(writes: &[RepoWrite]) -> Result<(), String> {
+    let mut seen: std::collections::HashMap<(&str, &str), &'static str> =
+        std::collections::HashMap::new();
+    for write in writes {
+        if let Some(first) = seen.insert(write.key(), write.verb()) {
+            let (collection, rkey) = write.key();
+            return Err(format!(
+                "applyWrites batch addresses {collection}/{rkey} twice ({first} then {}) — \
+                 the PDS commits a batch as one MST transaction and answers a repeated key \
+                 with an opaque 500, so it is refused here instead",
+                write.verb()
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// One write of a `com.atproto.repo.applyWrites` batch. The `$type` tags
@@ -526,20 +615,104 @@ pub(crate) async fn apply_writes(
             crate::pds::record_size::human_bytes(MAX_APPLY_WRITES_BYTES),
         ));
     }
+    // Every publish path in the app funnels through here, so this is the one
+    // place a contradictory batch can be caught before it becomes a 500 the
+    // user cannot act on (#1185).
+    validate_batch(&writes)?;
     let url = format!("{}/xrpc/com.atproto.repo.applyWrites", pds);
+    let shape = describe_batch(&writes);
     let body = serde_json::json!({ "repo": session.did, "writes": writes });
     let (status, body) =
         crate::oauth::oauth_post_with_refresh(&session.session, refresh, &url, &body).await?;
     if status.is_success() {
         Ok(())
     } else {
-        Err(format!("applyWrites failed: {} — {}", status, body))
+        // The batch's shape rides the error. A 500 from the reference PDS
+        // carries no indication of which write it choked on, so without this
+        // the only evidence a bug report can offer is that a save failed.
+        Err(format!(
+            "applyWrites failed: {status} — {body} (batch: {shape})"
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A contradictory batch is refused here, not by the PDS** (#1185).
+    ///
+    /// The reference implementation validates each write against its lexicon
+    /// and then hands the batch to the repo layer, where a second operation on
+    /// a key already touched in the same commit throws out of the MST. That is
+    /// an exception rather than an XRPC error, so it comes back as a bare
+    /// `500 Internal Server Error` with an empty message — indistinguishable
+    /// from the PDS being down, and impossible for a user to act on. Every
+    /// pairing is wrong, so the check is keyed on the record and ignores the
+    /// verbs: two creates race, a write beside a delete cannot both be meant.
+    #[test]
+    fn a_batch_that_addresses_one_record_twice_is_refused_locally() {
+        let value = serde_json::json!({});
+        let create = |rkey: &str| RepoWrite::Create {
+            collection: String::from("network.symbios.test"),
+            rkey: rkey.into(),
+            value: value.clone(),
+        };
+        let delete = |rkey: &str| RepoWrite::Delete {
+            collection: String::from("network.symbios.test"),
+            rkey: rkey.into(),
+        };
+
+        validate_batch(&[create("a"), create("b"), delete("c")]).expect("distinct keys are fine");
+
+        let err = validate_batch(&[create("a"), create("a")])
+            .expect_err("the same key created twice is a contradiction");
+        assert!(err.contains("twice"), "{err}");
+        assert!(err.contains("network.symbios.test/a"), "{err}");
+
+        let err = validate_batch(&[create("a"), delete("a")])
+            .expect_err("written and deleted in one commit is a plan that has not decided");
+        assert!(err.contains("create then delete"), "{err}");
+
+        // Same rkey in a DIFFERENT collection is a different record and must
+        // stay legal — the avatar bundle writes `self` in three of them.
+        validate_batch(&[
+            create("self"),
+            RepoWrite::Delete {
+                collection: String::from("network.symbios.other"),
+                rkey: String::from("self"),
+            },
+        ])
+        .expect("one rkey in two collections is two records");
+    }
+
+    /// The failure message has to identify the request (#1185). A 500 from the
+    /// PDS names nothing, so without this a report of "save failed" carries no
+    /// evidence of what was sent — which is exactly why the wasm-only failure
+    /// this issue came from could not be reproduced from the report alone.
+    /// Keys only: a record body is up to ~90 KiB of the owner's content.
+    #[test]
+    fn a_batch_description_names_the_verbs_and_keys_but_not_the_values() {
+        let shape = describe_batch(&[
+            RepoWrite::Create {
+                collection: String::from("network.symbios.avatar.avatar"),
+                rkey: String::from("3labc"),
+                value: serde_json::json!({ "secret": "do not log me" }),
+            },
+            RepoWrite::Delete {
+                collection: String::from("network.symbios.overlands.avatar.attachment"),
+                rkey: String::from("3lxyz"),
+            },
+        ]);
+        assert!(shape.contains("2 write(s)"), "{shape}");
+        assert!(shape.contains("1 create, 0 update, 1 delete"), "{shape}");
+        assert!(shape.contains("create avatar/3labc"), "{shape}");
+        assert!(shape.contains("delete attachment/3lxyz"), "{shape}");
+        assert!(
+            !shape.contains("do not log me"),
+            "a record value must never reach a log line: {shape}"
+        );
+    }
 
     /// A create carrying `bytes` of payload, near enough for packing tests.
     fn sized_write(rkey: &str, bytes: usize) -> RepoWrite {

@@ -661,6 +661,16 @@ pub struct AvatarRepoState {
     pub worn_body: bool,
     /// Every attachment rkey the owner's attachment collection holds.
     pub attachments: std::collections::HashSet<String>,
+    /// Whether [`Self::attachments`] is the WHOLE collection — the listing
+    /// walk finished rather than stopping at its page cap (#1185).
+    ///
+    /// It decides whether the listing may be used as evidence of ABSENCE. A
+    /// complete listing says a derived delete for an rkey it does not contain
+    /// would be a delete of a record that is not there, which fails the whole
+    /// atomic batch with an opaque 500; a truncated one says nothing of the
+    /// sort. Defaults to `false` so anything that builds this state without
+    /// walking the collection is treated as "unknown", never as "empty".
+    pub attachments_complete: bool,
 }
 
 /// Read [`AvatarRepoState`] — three existence probes and one `listRecords`
@@ -675,29 +685,38 @@ async fn read_avatar_repo_state(
         Some((rkey, _)) => record_exists(client, pds, did, WARDROBE_COLLECTION, rkey).await?,
         None => false,
     };
+    let (attachments, attachments_complete) = list_attachment_rkeys(client, pds, did)
+        .await
+        .map_err(|e| format!("attachment listing failed: {e:?}"))?;
     Ok(AvatarRepoState {
         avatar_record: record_exists(client, pds, did, super::super::AVATAR_COLLECTION, "self")
             .await?,
         profile: record_exists(client, pds, did, AVATAR_PROFILE_COLLECTION, "self").await?,
         worn_body,
-        attachments: list_attachment_rkeys(client, pds, did)
-            .await
-            .map_err(|e| format!("attachment listing failed: {e:?}"))?,
+        attachments,
+        attachments_complete,
     })
 }
 
-/// Every attachment rkey in the owner's attachment collection.
+/// Every attachment rkey in the owner's attachment collection, and whether
+/// that is the WHOLE collection.
 ///
 /// Bounded by [`MAX_WARDROBE_LIST_PAGES`] pages of 100 for the same reason
 /// the wardrobe and room-child walks are: a hostile PDS handing out endless
 /// cursors must not be able to keep the client paging. A truncated listing
 /// under-reports, which can only make the orphan sweep miss a record — never
 /// delete one it should not.
+///
+/// The completeness flag is what makes the listing usable as evidence of
+/// ABSENCE (#1185): only a walk that ran out of records, rather than out of
+/// pages, can say an rkey is not in the repo. Returned rather than inferred
+/// from the set's size, because "fewer than the cap" and "the walk finished"
+/// are different facts — a final page can be full.
 async fn list_attachment_rkeys(
     client: &reqwest::Client,
     pds: &str,
     did: &str,
-) -> Result<std::collections::HashSet<String>, FetchError> {
+) -> Result<(std::collections::HashSet<String>, bool), FetchError> {
     #[derive(Deserialize)]
     struct Page {
         #[serde(default)]
@@ -711,6 +730,7 @@ async fn list_attachment_rkeys(
 
     let mut out = std::collections::HashSet::new();
     let mut cursor: Option<String> = None;
+    let mut complete = false;
     for _ in 0..MAX_WARDROBE_LIST_PAGES {
         let url = format!("{pds}/xrpc/com.atproto.repo.listRecords");
         let mut query: Vec<(&str, String)> = vec![
@@ -741,10 +761,13 @@ async fn list_attachment_rkeys(
         }
         cursor = page.cursor;
         if cursor.is_none() || empty_page {
+            // Ran out of records rather than out of pages: the set is the
+            // whole collection.
+            complete = true;
             break;
         }
     }
-    Ok(out)
+    Ok((out, complete))
 }
 
 /// Turn a plan plus what the repo holds into `applyWrites` batches (#1117).
@@ -884,6 +907,31 @@ fn attachment_retirements(plan: &AvatarPublishPlan, repo: &AvatarRepoState) -> V
         .iter()
         .chain(repo.attachments.iter())
         .filter(|rkey| !referenced.contains(rkey.as_str()))
+        // **Only what the repo actually holds — when we know what it holds**
+        // (#1185). An `applyWrites#delete` on a record that is not there throws
+        // out of the PDS's MST and comes back as a bare 500 that fails the
+        // WHOLE atomic batch: one stale rkey in the derived set loses the
+        // entire save, body and props alike, with an error naming none of it.
+        // The room path has always guarded this (`delete_room_record` deletes
+        // "only what a listRecords walk + existence check say is actually
+        // there"); the avatar path inherited the hazard without the guard.
+        //
+        // The risk lives in the DERIVED half, which comes from the local mirror
+        // of the last-published record and can name an rkey the repo no longer
+        // has — another device retired it, an earlier bundle landed the record
+        // but not the attachment, or a partial publish left the two
+        // disagreeing. The orphan half is read straight off the listing and was
+        // never in doubt.
+        //
+        // Gated on `attachments_complete` rather than applied unconditionally,
+        // because a truncated listing genuinely cannot see records the derived
+        // set can — that is the whole point of keeping both halves in the union
+        // (see `a_derived_delete_survives_a_listing_that_did_not_see_it`).
+        // Where the listing is authoritative, trust it and drop the delete;
+        // where it is not, keep the union and accept the older risk. Dropping a
+        // delete only ever leaves an orphan for a later sweep; sending one the
+        // repo cannot satisfy loses the save.
+        .filter(|rkey| !repo.attachments_complete || repo.attachments.contains(rkey.as_str()))
         .cloned()
         .collect();
     // Sorted and deduped: a repeated rkey would be deleted twice and the
@@ -1447,12 +1495,25 @@ mod tests {
     // -----------------------------------------------------------------
 
     /// A repo holding exactly `attachments` and nothing else.
+    /// A repo holding `attachments`, from a listing that did NOT finish —
+    /// so the set is not evidence of absence. The conservative default, and
+    /// the one the pre-#1185 tests were written against.
     fn empty_repo_with(attachments: &[&str]) -> AvatarRepoState {
         AvatarRepoState {
             avatar_record: false,
             profile: false,
             worn_body: false,
             attachments: attachments.iter().map(|k| (*k).to_string()).collect(),
+            attachments_complete: false,
+        }
+    }
+
+    /// The same, from a listing that ran to the end: the set now says what the
+    /// repo does NOT have, as well as what it does.
+    fn fully_listed_repo_with(attachments: &[&str]) -> AvatarRepoState {
+        AvatarRepoState {
+            attachments_complete: true,
+            ..empty_repo_with(attachments)
         }
     }
 
@@ -1521,6 +1582,7 @@ mod tests {
             profile: true,
             worn_body: true,
             attachments: [String::from("rkey-worn")].into_iter().collect(),
+            attachments_complete: true,
         };
         let again = plan_avatar_writes(&plan, &established).expect("plans");
         assert!(
@@ -1557,6 +1619,70 @@ mod tests {
             .map(|(_, _, rkey)| rkey)
             .collect();
         assert_eq!(deletes, vec!["rkey-stray"]);
+    }
+
+    /// **A save must not ask the PDS to delete a record it does not have**
+    /// (#1185).
+    ///
+    /// The sequence, and it is an ordinary one: a prop is worn and published,
+    /// so the local mirror of the stored record names `rkey-gone`. The record
+    /// is then retired somewhere this client cannot see — another device, or
+    /// an earlier bundle that landed the avatar record and lost the
+    /// attachment. The owner takes the prop off here and saves.
+    ///
+    /// The derived delete set names `rkey-gone` because the stored record did.
+    /// Before this, the batch carried `applyWrites#delete` for it, the PDS's
+    /// MST threw on a key that is not there, and the whole ATOMIC batch came
+    /// back as a bare `500 Internal Server Error` — so the body, every worn
+    /// prop and the avatar record were all lost with it, behind an error that
+    /// named none of them. Losing an entire save to a record that is already
+    /// gone is the worst possible trade.
+    ///
+    /// A complete listing is the evidence that lets us drop it.
+    #[test]
+    fn a_delete_is_dropped_when_a_complete_listing_says_the_record_is_not_there() {
+        let plan = plan_avatar_publish(
+            &wearing(&[]),
+            &[String::from("rkey-gone")],
+            "2026-08-28T00:00:00Z",
+        );
+        assert_eq!(
+            plan.attachment_deletes,
+            vec![String::from("rkey-gone")],
+            "the stored record named it, so the derived set does too"
+        );
+
+        let writes = plan_avatar_writes(&plan, &fully_listed_repo_with(&[])).expect("plans");
+        let deletes: Vec<&str> = writes
+            .iter()
+            .flat_map(|batch| collections(batch))
+            .filter(|(verb, ..)| *verb == "delete")
+            .map(|(_, _, rkey)| rkey)
+            .collect();
+        assert!(
+            deletes.is_empty(),
+            "a delete the repo cannot satisfy would fail the whole batch: {deletes:?}"
+        );
+    }
+
+    /// And the guard is evidence-based, not blanket: a record the complete
+    /// listing DOES hold is still retired. Dropping every derived delete would
+    /// trade one bug for the orphan leak #1110 exists to prevent.
+    #[test]
+    fn a_delete_the_complete_listing_confirms_still_goes_out() {
+        let plan = plan_avatar_publish(
+            &wearing(&[]),
+            &[String::from("rkey-detached")],
+            "2026-08-28T00:00:00Z",
+        );
+        let writes =
+            plan_avatar_writes(&plan, &fully_listed_repo_with(&["rkey-detached"])).expect("plans");
+        let deletes: Vec<&str> = collections(&writes[0])
+            .into_iter()
+            .filter(|(verb, ..)| *verb == "delete")
+            .map(|(_, _, rkey)| rkey)
+            .collect();
+        assert_eq!(deletes, vec!["rkey-detached"]);
     }
 
     /// The other half: a listing that truncated at its page cap cannot see
