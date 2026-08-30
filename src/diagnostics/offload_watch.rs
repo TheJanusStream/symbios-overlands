@@ -128,10 +128,40 @@ mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
 
-    /// The census is process-global (it has to be — `offload` has no `World`),
-    /// so a test starts by taking whatever an earlier test left behind.
-    fn drained_census() {
+    /// Serializes the tests that drive the census, which is one
+    /// process-global ledger — `offload` has no `World` to hang it on.
+    ///
+    /// Under nextest, process-per-test makes this free and the omission
+    /// invisible. `cargo test` — which CI runs — threads every test of the
+    /// lib into ONE process, and there the two census tests interleave:
+    /// `pending_snapshot` counts the other test's job, and the watchdog picks
+    /// the other test's job as the oldest in flight. Both then fail on
+    /// numbers neither of them created, which reads as a bug in the watchdog
+    /// rather than in the harness.
+    ///
+    /// This is not a workaround for a flaky test. The thing under test really
+    /// is a single shared ledger, so exclusivity is part of the fixture; the
+    /// lock states that rather than leaving it to the scheduler.
+    static CENSUS_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Take the census for one test: exclusive access, and an empty
+    /// transition log to start from.
+    ///
+    /// Poison is deliberately taken rather than propagated. A panicking test
+    /// has already reported its own failure; poisoning the lock would fail
+    /// every later census test too and bury which one actually broke. The
+    /// pending list needs no reset — a `Ticket` retires its entry on drop,
+    /// and drop runs during unwinding.
+    ///
+    /// The returned guard must be BOUND, not dropped at the end of the
+    /// statement: `let _census = census_guard();` holds the lock for the
+    /// test, `let _ = census_guard();` releases it immediately and restores
+    /// the race. `MutexGuard` is `#[must_use]`, so the latter is the only
+    /// spelling that compiles silently — hence the note.
+    fn census_guard() -> std::sync::MutexGuard<'static, ()> {
+        let guard = CENSUS_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let _ = census::drain_transitions();
+        guard
     }
 
     /// #1143. Sequence: a wasm deploy ships the app bundle beside a stale
@@ -141,7 +171,7 @@ mod tests {
     /// rule written for it could not fire live OR in replay.
     #[test]
     fn a_dispatched_job_is_announced_and_a_finished_one_is_closed_out() {
-        drained_census();
+        let _census = census_guard();
         let ticket = census::start("avatar_build");
 
         let mut app = App::new();
@@ -190,7 +220,7 @@ mod tests {
     /// the census, or the watchdog would report a stall nobody is waiting on.
     #[test]
     fn a_cancelled_job_does_not_look_stuck() {
-        drained_census();
+        let _census = census_guard();
         let ticket = census::start("texture_bake");
         assert_eq!(census::pending_snapshot().len(), 1);
         drop(ticket);
