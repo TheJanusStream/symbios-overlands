@@ -1,18 +1,22 @@
 //! #740 regression coverage for the avatar visuals-edit chassis freeze.
 //!
-//! Root cause of the original crash: in avian 0.6, inserting and later
-//! removing `RigidBodyDisabled` on a body with touching contacts corrupts
-//! the physics-island bookkeeping — the contact edge keeps its island
-//! link across the disable, the re-enable island-links it a second time
-//! (`debug_assert!(contact.island.is_none())` in `Islands::add_contact`
-//! catches it in debug builds), and the constraint graph ends up holding
-//! manifold handles that outrange their pair's manifold list. In release
-//! builds that surfaces later as the solver's
-//! `pair.manifolds[manifold_index]` index-out-of-bounds panic
-//! (`dynamics/solver/plugin.rs:398`) — the crash the #739 UV-mapping
-//! dropdown edit exposed. `plain_rigid_body_disabled_cycle` reproduces
-//! the upstream bug and stays `#[ignore]`d as a canary for future avian
-//! upgrades.
+//! Root cause of the original crash: inserting and later removing
+//! `RigidBodyDisabled` on a body with touching contacts corrupts the
+//! physics-island bookkeeping — the contact edge keeps its island link
+//! across the disable, the re-enable island-links it a second time
+//! (`debug_assert!(contact.island.is_none())` catches it in debug builds),
+//! and the constraint graph ends up holding manifold handles that outrange
+//! their pair's manifold list. In release builds that surfaces later as the
+//! solver's `pair.manifolds[manifold_index]` index-out-of-bounds panic — the
+//! crash the #739 UV-mapping dropdown edit exposed.
+//!
+//! **Still unfixed upstream as of avian 0.7.0** (re-run 2026-08-30, #1150).
+//! It was first diagnosed on 0.6.1, where the assert fired inside
+//! `Islands::add_contact`; on 0.7.0 the same assertion lives at
+//! `dynamics/solver/islands/mod.rs:518` and is reached through
+//! `update_narrow_phase`. Same defect, two majors and a Bevy train later, so
+//! `plain_rigid_body_disabled_cycle` stays `#[ignore]`d as a canary rather
+//! than becoming a deletion notice for the workaround.
 //!
 //! The fix (`player::freeze_local_avatar_on_visuals_select`) freezes via
 //! `LockedAxes::ALL_LOCKED` + `GravityScale(0)` + per-frame velocity
@@ -307,9 +311,10 @@ fn axis_lock_freeze_toggles_during_motion_keep_constraint_graph_in_sync() {
 ///
 /// Since #867 the app DEFERS the swap until the freeze releases (the
 /// rebuild system's `Without<VisualsEditFreeze>` gate), so this exact
-/// sequence no longer occurs in-game. The test pins down how avian 0.6
-/// behaves if it ever regresses: the body must stay finite, stay on the
-/// ground, and keep the constraint graph in sync through release.
+/// sequence no longer occurs in-game. The test pins down how avian behaves
+/// if it ever regresses — green on 0.7.0 as of 2026-08-30 (#1150): the body
+/// must stay finite, stay on the ground, and keep the constraint graph in
+/// sync through release.
 /// If this fails after an avian upgrade the deferral must stay; if the
 /// upgrade also fixes #740, both workarounds can be revisited together.
 #[test]
@@ -377,15 +382,32 @@ fn collider_replace_while_parked_and_touching_survives_release() {
 }
 
 /// Upstream canary, kept `#[ignore]`d: the raw `RigidBodyDisabled`
-/// insert→remove cycle this file's freeze recipe exists to avoid. On
-/// avian 0.6.1 it dies in `Islands::add_contact`
-/// (`debug_assert!(contact.island.is_none())`) when the re-enabled
-/// body's contacts are island-linked a second time — the debug-build
-/// tripwire of the release-mode solver OOB panic from #740. Un-ignore
-/// after an avian upgrade (0.7+/Bevy 0.19): if it passes, the visuals
-/// freeze can go back to `RigidBodyDisabled`.
+/// insert→remove cycle this file's freeze recipe exists to avoid. It dies on
+/// `debug_assert!(contact.island.is_none())` when the re-enabled body's
+/// contacts are island-linked a second time — the debug-build tripwire of the
+/// release-mode solver OOB panic from #740.
+///
+/// Last run against **avian 0.7.0** (2026-08-30, #1150) — the upgrade this
+/// canary was armed for — and it still fails, at
+/// `dynamics/solver/islands/mod.rs:518` via `update_narrow_phase`. So the
+/// `LockedAxes::ALL_LOCKED` + `GravityScale(0)` + velocity-zeroing park in
+/// `player::freeze_local_avatar_on_visuals_select`, and the #867-869
+/// deferred-collider-rebuild machinery layered on it, both stay.
+///
+/// Run it after the next avian or Bevy bump — nothing in the gate does:
+///
+/// ```text
+/// cargo nextest run --cargo-profile test-release \
+///     --run-ignored ignored-only -E 'test(plain_rigid_body_disabled_cycle)'
+/// ```
+///
+/// If it PASSES, upstream has fixed it and the freeze can go back to
+/// `RigidBodyDisabled`. Either way, re-date this block and
+/// [`CANARY_VERIFIED_AGAINST`], which is what makes the bump trip a gate at
+/// all.
 #[test]
-#[ignore = "reproduces the upstream avian 0.6 island-corruption bug (#740)"]
+#[ignore = "canary: reproduces the upstream avian island-corruption bug (#740); \
+            still failing on 0.7.0 — see the doc block above"]
 fn plain_rigid_body_disabled_cycle() {
     let mut app = app_with_physics();
     app.world_mut()
@@ -403,4 +425,46 @@ fn plain_rigid_body_disabled_cycle() {
         .entity_mut(chassis)
         .remove::<RigidBodyDisabled>();
     step_checked(&mut app, 60, "re-enabled");
+}
+
+/// The avian version [`plain_rigid_body_disabled_cycle`] was last actually
+/// run against. Bump it only after running it — see its doc block for the
+/// command and for what each outcome means.
+const CANARY_VERIFIED_AGAINST: &str = "0.7.0";
+
+/// #1150. Makes an avian bump trip a gate, which is the whole problem this
+/// canary had.
+///
+/// The canary is `#[ignore]`d because it reproduces a live upstream panic, and
+/// nothing in the documented gate or in ci.yml runs ignored tests. So #1085
+/// took avian from 0.6 to 0.7 — the exact upgrade the canary was armed for —
+/// and the canary was not consulted for six days, while the test's ignore
+/// string, its doc block and building.md all went on describing 0.6. An
+/// ignored test nothing ever runs is a comment, and a comment about a version
+/// two majors back is a wrong one.
+///
+/// This test runs in every gate and costs nothing. It cannot run the canary
+/// for you; what it can do is refuse to let the dependency move without
+/// somebody noticing, by comparing the version the canary claims against the
+/// one the build actually resolved. `Cargo.lock` is the only place a
+/// dependent can read that (see `build.rs`), which is why it is read there.
+#[test]
+fn the_canary_names_the_avian_version_the_build_actually_resolved() {
+    // `option_env!` rather than `env!` because `build.rs` is written to be
+    // removable (see its header) — but a guard that quietly passes when its
+    // input is gone is worse than no guard, so absence fails here too.
+    let Some(resolved) = option_env!("SYMBIOS_AVIAN_VERSION") else {
+        panic!(
+            "build.rs no longer publishes SYMBIOS_AVIAN_VERSION, so nothing is watching the avian version any more"
+        );
+    };
+    assert_eq!(
+        resolved, CANARY_VERIFIED_AGAINST,
+        "avian moved to {resolved} but the island-corruption canary was last \
+         run against {CANARY_VERIFIED_AGAINST}. Run it — `cargo nextest run \
+         --cargo-profile test-release --run-ignored ignored-only -E \
+         'test(plain_rigid_body_disabled_cycle)'` — then re-date its doc block \
+         and CANARY_VERIFIED_AGAINST with the result. If it now PASSES, the \
+         #740 freeze workaround and the #867-869 deferral can be revisited."
+    );
 }

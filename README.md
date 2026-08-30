@@ -94,8 +94,13 @@ The quickest way is the **[browser demo](https://thejanusstream.github.io/symbio
 Natively:
 
 ```bash
-cargo run --release --bin symbios-overlands
+cargo run --profile test-release
 ```
+
+That is the dev loop, and `--release` is deliberately not: this crate's release
+profile is tuned for the wasm bundle and carries fat LTO, which costs ~644 s
+and ~8 GB of RAM per link against ~5 s and ~1.7 GB for `test-release`. Use
+`cargo run --release` when you want the shipping binary.
 
 See [docs/building.md](docs/building.md) for the WebAssembly build, the
 landmark-link CLI flags, and the developer tooling.

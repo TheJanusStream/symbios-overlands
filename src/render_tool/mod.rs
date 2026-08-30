@@ -1,5 +1,5 @@
 //! Headless render tool — renders any subject (avatar / catalogue item /
-//! primitive / whole seeded room) through the **real** spawn path
+//! worn attachment / primitive / whole seeded room) through the **real** spawn path
 //! ([`crate::player::visuals::spawn_avatar_visuals`], which routes every node
 //! kind — primitives, Shape grammar, L-system — through the same machinery the
 //! game uses) into a multi-angle **contact-sheet** PNG. Lets the agent
@@ -16,9 +16,22 @@
 //! cargo run --bin render -- --generator g.json  # a dumped/edited Generator
 //! cargo run --bin render -- --catalogue lsys_palm --ages 2,3,4,5
 //! #                                             # age-progression grid (#908)
+//! cargo run --bin render -- --wear satchel      # a wearable, worn (#1088)
 //! # → /tmp/avatar-render/<label>.png  (front / ¾ / side / back tiles;
 //! #   with --ages one such row per iteration count)
 //! ```
+//!
+//! `--wear <slug>` is the attachments instrument (#1088): it dresses seeded
+//! rigged bodies in a catalogue wearable and sheets one body per row, so a
+//! garment is judged on the anatomy it has to fit rather than in isolation.
+//! `--wear-bodies N` sets how many bodies (default 4) and `--wear-socket
+//! <engine socket>` overrides where it is seated — the tool for "what would
+//! this look like on the other hip". Output is labelled
+//! `wear-<slug>-<socket>`.
+//!
+//! Subject precedence, when more than one is given: `--generator` >
+//! `--room` > `--prim` > `--wear` > `--catalogue` > `--avatar`, with the
+//! no-render modes ahead of all of them.
 //!
 //! The same binary also hosts thirteen no-render modes that short-circuit
 //! before any render app stands up: the avatar surveys (`--family-seeds`,
@@ -146,8 +159,8 @@ struct Args {
     /// iterate on an L-system grammar (or any generator) without recompiling
     /// the crate: `--dump` a catalogue entry to seed the JSON, edit the
     /// grammar / scalars, re-render. Highest precedence among the render
-    /// subjects (`--generator` > `--room` > `--prim` > `--catalogue` >
-    /// `--avatar`); the no-render modes still run first.
+    /// subjects (`--generator` > `--room` > `--prim` > `--wear` >
+    /// `--catalogue` > `--avatar`); the no-render modes still run first.
     #[arg(long)]
     generator: Option<String>,
     /// With `--catalogue <slug>`, `--prim <tag>` (overrides applied), or
@@ -163,8 +176,9 @@ struct Args {
     /// distance so relative plant size across ages stays honest. Each count
     /// overrides `iterations` on every L-system node in the subject's
     /// generator tree; combines with any single-generator subject
-    /// (`--generator` > `--prim` > `--catalogue` > `--avatar`), panics on
-    /// `--room` or a subject without an L-system node. Values above the
+    /// (`--generator` > `--prim` > `--catalogue` > `--avatar` — the four that
+    /// resolve to a `Subject::Single`), panics on `--room` and `--wear`,
+    /// which do not, or on a subject without an L-system node. Values above the
     /// record sanitiser cap (12) are accepted here but blow up derivation
     /// size fast — the `MAX_LSYSTEM_STATE_LEN` guard still applies.
     #[arg(long)]
@@ -476,7 +490,11 @@ fn fixed_step(mut time: ResMut<Time>) {
 }
 
 /// Build the subject + a filename label from the CLI args.
-/// Precedence: `--generator` → `--room` → `--prim` → `--catalogue` → `--avatar` → seed 7.
+///
+/// Precedence: `--generator` → `--room` → `--prim` → `--wear` → `--catalogue`
+/// → `--avatar` → seed 7. Pinned by
+/// `tests::the_subject_precedence_is_the_one_the_docs_claim`, because this
+/// order is stated in four places and three of them had drifted (#1162).
 fn resolve_subject(args: &Args) -> (Subject, String) {
     if let Some(path) = &args.generator {
         let json = std::fs::read_to_string(path)
@@ -595,7 +613,11 @@ fn generator_body(body: AvatarBody, subject: &str) -> Generator {
 /// without an L-system node — an age sweep of those is meaningless.
 fn age_sweep(subject: Subject, label: &str, ages: &str) -> (Subject, String) {
     let Subject::Single(base) = subject else {
-        panic!("--ages needs a single-generator subject (--generator/--prim/--catalogue/--avatar)");
+        panic!(
+            "--ages needs a single-generator subject \
+             (--generator/--prim/--catalogue/--avatar); --room and --wear \
+             resolve to multi-subject sheets and have no single tree to age"
+        );
     };
     let ages: Vec<u32> = ages
         .split(',')
@@ -684,4 +706,61 @@ fn primitive_for_tag(tag: &str) -> Option<GeneratorKind> {
         first.to_uppercase().collect::<String>() + chars.as_str()
     };
     GeneratorKind::default_primitive_for_tag(&titled)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #1162. The subject precedence is stated in four places — this module's
+    /// header, [`resolve_subject`]'s own doc, the `generator` arg doc and
+    /// docs/building.md — and three of them omitted `--wear` from the day it
+    /// shipped (#1088), so `--wear satchel --catalogue villa` did the thing
+    /// the documentation said could not happen.
+    ///
+    /// This does not fail against the old behaviour, because the old
+    /// behaviour was right and the prose was wrong. What it does is make the
+    /// order a fact rather than a claim: reorder the chain and this fails by
+    /// name, pointing at the four sentences that then need re-reading. A
+    /// 0-warning doc gate cannot do that — it checks that links resolve, not
+    /// that sentences are true.
+    #[test]
+    fn the_subject_precedence_is_the_one_the_docs_claim() {
+        fn label_for(argv: &[&str]) -> String {
+            let args = Args::parse_from(std::iter::once("render").chain(argv.iter().copied()));
+            resolve_subject(&args).1
+        }
+
+        // A wearable to argue over, taken from the catalogue rather than
+        // hardcoded, so retiring one entry does not silently gut this test.
+        let worn = crate::catalogue::items::ENTRIES
+            .iter()
+            .find(|e| e.wear_socket().is_some())
+            .expect("the catalogue ships at least one wearable");
+        let wear = worn.slug();
+
+        assert!(
+            label_for(&["--wear", wear]).starts_with("wear-"),
+            "--wear alone renders the wear sheet"
+        );
+        // The loser has to be a real, reachable arm, or "wear wins" would be
+        // true of a slug that resolves to nothing.
+        assert_eq!(
+            label_for(&["--catalogue", "villa"]),
+            "cat-villa",
+            "the catalogue arm this test outranks must itself resolve"
+        );
+        assert!(
+            label_for(&["--wear", wear, "--catalogue", "villa"]).starts_with("wear-"),
+            "--wear outranks --catalogue"
+        );
+        assert!(
+            label_for(&["--prim", "cuboid", "--wear", wear]).starts_with("prim-"),
+            "--prim outranks --wear"
+        );
+        assert!(
+            label_for(&["--room", "3", "--prim", "cuboid", "--wear", wear]).starts_with("room-"),
+            "--room outranks both"
+        );
+    }
 }

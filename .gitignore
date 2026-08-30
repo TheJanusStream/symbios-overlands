@@ -15,3 +15,4 @@ symbios_overlands_primer_*
 
 # Diagnostic-suite session logs (epic #588) — local post-mortem artifacts
 /diagnostics/
+CLAUDE.md

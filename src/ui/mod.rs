@@ -12,9 +12,11 @@
 //!   double as drop targets for inventory gifts, and `incoming_offer_ui`
 //!   renders the Accept / Decline / Mute & Decline modal for inbound
 //!   [`crate::protocol::OverlandsMessage::ItemOffer`]s.
-//! * [`avatar`]       — Avatar editor: tabbed Visuals (generator-tree
-//!   editor) + Locomotion (HoverBoat / Humanoid / Airplane / Helicopter /
-//!   Car preset picker with per-preset physics tuning).
+//! * [`avatar`]       — Avatar editor, four tabs: Body (the rigged
+//!   `symbios-avatar` parameter panel), Attachments (what is worn, and
+//!   where), Visuals (the generator-tree editor, for generator bodies) and
+//!   Locomotion (HoverBoat / Humanoid / Airplane / Helicopter / Car preset
+//!   picker with per-preset physics tuning).
 //! * [`inventory`]    — personal stash of `Generator` blueprints, with
 //!   drag-to-place onto terrain and drag-to-gift onto peer rows.
 //! * [`catalogue`]    — read-only browser for client-shipped catalogue

@@ -7,6 +7,16 @@
 //! | [`room::RoomGeneratorRecord`] | `network.symbios.overlands.room.generator` | `hex(fnv1a_64(child json))` |
 //! | [`AvatarRecord`]   | `network.symbios.overlands.avatar`       | `self` |
 //! | [`inventory::InventoryItemRecord`] | `network.symbios.overlands.inventory.item` | `hex(fnv1a_64(name))` |
+//! | [`avatar::EngineAvatarRecord`] | `network.symbios.avatar.avatar` | TID |
+//! | [`avatar::EngineProfileRecord`] | `network.symbios.avatar.profile` | `self` |
+//! | [`avatar::AttachmentRecord`] | `network.symbios.overlands.avatar.attachment` | TID |
+//!
+//! The last three are the wardrobe trio (#1054). Two of them sit under the
+//! SIBLING project's lexicon, because a cross-app body belongs in a cross-app
+//! collection — but still in the signed-in identity's own repo, so still a
+//! `repo:` grant. This table is the prose source for which collections an
+//! OAuth scope has to cover, and [`WRITTEN_COLLECTIONS`] is the executable
+//! one; #1065 was a collection missing from a scope, so keep them in step.
 //!
 //! The inventory is one record **per item** (#696) — the collection is the
 //! stash, read via `listRecords` and written as an atomic `applyWrites`
@@ -100,6 +110,9 @@
 //!   settlement members ([`material_finish::apply_socio_finish`]).
 //! * [`ruin`] — escalation-driven geometric damage pass
 //!   ([`ruin::apply_ruin`]).
+//! * [`tid`] — monotonic ATProto TID generation, for the collections above
+//!   that are TID-keyed rather than `self`-keyed.
+//! * [`serde_util`] — the serde adaptors the lexicons share.
 
 pub(crate) const COLLECTION: &str = "network.symbios.overlands.room";
 pub(crate) const AVATAR_COLLECTION: &str = "network.symbios.overlands.avatar";

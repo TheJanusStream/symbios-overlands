@@ -103,8 +103,8 @@ ambient bed plus per-construct spatial audio), the **texture bakes** (the
 terrain's four splat layers on every target, plus — on wasm — every construct /
 avatar / primitive material texture, which the upstream generator pool would
 otherwise bake on the render thread; identical requests coalesce onto one
-airborne job), and the **avatar builds** (#1061: meshing one rigged body from
-its record, 68 ms at the draft atlas and 277 ms at full size). Three of the four
+airborne job), and the **avatar builds** (meshing one rigged body from its
+record, 68 ms at the draft atlas and 277 ms at full size). Three of the four
 ride the urgent lane — everything but the texture bakes, whose only cost is
 pop-in. Each job is a self-contained, serialisable `GenJob` whose pure `run()`
 is byte-identical on both backends, keeping progressive loading deterministic
@@ -187,17 +187,17 @@ face and aluminium backsheet are one prim with one override.
 
 ## Avatars: two body kinds
 
-An avatar record's `body` is a `$type`-tagged **open union** (epic #1054), the
-same shape its `locomotion` half already used. Which arm it lands on decides
+An avatar record's `body` is a `$type`-tagged **open union**, the same shape
+its `locomotion` half uses. Which arm it lands on decides
 almost everything downstream:
 
 - **`#rigged`** — a parametric skinned body from the `symbios-avatar` engine.
-  Every seeded humanoid is one (#1060 deleted the primitive-built humanoid
-  outright), as is any body authored in the editor's Body tab.
+  Every seeded humanoid is one — there is no primitive-built humanoid — as is
+  any body authored in the editor's Body tab.
 - **`#generator`** — the classic `Generator` tree, spawned by the avatar-side
   spawner back through the world compiler's own primitive / L-system /
-  shape-grammar machinery. Post-#1060 this is the vehicle families: boat,
-  airship and skiff.
+  shape-grammar machinery. This is the vehicle families: boat, airship and
+  skiff.
 - **Neither** — two marker variants that never appear on the wire. A record
   published *before* the union has no `body` field at all, and is treated as
   *no record*: the seeded default is synthesised, matching the record layer's
@@ -242,7 +242,7 @@ motion for free — an identity offset lets the engine seat the prop just clear
 of the *measured* surface, an authored offset is taken verbatim.
 
 **Motion is computed, never played back.** There is no clip library, no clip
-fetch and no play-rate arithmetic anywhere in this path (#1067): the gait comes
+fetch and no play-rate arithmetic anywhere in this path: the gait comes
 off a single dimensionless speed that decides stride, cadence, duty and the
 walk-run boundary; the idle, the leap, the swim, the goal-space gestures and
 the blinking are all engine layers posed from what the chassis is actually
@@ -251,7 +251,7 @@ a bow — with no command syntax to learn ([`emote.rs`](../src/player/emote.rs))
 The older cosmetic `AvatarGait` bobber still animates *generator* bodies and
 only those.
 
-Four metrics watch the subsystem (#1077, #1078): rigged build kick-to-land
+Four metrics watch the subsystem: rigged build kick-to-land
 latency, builds that produced no body, frames where a body strained a contact
 its solver could not reach, and orphaned worn props swept. See
 [diagnostics.md](diagnostics.md).
@@ -412,11 +412,11 @@ generation cores shared with the wasm Web Worker.
 - [`src/oauth/`](../src/oauth/) — ATProto OAuth 2.0 + DPoP (WASM redirect /
   native loopback), token refresh, and the periodically-refreshed relay
   service-auth token that underwrites the relay-signed session map. The
-  requested scope is granular rather than `transition:generic` (#736): one
-  `repo:` grant per written collection — derived at runtime from
-  `pds::WRITTEN_COLLECTIONS` so a new collection cannot ship unscoped, which is
-  exactly how the wardrobe trio did (#1065) — plus one `rpc:` grant for minting
-  relay service-auth tokens. Repo *reads* need no scope at all. The hosted copy
+  requested scope is granular rather than `transition:generic`: one `repo:`
+  grant per written collection — derived at runtime from
+  `pds::WRITTEN_COLLECTIONS`, so a new collection cannot ship unscoped, which
+  is the failure this derivation exists to prevent — plus one `rpc:` grant for
+  minting relay service-auth tokens. Repo *reads* need no scope at all. The hosted copy
   in `assets/client-metadata.json` must match, and an integration test says so.
 - [`src/seeded_defaults/`](../src/seeded_defaults/) — DID-seeded deterministic
   defaults, derived along two orthogonal axes: a natural *biome* and an
@@ -434,8 +434,8 @@ generation cores shared with the wasm Web Worker.
   (boat / airship / humanoid / skiff) plus its palette, body proportions and
   gait. The three vehicle families assemble their geometry from a tagged outfit
   the part catalogue fills; the humanoid family short-circuits that pipeline
-  entirely (#1060) and rolls a seeded `symbios-avatar` engine record instead,
-  whose stature the locomotion capsule is then cut to.
+  entirely and rolls a seeded `symbios-avatar` engine record instead, whose
+  stature the locomotion capsule is then cut to.
 - [`src/catalogue/`](../src/catalogue/) — code-shipped read-only library of
   starter generator blueprints (~380 entries across 24 themes),
   organised by theme and structural role (landmark / secondary / prop / plant /
@@ -496,7 +496,8 @@ generation cores shared with the wasm Web Worker.
   [`src/bin/render.rs`](../src/bin/render.rs) — a native-only headless tool:
   contact-sheet renders through the real spawn path (`--avatar` — vehicle seeds
   only, since a rigged body has no tree to walk — `--catalogue` / `--prim` /
-  `--room` / `--generator`, with `--ages` for a plant age-progression grid),
+  `--room` / `--generator`, with `--ages` for a plant age-progression grid and
+  `--wear` for a wearable dressed on seeded rigged bodies, one per row),
   plus the no-render text modes — offline diagnostics (`--analyze-session`,
   `--diff-sessions`, `--road-dump`), the survey/dump tools (`--family-seeds`,
   `--outfit`, `--find-part`, `--dump`) and the content

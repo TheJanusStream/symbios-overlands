@@ -2,11 +2,23 @@
 //! locomotion presets when the owner edits their PDS avatar record, and
 //! paints matching visuals on remote peers.
 //!
-//! Avatars are now uniform: the `visuals` half of
-//! [`AvatarRecord`](crate::pds::AvatarRecord) is a
-//! generator tree spawned by [`visuals::spawn_avatar_visuals`] (no
-//! colliders, no per-prim markers — pure cosmetics), and the
-//! `locomotion` half selects one of five physics presets:
+//! An [`AvatarRecord`](crate::pds::AvatarRecord) has two halves, and the
+//! first of them is a `$type`-tagged open union rather than one shape
+//! (`body: AvatarBody`, since #1056):
+//!
+//! - **`Rigged`** — a parametric `symbios-avatar` body, referenced by rkey
+//!   into the identity's wardrobe and built by [`rigged`]. Every humanoid is
+//!   one of these since #1060. It never goes near
+//!   [`visuals::spawn_avatar_visuals`].
+//! - **`Generator`** — a generator tree spawned by
+//!   [`visuals::spawn_avatar_visuals`] (no colliders, no per-prim markers —
+//!   pure cosmetics). Vehicles, and the pre-#1060 seeded humanoids.
+//! - **`Absent`** (a pre-#1056 record: treated as "no record", so the seeded
+//!   default is synthesised) and **`Unknown`** (a body kind this build does
+//!   not know: rendered as a bare chassis, never re-serialized).
+//!
+//! The `locomotion` half is independent of which body kind is worn, and
+//! selects one of five physics presets:
 //!
 //! - **HoverBoat** — `RigidBody::Dynamic` cuboid chassis with four
 //!   raycast-suspension corners + buoyancy + WASD drive (Hooke's-law
@@ -320,7 +332,7 @@ fn avatar_visuals_row_selected(avatar_editor: Option<Res<AvatarEditorState>>) ->
 ///
 /// `pub(super)` since #867: the locomotion hot-swap defers its body
 /// rebuild while this marker is present — replacing the `Collider` on a
-/// parked, touching body corrupts avian 0.6's contact bookkeeping the
+/// parked, touching body corrupts avian's contact bookkeeping the
 /// same way the #740 `RigidBodyDisabled` cycle does, and the corrupted
 /// pair surfaces on release as a fall-through-the-world + runaway
 /// respawn feedback that ends in NaN.
@@ -350,15 +362,17 @@ pub(super) struct VisualsEditFreeze {
 /// round. Every path that hides the window releases the selections, so a
 /// closed editor never holds.
 ///
-/// Deliberately NOT `RigidBodyDisabled` (#740): in avian 0.6 an
-/// insert/remove cycle of `RigidBodyDisabled` on a body with touching
+/// Deliberately NOT `RigidBodyDisabled` (#740): an insert/remove
+/// cycle of `RigidBodyDisabled` on a body with touching
 /// contacts corrupts the physics-island bookkeeping — the contact edge
 /// keeps its island link across the disable, the re-enable island-links
 /// it a second time, and the constraint graph is left holding manifold
 /// handles past the pair's manifold list. In release builds that
 /// surfaces as the solver's `manifolds[manifold_index]` index-out-of-
 /// bounds panic on the next edit (the #739 UV-dropdown crash was this).
-/// `tests/freeze_rigid_body.rs` carries the ignored upstream repro; the
+/// `tests/freeze_rigid_body.rs` carries the ignored upstream repro,
+/// which STILL FAILS on avian 0.7.0 (re-run 2026-08-30, #1150) — two
+/// majors and a Bevy train on, so this is not a legacy workaround; the
 /// axis-lock freeze below never changes the body's simulation
 /// membership, so islands and the constraint graph stay untouched.
 /// Revisit when the engine moves to Bevy 0.19 / avian 0.7+.

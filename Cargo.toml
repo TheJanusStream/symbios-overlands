@@ -15,6 +15,10 @@ edition = "2024"
 # run nothing.
 autotests = false
 autobins = false
+# `cargo run` with no `--bin` is otherwise ambiguous — the crate ships the app
+# and the headless render tool — and the error it produced was the first thing
+# a newcomer hit (#1162).
+default-run = "symbios-overlands"
 
 # The app is the workspace root; `crates/*` hold the compute-offload crates
 # shared with the wasm Web Worker (see crates/gen-jobs). Keeping them in one

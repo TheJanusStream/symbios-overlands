@@ -148,7 +148,7 @@ pub(super) fn detect_local_locomotion_change(
 ///
 /// DEFERRED while the visuals-edit freeze parks the chassis (#867,
 /// `Without<VisualsEditFreeze>`): stripping + reinserting the `Collider`
-/// on a parked body that is touching the terrain corrupts avian 0.6's
+/// on a parked body that is touching the terrain corrupts avian's
 /// contact/island bookkeeping — the same class as the #740
 /// `RigidBodyDisabled` cycle the freeze itself avoids — and the broken
 /// pair surfaces on freeze release as a clean fall through the world
