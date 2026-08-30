@@ -122,13 +122,15 @@ impl SessionLog {
             // Mirror into the process-global shadow so a hook can write the
             // recent tail the BufWriter (native) or the persist timer (wasm)
             // hasn't stored. High-frequency file-only telemetry (the 1 Hz
-            // `MetricsSnapshot`) goes into an overwrite slot on native so it
-            // can't evict real pre-crash events (#633) while its latest vitals
-            // still dump.
+            // `MetricsSnapshot`) is kept apart from the real events either
+            // way, so it can't evict the pre-crash evidence: an overwrite slot
+            // on native (#633), a budget of its own in the wasm tail (#1180).
+            // `seq` rides along because the wasm tail evicts the two classes
+            // independently and has to merge them back in order.
             if file_only {
-                crate::diagnostics::panic::shadow_push_snapshot(&line);
+                crate::diagnostics::panic::shadow_push_snapshot(seq, &line);
             } else {
-                crate::diagnostics::panic::shadow_push(&line);
+                crate::diagnostics::panic::shadow_push(seq, &line);
             }
             // The clock is unreachable from a hook, so the shadow keeps the
             // last stamp it saw and a terminal marker borrows it (#1142).

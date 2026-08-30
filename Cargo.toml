@@ -2,6 +2,19 @@
 name = "symbios-overlands"
 version = "0.7.0"
 edition = "2024"
+# Targets are declared, not discovered (#1179).
+#
+# Every integration-test file used to be its own `[[test]]` target, and each
+# one statically links the whole Bevy engine: 19 files meant 19 whole-program
+# links on every `cargo test` that touched the lib, which is most of a working
+# session's waiting. They are now modules of one `integration` harness — see
+# `tests/main.rs` for what that changes about running them.
+#
+# The two binaries opt out of a TEST harness (not out of being built): neither
+# carries a `#[test]`, so `cargo test` was linking two more whole engines to
+# run nothing.
+autotests = false
+autobins = false
 
 # The app is the workspace root; `crates/*` hold the compute-offload crates
 # shared with the wasm Web Worker (see crates/gen-jobs). Keeping them in one
@@ -160,6 +173,24 @@ futures-channel = "0.3"
 # the worker; the worker type + impl live in `gen-worker` (slim, no Bevy).
 gloo-worker = "0.6"
 gen-worker = { path = "crates/gen-worker" }
+
+[[bin]]
+name = "symbios-overlands"
+path = "src/main.rs"
+test = false
+
+# Headless contact-sheet renderer (`cargo run --bin render`).
+[[bin]]
+name = "render"
+path = "src/bin/render.rs"
+test = false
+
+# The one integration-test target (#1179). Each `tests/*.rs` is a `mod` of
+# `tests/main.rs`; nextest still runs every test in its own process, so
+# parallelism and isolation are unchanged.
+[[test]]
+name = "integration"
+path = "tests/main.rs"
 
 [profile.release]
 opt-level = "s"   # Optimize for size (helps wasm-bindgen)

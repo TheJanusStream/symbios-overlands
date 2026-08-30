@@ -59,7 +59,7 @@ pub use gen_jobs::{GenJob, GenResult};
 pub fn offload(job: GenJob) -> Task<GenResult> {
     // The ticket rides inside the future, so it is dropped both when the job
     // finishes and when the caller cancels the `Task` (#1143).
-    let ticket = census::start(census::label(&job));
+    let ticket = census::Census::global().start(census::label(&job));
     bevy::tasks::AsyncComputeTaskPool::get().spawn(async move {
         let _ticket = ticket;
         job.run()
@@ -78,7 +78,7 @@ pub fn offload(job: GenJob) -> Task<GenResult> {
     // worker round-trip that either answers or does not. A `gen-worker.js`
     // that 404s leaves this future parked forever, which is precisely the
     // in-flight entry the watchdog needs to see (#1143).
-    let ticket = census::start(census::label(&job));
+    let ticket = census::Census::global().start(census::label(&job));
     wasm_bindgen_futures::spawn_local(async move {
         let _ticket = ticket;
         let result = worker::run_on_worker(job).await;
@@ -95,7 +95,7 @@ pub fn offload(job: GenJob) -> Task<GenResult> {
 #[cfg(target_arch = "wasm32")]
 mod worker;
 
-/// Process-global census of in-flight offloaded jobs (#1143).
+/// Census of in-flight offloaded jobs (#1143).
 ///
 /// The problem this exists to solve is that a job which never answers is
 /// invisible. On wasm `offload` awaits a oneshot whose sender lives inside a
@@ -111,15 +111,37 @@ mod worker;
 /// heaviest job in the roster and was the one nobody instrumented. A ledger the
 /// dispatch function itself keeps cannot be forgotten by the next caller.
 ///
-/// It is a plain global with no clock of its own beyond a monotonic `Instant`
-/// because `offload` has no `World` — the same constraint that shapes
-/// [`crate::diagnostics::panic`]. The Bevy side ([`sample_offload_census`])
-/// drains it each frame and turns transitions into session events.
+/// ## Why it is a value with one global instance, not a global (#1189)
+///
+/// [`Census`](census::Census) is an ordinary handle: `Census::new()` makes a
+/// ledger that nobody else can see, and [`Census::global`](census::Census::global)
+/// hands out the one instance
+/// [`offload`] writes to. `offload` has no `World` to hang a ledger on — the
+/// same constraint that shapes [`crate::diagnostics::panic`] — so the
+/// dispatch side must reach for a process-wide instance, but nothing else
+/// has to.
+///
+/// That distinction is load-bearing rather than tidiness. When the ledger was
+/// reachable only as a global, its tests were writing to and reading from the
+/// same object as every other test in the binary: four `player::rigged` tests
+/// initialise the `AsyncComputeTaskPool` so `offload` really runs, and a
+/// [`Ticket`](census::Ticket) retires on whichever pool thread its job
+/// finishes on; a
+/// `DiagnosticsPlugin` app updating anywhere in the process drains the whole
+/// transition list. Under `cargo nextest` — process per test — none of that is
+/// visible; under `cargo test`, which CI runs, it is one process and the
+/// census tests were intermittently red on entries they never created.
+///
+/// The Bevy side ([`sample_offload_census`]) therefore takes its ledger as a
+/// resource: the plugin inserts [`Census::global`](census::Census::global),
+/// and a test inserts its
+/// own.
 ///
 /// [`sample_offload_census`]: crate::diagnostics::offload_watch::sample_offload_census
 pub mod census {
-    use std::sync::Mutex;
+    use std::sync::{Arc, LazyLock, Mutex};
 
+    use bevy::ecs::resource::Resource;
     use bevy::platform::time::Instant;
 
     use super::GenJob;
@@ -157,17 +179,103 @@ pub mod census {
         },
     }
 
-    struct Census {
+    /// The ledger itself, behind the one lock that orders every writer.
+    struct Ledger {
         next_id: u64,
         pending: Vec<Pending>,
         transitions: Vec<Transition>,
     }
 
-    static CENSUS: Mutex<Census> = Mutex::new(Census {
-        next_id: 0,
-        pending: Vec::new(),
-        transitions: Vec::new(),
-    });
+    /// A handle to one ledger of in-flight jobs.
+    ///
+    /// Cloning shares the ledger — [`Census::global`] is exactly a clone of
+    /// the process-wide handle — so a clone is a second view of one census,
+    /// never a copy of it. Two censuses are two `Census::new()`s.
+    ///
+    /// It is a `Resource` so the Bevy sampler can be told which ledger to
+    /// read instead of assuming the global one.
+    #[derive(Resource, Clone)]
+    pub struct Census {
+        ledger: Arc<Mutex<Ledger>>,
+    }
+
+    static GLOBAL: LazyLock<Census> = LazyLock::new(Census::new);
+
+    impl Census {
+        /// A fresh ledger nothing else in the process can see.
+        pub fn new() -> Self {
+            Census {
+                ledger: Arc::new(Mutex::new(Ledger {
+                    next_id: 0,
+                    pending: Vec::new(),
+                    transitions: Vec::new(),
+                })),
+            }
+        }
+
+        /// The one instance [`offload`](super::offload) records into.
+        ///
+        /// The dispatch function has no `World`, so its ledger cannot be a
+        /// resource; everything that only *reads* the census should be handed
+        /// a handle rather than calling this.
+        pub fn global() -> Self {
+            GLOBAL.clone()
+        }
+
+        /// Register a job as in flight. The returned [`Ticket`] must be moved
+        /// into the future that runs it.
+        pub fn start(&self, job: &'static str) -> Ticket {
+            let Ok(mut ledger) = self.ledger.lock() else {
+                return Ticket {
+                    census: self.clone(),
+                    id: u64::MAX,
+                };
+            };
+            let id = ledger.next_id;
+            ledger.next_id += 1;
+            ledger.pending.push(Pending {
+                id,
+                job,
+                started: Instant::now(),
+            });
+            ledger.transitions.push(Transition::Started { id, job });
+            drop(ledger);
+            Ticket {
+                census: self.clone(),
+                id,
+            }
+        }
+
+        /// Take every transition since the last call.
+        pub fn drain_transitions(&self) -> Vec<Transition> {
+            match self.ledger.lock() {
+                Ok(mut ledger) => std::mem::take(&mut ledger.transitions),
+                Err(_) => Vec::new(),
+            }
+        }
+
+        /// Every job still in flight, as `(id, job, age_secs)`.
+        ///
+        /// Returns all of them, not just the oldest: a stale gen-worker fails
+        /// every job, and reporting one of six would understate a broken
+        /// deploy as a single slow bake.
+        pub fn pending_snapshot(&self) -> Vec<(u64, &'static str, f64)> {
+            match self.ledger.lock() {
+                Ok(ledger) => ledger
+                    .pending
+                    .iter()
+                    .map(|p| (p.id, p.job, p.started.elapsed().as_secs_f64()))
+                    .collect(),
+                Err(_) => Vec::new(),
+            }
+        }
+    }
+
+    impl Default for Census {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
 
     /// Held for the lifetime of one offloaded job; retires it on drop.
     ///
@@ -176,66 +284,30 @@ pub mod census {
     /// and cancels it. Only a `Drop` covers both — and a cancelled job left in
     /// the ledger would have the watchdog reporting a stall that nobody is
     /// waiting on.
+    ///
+    /// It carries its own census handle because it retires wherever the job
+    /// ended — on native that is whichever `AsyncComputeTaskPool` thread ran
+    /// it, long after the dispatching frame.
     pub struct Ticket {
+        census: Census,
         id: u64,
     }
 
     impl Drop for Ticket {
         fn drop(&mut self) {
-            let Ok(mut census) = CENSUS.lock() else {
+            let Ok(mut ledger) = self.census.ledger.lock() else {
                 return;
             };
-            let Some(index) = census.pending.iter().position(|p| p.id == self.id) else {
+            let Some(index) = ledger.pending.iter().position(|p| p.id == self.id) else {
                 return;
             };
-            let entry = census.pending.remove(index);
+            let entry = ledger.pending.remove(index);
             let elapsed_secs = entry.started.elapsed().as_secs_f64();
-            census.transitions.push(Transition::Finished {
+            ledger.transitions.push(Transition::Finished {
                 id: entry.id,
                 job: entry.job,
                 elapsed_secs,
             });
-        }
-    }
-
-    /// Register a job as in flight. The returned [`Ticket`] must be moved into
-    /// the future that runs it.
-    pub fn start(job: &'static str) -> Ticket {
-        let Ok(mut census) = CENSUS.lock() else {
-            return Ticket { id: u64::MAX };
-        };
-        let id = census.next_id;
-        census.next_id += 1;
-        census.pending.push(Pending {
-            id,
-            job,
-            started: Instant::now(),
-        });
-        census.transitions.push(Transition::Started { id, job });
-        Ticket { id }
-    }
-
-    /// Take every transition since the last call.
-    pub fn drain_transitions() -> Vec<Transition> {
-        match CENSUS.lock() {
-            Ok(mut census) => std::mem::take(&mut census.transitions),
-            Err(_) => Vec::new(),
-        }
-    }
-
-    /// Every job still in flight, as `(id, job, age_secs)`.
-    ///
-    /// Returns all of them, not just the oldest: a stale gen-worker fails every
-    /// job, and reporting one of six would understate a broken deploy as a
-    /// single slow bake.
-    pub fn pending_snapshot() -> Vec<(u64, &'static str, f64)> {
-        match CENSUS.lock() {
-            Ok(census) => census
-                .pending
-                .iter()
-                .map(|p| (p.id, p.job, p.started.elapsed().as_secs_f64()))
-                .collect(),
-            Err(_) => Vec::new(),
         }
     }
 }

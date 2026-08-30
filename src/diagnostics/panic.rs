@@ -101,7 +101,12 @@ mod imp {
     }
 
     /// Mirror one already-serialized real-event line into the shadow ring.
-    pub fn shadow_push(line: &str) {
+    ///
+    /// `seq` is unused here — the native ring renders in push order, which is
+    /// seq order — but it is part of the signature because the wasm side needs
+    /// it to merge two independently-evicting queues (#1180), and
+    /// `SessionLog::write` has one call site per target.
+    pub fn shadow_push(_seq: u64, line: &str) {
         if let Some(m) = SHADOW.get()
             && let Ok(mut s) = m.lock()
         {
@@ -116,7 +121,7 @@ mod imp {
     /// prior one. Unlike [`shadow_push`] this never grows the ring, so the
     /// periodic metric-snapshot drip can't evict real events (#633) — yet the
     /// latest vitals still land in the panic file.
-    pub fn shadow_push_snapshot(line: &str) {
+    pub fn shadow_push_snapshot(_seq: u64, line: &str) {
         if let Some(m) = SHADOW.get()
             && let Ok(mut s) = m.lock()
         {
@@ -196,10 +201,10 @@ mod imp {
             // intentionally-panicking test in the same run drop a
             // `session-panic-*.jsonl` into the repo root (#676).
             arm(std::env::temp_dir());
-            shadow_push("r633-real-1");
-            shadow_push_snapshot("r633-snap-1");
-            shadow_push("r633-real-2");
-            shadow_push_snapshot("r633-snap-2");
+            shadow_push(0, "r633-real-1");
+            shadow_push_snapshot(1, "r633-snap-1");
+            shadow_push(2, "r633-real-2");
+            shadow_push_snapshot(3, "r633-snap-2");
 
             let s = SHADOW.get().unwrap().lock().unwrap();
             assert!(
@@ -229,16 +234,19 @@ pub use imp::{arm, install_hook, shadow_push, shadow_push_snapshot};
 #[cfg(target_arch = "wasm32")]
 pub fn arm(_dir: std::path::PathBuf) {}
 #[cfg(target_arch = "wasm32")]
-pub fn shadow_push(line: &str) {
-    crate::diagnostics::crash_log::push_tail_line(line);
+pub fn shadow_push(seq: u64, line: &str) {
+    crate::diagnostics::crash_log::push_tail_line(seq, line);
 }
 /// On wasm the 1 Hz metric snapshot is part of the downloadable log (the ring
 /// IS the capture there — see `SessionLog::record_file_only`), so unlike
-/// native it goes into the tail rather than an overwrite slot. Whether it
-/// should is #1136's question, not this one's.
+/// native it cannot go to an overwrite slot: the vitals SERIES is the OOM
+/// post-mortem, and one sample of it shows the crash but not the climb.
+///
+/// It goes into the tail, in a budget of its own, so it can neither be
+/// reduced to a single sample nor evict the real events beside it (#1180).
 #[cfg(target_arch = "wasm32")]
-pub fn shadow_push_snapshot(line: &str) {
-    crate::diagnostics::crash_log::push_tail_line(line);
+pub fn shadow_push_snapshot(seq: u64, line: &str) {
+    crate::diagnostics::crash_log::push_tail_snapshot(seq, line);
 }
 #[cfg(target_arch = "wasm32")]
 pub fn install_hook() {

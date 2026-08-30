@@ -204,12 +204,42 @@ lockfile to honour.
 One test is `#[ignore]`d on purpose: `plain_rigid_body_disabled_cycle` in
 [`tests/freeze_rigid_body.rs`](../tests/freeze_rigid_body.rs) reproduces the
 upstream avian 0.6 island-corruption bug that the avatar-freeze path works
-around. Run `cargo test --test freeze_rigid_body -- --ignored` after an avian
-or Bevy bump — if it passes, the workaround can go.
+around. Run `cargo test --test integration -- --ignored freeze_rigid_body`
+after an avian or Bevy bump — if it passes, the workaround can go. No gate
+runs it; it is a canary you fire by hand.
+
+The other three `#[ignore]`d tests are probes rather than canaries — they
+assert nothing and print measurements for `#277`/`#266` — so nothing is owed
+for them.
+
+### One integration target (#1179)
+
+Every file in `tests/` is a `mod` of [`tests/main.rs`](../tests/main.rs), which
+is the only `[[test]]` target the package declares. Each integration target
+statically links the whole engine, and nineteen of them plus a harness for each
+binary was twenty-four Bevy links on any `cargo test` that touched the lib.
+Measured on this machine at `build.jobs = 6`: `touch src/lib.rs && cargo test
+--no-run` went from **1 m 56 s to 39 s**, and 7 m 45 s of CPU to 1 m 34 s.
+
+Targeting one file's tests moves from the target flag to the name filter,
+because the module path is part of every test's name:
+
+```bash
+cargo test --test integration pds_sanitize          # was --test pds_sanitize
+cargo nextest run -E 'test(publish_snapshot::)'     # was -E 'binary(publish_snapshot)'
+```
+
+`tests/main.rs` carries the rule for what may be added there: one target means
+one process under `cargo test`, so a test that needs a private copy of a
+process-global — the panic shadow, the allocation counters, the offload census
+— is not safe as a module and needs its own target with the reason written
+down. nextest still runs each test in its own process either way.
 
 Note: [`.cargo/config.toml`](../.cargo/config.toml) pins `build.jobs = 6` —
 each test target links a full Bevy binary, and an uncapped parallel link can
-exhaust RAM on smaller machines. It also carries the
+exhaust RAM on smaller machines. The cap matters far less since #1179 cut the
+suite to three test binaries, but the app and the render bin still link full
+engines beside them. It also carries the
 `getrandom_backend="wasm_js"` rustflag the wasm build needs: `symbios-avatar`
 pulls `getrandom` 0.3 transitively, 0.3 refuses to build for
 `wasm32-unknown-unknown` without a cfg naming its backend, and cargo configs do

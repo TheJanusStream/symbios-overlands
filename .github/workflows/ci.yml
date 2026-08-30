@@ -54,9 +54,11 @@ jobs:
       - name: Clippy (deny warnings)
         run: cargo clippy --all-targets -- -D warnings
 
-      # .cargo/config.toml caps build.jobs at 6 so the 24 statically
-      # linked Bevy test binaries don't all link at once; the runner's
-      # 16 GB is enough under that cap.
+      # .cargo/config.toml caps build.jobs at 6 so the statically linked
+      # Bevy binaries don't all link at once; the runner's 16 GB is enough
+      # under that cap. #1179 took the test binaries from 24 to 3 by making
+      # every tests/*.rs a module of one `integration` target, so the cap now
+      # guards the app and render bins more than the suite.
       #
       # `default-members` in Cargo.toml is what makes this cover gen-jobs;
       # before #1147 the bare invocation selected the root package alone and

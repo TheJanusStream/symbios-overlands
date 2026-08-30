@@ -69,6 +69,10 @@ impl Plugin for DiagnosticsPlugin {
 
         app.insert_resource(log)
             .init_resource::<crate::diagnostics::offload_watch::OffloadWatch>()
+            // The ledger `offload` dispatches into, named rather than assumed:
+            // the sampler reads whichever census it is given, and only the
+            // real app is given the global one (#1189).
+            .insert_resource(crate::offload::census::Census::global())
             .add_systems(Last, (flush_periodically, flush_on_app_exit))
             // Every frame, not on the 1 Hz scrape: the census turns in-flight
             // offload jobs into session events and drives the stuck-job

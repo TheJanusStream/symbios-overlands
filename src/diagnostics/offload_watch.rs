@@ -1,8 +1,10 @@
 //! Live watchdog over the offload census (#1143).
 //!
-//! Turns the process-global ledger [`crate::offload::census`] keeps into
-//! session events, and holds the one scalar the `offload.task_never_resolves`
-//! rule needs to fire live rather than only in replay.
+//! Turns the ledger [`crate::offload::census`] keeps into session events, and
+//! holds the one scalar the `offload.task_never_resolves` rule needs to fire
+//! live rather than only in replay. Which ledger is a resource
+//! ([`Census`]), not an assumption: the plugin inserts the global instance
+//! `offload` dispatches into, and a test inserts its own (#1189).
 //!
 //! The failure this exists for is a wasm deploy that ships the app bundle
 //! beside a stale or missing `gen-worker.js`. The worker future never
@@ -18,7 +20,7 @@ use std::collections::HashSet;
 
 use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::{EventPayload, Severity};
-use crate::offload::census::{self, Transition};
+use crate::offload::census::{Census, Transition};
 
 /// How long an offloaded job may be in flight before the watchdog calls it
 /// stuck.
@@ -69,6 +71,7 @@ fn newly_timed_out<'a>(
 pub fn sample_offload_census(
     mut log: ResMut<SessionLog>,
     mut watch: ResMut<OffloadWatch>,
+    census: Res<Census>,
     time: Res<Time>,
     // Jobs already reported stuck. A stuck job stays in the census until it
     // answers or is cancelled, so without the latch this would emit one
@@ -77,7 +80,7 @@ pub fn sample_offload_census(
 ) {
     let now = time.elapsed_secs_f64();
 
-    for transition in census::drain_transitions() {
+    for transition in census.drain_transitions() {
         match transition {
             Transition::Started { job, .. } => {
                 log.info(now, EventPayload::OffloadJobStarted { job: job.into() });
@@ -99,7 +102,7 @@ pub fn sample_offload_census(
         }
     }
 
-    let pending = census::pending_snapshot();
+    let pending = census.pending_snapshot();
     for (job, age) in newly_timed_out(&pending, &mut reported) {
         log.record(
             now,
@@ -128,40 +131,30 @@ mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
 
-    /// Serializes the tests that drive the census, which is one
-    /// process-global ledger — `offload` has no `World` to hang it on.
+    /// A world wired to a census nobody else in the process can reach.
     ///
-    /// Under nextest, process-per-test makes this free and the omission
-    /// invisible. `cargo test` — which CI runs — threads every test of the
-    /// lib into ONE process, and there the two census tests interleave:
-    /// `pending_snapshot` counts the other test's job, and the watchdog picks
-    /// the other test's job as the oldest in flight. Both then fail on
-    /// numbers neither of them created, which reads as a bug in the watchdog
-    /// rather than in the harness.
+    /// #1187 gave these tests a module-level `Mutex` instead, which
+    /// serialised them against each other and drained the global ledger on
+    /// entry. That was the right reading of the symptom and it fixed the case
+    /// it could see: two census tests interleaving, each counting the other's
+    /// job. It could not fix the general one, because the interfering writer
+    /// is not another test body. Four `player::rigged` tests initialise the
+    /// `AsyncComputeTaskPool` precisely so `offload` runs, and a `Ticket`
+    /// retires on whichever pool thread the job finishes on, at whatever
+    /// moment that is; a `DiagnosticsPlugin` app updating anywhere in the
+    /// binary drains the whole transition list into its own log. No lock held
+    /// across a test body can order a thread pool.
     ///
-    /// This is not a workaround for a flaky test. The thing under test really
-    /// is a single shared ledger, so exclusivity is part of the fixture; the
-    /// lock states that rather than leaving it to the scheduler.
-    static CENSUS_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    /// Take the census for one test: exclusive access, and an empty
-    /// transition log to start from.
-    ///
-    /// Poison is deliberately taken rather than propagated. A panicking test
-    /// has already reported its own failure; poisoning the lock would fail
-    /// every later census test too and bury which one actually broke. The
-    /// pending list needs no reset — a `Ticket` retires its entry on drop,
-    /// and drop runs during unwinding.
-    ///
-    /// The returned guard must be BOUND, not dropped at the end of the
-    /// statement: `let _census = census_guard();` holds the lock for the
-    /// test, `let _ = census_guard();` releases it immediately and restores
-    /// the race. `MutexGuard` is `#[must_use]`, so the latter is the only
-    /// spelling that compiles silently — hence the note.
-    fn census_guard() -> std::sync::MutexGuard<'static, ()> {
-        let guard = CENSUS_TESTS.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = census::drain_transitions();
-        guard
+    /// So exclusivity is not the fixture — a private ledger is (#1189). There
+    /// is nothing left to serialise, and these tests no longer read anything
+    /// the rest of the binary can write.
+    fn census_app(census: &Census) -> App {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin);
+        app.insert_resource(SessionLog::with_capacity(64));
+        app.init_resource::<OffloadWatch>();
+        app.insert_resource(census.clone());
+        app
     }
 
     /// #1143. Sequence: a wasm deploy ships the app bundle beside a stale
@@ -171,14 +164,10 @@ mod tests {
     /// rule written for it could not fire live OR in replay.
     #[test]
     fn a_dispatched_job_is_announced_and_a_finished_one_is_closed_out() {
-        let _census = census_guard();
-        let ticket = census::start("avatar_build");
+        let census = Census::new();
+        let ticket = census.start("avatar_build");
 
-        let mut app = App::new();
-        app.add_plugins(bevy::time::TimePlugin);
-        app.insert_resource(SessionLog::with_capacity(64));
-        app.init_resource::<OffloadWatch>();
-
+        let mut app = census_app(&census);
         app.world_mut()
             .run_system_once(sample_offload_census)
             .expect("sampler");
@@ -216,16 +205,83 @@ mod tests {
         );
     }
 
+    /// #1189. The sequence above, run while the process-global ledger is being
+    /// used by somebody else — which is what `cargo test --lib` actually does
+    /// and `cargo nextest` structurally cannot.
+    ///
+    /// The barriers force the interleaving the scheduler only sometimes
+    /// produces, so this is a deterministic failure rather than a rate: a
+    /// foreign job started before ours, and a foreign drain landing between
+    /// our dispatch and our sample. Against a shared ledger the first steals
+    /// `oldest_pending` and the second swallows `OffloadJobStarted` outright,
+    /// which is the exact assertion that went red on CI.
+    ///
+    /// The foreign side deliberately uses [`Census::global`] — the same
+    /// instance `offload` writes to — because that global is not going away;
+    /// what changed is that this test no longer reads it.
+    #[test]
+    fn a_concurrent_user_of_the_global_ledger_cannot_disturb_this_test() {
+        let sync = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let foreign = {
+            let sync = std::sync::Arc::clone(&sync);
+            std::thread::spawn(move || {
+                // A job of another kind, in flight before ours: whoever reads
+                // the same `pending` list will call this one the oldest.
+                let older = Census::global().start("texture_bake");
+                sync.wait();
+                // Released once our dispatch has happened: take the ledger the
+                // way another app's sampler does.
+                sync.wait();
+                let _ = Census::global().drain_transitions();
+                sync.wait();
+                older
+            })
+        };
+
+        sync.wait();
+        let census = Census::new();
+        let ticket = census.start("avatar_build");
+        sync.wait();
+        sync.wait();
+
+        let mut app = census_app(&census);
+        app.world_mut()
+            .run_system_once(sample_offload_census)
+            .expect("sampler");
+
+        assert!(
+            app.world()
+                .resource::<SessionLog>()
+                .iter()
+                .any(|e| matches!(&e.payload, EventPayload::OffloadJobStarted { job } if job == "avatar_build")),
+            "a foreign drain must not be able to take this test's dispatch"
+        );
+        assert_eq!(
+            app.world()
+                .resource::<OffloadWatch>()
+                .oldest_pending
+                .map(|(j, _)| j),
+            Some("avatar_build"),
+            "and a foreign job must not be able to out-age it"
+        );
+
+        drop(ticket);
+        // Retire the foreign job too: it was started on the instance the real
+        // app dispatches into, and a test has no business leaving something
+        // in flight there.
+        drop(foreign.join().expect("foreign ledger user"));
+    }
+
     /// A job the caller cancelled — the `Task` dropped mid-flight — must leave
     /// the census, or the watchdog would report a stall nobody is waiting on.
     #[test]
     fn a_cancelled_job_does_not_look_stuck() {
-        let _census = census_guard();
-        let ticket = census::start("texture_bake");
-        assert_eq!(census::pending_snapshot().len(), 1);
+        let census = Census::new();
+        let ticket = census.start("texture_bake");
+        assert_eq!(census.pending_snapshot().len(), 1);
         drop(ticket);
         assert!(
-            census::pending_snapshot().is_empty(),
+            census.pending_snapshot().is_empty(),
             "the ticket retires the entry however the future ended"
         );
     }

@@ -1,9 +1,15 @@
-# Cap parallel build jobs so `cargo test` doesn't link all 24 Bevy test
-# binaries at once (18 integration tests plus the lib, the two bins and the
-# workspace members). Each statically links a full Bevy app; ~32 simultaneous
-# multi-GB links (the default = nproc) exhaust system RAM and destabilise the
-# machine. The ceiling here is at *link* time, not test run time, so a small
-# job count keeps only a few heavy links in flight.
+# Cap parallel build jobs so `cargo test` doesn't link every Bevy binary at
+# once. Each statically links a full Bevy app; ~32 simultaneous multi-GB links
+# (the default = nproc) exhaust system RAM and destabilise the machine. The
+# ceiling here is at *link* time, not test run time, so a small job count keeps
+# only a few heavy links in flight.
+#
+# It used to be 24 test binaries — nineteen integration files with a target
+# each, the lib, a harness for both bins, and the workspace members. #1179 made
+# every integration file a module of one `integration` target and turned off
+# the two bins' unused test harnesses, leaving three: `touch src/lib.rs &&
+# cargo test --no-run` fell from 1 m 56 s to 39 s at this job count. What the
+# cap still guards is the app and render bins linking beside the suite.
 #
 # Calibrated against fat-LTO links (~8 GB apiece). Since #1064 the suite runs
 # under `[profile.test-release]`, where a link costs ~1.7 GB, so there is real
