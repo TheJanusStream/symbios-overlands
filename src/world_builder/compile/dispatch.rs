@@ -206,22 +206,7 @@ pub fn spawn_generator(
         GeneratorKind::Gateway { size } => Some(
             crate::world_builder::gateway::spawn_gateway_entity(ctx, size, transform),
         ),
-        GeneratorKind::Cuboid { .. }
-        | GeneratorKind::Sphere { .. }
-        | GeneratorKind::Cylinder { .. }
-        | GeneratorKind::Capsule { .. }
-        | GeneratorKind::Cone { .. }
-        | GeneratorKind::Torus { .. }
-        | GeneratorKind::Plane { .. }
-        | GeneratorKind::Tetrahedron { .. }
-        | GeneratorKind::Tube { .. }
-        | GeneratorKind::Bevel { .. }
-        | GeneratorKind::Wedge { .. }
-        | GeneratorKind::Helix { .. }
-        | GeneratorKind::Superellipsoid { .. }
-        | GeneratorKind::Spine { .. }
-        | GeneratorKind::Lathe { .. }
-        | GeneratorKind::BlobGroup { .. } => {
+        crate::for_each_primitive!(pattern {}) => {
             Some(spawn_primitive_entity(ctx, &generator.kind, transform))
         }
         // The legacy `uv_repeat` / `uv_offset` are not read here: the

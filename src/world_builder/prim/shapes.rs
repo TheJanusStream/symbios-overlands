@@ -2,9 +2,14 @@
 //! parametric [`GeneratorKind`] variant, produced by the single
 //! [`prim_parts`] constructor match. Everything downstream — mesh build,
 //! analytical collider, the spawner's `(solid, material)` split — reads the
-//! trait object, so adding a primitive means one impl + one constructor arm
-//! here (plus its line in `spawn_generator`'s exhaustive router list),
-//! instead of four hand-synced `match GeneratorKind` sites.
+//! trait object, so adding a primitive means one impl and one constructor
+//! arm here instead of four hand-synced `match GeneratorKind` sites.
+//!
+//! [`prim_parts`] ends in `_ => None`, so a missed arm is not a compile
+//! error — the spawn router feeds it every variant on the
+//! [`crate::for_each_primitive!`] roster and an unhandled one simply spawns
+//! nothing. `world_builder::prim`'s `every_primitive_reaches_a_mesher_arm`
+//! walks that roster and is what turns the omission back into a failure.
 
 use avian3d::prelude::*;
 use bevy::prelude::*;

@@ -10,7 +10,7 @@ use bevy_symbios_ground::{
 
 use crate::config::terrain as tcfg;
 use crate::offload::{GenJob, GenResult};
-use crate::pds::{SovereignGeneratorKind, SovereignTerrainConfig};
+use crate::pds::SovereignTerrainConfig;
 use crate::splat::{SplatExtension, SplatTerrainMaterial, SplatUniforms};
 use crate::state::LiveRoomRecord;
 
@@ -275,21 +275,11 @@ pub(super) fn spawn_terrain_mesh(
 /// lives in the Bevy-free [`gen_jobs`] crate so native and the wasm Web Worker
 /// share one (deterministic) implementation.
 pub(crate) fn heightmap_params(cfg: &SovereignTerrainConfig) -> gen_jobs::HeightmapParams {
-    use gen_jobs::GeneratorKind;
     gen_jobs::HeightmapParams {
         grid_size: cfg.grid_size,
         cell_scale: cfg.cell_scale.0,
         height_scale: cfg.height_scale.0,
-        generator_kind: match cfg.generator_kind {
-            SovereignGeneratorKind::FbmNoise => GeneratorKind::FbmNoise,
-            SovereignGeneratorKind::DiamondSquare => GeneratorKind::DiamondSquare,
-            // An algorithm this build has never heard of (#1119) still has
-            // to produce a heightmap — a visitor seeing the wrong terrain
-            // is recoverable; a visitor standing on nothing is not.
-            SovereignGeneratorKind::VoronoiTerracing | SovereignGeneratorKind::Unknown => {
-                GeneratorKind::VoronoiTerracing
-            }
-        },
+        generator_kind: cfg.generator_kind.to_gen_job(),
         seed: cfg.seed,
         octaves: cfg.octaves,
         persistence: cfg.persistence.0,

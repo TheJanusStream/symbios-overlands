@@ -1,13 +1,29 @@
-//! Centralised configuration constants for Symbios Overlands.
+//! Centralised **behaviour** constants for Symbios Overlands: the values the
+//! client is compiled with, as opposed to the ones a record carries.
 //!
-//! All tuneable values live here so they are easy to locate and adjust without
-//! hunting through individual modules.  Modules mirror the source file that
-//! consumes each constant group.
+//! Modules mirror the source file that consumes each constant group.
+//!
+//! What does **not** live here: anything the owner can tune. Terrain shape,
+//! erosion, splat layers, water appearance and material finish are all
+//! record-carried, and their tuning lives on the `Sovereign*` types'
+//! `Default` impls in [`crate::pds`] with their hostile-input ceilings in
+//! `pds::sanitize::limits`. Before #1157 this file also held a full
+//! pre-record terrain pipeline — hydraulic/voronoi/thermal erosion and four
+//! splat layers, 62 constants — that adjusted nothing at all: they had been
+//! superseded by `SovereignTerrainConfig` and nothing referenced them. A
+//! decoy knob in the file a contributor is told to look in first is worse
+//! than no knob.
+//!
+//! Everything here is `pub(crate)` except [`state`], which the integration
+//! tests read. That is deliberate and load-bearing: `pub` items in a `pub`
+//! module are exempt from the `dead_code` lint, which is exactly why the
+//! decoys survived. At crate visibility `-D warnings` reports the next one
+//! the day it stops being used.
 
 // ---------------------------------------------------------------------------
 // Lighting (lib.rs)
 // ---------------------------------------------------------------------------
-pub mod lighting {
+pub(crate) mod lighting {
     /// Illuminance of the sun-like directional light (lux).
     pub const ILLUMINANCE: f32 = 15_000.0;
     /// Brightness of the scene-wide ambient light.
@@ -71,13 +87,11 @@ pub mod lighting {
 // ---------------------------------------------------------------------------
 // Rover (player/ + network/)
 // ---------------------------------------------------------------------------
-pub mod rover {
+pub(crate) mod rover {
     // --- Suspension (Hooke's law + damping) ----------------------------------
     pub const SUSPENSION_REST_LENGTH: f32 = 0.8;
     pub const SUSPENSION_STIFFNESS: f32 = 4_200.0;
     pub const SUSPENSION_DAMPING: f32 = 175.0;
-    /// Ray-cast length = rest length + this overshoot past the contact plane.
-    pub const RAY_MAX_DIST: f32 = SUSPENSION_REST_LENGTH + 1.5;
 
     // --- Drive ---------------------------------------------------------------
     pub const DRIVE_FORCE: f32 = 1_800.0;
@@ -142,7 +156,7 @@ pub mod rover {
 // ---------------------------------------------------------------------------
 // Login-screen attract backdrop (attract.rs)
 // ---------------------------------------------------------------------------
-pub mod attract {
+pub(crate) mod attract {
     /// Attract-camera orbit radius (m) — frames a whole settlement.
     /// Must stay within [`super::camera::ZOOM_UPPER_LIMIT`], which the
     /// orbit crate clamps the target radius against.
@@ -161,7 +175,7 @@ pub mod attract {
 // ---------------------------------------------------------------------------
 // Camera (camera.rs)
 // ---------------------------------------------------------------------------
-pub mod camera {
+pub(crate) mod camera {
     /// Default orbit radius (metres from focus point).
     pub const ORBIT_RADIUS: f32 = 12.0;
     /// Default camera pitch angle (radians).
@@ -215,45 +229,15 @@ pub mod camera {
 // ---------------------------------------------------------------------------
 // Terrain generation (terrain/)
 // ---------------------------------------------------------------------------
-pub mod terrain {
-    pub const SEED: u64 = 42;
+pub(crate) mod terrain {
     pub const GRID_SIZE: usize = 512;
     pub const CELL_SCALE: f32 = 2.0;
     pub const HEIGHT_SCALE: f32 = 50.0;
-    // --- Hydraulic erosion -----------------------------------------------------
-    pub mod hydraulic {
-        pub const NUM_DROPS: u32 = 50_000;
-        pub const MAX_STEPS: u32 = 64;
-        pub const INERTIA: f32 = 0.05;
-        pub const EROSION_RATE: f32 = 0.3;
-        pub const DEPOSITION_RATE: f32 = 0.3;
-        pub const EVAPORATION_RATE: f32 = 0.02;
-        pub const CAPACITY_FACTOR: f32 = 8.0;
-        pub const MIN_SLOPE: f32 = 0.01;
-        pub const WATER_LEVEL: f32 = 0.0;
-    }
     /// How many times the tiling textures repeat across the terrain.
     pub const TILE_SCALE: f32 = 90.0;
 
-    // --- Voronoi terracing ---------------------------------------------------
-    pub mod voronoi {
-        /// Number of Voronoi seed points; more seeds → smaller plateaus.
-        pub const NUM_SEEDS: usize = 1000;
-        /// Number of discrete terrace height levels.
-        pub const NUM_TERRACES: usize = 2;
-    }
-
-    // --- Thermal erosion -----------------------------------------------------
-    pub mod thermal {
-        pub const ITERATIONS: u32 = 30;
-        pub const TALUS_ANGLE: f32 = 0.050;
-    }
-
     // --- Water volume (visual) -----------------------------------------------
     pub mod water {
-        /// Water plane altitude expressed as a fraction of HEIGHT_SCALE.
-        pub const LEVEL_FACTOR: f32 = 0.10;
-
         // --- Environment-global water defaults (Room `Environment` fields) ---
         // These are the room-wide settings used as the fallback whenever a
         // record does not already carry them. Per-volume appearance lives on
@@ -507,72 +491,6 @@ pub mod terrain {
         /// ground and never as a different biome.
         pub const MOISTURE_STRENGTH: f32 = 0.28;
     }
-
-    // --- Splat layer: Grass (layer 0) ----------------------------------------
-    pub mod grass {
-        pub const SEED: u32 = 1;
-        pub const MACRO_SCALE: f64 = 2.5;
-        pub const MACRO_OCTAVES: usize = 4;
-        pub const MICRO_SCALE: f64 = 10.0;
-        pub const MICRO_OCTAVES: usize = 3;
-        pub const MICRO_WEIGHT: f64 = 0.3;
-        pub const COLOR_DRY: [f32; 3] = [0.07, 0.12, 0.03];
-        pub const COLOR_MOIST: [f32; 3] = [0.03, 0.07, 0.01];
-        pub const NORMAL_STRENGTH: f32 = 4.5;
-        // Splat rule (altitude expressed as factor × HEIGHT_SCALE)
-        pub const ALT_MAX_FACTOR: f32 = 0.45;
-        pub const SLOPE_MAX: f32 = 0.30;
-        pub const BLEND: f32 = 0.5;
-    }
-
-    // --- Splat layer: Dirt (layer 1) --------------------------------------------
-    pub mod dirt {
-        pub const SEED: u32 = 13;
-        pub const MACRO_SCALE: f64 = 2.0;
-        pub const MACRO_OCTAVES: usize = 5;
-        pub const MICRO_SCALE: f64 = 8.0;
-        pub const MICRO_OCTAVES: usize = 4;
-        pub const MICRO_WEIGHT: f64 = 0.35;
-        pub const COLOR_DRY: [f32; 3] = [0.52, 0.40, 0.26];
-        pub const COLOR_MOIST: [f32; 3] = [0.28, 0.20, 0.12];
-        pub const NORMAL_STRENGTH: f32 = 2.0;
-        // Splat rule
-        pub const ALT_MIN_FACTOR: f32 = 0.30;
-        pub const ALT_MAX_FACTOR: f32 = 0.65;
-        pub const SLOPE_MAX: f32 = 0.55;
-        pub const BLEND: f32 = 0.5;
-    }
-
-    // --- Splat layer: Rock (layer 2) -----------------------------------------
-    pub mod rock {
-        pub const SEED: u32 = 7;
-        pub const SCALE: f64 = 3.0;
-        pub const OCTAVES: usize = 8;
-        pub const ATTENUATION: f64 = 2.0;
-        pub const COLOR_LIGHT: [f32; 3] = [0.37, 0.42, 0.36];
-        pub const COLOR_DARK: [f32; 3] = [0.22, 0.20, 0.18];
-        pub const NORMAL_STRENGTH: f32 = 4.0;
-        // Splat rule
-        pub const SLOPE_MIN: f32 = 0.25;
-        pub const BLEND: f32 = 0.5;
-    }
-
-    // --- Splat layer: Snow (layer 3) -----------------------------------------
-    pub mod snow {
-        pub const SEED: u32 = 99;
-        pub const MACRO_SCALE: f64 = 4.0;
-        pub const MACRO_OCTAVES: usize = 3;
-        pub const MICRO_SCALE: f64 = 12.0;
-        pub const MICRO_OCTAVES: usize = 3;
-        pub const MICRO_WEIGHT: f64 = 0.4;
-        pub const COLOR_DRY: [f32; 3] = [0.95, 0.95, 0.98];
-        pub const COLOR_MOIST: [f32; 3] = [0.80, 0.82, 0.88];
-        pub const NORMAL_STRENGTH: f32 = 0.8;
-        // Splat rule
-        pub const ALT_MIN_FACTOR: f32 = 0.88;
-        pub const SLOPE_MAX: f32 = 1.0;
-        pub const BLEND: f32 = 4.0;
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -583,7 +501,7 @@ pub mod terrain {
 /// truth for the dimensions handed to `bevy_symbios_texture`; a future
 /// revision may promote them to per-record or per-quality-tier settings, but
 /// for now they are behaviour constants.
-pub mod textures {
+pub(crate) mod textures {
     /// Ground-splat layer resolution (pixels per side). Terrain layers are
     /// viewed up close and tile across the whole world, so they stay at the
     /// historical high resolution. This is the default for a fresh terrain
@@ -617,7 +535,7 @@ pub mod textures {
 /// Direction and speed are not here: those come from the room's
 /// `Environment::cloud_wind_dir` / `cloud_speed`, so one wind drives the
 /// clouds and the foliage together.
-pub mod vegetation_wind {
+pub(crate) mod vegetation_wind {
     /// L-system foliage. `AMPLITUDE` is metres of lean at full weight, and
     /// weight reaches 1 at `REFERENCE_HEIGHT` metres above the plant's base —
     /// so a leaf in a 4 m canopy travels about a hand's width, and one on a
@@ -653,7 +571,7 @@ pub mod vegetation_wind {
 /// Engine-tuning constants for the optional Phase-4 consumer channels
 /// (#246 remainder). These are behaviour constants by design, not
 /// authored per-room.
-pub mod interaction {
+pub(crate) mod interaction {
     /// Projected-decal stamper (consumer channel C). Per-recipe decal
     /// appearance (ttl / size / alpha / colour / normal offset) is
     /// **PDS-authored** since #261 — see
@@ -694,7 +612,7 @@ pub mod interaction {
 // ---------------------------------------------------------------------------
 // Network (network/)
 // ---------------------------------------------------------------------------
-pub mod network {
+pub(crate) mod network {
     /// Broadcast identity to peers every N fixed-update ticks.
     pub const IDENTITY_BROADCAST_INTERVAL_TICKS: u32 = 60;
     /// How long (seconds) after a peer connects we keep waiting for its
@@ -1076,7 +994,7 @@ pub mod state {
 // ---------------------------------------------------------------------------
 // Diagnostic suite (diagnostics/) — epic #588
 // ---------------------------------------------------------------------------
-pub mod diagnostics {
+pub(crate) mod diagnostics {
     /// In-memory ring-buffer capacity for the session-event stream. Larger
     /// than [`super::state::MAX_DIAGNOSTICS_ENTRIES`] (the GUI tail window) so
     /// the native flush + wasm download-log button see more history than the
@@ -1091,14 +1009,26 @@ pub mod diagnostics {
     /// to. Repo-root `diagnostics/` — git-ignored and, unlike `target/`,
     /// survives `cargo clean`, so an agent's post-mortem file is not wiped by
     /// an unrelated rebuild. Overridable via [`DIR_ENV`].
+    /// Native only: the wasm build has no filesystem, so its sink is the
+    /// in-memory ring alone.
+    #[cfg(not(target_arch = "wasm32"))]
     pub const DEFAULT_DIR: &str = "diagnostics";
     /// Stable filename an agent can always read for the newest run; refreshed
     /// (copied) on every flush alongside the timestamped per-session file.
+    /// Native only: the wasm build has no filesystem, so its sink is the
+    /// in-memory ring alone.
+    #[cfg(not(target_arch = "wasm32"))]
     pub const LATEST_FILENAME: &str = "session-latest.jsonl";
     /// Env var overriding [`DEFAULT_DIR`] (e.g. a durable path outside the repo).
+    /// Native only: the wasm build has no filesystem, so its sink is the
+    /// in-memory ring alone.
+    #[cfg(not(target_arch = "wasm32"))]
     pub const DIR_ENV: &str = "SYMBIOS_DIAG_DIR";
     /// Env var — set to `0` to disable native session-log persistence entirely
     /// (tests / CI). The in-memory ring still works.
+    /// Native only: the wasm build has no filesystem, so its sink is the
+    /// in-memory ring alone.
+    #[cfg(not(target_arch = "wasm32"))]
     pub const DISABLE_ENV: &str = "SYMBIOS_DIAG";
 
     /// A frame longer than this is a hitch worth recording individually
@@ -1117,7 +1047,7 @@ pub mod diagnostics {
 // ---------------------------------------------------------------------------
 // Avatar (avatar.rs)
 // ---------------------------------------------------------------------------
-pub mod avatar {
+pub(crate) mod avatar {
     /// User-Agent header sent to the ATProto API.
     pub const USER_AGENT: &str = "SymbiosOverlands/1.0";
 }
@@ -1125,7 +1055,7 @@ pub mod avatar {
 // ---------------------------------------------------------------------------
 // HTTP client defaults (lib.rs, avatar.rs, social.rs, ui/login/, ui/room/)
 // ---------------------------------------------------------------------------
-pub mod http {
+pub(crate) mod http {
     use std::time::Duration;
     /// Maximum time to wait for a TCP + TLS handshake. A tarpit peer that
     /// accepts the connection but never negotiates would otherwise hold
@@ -1319,7 +1249,7 @@ pub mod http {
 // ---------------------------------------------------------------------------
 // Login UI (ui/login/)
 // ---------------------------------------------------------------------------
-pub mod login {
+pub(crate) mod login {
     /// Default ATProto PDS endpoint.
     pub const DEFAULT_PDS: &str = "https://bsky.social";
     /// Default relay signaller hostname.
@@ -1333,7 +1263,7 @@ pub mod login {
 // ---------------------------------------------------------------------------
 // UI panels (ui/chat.rs, ui/diagnostics.rs, ui/avatar/, ui/room/, ui/login/)
 // ---------------------------------------------------------------------------
-pub mod ui {
+pub(crate) mod ui {
     pub mod chat {
         /// Maximum allowed length (in bytes) of a single chat message before
         /// it is truncated.  Caps peer-side rendering cost: without this an
@@ -1587,6 +1517,43 @@ pub mod ui {
         pub const PREVIEW_MAX_RESOLUTION: u32 = 24;
     }
 }
+
+// ---------------------------------------------------------------------------
+// Invariants
+// ---------------------------------------------------------------------------
+// The cross-constant relationships this file's doc comments promise, as
+// compile-time assertions — a violation is a build failure, not a test
+// failure, so it cannot be reached on any platform.
+//
+// This is the half of #1157 that deletion could not fix. The dead-code lint
+// now catches a constant nothing *reads*; nothing caught a constant that is
+// read and quietly contradicts the sentence beside it, and three of these
+// span files, where no reviewer sees both numbers at once.
+
+// `MAX_INVENTORY_SANITIZE_ITEMS` is documented as the DoS bound *above* the
+// gameplay cap (#841). Inverting them restores exactly the bug that issue
+// fixed: sanitise silently deleting items the user watched get saved.
+const _: () = assert!(state::MAX_INVENTORY_SANITIZE_ITEMS >= state::MAX_INVENTORY_ITEMS);
+
+// "Matches the MAX_INVENTORY_LIST_PAGES fetch ceiling (2 pages x 100
+// records), so nothing the fetch can return is ever truncated."
+const _: () = assert!(state::MAX_INVENTORY_LIST_PAGES * 100 <= state::MAX_INVENTORY_SANITIZE_ITEMS);
+
+// "Four pages cover the sanitize::limits::MAX_GENERATORS = 256 room cap with
+// headroom" — a claim about a number in another file, which has been raised
+// once already.
+const _: () =
+    assert!(state::MAX_ROOM_GENERATOR_PAGES * 100 >= crate::pds::sanitize::limits::MAX_GENERATORS);
+
+// The far detail-normal tile is "much coarser than the near tile so the two
+// scales blend": equal or inverted scales are the distance-repetition
+// artifact the pair exists to break up.
+const _: () =
+    assert!(terrain::water::DEFAULT_NORMAL_SCALE_FAR < terrain::water::DEFAULT_NORMAL_SCALE_NEAR);
+
+// A shadow cascade set whose first split sits beyond its own maximum
+// distance draws no shadows at all.
+const _: () = assert!(lighting::CASCADE_FIRST_FAR < lighting::CASCADE_MAX_DIST);
 
 #[cfg(test)]
 mod http_client_tests {

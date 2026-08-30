@@ -221,6 +221,32 @@ mod tests {
         }
     }
 
+    /// Every primitive on the [`crate::for_each_primitive!`] roster reaches
+    /// a mesher arm and produces geometry.
+    ///
+    /// `prim_parts` is the seventeenth ladder — the one this module's own
+    /// header calls "one impl + one constructor arm" — and it ends in
+    /// `_ => None`. A primitive that joins the roster without an arm routes
+    /// here from `compile::dispatch` (that router is macro-generated now, so
+    /// it compiles), gets `None`, and spawns nothing at all: an invisible
+    /// prim with no collider and no error anywhere.
+    #[test]
+    fn every_primitive_reaches_a_mesher_arm() {
+        for tag in crate::pds::generator::primitive_kind_tags() {
+            let kind = GeneratorKind::default_primitive_for_tag(tag).expect("roster has a default");
+            assert!(
+                super::shapes::prim_parts(&kind).is_some(),
+                "{tag} is on the for_each_primitive! roster but prim_parts has no arm for it"
+            );
+            let mesh = build_primitive_mesh(&kind).mesh;
+            let count = mesh
+                .attribute(Mesh::ATTRIBUTE_POSITION)
+                .and_then(|a| a.as_float3())
+                .map_or(0, |p| p.len());
+            assert!(count > 0, "{tag} meshes to nothing");
+        }
+    }
+
     /// The geometry half of [`build_primitive_mesh`], for the tests that
     /// only assert on vertices — the face table has its own tests below.
     fn mesh_of(kind: &GeneratorKind) -> Mesh {

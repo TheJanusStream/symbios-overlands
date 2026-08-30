@@ -27,23 +27,69 @@ use symbios_texture::generator::{TextureGenerator, TextureMap};
 /// direct `symbios-texture` dependency.
 pub use symbios_texture::for_each_generator;
 
-/// One table drives both the [`GeneratorKind`] enum and the per-kind base
-/// dispatch inside [`GenJob::run`]'s heightmap path (#657) — the texture
-/// path in this file is already table-generated (`define_texture_bake!`),
-/// and this closes the same hand-sync gap on the terrain side: adding a
-/// generator is one entry here (plus the app's `SovereignGeneratorKind`
-/// mirror), and the enum and its dispatch can no longer drift apart.
-macro_rules! define_heightmap_generators {
-    ($( $variant:ident => |$p:ident, $hm:ident| $body:block ),* $(,)?) => {
-        /// Base terrain algorithm. Mirrors the app's `SovereignGeneratorKind`
-        /// (kept independent so this crate stays free of the app and Bevy).
+/// The heightmap generator roster — the single declaration of which base
+/// terrain algorithms exist, alongside the display label each wears.
+///
+/// Invoke it with a callback macro that receives every row as
+/// `(Variant, "Label")`. This crate builds [`GeneratorKind`] from it; the
+/// app builds its own wire enum `SovereignGeneratorKind`, that enum's
+/// translation into this one, and the terrain panel's combo box from the
+/// same rows — so a fourth algorithm is one row here and nothing else.
+///
+/// The app cannot simply *use* [`GeneratorKind`]: its wire enum is an open
+/// union carrying an `Unknown` arm for an algorithm a newer engine names
+/// and this build cannot run (#1119), while every variant of this one must
+/// have a body in `define_heightmap_generators!`. One type must tolerate
+/// a variant it cannot dispatch; the other must not. Sharing the roster is
+/// what they can share.
+///
+/// This mirrors [`for_each_generator!`] on the texture side, re-exported
+/// just above for the same reason.
+#[macro_export]
+macro_rules! for_each_heightmap_generator {
+    ($callback:ident) => {
+        $callback! {
+            (FbmNoise, "FBM Noise"),
+            (DiamondSquare, "Diamond Square"),
+            (VoronoiTerracing, "Voronoi Terracing"),
+        }
+    };
+}
+
+macro_rules! define_generator_kind {
+    ($( ($variant:ident, $label:literal) ),* $(,)?) => {
+        /// Base terrain algorithm. Built from the
+        /// [`for_each_heightmap_generator!`] roster, which the app's
+        /// `SovereignGeneratorKind` is built from too — the two are
+        /// separate types (see the roster's docs) that can no longer drift
+        /// apart in *membership*.
         #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
         pub enum GeneratorKind {
             $( $variant, )*
         }
 
-        /// Apply the selected base generator — generated from the same
-        /// table as the enum, so the two stay in lock-step.
+        impl GeneratorKind {
+            /// Every algorithm on the roster, in declaration order. Tests
+            /// that must cover the whole family walk this rather than
+            /// re-listing it.
+            pub const ALL: &'static [GeneratorKind] = &[ $( GeneratorKind::$variant ),* ];
+
+            /// Human-readable name, for the app's picker.
+            pub fn label(self) -> &'static str {
+                match self { $( GeneratorKind::$variant => $label, )* }
+            }
+        }
+    };
+}
+for_each_heightmap_generator!(define_generator_kind);
+
+/// The per-kind base dispatch inside [`GenJob::run`]'s heightmap path
+/// (#657). One arm per algorithm, and the match is exhaustive over the
+/// [`for_each_heightmap_generator!`] roster — so a row added to the roster
+/// with no body here, or a body here for a row that is not on the roster,
+/// is a compile error in both directions.
+macro_rules! define_heightmap_generators {
+    ($( $variant:ident => |$p:ident, $hm:ident| $body:block ),* $(,)?) => {
         fn apply_base_generator(params: &HeightmapParams, heightmap: &mut HeightMap) {
             match params.generator_kind {
                 $( GeneratorKind::$variant => {
@@ -674,11 +720,7 @@ mod tests {
 
     #[test]
     fn erosion_corner_output_is_finite() {
-        for kind in [
-            GeneratorKind::FbmNoise,
-            GeneratorKind::DiamondSquare,
-            GeneratorKind::VoronoiTerracing,
-        ] {
+        for &kind in GeneratorKind::ALL {
             let d = run(erosion_corner(kind));
             assert!(
                 d.data.iter().all(|v| v.is_finite()),
@@ -714,11 +756,7 @@ mod tests {
     /// the base-shape agreement (eroded proxies only approximate).
     #[test]
     fn proxy_macro_shape_tracks_full_map() {
-        for kind in [
-            GeneratorKind::FbmNoise,
-            GeneratorKind::DiamondSquare,
-            GeneratorKind::VoronoiTerracing,
-        ] {
+        for &kind in GeneratorKind::ALL {
             let p = HeightmapParams {
                 grid_size: 129,
                 cell_scale: 2.0,
@@ -754,11 +792,7 @@ mod tests {
 
     #[test]
     fn proxy_with_erosion_is_finite_and_still_tracks_roughly() {
-        for kind in [
-            GeneratorKind::FbmNoise,
-            GeneratorKind::DiamondSquare,
-            GeneratorKind::VoronoiTerracing,
-        ] {
+        for &kind in GeneratorKind::ALL {
             let p = HeightmapParams {
                 grid_size: 129,
                 cell_scale: 2.0,

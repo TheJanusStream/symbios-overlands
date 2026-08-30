@@ -86,54 +86,7 @@ fn finish_tree(node: &mut Generator, wealth: f32, scorch: f32) {
 /// [`crate::pds::ruin`] so the damage pass walks the same material set.
 pub(crate) fn node_materials_mut(kind: &mut GeneratorKind) -> Vec<&mut SovereignMaterialSettings> {
     match kind {
-        GeneratorKind::Cuboid {
-            material, faces, ..
-        }
-        | GeneratorKind::Sphere {
-            material, faces, ..
-        }
-        | GeneratorKind::Cylinder {
-            material, faces, ..
-        }
-        | GeneratorKind::Capsule {
-            material, faces, ..
-        }
-        | GeneratorKind::Cone {
-            material, faces, ..
-        }
-        | GeneratorKind::Torus {
-            material, faces, ..
-        }
-        | GeneratorKind::Plane {
-            material, faces, ..
-        }
-        | GeneratorKind::Tetrahedron {
-            material, faces, ..
-        }
-        | GeneratorKind::Tube {
-            material, faces, ..
-        }
-        | GeneratorKind::Bevel {
-            material, faces, ..
-        }
-        | GeneratorKind::Wedge {
-            material, faces, ..
-        }
-        | GeneratorKind::Helix {
-            material, faces, ..
-        }
-        | GeneratorKind::Superellipsoid {
-            material, faces, ..
-        }
-        | GeneratorKind::Spine {
-            material, faces, ..
-        }
-        | GeneratorKind::Lathe {
-            material, faces, ..
-        }
-        | GeneratorKind::BlobGroup {
-            material, faces, ..
-        } => std::iter::once(material)
+        crate::for_each_primitive!(pattern { material, faces }) => std::iter::once(material)
             .chain(faces.iter_mut().map(|f| &mut f.material))
             .collect(),
         GeneratorKind::Shape { materials, .. } => materials.values_mut().collect(),

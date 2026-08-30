@@ -235,38 +235,22 @@ pub(super) fn color_picker_rgba(ui: &mut egui::Ui, label: &str, value: &mut Fp4,
     });
 }
 
+/// Terrain-algorithm picker, driven by the generator roster rather than a
+/// hand-written option list: a fourth algorithm added to
+/// `gen_jobs::for_each_heightmap_generator!` appears here with no edit.
+///
+/// `Unknown` is an algorithm from a newer engine (#1119). It is named, not
+/// hidden — but it is absent from `SELECTABLE`, because picking a real
+/// algorithm is how the owner *deliberately* replaces it, and until they do
+/// the save stays refused rather than silently downgrading their choice.
 pub(super) fn kind_combo(ui: &mut egui::Ui, kind: &mut SovereignGeneratorKind) -> bool {
     let mut changed = false;
     egui::ComboBox::from_label("Kind")
-        // `Unknown` is an algorithm from a newer engine (#1119). It is
-        // named, not hidden, and it is deliberately absent from the
-        // selectable list below: picking any of the three real algorithms
-        // is how the owner *deliberately* replaces it, and until they do
-        // the save stays refused rather than silently downgrading it.
-        .selected_text(match kind {
-            SovereignGeneratorKind::FbmNoise => "FBM Noise",
-            SovereignGeneratorKind::DiamondSquare => "Diamond Square",
-            SovereignGeneratorKind::VoronoiTerracing => "Voronoi Terracing",
-            SovereignGeneratorKind::Unknown => "Unknown (newer version)",
-        })
+        .selected_text(kind.label())
         .show_ui(ui, |ui| {
-            changed |= ui
-                .selectable_value(kind, SovereignGeneratorKind::FbmNoise, "FBM Noise")
-                .changed();
-            changed |= ui
-                .selectable_value(
-                    kind,
-                    SovereignGeneratorKind::DiamondSquare,
-                    "Diamond Square",
-                )
-                .changed();
-            changed |= ui
-                .selectable_value(
-                    kind,
-                    SovereignGeneratorKind::VoronoiTerracing,
-                    "Voronoi Terracing",
-                )
-                .changed();
+            for &option in SovereignGeneratorKind::SELECTABLE {
+                changed |= ui.selectable_value(kind, option, option.label()).changed();
+            }
         });
     changed
 }

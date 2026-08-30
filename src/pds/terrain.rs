@@ -6,29 +6,80 @@ use super::texture::{SovereignGroundConfig, SovereignRockConfig, SovereignTextur
 use super::types::{Fp, Fp3, Fp64, u64_as_string};
 use serde::{Deserialize, Serialize};
 
-/// Which base terrain algorithm to run. Mirrors `ground-lab::GeneratorKind`
-/// but tagged for lexicon-safe serde.
+/// Builds [`SovereignGeneratorKind`] and everything that enumerates it from
+/// the [`gen_jobs::for_each_heightmap_generator!`] roster.
 ///
-/// Open union (#1119). `symbios-ground` gains algorithms; a Terrain child
-/// naming one this build has never compiled used to fail that child's
-/// decode outright, and `list_room_children` drops what it cannot read —
-/// so the room loaded with no ground under it, and the next publish from
-/// this client rewrote the manifest without the ref and orphaned the
-/// child. A fourth algorithm should cost a visitor its terracing, not the
-/// owner their terrain.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum SovereignGeneratorKind {
-    FbmNoise,
-    DiamondSquare,
-    #[default]
-    VoronoiTerracing,
-    /// An algorithm from a newer engine. Runs as the default
-    /// ([`VoronoiTerracing`](Self::VoronoiTerracing)) so the room still has
-    /// ground, and refuses to serialize so this build cannot save its
-    /// substitute over the owner's real choice.
-    #[serde(other, skip_serializing)]
-    Unknown,
+/// The wire enum cannot simply *be* [`gen_jobs::GeneratorKind`] — see
+/// [`SovereignGeneratorKind::Unknown`] — but the two must never disagree
+/// about which algorithms exist, and before this they were two hand-typed
+/// lists with two hand-typed translation ladders between them.
+macro_rules! define_sovereign_generator_kind {
+    ($( ($variant:ident, $label:literal) ),* $(,)?) => {
+        /// Which base terrain algorithm to run — the wire form of
+        /// [`gen_jobs::GeneratorKind`].
+        ///
+        /// Open union (#1119). `symbios-ground` gains algorithms; a Terrain
+        /// child naming one this build has never compiled used to fail that
+        /// child's decode outright, and `list_room_children` drops what it
+        /// cannot read — so the room loaded with no ground under it, and the
+        /// next publish from this client rewrote the manifest without the ref
+        /// and orphaned the child. A fourth algorithm should cost a visitor
+        /// its terracing, not the owner their terrain.
+        ///
+        /// That tolerance is exactly why this is not a re-export of
+        /// [`gen_jobs::GeneratorKind`]: every variant of *that* enum must
+        /// have a generator body, and `Unknown` by definition has none.
+        #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        pub enum SovereignGeneratorKind {
+            $( $variant, )*
+            /// An algorithm from a newer engine. Runs as
+            /// [`SovereignGeneratorKind::default`] so the room still has
+            /// ground, and refuses to serialize so this build cannot save
+            /// its substitute over the owner's real choice.
+            #[serde(other, skip_serializing)]
+            Unknown,
+        }
+
+        impl Default for SovereignGeneratorKind {
+            fn default() -> Self {
+                Self::VoronoiTerracing
+            }
+        }
+
+        impl SovereignGeneratorKind {
+            /// The algorithms this build can actually run, in roster order —
+            /// what the terrain panel offers. `Unknown` is deliberately
+            /// absent: picking a real algorithm is how the owner replaces
+            /// it, and until they do the save stays refused rather than
+            /// silently downgrading their choice.
+            pub const SELECTABLE: &'static [SovereignGeneratorKind] =
+                &[ $( SovereignGeneratorKind::$variant ),* ];
+
+            /// Human-readable name for the picker.
+            pub fn label(self) -> &'static str {
+                match self {
+                    $( Self::$variant => $label, )*
+                    Self::Unknown => "Unknown (newer version)",
+                }
+            }
+
+            /// The algorithm the generation job actually runs.
+            ///
+            /// An algorithm this build has never heard of still has to
+            /// produce a heightmap — a visitor seeing the wrong terrain is
+            /// recoverable, a visitor standing on nothing is not — so
+            /// `Unknown` runs as the default. It is the only arm that
+            /// translates to something other than its namesake.
+            pub fn to_gen_job(self) -> gen_jobs::GeneratorKind {
+                match self {
+                    $( Self::$variant => gen_jobs::GeneratorKind::$variant, )*
+                    Self::Unknown => gen_jobs::GeneratorKind::VoronoiTerracing,
+                }
+            }
+        }
+    };
 }
+gen_jobs::for_each_heightmap_generator!(define_sovereign_generator_kind);
 
 /// Full terrain configuration stored inside a `Generator::Terrain` variant.
 /// This is a serialisable mirror of `ground-lab::TerrainConfig` — all `f32`
@@ -255,5 +306,56 @@ impl Default for SovereignMaterialConfig {
                 }),
             ],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SovereignGeneratorKind;
+
+    /// The wire enum and the dispatch enum are built from one roster, so
+    /// their membership, order and labels agree by construction — this is
+    /// what says so out loud.
+    ///
+    /// Before #1157 they were two hand-typed variant lists (plus a third in
+    /// `seeded_defaults`) joined by two hand-written translation ladders,
+    /// and adding a fourth algorithm meant editing all five sites. Adding
+    /// it to only one of them compiled: the ladders' arms were exhaustive
+    /// per-type, not across types, so the new algorithm would simply never
+    /// be reachable from a record.
+    #[test]
+    fn the_wire_enum_and_the_dispatch_enum_share_one_roster() {
+        let translated: Vec<gen_jobs::GeneratorKind> = SovereignGeneratorKind::SELECTABLE
+            .iter()
+            .map(|k| k.to_gen_job())
+            .collect();
+        assert_eq!(
+            translated,
+            gen_jobs::GeneratorKind::ALL,
+            "the runnable algorithms and the wire algorithms have drifted"
+        );
+        for (wire, job) in SovereignGeneratorKind::SELECTABLE
+            .iter()
+            .zip(gen_jobs::GeneratorKind::ALL)
+        {
+            assert_eq!(wire.label(), job.label(), "labels disagree for {wire:?}");
+        }
+    }
+
+    /// `Unknown` is the one arm that does not translate to its namesake:
+    /// it has none. It must run as the default rather than failing, or a
+    /// visitor whose peer named a newer algorithm stands on nothing
+    /// (#1119).
+    #[test]
+    fn an_unknown_algorithm_runs_as_the_default() {
+        assert_eq!(
+            SovereignGeneratorKind::Unknown.to_gen_job(),
+            SovereignGeneratorKind::default().to_gen_job()
+        );
+        assert!(!SovereignGeneratorKind::SELECTABLE.contains(&SovereignGeneratorKind::Unknown));
+        assert_ne!(
+            SovereignGeneratorKind::default(),
+            SovereignGeneratorKind::Unknown
+        );
     }
 }

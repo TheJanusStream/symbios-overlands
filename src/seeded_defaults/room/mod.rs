@@ -8,10 +8,16 @@
 //! [`super::SceneCharacter`] anchor so the derived values stay
 //! internally coherent — see the module-level docstring on
 //! [`super`] for the full data flow.
+//!
+//! [`build`] is the odd one out: it derives nothing itself, it *assembles* —
+//! it is where every other submodule's derived shape is wired into a
+//! `RoomRecord`, and it is the entry point (`build_room`) that
+//! `RoomRecord::default_for_seed` forwards to.
 
 pub mod accent;
 pub mod atmosphere;
 pub mod audio;
+pub mod build;
 mod exotic;
 pub mod gateway;
 pub mod groundcover;
@@ -39,5 +45,5 @@ pub use settlement::{
     BUILD_SLOPE_LIMIT, Settlement, SettlementCluster, SettlementMember, SettlementPlan,
 };
 pub use siting::{BuildableRegion, TerrainProbe};
-pub use terrain::{GeneratorKind, SplatRule, TerrainShape};
+pub use terrain::{SplatRule, TerrainShape};
 pub use textures::{BiomeTextures, GroundTextureParams, RockTextureParams};

@@ -947,4 +947,34 @@ mod tests {
             "sweep must exercise both outcomes (standing {saw_standing}, collapsed {saw_collapsed})"
         );
     }
+
+    /// Every primitive on the [`crate::for_each_primitive!`] roster has a
+    /// `kind_bounds` arm.
+    ///
+    /// `kind_bounds` ends in a `_ => None` catch-all — correct for the
+    /// variants with no support-relevant volume (water, portals, particles),
+    /// and silently wrong for a primitive that never got an arm: it would
+    /// take no part in the support model, so the damage pass would leave it
+    /// hanging in mid-air with nothing under it and no error anywhere.
+    #[test]
+    fn every_primitive_has_bounds() {
+        for tag in crate::pds::generator::primitive_kind_tags() {
+            let kind = GeneratorKind::default_primitive_for_tag(tag).expect("roster has a default");
+            let b = kind_bounds(&kind).unwrap_or_else(|| {
+                panic!(
+                    "{tag} is on the for_each_primitive! roster but kind_bounds has no arm for it"
+                )
+            });
+            for axis in 0..3 {
+                assert!(
+                    b.max[axis] > b.min[axis],
+                    "{tag}: bounds are degenerate on axis {axis}"
+                );
+                assert!(
+                    b.min[axis].is_finite() && b.max[axis].is_finite(),
+                    "{tag}: bounds are not finite on axis {axis}"
+                );
+            }
+        }
+    }
 }

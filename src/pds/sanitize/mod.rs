@@ -209,22 +209,7 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
                 *axis = common::clamp_finite(*axis, 0.25, 50.0, 2.5);
             }
         }
-        GeneratorKind::Cuboid { .. }
-        | GeneratorKind::Sphere { .. }
-        | GeneratorKind::Cylinder { .. }
-        | GeneratorKind::Capsule { .. }
-        | GeneratorKind::Cone { .. }
-        | GeneratorKind::Torus { .. }
-        | GeneratorKind::Plane { .. }
-        | GeneratorKind::Tetrahedron { .. }
-        | GeneratorKind::Tube { .. }
-        | GeneratorKind::Bevel { .. }
-        | GeneratorKind::Wedge { .. }
-        | GeneratorKind::Helix { .. }
-        | GeneratorKind::Superellipsoid { .. }
-        | GeneratorKind::Spine { .. }
-        | GeneratorKind::Lathe { .. }
-        | GeneratorKind::BlobGroup { .. } => sanitize_primitive(kind),
+        crate::for_each_primitive!(pattern {}) => sanitize_primitive(kind),
         GeneratorKind::Water { surface } => sanitize_water(surface),
         GeneratorKind::RoadNetwork(config) => sanitize_road(config),
         GeneratorKind::Sign {

@@ -165,25 +165,7 @@ pub fn mesh_bounds(kind: &GeneratorKind, world: &Transform) -> Option<Bounds> {
 /// Whether the mesher owns this kind — mirrors the primitive arm of the
 /// spawn router in `world_builder::compile::dispatch`.
 pub fn is_primitive(kind: &GeneratorKind) -> bool {
-    matches!(
-        kind,
-        GeneratorKind::Cuboid { .. }
-            | GeneratorKind::Sphere { .. }
-            | GeneratorKind::Cylinder { .. }
-            | GeneratorKind::Capsule { .. }
-            | GeneratorKind::Cone { .. }
-            | GeneratorKind::Torus { .. }
-            | GeneratorKind::Plane { .. }
-            | GeneratorKind::Tetrahedron { .. }
-            | GeneratorKind::Tube { .. }
-            | GeneratorKind::Bevel { .. }
-            | GeneratorKind::Wedge { .. }
-            | GeneratorKind::Helix { .. }
-            | GeneratorKind::Superellipsoid { .. }
-            | GeneratorKind::Spine { .. }
-            | GeneratorKind::Lathe { .. }
-            | GeneratorKind::BlobGroup { .. }
-    )
+    matches!(kind, crate::for_each_primitive!(pattern {}))
 }
 #[cfg(test)]
 mod tests {

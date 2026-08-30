@@ -66,10 +66,10 @@ pub use avatar::{
 pub use hash::fnv1a_64;
 pub use room::{
     AmbientParticles, AmbientRecipe, Atmosphere, BUILD_SLOPE_LIMIT, BiomeTextures, BuildableRegion,
-    GatewaySpot, GeneratorKind, GroundTextureParams, MonumentSpot, ParticleMood, RockScatters,
-    RockTextureParams, RoomPalette, Settlement, SettlementCluster, SettlementMember,
-    SettlementPlan, SplatRule, TerrainProbe, TerrainShape, ThemeAccent, TreeScatter, TreeScatters,
-    TreeSpecies, WaterDynamics, theme_luminosity,
+    GatewaySpot, GroundTextureParams, MonumentSpot, ParticleMood, RockScatters, RockTextureParams,
+    RoomPalette, Settlement, SettlementCluster, SettlementMember, SettlementPlan, SplatRule,
+    TerrainProbe, TerrainShape, ThemeAccent, TreeScatter, TreeScatters, TreeSpecies, WaterDynamics,
+    theme_luminosity,
 };
 pub use scene::{
     BiomeArchetype, EscalationBand, EscalationTier, LandformArchetype, ProsperityBand,

@@ -16,6 +16,7 @@
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::SeedableRng;
 
+use crate::pds::SovereignGeneratorKind;
 use crate::seeded_defaults::scene::{
     BiomeArchetype, LandformArchetype, SceneCharacter, pick, range_f32,
 };
@@ -24,16 +25,6 @@ use crate::seeded_defaults::scene::{
 /// [`super::palette`]'s salt so the palette deriver and the shape
 /// deriver advance independently — changing one cannot drift the other.
 const TERRAIN_SHAPE_STREAM_SALT: u64 = 0x5EED_5AFE_E000_0000;
-
-/// Heightmap algorithm. Mirrors [`crate::pds::SovereignGeneratorKind`]
-/// so the `apply_shape_to_terrain_config` mapping is one-to-one with no
-/// translation table.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum GeneratorKind {
-    FbmNoise,
-    DiamondSquare,
-    VoronoiTerracing,
-}
 
 /// One splat rule (where biome layer `i` appears in normalised
 /// height/slope space). Mirrors [`crate::pds::SovereignSplatRule`].
@@ -50,7 +41,7 @@ pub struct SplatRule {
 /// [`crate::pds::SovereignTerrainConfig`] / `SovereignMaterialConfig`.
 #[derive(Clone, Debug)]
 pub struct TerrainShape {
-    pub generator_kind: GeneratorKind,
+    pub generator_kind: SovereignGeneratorKind,
     pub octaves: u32,
     pub persistence: f32,
     pub lacunarity: f32,
@@ -104,9 +95,9 @@ struct LandformProfile {
     /// terracing *is* the archetype); the noise-driven landforms mix
     /// FBM with Diamond-Square so two Rolling rooms can differ in
     /// macro character, not just in knob values.
-    generator_kinds: &'static [GeneratorKind],
+    generator_kinds: &'static [SovereignGeneratorKind],
     /// Diamond-Square roughness band — only consumed when the picked
-    /// algorithm is [`GeneratorKind::DiamondSquare`], but sampled
+    /// algorithm is [`SovereignGeneratorKind::DiamondSquare`], but sampled
     /// unconditionally to keep the RNG stream stable.
     ds_roughness: (f32, f32),
     /// Total terrain amplitude (m). Rolling=low, Craggy=high.
@@ -149,8 +140,8 @@ struct LandformProfile {
 }
 
 fn landform_profile(l: LandformArchetype) -> LandformProfile {
-    use GeneratorKind::*;
     use LandformArchetype::*;
+    use SovereignGeneratorKind::*;
     match l {
         Rolling => LandformProfile {
             generator_kinds: &[FbmNoise, FbmNoise, DiamondSquare],
@@ -581,13 +572,13 @@ mod tests {
             mesa.landform = LandformArchetype::Mesa;
             assert_eq!(
                 TerrainShape::from_scene(&mesa, s).generator_kind,
-                GeneratorKind::VoronoiTerracing,
+                SovereignGeneratorKind::VoronoiTerracing,
                 "mesa must stay Voronoi-terraced"
             );
         }
         assert!(
-            rolling_kinds.contains(&GeneratorKind::FbmNoise)
-                && rolling_kinds.contains(&GeneratorKind::DiamondSquare),
+            rolling_kinds.contains(&SovereignGeneratorKind::FbmNoise)
+                && rolling_kinds.contains(&SovereignGeneratorKind::DiamondSquare),
             "rolling rooms should mix FBM and Diamond-Square; saw {rolling_kinds:?}"
         );
     }

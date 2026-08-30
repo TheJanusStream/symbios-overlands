@@ -1139,6 +1139,104 @@ fn unit_uv_repeat() -> Fp2 {
     Fp2([1.0, 1.0])
 }
 
+/// The single declaration of the **parametric-primitive family** — the
+/// sixteen [`GeneratorKind`] variants the shared mesher owns, each carrying
+/// the same `solid` / `material` / `torture` / `faces` / `uv_mapping` block
+/// alongside its own dimensional knobs.
+///
+/// Before #1156 that roster was re-typed as a sixteen-arm or-pattern in ten
+/// places that knew nothing about each other, and a seventeenth primitive
+/// had to be hand-added to all of them. Nine of those ladders ended in a
+/// `_ =>` catch-all, so a missed one was not a compile error — it was a new
+/// shape that silently reported "no material", "not a primitive", or "no
+/// bounds". The roster now lives here and nowhere else.
+///
+/// # Forms
+///
+/// * `for_each_primitive!(kind_expr, { field, … } => body)` — expands to a
+///   `match` over the family binding `field, …` in every arm, evaluating
+///   `body` to `Some(_)`; non-primitive variants fall through to `None`.
+///   Binds through both `&` and `&mut`.
+/// * `for_each_primitive!(pattern { field, … })` — expands to the bare
+///   or-pattern, for use as one arm of a caller's own `match`. The field
+///   list may be empty. Because the expansion is an ordinary pattern, the
+///   caller's match keeps its exhaustiveness check: a variant added to the
+///   enum but *not* to this roster fails to compile at every such site.
+/// * `for_each_primitive!(tags)` — the roster as
+///   `&'static [&'static str]`, matching
+///   [`GeneratorKind::kind_tag`]. This
+///   is what lets a test *enumerate* the family (see
+///   [`primitive_kind_tags`]).
+///
+/// # Adding a primitive
+///
+/// 1. Add the variant to `GeneratorKind` and to the roster below.
+/// 2. Add its mesher: one `PrimitiveShape` impl and one `prim_parts` arm
+///    in `world_builder::prim::shapes` (#644).
+/// 3. Add its `kind_tag` and `default_primitive_for_tag` arms.
+/// 4. Add its **clamp arm** to `pds::sanitize::primitive`.
+/// 5. Add its `pds::ruin::kind_bounds` arm and its editor panel arm in
+///    `ui::room::generators::detail`.
+///
+/// Only `kind_tag` and the editor panel are compile errors. Every other
+/// ladder there ends in a catch-all — that is what made a missed one
+/// silent — so each has an enumerating test that walks this roster and
+/// fails naming the variant: `every_primitive_reaches_a_mesher_arm`
+/// (`world_builder::prim`), `every_primitive_has_a_default_and_a_matching_tag`,
+/// `every_primitive_clamps_hostile_wire_values` and
+/// `every_primitive_delegates_the_shared_blocks` (`pds::sanitize::primitive`),
+/// and `every_primitive_has_bounds` (`pds::ruin`). No macro can write a
+/// per-variant bound, mesh, or bounding box; a test can insist they exist.
+#[macro_export]
+macro_rules! for_each_primitive {
+    // --- the roster: the one place the family is written down ---------------
+    (@roster $mode:tt $args:tt) => {
+        $crate::for_each_primitive!(@build $mode $args [
+            Cuboid Sphere Cylinder Capsule Cone Torus Plane Tetrahedron
+            Tube Bevel Wedge Helix Superellipsoid Spine Lathe BlobGroup
+        ])
+    };
+
+    // --- expansions ---------------------------------------------------------
+    (@build (accessor) ($kind:expr, $fields:tt, $body:expr) [$($v:ident)*]) => {
+        match $kind {
+            $( $crate::pds::generator::GeneratorKind::$v $fields )|* => Some($body),
+            _ => None,
+        }
+    };
+    (@build (pattern) $fields:tt [$($v:ident)*]) => {
+        $( $crate::pds::generator::GeneratorKind::$v $fields )|*
+    };
+    (@build (tags) () [$($v:ident)*]) => {
+        &[$(stringify!($v)),*]
+    };
+
+    // --- public forms -------------------------------------------------------
+    ($kind:expr, { $($field:ident),* $(,)? } => $body:expr) => {
+        $crate::for_each_primitive!(@roster (accessor) ($kind, { $($field,)* .. }, $body))
+    };
+    (pattern { $($field:ident),* $(,)? }) => {
+        $crate::for_each_primitive!(@roster (pattern) { $($field,)* .. })
+    };
+    (tags) => {
+        $crate::for_each_primitive!(@roster (tags) ())
+    };
+}
+
+pub use for_each_primitive;
+
+/// The primitive roster as short tags, in declaration order — the same
+/// strings [`GeneratorKind::kind_tag`] returns and
+/// [`GeneratorKind::default_primitive_for_tag`] accepts.
+///
+/// Exists so tests can *enumerate* the family rather than re-listing it:
+/// the sanitiser's hostile-record suite and the ruin bounds test both walk
+/// this, so a seventeenth primitive is covered the moment it joins the
+/// roster in [`for_each_primitive!`].
+pub fn primitive_kind_tags() -> &'static [&'static str] {
+    for_each_primitive!(tags)
+}
+
 /// Variant-specific payload for a [`Generator`]. Open union: unrecognised
 /// `$type` tags deserialise to `Unknown` instead of failing the whole record.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -1930,49 +2028,13 @@ impl GeneratorKind {
     /// eight-arm match so the mesher, sanitiser, and editor don't each repeat
     /// it.
     pub fn torture(&self) -> Option<&TortureParams> {
-        match self {
-            GeneratorKind::Cuboid { torture, .. }
-            | GeneratorKind::Sphere { torture, .. }
-            | GeneratorKind::Cylinder { torture, .. }
-            | GeneratorKind::Capsule { torture, .. }
-            | GeneratorKind::Cone { torture, .. }
-            | GeneratorKind::Torus { torture, .. }
-            | GeneratorKind::Plane { torture, .. }
-            | GeneratorKind::Tetrahedron { torture, .. }
-            | GeneratorKind::Tube { torture, .. }
-            | GeneratorKind::Bevel { torture, .. }
-            | GeneratorKind::Wedge { torture, .. }
-            | GeneratorKind::Helix { torture, .. }
-            | GeneratorKind::Superellipsoid { torture, .. }
-            | GeneratorKind::Spine { torture, .. }
-            | GeneratorKind::Lathe { torture, .. }
-            | GeneratorKind::BlobGroup { torture, .. } => Some(torture),
-            _ => None,
-        }
+        for_each_primitive!(self, { torture } => torture)
     }
 
     /// Shared mutable access to a primitive's vertex-torture parameters; `None`
     /// for non-primitive variants.
     pub fn torture_mut(&mut self) -> Option<&mut TortureParams> {
-        match self {
-            GeneratorKind::Cuboid { torture, .. }
-            | GeneratorKind::Sphere { torture, .. }
-            | GeneratorKind::Cylinder { torture, .. }
-            | GeneratorKind::Capsule { torture, .. }
-            | GeneratorKind::Cone { torture, .. }
-            | GeneratorKind::Torus { torture, .. }
-            | GeneratorKind::Plane { torture, .. }
-            | GeneratorKind::Tetrahedron { torture, .. }
-            | GeneratorKind::Tube { torture, .. }
-            | GeneratorKind::Bevel { torture, .. }
-            | GeneratorKind::Wedge { torture, .. }
-            | GeneratorKind::Helix { torture, .. }
-            | GeneratorKind::Superellipsoid { torture, .. }
-            | GeneratorKind::Spine { torture, .. }
-            | GeneratorKind::Lathe { torture, .. }
-            | GeneratorKind::BlobGroup { torture, .. } => Some(torture),
-            _ => None,
-        }
+        for_each_primitive!(self, { torture } => torture)
     }
 
     /// Shared read access to a parametric primitive's **base** material;
@@ -1981,97 +2043,25 @@ impl GeneratorKind {
     /// excluded — `node_materials_mut` in `material_finish` is the
     /// every-material walk.
     pub fn material(&self) -> Option<&SovereignMaterialSettings> {
-        match self {
-            GeneratorKind::Cuboid { material, .. }
-            | GeneratorKind::Sphere { material, .. }
-            | GeneratorKind::Cylinder { material, .. }
-            | GeneratorKind::Capsule { material, .. }
-            | GeneratorKind::Cone { material, .. }
-            | GeneratorKind::Torus { material, .. }
-            | GeneratorKind::Plane { material, .. }
-            | GeneratorKind::Tetrahedron { material, .. }
-            | GeneratorKind::Tube { material, .. }
-            | GeneratorKind::Bevel { material, .. }
-            | GeneratorKind::Wedge { material, .. }
-            | GeneratorKind::Helix { material, .. }
-            | GeneratorKind::Superellipsoid { material, .. }
-            | GeneratorKind::Spine { material, .. }
-            | GeneratorKind::Lathe { material, .. }
-            | GeneratorKind::BlobGroup { material, .. } => Some(material),
-            _ => None,
-        }
+        for_each_primitive!(self, { material } => material)
     }
 
     /// Shared mutable access to a primitive's base material; `None` for
     /// non-primitive variants.
     pub fn material_mut(&mut self) -> Option<&mut SovereignMaterialSettings> {
-        match self {
-            GeneratorKind::Cuboid { material, .. }
-            | GeneratorKind::Sphere { material, .. }
-            | GeneratorKind::Cylinder { material, .. }
-            | GeneratorKind::Capsule { material, .. }
-            | GeneratorKind::Cone { material, .. }
-            | GeneratorKind::Torus { material, .. }
-            | GeneratorKind::Plane { material, .. }
-            | GeneratorKind::Tetrahedron { material, .. }
-            | GeneratorKind::Tube { material, .. }
-            | GeneratorKind::Bevel { material, .. }
-            | GeneratorKind::Wedge { material, .. }
-            | GeneratorKind::Helix { material, .. }
-            | GeneratorKind::Superellipsoid { material, .. }
-            | GeneratorKind::Spine { material, .. }
-            | GeneratorKind::Lathe { material, .. }
-            | GeneratorKind::BlobGroup { material, .. } => Some(material),
-            _ => None,
-        }
+        for_each_primitive!(self, { material } => material)
     }
 
     /// Shared read access to a primitive's per-face overrides (#955);
     /// `None` for non-primitive variants.
     pub fn faces(&self) -> Option<&[FaceOverride]> {
-        match self {
-            GeneratorKind::Cuboid { faces, .. }
-            | GeneratorKind::Sphere { faces, .. }
-            | GeneratorKind::Cylinder { faces, .. }
-            | GeneratorKind::Capsule { faces, .. }
-            | GeneratorKind::Cone { faces, .. }
-            | GeneratorKind::Torus { faces, .. }
-            | GeneratorKind::Plane { faces, .. }
-            | GeneratorKind::Tetrahedron { faces, .. }
-            | GeneratorKind::Tube { faces, .. }
-            | GeneratorKind::Bevel { faces, .. }
-            | GeneratorKind::Wedge { faces, .. }
-            | GeneratorKind::Helix { faces, .. }
-            | GeneratorKind::Superellipsoid { faces, .. }
-            | GeneratorKind::Spine { faces, .. }
-            | GeneratorKind::Lathe { faces, .. }
-            | GeneratorKind::BlobGroup { faces, .. } => Some(faces),
-            _ => None,
-        }
+        for_each_primitive!(self, { faces } => faces)
     }
 
     /// Shared mutable access to a primitive's per-face overrides; `None`
     /// for non-primitive variants.
     pub fn faces_mut(&mut self) -> Option<&mut Vec<FaceOverride>> {
-        match self {
-            GeneratorKind::Cuboid { faces, .. }
-            | GeneratorKind::Sphere { faces, .. }
-            | GeneratorKind::Cylinder { faces, .. }
-            | GeneratorKind::Capsule { faces, .. }
-            | GeneratorKind::Cone { faces, .. }
-            | GeneratorKind::Torus { faces, .. }
-            | GeneratorKind::Plane { faces, .. }
-            | GeneratorKind::Tetrahedron { faces, .. }
-            | GeneratorKind::Tube { faces, .. }
-            | GeneratorKind::Bevel { faces, .. }
-            | GeneratorKind::Wedge { faces, .. }
-            | GeneratorKind::Helix { faces, .. }
-            | GeneratorKind::Superellipsoid { faces, .. }
-            | GeneratorKind::Spine { faces, .. }
-            | GeneratorKind::Lathe { faces, .. }
-            | GeneratorKind::BlobGroup { faces, .. } => Some(faces),
-            _ => None,
-        }
+        for_each_primitive!(self, { faces } => faces)
     }
 
     /// The primitive's whole-prim texture projection (#955); `None` for
@@ -2080,74 +2070,21 @@ impl GeneratorKind {
     /// the revolved family to `Fit` (their meshers' own analytic
     /// parameterisation).
     pub fn uv_mapping(&self) -> Option<UvMapping> {
-        match self {
-            GeneratorKind::Cuboid { uv_mapping, .. }
-            | GeneratorKind::Sphere { uv_mapping, .. }
-            | GeneratorKind::Cylinder { uv_mapping, .. }
-            | GeneratorKind::Capsule { uv_mapping, .. }
-            | GeneratorKind::Cone { uv_mapping, .. }
-            | GeneratorKind::Torus { uv_mapping, .. }
-            | GeneratorKind::Plane { uv_mapping, .. }
-            | GeneratorKind::Tetrahedron { uv_mapping, .. }
-            | GeneratorKind::Tube { uv_mapping, .. }
-            | GeneratorKind::Bevel { uv_mapping, .. }
-            | GeneratorKind::Wedge { uv_mapping, .. }
-            | GeneratorKind::Helix { uv_mapping, .. }
-            | GeneratorKind::Superellipsoid { uv_mapping, .. }
-            | GeneratorKind::Spine { uv_mapping, .. }
-            | GeneratorKind::Lathe { uv_mapping, .. }
-            | GeneratorKind::BlobGroup { uv_mapping, .. } => Some(*uv_mapping),
-            _ => None,
-        }
+        for_each_primitive!(self, { uv_mapping } => *uv_mapping)
     }
 
     /// Shared mutable access to a primitive's texture projection; `None`
     /// for non-primitive variants.
     pub fn uv_mapping_mut(&mut self) -> Option<&mut UvMapping> {
-        match self {
-            GeneratorKind::Cuboid { uv_mapping, .. }
-            | GeneratorKind::Sphere { uv_mapping, .. }
-            | GeneratorKind::Cylinder { uv_mapping, .. }
-            | GeneratorKind::Capsule { uv_mapping, .. }
-            | GeneratorKind::Cone { uv_mapping, .. }
-            | GeneratorKind::Torus { uv_mapping, .. }
-            | GeneratorKind::Plane { uv_mapping, .. }
-            | GeneratorKind::Tetrahedron { uv_mapping, .. }
-            | GeneratorKind::Tube { uv_mapping, .. }
-            | GeneratorKind::Bevel { uv_mapping, .. }
-            | GeneratorKind::Wedge { uv_mapping, .. }
-            | GeneratorKind::Helix { uv_mapping, .. }
-            | GeneratorKind::Superellipsoid { uv_mapping, .. }
-            | GeneratorKind::Spine { uv_mapping, .. }
-            | GeneratorKind::Lathe { uv_mapping, .. }
-            | GeneratorKind::BlobGroup { uv_mapping, .. } => Some(uv_mapping),
-            _ => None,
-        }
+        for_each_primitive!(self, { uv_mapping } => uv_mapping)
     }
 
-    /// `true` when the variant is a parametric primitive (Cuboid..Tetrahedron).
-    /// Used by the UI primitive-kind picker and by the spawner to dispatch
-    /// into the shared mesh/collider path.
+    /// `true` when the variant is a parametric primitive — one of the
+    /// sixteen on the [`for_each_primitive!`] roster. Used by the UI
+    /// primitive-kind picker and by the spawner to dispatch into the
+    /// shared mesh/collider path.
     pub fn is_primitive(&self) -> bool {
-        matches!(
-            self,
-            GeneratorKind::Cuboid { .. }
-                | GeneratorKind::Sphere { .. }
-                | GeneratorKind::Cylinder { .. }
-                | GeneratorKind::Capsule { .. }
-                | GeneratorKind::Cone { .. }
-                | GeneratorKind::Torus { .. }
-                | GeneratorKind::Plane { .. }
-                | GeneratorKind::Tetrahedron { .. }
-                | GeneratorKind::Tube { .. }
-                | GeneratorKind::Bevel { .. }
-                | GeneratorKind::Wedge { .. }
-                | GeneratorKind::Helix { .. }
-                | GeneratorKind::Superellipsoid { .. }
-                | GeneratorKind::Spine { .. }
-                | GeneratorKind::Lathe { .. }
-                | GeneratorKind::BlobGroup { .. }
-        )
+        for_each_primitive!(self, {} => ()).is_some()
     }
 
     /// Short human-readable tag for the variant — used by the UI combo box
