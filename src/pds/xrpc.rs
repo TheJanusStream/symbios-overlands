@@ -351,6 +351,24 @@ pub enum FetchError {
     Decode(String),
 }
 
+/// User-facing phrasing for a failed fetch (#1141).
+///
+/// Added because a surface that reports "could not load" has to say what
+/// went wrong — a wardrobe listing that fails on an expired token and one
+/// that fails on a 500 want different things from the owner, and until
+/// this existed both rendered as nothing at all. `Debug` stays the shape
+/// the `warn!` lines log; this is the half a person reads.
+impl std::fmt::Display for FetchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DidResolutionFailed => write!(f, "that identity's PDS could not be resolved"),
+            Self::Network(detail) => write!(f, "network — {detail}"),
+            Self::PdsError(status) => write!(f, "the PDS answered {status}"),
+            Self::Decode(detail) => write!(f, "the response could not be read — {detail}"),
+        }
+    }
+}
+
 /// Error envelope returned by ATProto XRPC endpoints on non-2xx responses,
 /// e.g. `{"error":"RecordNotFound","message":"Could not locate record..."}`.
 #[derive(Deserialize)]

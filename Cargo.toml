@@ -101,6 +101,13 @@ url = "2"
 
 [dev-dependencies]
 glam = "0.32"
+# The OAuth refresh-dance tests (#1151) drive the real helpers through a
+# scripted `FetchHandler` injected via `OAuthSession::with_fetch_handler`.
+# The trait and its request/response types live in proto-blue-common (both
+# already in the graph under proto-blue-oauth) and the trait is declared
+# with `#[async_trait]`, so implementing it needs the same macro.
+proto-blue-common = "0.2"
+async-trait = "0.1"
 # The font parser epaint 0.35 reads faces with (already in the graph): the
 # UI glyph-coverage guard asks each bundled face's charmap directly, because
 # epaint's `has_glyph` compares faces, not glyphs (#1105).

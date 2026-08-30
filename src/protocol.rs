@@ -89,29 +89,54 @@ pub enum OverlandsMessage {
     /// outcomes with the originating drag. It only has to be unique within
     /// one sender's session.
     ///
-    /// `wear_json` carries the item's wear metadata (#1108) — socket, fit
-    /// and saved offset, a JSON-serialised
-    /// [`WearMeta`](crate::pds::inventory::WearMeta) — so a gifted
-    /// wearable arrives wearable rather than as decor. Empty for plain
-    /// decor. JSON rather than a bincode `Option<WearMeta>` because the
-    /// offset's serializer elides default fields, which bincode cannot
-    /// round-trip (its decoder expects every field present).
+    /// # Envelope and payload (#1184)
+    ///
+    /// Everything the item *is* — its name, its blueprint, its wear
+    /// metadata — lives in `payload_json` as one JSON
+    /// [`ItemOfferPayload`]. This is the variant that already broke once:
+    /// 59ff989 appended `wear_json` beside four bincode fields with no
+    /// version bump, and every gift across that boundary has failed
+    /// silently since, because bincode identifies fields by position and
+    /// a peer on the other side decodes an error it can only drop. Inside
+    /// a JSON payload a new field is additive — serde skips what it does
+    /// not know and defaults what is missing — so the variant leaves the
+    /// layout-break class entirely. Same shape [`Self::RoomStateUpdate`]
+    /// and [`Self::AvatarStateUpdate`] already use.
+    ///
+    /// `offer_id` and `target_did` stay OUTSIDE the payload on purpose.
+    /// They are the envelope, not the content: this is a broadcast with an
+    /// address (`bevy_symbios_multiuser` has no directed-send primitive),
+    /// so every peer in the room receives every gift and all but one of
+    /// them drop it. Reading the address without parsing a blueprint that
+    /// peer is about to discard is worth an envelope, and the two
+    /// auto-decline paths — muted sender, busy recipient — answer with
+    /// `offer_id` before any decode as well. Neither field is one that
+    /// grows; the item is.
+    ///
+    /// `offer_id` is a sender-chosen token echoed by the recipient in
+    /// [`Self::ItemOfferResponse`] so the sender can correlate
+    /// accept/decline outcomes with the originating drag. It only has to
+    /// be unique within one sender's session.
     ItemOffer {
         offer_id: u64,
         target_did: String,
-        item_name: String,
-        generator_json: Vec<u8>,
-        wear_json: Vec<u8>,
+        payload_json: Vec<u8>,
     },
     /// Reply to an [`Self::ItemOffer`]. The `target_did` is the *sender* of
     /// the original offer so non-originators can drop the response on
-    /// receipt; `accepted = true` means the recipient added the item to
-    /// their inventory, `false` covers decline / mute / busy / full /
-    /// over-capacity — the sender just needs a yes/no for UX feedback.
+    /// receipt.
+    ///
+    /// Same envelope/payload split as [`Self::ItemOffer`] and for the same
+    /// reason (#1184): the address is read by every peer, the answer by
+    /// one. [`ItemOfferResponsePayload`] currently carries only
+    /// `accepted` — `true` means the recipient added the item to their
+    /// inventory, `false` covers decline / mute / busy / full /
+    /// over-capacity — and a decline *reason* is the obvious next field,
+    /// which is exactly the addition this shape makes free.
     ItemOfferResponse {
         offer_id: u64,
         target_did: String,
-        accepted: bool,
+        payload_json: Vec<u8>,
     },
     /// One fragment of a larger reliable message that exceeded the 64 KiB
     /// WebRTC data-channel ceiling and was split by the network chunk layer
@@ -201,6 +226,69 @@ pub enum OverlandsMessage {
     WorldDigest { record_fp: u64, digest: u64 },
 }
 
+/// What an [`OverlandsMessage::ItemOffer`] is offering (#1184).
+///
+/// JSON inside the message rather than bincode fields beside it, so a
+/// field added here is additive on the wire: serde ignores members it does
+/// not know and `#[serde(default)]` fills members that are absent, which
+/// means a build that grows this struct can still trade gifts with one
+/// that has not. Every field is `default`ed for that reason — a decoder
+/// that refuses a payload for a missing member would give the version
+/// skew back.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(default)]
+pub struct ItemOfferPayload {
+    /// The stash name the sender knows the item by. The recipient does not
+    /// have to honour it — [`crate::ui::inventory`] picks a free key.
+    pub item_name: String,
+    /// The item's blueprint. JSON all the way down because `Generator` is
+    /// an internally tagged open union (`#[serde(tag = "$type")]`), which
+    /// bincode's streaming decoder cannot handle at all.
+    pub generator: Generator,
+    /// Wear metadata (#1108) — socket, fit and saved offset — so a gifted
+    /// wearable arrives wearable rather than as decor. Absent for plain
+    /// decor.
+    ///
+    /// Read leniently: see [`lenient_wear`].
+    #[serde(
+        deserialize_with = "lenient_wear",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub wear: Option<crate::pds::inventory::WearMeta>,
+}
+
+/// Deserialize [`ItemOfferPayload::wear`] leniently: a value that will not
+/// decode yields `None` instead of failing the whole payload.
+///
+/// #1108's decision, preserved through the payload merge (#1184). Before
+/// the merge the wear metadata was its own `Vec<u8>` with its own decoder,
+/// so a malformed one degraded the gift to decor and the item still
+/// arrived. Folding it into one struct would have made a bad `wear` refuse
+/// the gift outright — a strictly worse outcome, since the blueprint is
+/// intact and the placement is a convenience the recipient can redo.
+fn lenient_wear<'de, D>(
+    deserializer: D,
+) -> Result<Option<crate::pds::inventory::WearMeta>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).ok())
+}
+
+/// The answer to an [`OverlandsMessage::ItemOffer`] (#1184).
+///
+/// One field today; the shape exists so the second one — a decline reason
+/// the sender could show — is an addition rather than a wire break.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(default)]
+pub struct ItemOfferResponsePayload {
+    /// `true` when the recipient added the item to their inventory.
+    /// Defaults to `false`, so a payload this build cannot fully read is
+    /// treated as a decline rather than as a silent acceptance.
+    pub accepted: bool,
+}
+
 /// Version of the [`OverlandsMessage`] byte layout this build speaks.
 ///
 /// Bump it in the same commit as any change to that layout: a new field on an
@@ -213,8 +301,12 @@ pub enum OverlandsMessage {
 /// and "the peer announced version 0" are never the same reading.
 ///
 /// History: 1 introduced the handshake itself; 2 appended
-/// [`OverlandsMessage::WorldDigest`] (#1146).
-pub const PROTOCOL_VERSION: u16 = 2;
+/// [`OverlandsMessage::WorldDigest`] (#1146); 3 moved
+/// [`OverlandsMessage::ItemOffer`] and
+/// [`OverlandsMessage::ItemOfferResponse`] onto single JSON payloads
+/// (#1184) — a deliberate break, so that the *next* field either of them
+/// grows is not one.
+pub const PROTOCOL_VERSION: u16 = 3;
 
 /// This build's human-readable identity for [`OverlandsMessage::Hello`]:
 /// crate version plus the short git sha `build.rs` bakes in. Only ever
@@ -287,9 +379,8 @@ impl OverlandsMessage {
         }
     }
 
-    /// Package an [`ItemOffer`](Self::ItemOffer). Serialises the `Generator`
-    /// blueprint as JSON for the same reason room/avatar updates do —
-    /// bincode cannot stream `#[serde(tag = "$type")]` open unions.
+    /// Package an [`ItemOffer`](Self::ItemOffer): the address stays on the
+    /// message, the item goes into one JSON [`ItemOfferPayload`] (#1184).
     ///
     /// `wear` is the item's wear metadata when it is wearable (#1108);
     /// `None` gifts plain decor.
@@ -300,46 +391,52 @@ impl OverlandsMessage {
         generator: &Generator,
         wear: Option<&crate::pds::inventory::WearMeta>,
     ) -> Self {
+        let payload = ItemOfferPayload {
+            item_name,
+            generator: generator.clone(),
+            wear: wear.cloned(),
+        };
         Self::ItemOffer {
             offer_id,
             target_did,
-            item_name,
-            generator_json: serde_json::to_vec(generator).unwrap_or_else(|e| {
-                bevy::log::error!("Failed to serialize Generator for ItemOffer: {}", e);
-                Vec::new()
-            }),
-            wear_json: wear.map_or_else(Vec::new, |meta| {
-                serde_json::to_vec(meta).unwrap_or_else(|e| {
-                    bevy::log::error!("Failed to serialize WearMeta for ItemOffer: {}", e);
-                    Vec::new()
-                })
-            }),
+            payload_json: serialize_for_wire(&payload, "ItemOffer").unwrap_or_default(),
         }
     }
 
-    /// Decode a [`Generator`] from an `ItemOffer` payload.
-    pub fn decode_item_offer(bytes: &[u8]) -> Option<Generator> {
+    /// Package an [`ItemOfferResponse`](Self::ItemOfferResponse).
+    ///
+    /// `target_did` is the *original sender*, which is who the answer is
+    /// addressed to.
+    pub fn item_offer_response(offer_id: u64, target_did: String, accepted: bool) -> Self {
+        let payload = ItemOfferResponsePayload { accepted };
+        Self::ItemOfferResponse {
+            offer_id,
+            target_did,
+            payload_json: serialize_for_wire(&payload, "ItemOfferResponse").unwrap_or_default(),
+        }
+    }
+
+    /// Decode an [`ItemOfferPayload`] from an `ItemOffer`.
+    pub fn decode_item_offer(bytes: &[u8]) -> Option<ItemOfferPayload> {
         match serde_json::from_slice(bytes) {
-            Ok(g) => Some(g),
+            Ok(payload) => Some(payload),
             Err(e) => {
-                bevy::log::warn!("Generator decode error: {}", e);
+                bevy::log::warn!("ItemOffer payload decode error: {}", e);
                 None
             }
         }
     }
 
-    /// Decode the wear metadata of an `ItemOffer` (#1108): `None` for an
-    /// empty payload (decor) — and for a malformed one, which degrades the
-    /// gift to decor rather than refusing it, because the item itself is
-    /// intact and the metadata is a convenience the recipient can redo.
-    pub fn decode_item_offer_wear(bytes: &[u8]) -> Option<crate::pds::inventory::WearMeta> {
-        if bytes.is_empty() {
-            return None;
-        }
+    /// Decode an [`ItemOfferResponsePayload`].
+    ///
+    /// A payload that will not decode is **not** read as an acceptance:
+    /// the caller gets `None` and leaves its pending offer alone rather
+    /// than telling the sender a gift landed.
+    pub fn decode_item_offer_response(bytes: &[u8]) -> Option<ItemOfferResponsePayload> {
         match serde_json::from_slice(bytes) {
-            Ok(meta) => Some(meta),
+            Ok(payload) => Some(payload),
             Err(e) => {
-                bevy::log::warn!("WearMeta decode error (gift lands as decor): {}", e);
+                bevy::log::warn!("ItemOfferResponse payload decode error: {}", e);
                 None
             }
         }
@@ -390,6 +487,14 @@ mod item_offer_tests {
         meta
     }
 
+    /// Unpack an offer's payload bytes, whatever the envelope says.
+    fn payload_of(message: &OverlandsMessage) -> Vec<u8> {
+        let OverlandsMessage::ItemOffer { payload_json, .. } = message else {
+            panic!("not an ItemOffer");
+        };
+        payload_json.clone()
+    }
+
     /// #1108: the wear metadata survives the whole wire path — JSON inside
     /// the message, the message through bincode (the chunker's codec) —
     /// and comes back equal, fit and offset included. Decor carries none.
@@ -403,17 +508,12 @@ mod item_offer_tests {
             Some(&wear()),
         );
         let bytes = offer.to_chunk_bytes().expect("encodes");
-        let OverlandsMessage::ItemOffer {
-            generator_json,
-            wear_json,
-            ..
-        } = OverlandsMessage::from_chunk_bytes(&bytes).expect("decodes")
-        else {
-            panic!("not an ItemOffer");
-        };
-        assert!(OverlandsMessage::decode_item_offer(&generator_json).is_some());
+        let landed = OverlandsMessage::from_chunk_bytes(&bytes).expect("decodes");
+        let payload =
+            OverlandsMessage::decode_item_offer(&payload_of(&landed)).expect("payload decodes");
+        assert_eq!(payload.item_name, "circlet");
         assert_eq!(
-            OverlandsMessage::decode_item_offer_wear(&wear_json),
+            payload.wear,
             Some(wear()),
             "socket, fit and offset all round-trip"
         );
@@ -425,20 +525,95 @@ mod item_offer_tests {
             &Generator::default(),
             None,
         );
-        let OverlandsMessage::ItemOffer { wear_json, .. } = decor else {
-            panic!("not an ItemOffer");
-        };
-        assert!(wear_json.is_empty(), "decor ships no wear payload");
-        assert_eq!(OverlandsMessage::decode_item_offer_wear(&wear_json), None);
+        let payload =
+            OverlandsMessage::decode_item_offer(&payload_of(&decor)).expect("payload decodes");
+        assert_eq!(payload.wear, None, "decor carries no wear metadata");
+        assert!(
+            !String::from_utf8_lossy(&payload_of(&decor)).contains("wear"),
+            "and elides the member entirely rather than shipping a null"
+        );
     }
 
     /// A malformed wear payload must not refuse the gift: the item is
     /// intact, so it lands as decor.
+    ///
+    /// This was free when `wear` was its own `Vec<u8>` with its own
+    /// decoder. Folding it into one payload (#1184) would have made a bad
+    /// `wear` fail the whole struct and lose the item too, which is why
+    /// the member is read through `lenient_wear`.
     #[test]
     fn a_malformed_wear_payload_degrades_to_decor() {
+        let payload = OverlandsMessage::decode_item_offer(
+            br#"{"item_name":"circlet","generator":{"$type":"empty"},"wear":{"socket":12}}"#,
+        )
+        .expect("the gift still decodes");
+        assert_eq!(payload.item_name, "circlet", "the item survives");
+        assert_eq!(payload.wear, None, "only the placement is lost");
+    }
+
+    /// **A field this build has never heard of does not break the gift**
+    /// (#1184).
+    ///
+    /// The whole reason the variant moved. `wear_json` was appended to
+    /// `ItemOffer` in 59ff989 as a fifth bincode field, and because
+    /// bincode identifies fields by position, every gift across that
+    /// boundary decoded as an error the receiver could only drop —
+    /// silently, for as long as it took #1121 to build a detector. Inside
+    /// a JSON payload the same addition is invisible to an older peer.
+    ///
+    /// A round-trip test would have passed before this change too, since
+    /// each build agrees with itself; what this asserts is a payload the
+    /// *encoder in this build cannot produce*.
+    #[test]
+    fn a_payload_carrying_an_unknown_field_still_decodes() {
+        let from_a_newer_build = br#"{
+            "item_name": "circlet",
+            "generator": {"$type": "empty"},
+            "gift_note": "happy birthday",
+            "bound_to_did": "did:plc:someone"
+        }"#;
+        let payload = OverlandsMessage::decode_item_offer(from_a_newer_build)
+            .expect("unknown members are skipped, not refused");
+        assert_eq!(payload.item_name, "circlet");
+        assert_eq!(payload.wear, None, "an absent member defaults");
+
+        // And the other direction: a payload MISSING a member this build
+        // knows about, as an older build would send it.
+        let from_an_older_build = br#"{"generator": {"$type": "empty"}}"#;
+        let payload = OverlandsMessage::decode_item_offer(from_an_older_build)
+            .expect("missing members default, they do not refuse");
         assert_eq!(
-            OverlandsMessage::decode_item_offer_wear(b"{\"socket\": 12}"),
-            None
+            payload.item_name, "",
+            "clamped to (unnamed) by the receiver"
+        );
+    }
+
+    /// **A response this build cannot read is a decline, never an
+    /// acceptance** (#1184).
+    ///
+    /// The asymmetry is deliberate: `accepted` defaults to `false` and an
+    /// outright decode failure yields `None`. The worst a version-skewed
+    /// peer can do is make a gift that arrived look declined; it can never
+    /// tell the sender a gift landed when it did not.
+    #[test]
+    fn an_unreadable_offer_response_declines() {
+        let OverlandsMessage::ItemOfferResponse { payload_json, .. } =
+            OverlandsMessage::item_offer_response(1, String::from("did:plc:alice"), true)
+        else {
+            panic!("not a response");
+        };
+        assert_eq!(
+            OverlandsMessage::decode_item_offer_response(&payload_json).map(|p| p.accepted),
+            Some(true)
+        );
+        assert_eq!(
+            OverlandsMessage::decode_item_offer_response(b"{}").map(|p| p.accepted),
+            Some(false),
+            "a payload with no verdict is not a yes"
+        );
+        assert!(
+            OverlandsMessage::decode_item_offer_response(b"not json").is_none(),
+            "and one that will not parse at all is not a yes either"
         );
     }
 }
@@ -471,14 +646,12 @@ mod tests {
             OverlandsMessage::ItemOffer {
                 offer_id: 1,
                 target_did: String::from("did:plc:bob"),
-                item_name: String::from("hat"),
-                generator_json: Vec::new(),
-                wear_json: Vec::new(),
+                payload_json: Vec::new(),
             },
             OverlandsMessage::ItemOfferResponse {
                 offer_id: 1,
                 target_did: String::from("did:plc:alice"),
-                accepted: true,
+                payload_json: Vec::new(),
             },
             OverlandsMessage::ChunkedPayload {
                 msg_id: 1,
@@ -554,13 +727,20 @@ mod tests {
         ("Chat", "0200000002000000000000006869"),
         ("RoomStateUpdate", "030000000000000000000000"),
         ("AvatarStateUpdate", "040000000000000000000000"),
+        // #1184 moved both of these onto a single JSON payload, so what
+        // is pinned here is now the ENVELOPE — discriminant, offer id,
+        // address, payload length — and the payload itself is opaque
+        // bytes, exactly as it is for the two state updates above. That is
+        // the point: fields added inside the payload no longer move any
+        // line in this table, which is what stops the next `wear_json`
+        // from being a silent break.
         (
             "ItemOffer",
-            "0500000001000000000000000b000000000000006469643a706c633a626f62030000000000000068617400000000000000000000000000000000",
+            "0500000001000000000000000b000000000000006469643a706c633a626f620000000000000000",
         ),
         (
             "ItemOfferResponse",
-            "0600000001000000000000000d000000000000006469643a706c633a616c69636501",
+            "0600000001000000000000000d000000000000006469643a706c633a616c6963650000000000000000",
         ),
         (
             "ChunkedPayload",
@@ -619,7 +799,7 @@ mod tests {
     #[test]
     fn the_protocol_version_matches_the_pinned_layout() {
         assert_eq!(
-            PROTOCOL_VERSION, 2,
+            PROTOCOL_VERSION, 3,
             "PROTOCOL_VERSION changed: WIRE_LAYOUT must have changed in the \
              same commit, or the bump describes nothing"
         );

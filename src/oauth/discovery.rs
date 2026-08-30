@@ -7,15 +7,6 @@
 use proto_blue_oauth::OAuthClientMetadata;
 use serde::Deserialize;
 
-/// Marker substring used by `proto_blue_oauth::OAuthSession::request` when it
-/// detects a `401 + WWW-Authenticate: error="invalid_token"` response. The
-/// library returns this as `OAuthError::RefreshFailed("Access token is
-/// invalid, refresh required")` (despite the variant name, no refresh has been
-/// attempted — the caller is expected to do it). We pattern-match on the
-/// string here because the helpers below convert errors to `String` before
-/// they reach us.
-pub(super) const INVALID_TOKEN_ERR: &str = "Access token is invalid, refresh required";
-
 /// Hosted `client-metadata.json` URL. Per the atproto OAuth profile this URL
 /// *is* the `client_id`: the authorization server fetches it to learn the
 /// registered redirect URIs, scopes, and token-endpoint auth method. Used

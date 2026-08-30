@@ -231,6 +231,12 @@ pub fn chat_ui(
                     }
                 });
             });
+            // The keyword emotes have no command syntax to discover and,
+            // until this line, no surface anywhere in the UI (#1141) —
+            // #1068 shipped a feature findable only by typing one of its
+            // words by accident. Sourced from the keyword table so the
+            // examples cannot name a word that no longer gestures.
+            ui.small(crate::player::emote::Emote::hint_line());
         });
     if chat.draft != input {
         chat.draft = input;

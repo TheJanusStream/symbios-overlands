@@ -49,6 +49,74 @@ pub(super) struct WardrobeListing {
     pub entries: Option<Vec<(String, EngineAvatarRecord)>>,
     /// Whether a fetch is in flight, for the button's spinner text.
     pub fetching: bool,
+    /// Why the last fetch failed, if it did (#1141). Without this a
+    /// failed walk cleared the spinner and left `entries` at `None` —
+    /// the same state as never having fetched — so a PDS or auth error
+    /// rendered as the neutral "Refresh to list…" hint and looked to the
+    /// owner like they had simply not clicked yet.
+    pub error: Option<String>,
+    /// Whether a fetch has ever been asked for this session, so opening
+    /// the wardrobe section fills it once instead of showing an empty
+    /// list until someone finds the Refresh button.
+    pub attempted: bool,
+}
+
+/// What the wardrobe section says about the list itself, above the rows.
+///
+/// A named state rather than a chain of match arms on `Option`s because
+/// the bug was two states rendering identically: a failed fetch and a
+/// fetch that never ran both left `entries` at `None`, so a PDS or auth
+/// error read as "you forgot to click Refresh" (#1141). Separating them
+/// here also makes the line the owner actually reads assertable, which a
+/// branch inside the draw closure was not.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum WardrobeStatus {
+    /// A fetch is in flight — the Refresh button already says so.
+    Fetching,
+    /// The last fetch failed, with the reason.
+    Failed(String),
+    /// Nothing has been asked for yet.
+    Untried,
+    /// Fetched, and the wardrobe is empty.
+    Empty,
+    /// Rows follow; they speak for themselves.
+    Listed,
+}
+
+impl WardrobeStatus {
+    /// The line rendered above the rows, verbatim, or `None` when the
+    /// rows (or the button) already say it.
+    pub(super) fn message(&self) -> Option<String> {
+        match self {
+            Self::Fetching | Self::Listed => None,
+            Self::Failed(reason) => Some(format!("Couldn't load your wardrobe — {reason}")),
+            Self::Untried => Some(String::from(
+                "Refresh to list the bodies published to your wardrobe.",
+            )),
+            Self::Empty => Some(String::from(
+                "No bodies in the wardrobe yet — saving publishes this one.",
+            )),
+        }
+    }
+}
+
+impl WardrobeListing {
+    /// Which of the five states this listing is in.
+    ///
+    /// A standing failure outranks a stale list: rows from an earlier
+    /// fetch are still worth showing, but the owner has to be told they
+    /// are not what the PDS holds now.
+    pub(super) fn status(&self) -> WardrobeStatus {
+        if let Some(reason) = self.error.as_deref() {
+            return WardrobeStatus::Failed(reason.to_string());
+        }
+        match self.entries.as_deref() {
+            Some([]) => WardrobeStatus::Empty,
+            Some(_) => WardrobeStatus::Listed,
+            None if self.fetching => WardrobeStatus::Fetching,
+            None => WardrobeStatus::Untried,
+        }
+    }
 }
 
 /// Draw the tab. `did` is the session identity; without one (not logged in)
@@ -147,6 +215,14 @@ pub(super) fn draw_body_tab(
                     ui.small("Log in to browse your wardrobe.");
                     return;
                 };
+                // Fill the list the first time the section is opened
+                // (#1141). This closure only runs while the header is
+                // expanded, so nothing is fetched until someone looks —
+                // and `attempted` latches, so a fetch that fails is not
+                // retried in a loop; the Refresh button is the retry.
+                if !listing.attempted && !listing.fetching && listing.entries.is_none() {
+                    outcome.wants_wardrobe_refresh = true;
+                }
                 ui.horizontal(|ui| {
                     let label = if listing.fetching {
                         "Refreshing…"
@@ -173,14 +249,29 @@ pub(super) fn draw_body_tab(
                         outcome.label = Some(String::from("save body as copy"));
                     }
                 });
+                // A failed walk says so, in the colour and shape the
+                // mutuals picker uses for the same class of failure
+                // (#1141). Shown above the rows rather than instead of
+                // them: a refresh that fails over an already-loaded list
+                // means those rows are stale, which is worth saying too.
+                let status = listing.status();
+                if let Some(message) = status.message() {
+                    match status {
+                        WardrobeStatus::Failed(_) => {
+                            ui.colored_label(
+                                crate::ui::theme::current(ui.ctx()).status.error,
+                                message,
+                            );
+                            ui.small("Refresh to try again.");
+                        }
+                        _ => {
+                            ui.small(message);
+                        }
+                    }
+                }
                 match listing.entries.as_ref() {
-                    None if !listing.fetching => {
-                        ui.small("Refresh to list the bodies published to your wardrobe.");
-                    }
                     None => {}
-                    Some(entries) if entries.is_empty() => {
-                        ui.small("No bodies in the wardrobe yet — saving publishes this one.");
-                    }
+                    Some(entries) if entries.is_empty() => {}
                     Some(entries) => {
                         for (rkey, body) in entries {
                             ui.horizontal(|ui| {
@@ -222,5 +313,105 @@ fn resolved_replace(rig: &mut crate::pds::avatar::RiggedBody, body: EngineAvatar
                 attachments: Vec::new(),
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn listing() -> WardrobeListing {
+        WardrobeListing::default()
+    }
+
+    /// **A failed listing and a listing nobody asked for read
+    /// differently** (#1141).
+    ///
+    /// Sequence from the finding: the PDS wardrobe walk fails during
+    /// Loading (expired token, a 5xx, a DNS blip). Before this the Err
+    /// arm was a `warn!` and nothing else — the spinner cleared,
+    /// `entries` stayed `None`, and the tab re-showed "Refresh to list…",
+    /// which is exactly what a pristine session shows. Clicking Refresh
+    /// again produced the same silent nothing, so the owner had no way to
+    /// tell a broken PDS from their own forgetfulness.
+    ///
+    /// Asserted on the rendered line rather than on the flags, because
+    /// the two states differing internally was never the problem: they
+    /// differed internally before too (`fetching` had been cleared). What
+    /// they did not do was *say* anything different.
+    #[test]
+    fn a_failed_wardrobe_walk_does_not_read_as_a_pristine_one() {
+        let pristine = listing().status();
+        assert_eq!(pristine, WardrobeStatus::Untried);
+        assert_eq!(
+            pristine.message().as_deref(),
+            Some("Refresh to list the bodies published to your wardrobe.")
+        );
+
+        let mut failed = listing();
+        failed.attempted = true;
+        failed.error = Some(crate::pds::FetchError::PdsError(500).to_string());
+        let failed = failed.status();
+        assert_ne!(
+            failed.message(),
+            pristine.message(),
+            "the two states must not render the same words"
+        );
+        let message = failed.message().expect("a failure says something");
+        assert!(
+            message.starts_with("Couldn't load your wardrobe"),
+            "names the failure: {message}"
+        );
+        assert!(
+            message.contains("the PDS answered 500"),
+            "and the reason, so a 500 and an expired token are not one hint: {message}"
+        );
+    }
+
+    /// **A failed refresh over a loaded list keeps the rows and warns**
+    /// (#1141).
+    ///
+    /// The rows are still the last thing the PDS confirmed, so throwing
+    /// them away on a transient failure would lose more than it explains
+    /// — but leaving them unannotated would present stale rows as
+    /// current.
+    #[test]
+    fn a_failure_over_a_loaded_list_outranks_the_rows() {
+        let mut stale = listing();
+        stale.entries = Some(vec![(
+            String::from("3jzfcijpj2z2a"),
+            EngineAvatarRecord::default(),
+        )]);
+        stale.attempted = true;
+        stale.error = Some(String::from("network — timed out"));
+        assert!(matches!(stale.status(), WardrobeStatus::Failed(_)));
+        assert!(
+            stale.entries.is_some(),
+            "the rows survive the failure that could not replace them"
+        );
+    }
+
+    /// **The in-flight and empty states keep their own wording** (#1141).
+    ///
+    /// The control for the test above: separating "failed" out must not
+    /// have collapsed the three states that were already distinct.
+    #[test]
+    fn the_other_listing_states_are_unchanged() {
+        let mut fetching = listing();
+        fetching.fetching = true;
+        assert_eq!(fetching.status(), WardrobeStatus::Fetching);
+        assert_eq!(
+            fetching.status().message(),
+            None,
+            "the Refresh button already says 'Refreshing…'"
+        );
+
+        let mut empty = listing();
+        empty.entries = Some(Vec::new());
+        assert_eq!(empty.status(), WardrobeStatus::Empty);
+        assert_eq!(
+            empty.status().message().as_deref(),
+            Some("No bodies in the wardrobe yet — saving publishes this one.")
+        );
     }
 }

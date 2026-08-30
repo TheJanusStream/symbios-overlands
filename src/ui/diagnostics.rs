@@ -18,7 +18,7 @@ use bevy::pbr::wireframe::WireframeConfig;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
-use crate::boot_params::{build_landmark_link, write_to_clipboard};
+use crate::boot_params::{ClipboardQueue, build_landmark_link};
 use crate::diagnostics::anomaly::InvariantRegistry;
 use crate::diagnostics::event::{Severity, Subsystem};
 use crate::diagnostics::{MetricsRegistry, SessionLog, names};
@@ -776,9 +776,17 @@ fn render_health_tab(
 /// Click outcomes are reported through the app-wide toast channel
 /// ([`crate::ui::toast::Toasts`], #819) — the same feedback surface the
 /// landmark-link copy uses.
+// Each target uses a different subset of these: native has the log path
+// and its Copy button (`clipboard`), wasm has the two downloads and their
+// feedback (`toasts`, `now`). Since the Copy path button started
+// reporting through the clipboard queue (#1141) neither target uses all
+// three, so the unused-variable lint is silenced here rather than
+// splitting one function into two near-identical ones.
+#[allow(unused_variables)]
 fn render_log_export_controls(
     ui: &mut egui::Ui,
     session_log: &SessionLog,
+    clipboard: &ClipboardQueue,
     toasts: &mut crate::ui::toast::Toasts,
     now: f64,
 ) {
@@ -793,10 +801,7 @@ fn render_log_export_controls(
                     .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
             if ui.button("Copy path").clicked() {
-                match write_to_clipboard(&path) {
-                    Ok(()) => toasts.success("Path copied", now),
-                    Err(e) => toasts.error(format!("Copy failed ({e})"), now),
-                }
+                clipboard.copy(&path, "Path copied");
             }
         }
         None => {
@@ -854,8 +859,7 @@ pub(crate) fn landmark_link_button(
     ui: &mut egui::Ui,
     room_did: &str,
     player_tf: Option<Transform>,
-    toasts: &mut crate::ui::toast::Toasts,
-    now: f64,
+    clipboard: &ClipboardQueue,
 ) -> bool {
     let clicked = ui
         .add_enabled(player_tf.is_some(), egui::Button::new("Copy Landmark Link"))
@@ -870,10 +874,7 @@ pub(crate) fn landmark_link_button(
         // already matches the visual yaw.
         let yaw_deg = tf.rotation.to_euler(EulerRot::YXZ).0.to_degrees();
         let link = build_landmark_link(room_did, tf.translation, yaw_deg);
-        match write_to_clipboard(&link) {
-            Ok(()) => toasts.success(format!("Copied: {link}"), now),
-            Err(e) => toasts.error(format!("Copy failed ({e}); {link}"), now),
-        }
+        clipboard.copy(&link, &format!("Copied: {link}"));
     }
     clicked
 }
@@ -888,6 +889,7 @@ pub fn diagnostics_ui(
     invariants: Res<InvariantRegistry>,
     metrics: Res<MetricsRegistry>,
     mut toasts: ResMut<crate::ui::toast::Toasts>,
+    clipboard: Res<ClipboardQueue>,
     mut active_tab: ResMut<DiagTab>,
     time: Res<Time>,
     mut audio_muted: ResMut<crate::audio_mute::AudioMuted>,
@@ -978,7 +980,13 @@ pub fn diagnostics_ui(
 
             // Session-log export: on-disk path + Copy (native) / Download button
             // (wasm), so the same NDJSON the analyzer reads is one click away.
-            render_log_export_controls(ui, &session_log, &mut toasts, time.elapsed_secs_f64());
+            render_log_export_controls(
+                ui,
+                &session_log,
+                &clipboard,
+                &mut toasts,
+                time.elapsed_secs_f64(),
+            );
             ui.separator();
 
             // Demoted duplicate of the People roster (#837): People owns
@@ -1006,13 +1014,7 @@ pub fn diagnostics_ui(
                                     );
                                 });
                                 if ui.small_button("Copy DID").clicked() {
-                                    let now = time.elapsed_secs_f64();
-                                    match write_to_clipboard(&did) {
-                                        Ok(()) => toasts.success(format!("Copied: {did}"), now),
-                                        Err(e) => {
-                                            toasts.error(format!("Copy failed ({e})"), now);
-                                        }
-                                    }
+                                    clipboard.copy(&did, &format!("Copied: {did}"));
                                 }
                             });
                         }
@@ -1161,7 +1163,13 @@ mod tests {
             let ctx = egui::Context::default();
             let _ = ctx.run_ui(egui::RawInput::default(), |root| {
                 egui::CentralPanel::default().show(root, |ui| {
-                    render_log_export_controls(ui, log, &mut toasts, 1.0);
+                    render_log_export_controls(
+                        ui,
+                        log,
+                        &ClipboardQueue::default(),
+                        &mut toasts,
+                        1.0,
+                    );
                 });
             });
         }

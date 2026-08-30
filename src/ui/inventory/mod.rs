@@ -201,17 +201,11 @@ fn wear_buttons(
     action: &mut Option<WearAction>,
     live_avatar: Option<&crate::state::LiveAvatarRecord>,
 ) {
-    let Some(live) = live_avatar else {
-        ui.add_enabled(false, egui::Button::new("Wear").small())
-            .on_disabled_hover_text("No avatar loaded yet.");
-        return;
-    };
-    let Some(rig) = live.0.body.rigged_ref() else {
-        ui.add_enabled(false, egui::Button::new("Wear").small())
-            .on_disabled_hover_text("Vehicles carry no attachments — pilot a body to wear this.");
-        return;
-    };
-    if crate::ui::avatar::is_worn_from(rig, name) {
+    // Take off comes before the blocked reasons: something already worn
+    // can always come off, even from a body that could not take another.
+    if let Some(rig) = live_avatar.and_then(|live| live.0.body.rigged_ref())
+        && crate::ui::avatar::is_worn_from(rig, name)
+    {
         if ui
             .small_button("Take off")
             .on_hover_text("Take this item off your avatar")
@@ -221,16 +215,9 @@ fn wear_buttons(
         }
         return;
     }
-    let worn = rig
-        .resolved
-        .as_ref()
-        .map_or(0, |resolved| resolved.attachments.len());
-    let cap = crate::pds::avatar::MAX_AVATAR_ATTACHMENTS;
-    if worn >= cap {
+    if let Some(reason) = crate::ui::avatar::wear_blocked_reason(live_avatar.map(|live| &live.0)) {
         ui.add_enabled(false, egui::Button::new("Wear").small())
-            .on_disabled_hover_text(format!(
-                "All {cap} attachment slots are taken — take something off first."
-            ));
+            .on_disabled_hover_text(reason);
         return;
     }
     if ui
@@ -258,23 +245,38 @@ fn apply_wear_action(
     now: f64,
 ) {
     let Some(live) = live_avatar else {
-        return;
-    };
-    let Some(rig) = live.0.body.rigged_mut() else {
+        toasts.warn(String::from("No avatar loaded yet."), now);
         return;
     };
     match action {
         WearAction::Wear(name) => {
+            // Says why rather than returning silently (#1141). The row's
+            // button is disabled for every one of these reasons, so this
+            // arm should be unreachable — but "should be unreachable" is
+            // exactly the assumption that let the catalogue toast a
+            // success over a wear that never happened.
+            if let Some(reason) = crate::ui::avatar::wear_blocked_reason(Some(&live.0)) {
+                toasts.warn(format!("Could not wear \"{name}\" — {reason}"), now);
+                return;
+            }
             let Some(record) = crate::ui::avatar::record_for_inventory_item(inventory, &name)
             else {
                 toasts.warn(format!("\"{name}\" is not wearable."), now);
                 return;
             };
-            if crate::ui::avatar::attach_record(rig, record, did).is_some() {
+            // No `else` arm: the check above already established a rigged,
+            // resolved body under the cap, which is exactly the condition
+            // `attach_record` returns `Some` on.
+            if let Some(rig) = live.0.body.rigged_mut()
+                && crate::ui::avatar::attach_record(rig, record, did).is_some()
+            {
                 undo_labels.set_avatar(format!("wear {name}"));
             }
         }
         WearAction::TakeOff(name) => {
+            let Some(rig) = live.0.body.rigged_mut() else {
+                return;
+            };
             let detached = crate::ui::avatar::worn_rkeys_from(rig, &name);
             if crate::ui::avatar::take_off_source(rig, &name) > 0 {
                 avatar_editor.forget_attachments(detached);
@@ -347,8 +349,22 @@ pub fn inventory_ui(
             }
             crate::ui::confirm::RenameOutcome::Renamed(applied) => {
                 // Through the record's own rename so wear metadata (#1096)
-                // travels with the item.
-                live.0.rename_item(&old_name, applied);
+                // travels with the item — and then the worn props' own
+                // provenance, which the stash cannot reach (#1141). The
+                // name is the only link between a row and the prop it put
+                // on the body; moving one without the other left the row
+                // offering Wear on something already worn.
+                if live.0.rename_item(&old_name, applied.clone())
+                    && let Some(rig) = live_avatar
+                        .as_deref_mut()
+                        .and_then(|avatar| avatar.0.body.rigged_mut())
+                    && crate::ui::avatar::rename_worn_source(rig, &old_name, &applied) > 0
+                {
+                    // The provenance rides the published attachment
+                    // record, so this is a real edit to the avatar and
+                    // the save row must show it.
+                    undo_labels.set_avatar(format!("rename {old_name} to {applied}"));
+                }
                 state.renaming_generator = None;
             }
         }

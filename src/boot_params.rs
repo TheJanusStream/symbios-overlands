@@ -272,18 +272,113 @@ struct CliArgs {
 // Clipboard
 // ────────────────────────────────────────────────────────────────────────
 
-/// Copy `text` to the OS clipboard. Native uses `arboard`; WASM uses the
-/// browser's async Clipboard API (call-from-user-gesture only — fine when
-/// invoked from an egui button handler).
+/// A finished clipboard write, waiting to be told to the user.
+///
+/// `label` is the success wording ("Path copied"); `text` is what was
+/// asked for, echoed into the failure toast so it can still be selected
+/// by hand when the write did not land.
+pub struct ClipboardOutcome {
+    pub label: String,
+    pub text: String,
+    pub result: Result<(), String>,
+}
+
+/// Where clipboard writes report what they actually did (#1141).
+///
+/// Native's `arboard` write finishes before the call returns; the
+/// browser's `navigator.clipboard.writeText` returns a **Promise**, and
+/// the old wasm path threw it away (`let _ = …`) and returned `Ok(())`.
+/// That promise rejects when the document is not focused, when the
+/// permission is denied, and when the click was not treated as a user
+/// activation — which egui's synthetic frame timing can lose on some
+/// browsers. Every caller mapped that `Ok` to a green "Copied: …" toast,
+/// so the user pasted nothing after being told it had worked, and the
+/// landmark link is the app's primary "come and visit" affordance.
+///
+/// A queue rather than a return value because the answer is not
+/// available on the frame the button was clicked. Both targets push
+/// through it so there is one place the wording lives, and
+/// [`drain_clipboard_outcomes`] is the only thing that toasts.
+#[derive(bevy::prelude::Resource, Default, Clone)]
+pub struct ClipboardQueue(std::sync::Arc<std::sync::Mutex<Vec<ClipboardOutcome>>>);
+
+impl ClipboardQueue {
+    /// Ask for `text` to be put on the clipboard, reporting the outcome
+    /// under `label` once it is known.
+    pub fn copy(&self, text: &str, label: &str) {
+        let outcome = |result| ClipboardOutcome {
+            label: label.to_string(),
+            text: text.to_string(),
+            result,
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.push(outcome(write_to_clipboard_native(text)));
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            match wasm_clipboard_promise(text) {
+                Err(e) => self.push(outcome(Err(e))),
+                Ok(promise) => {
+                    // The egui click handler is synchronous, so the only
+                    // way to learn whether the browser accepted the write
+                    // is to await the promise on the microtask queue and
+                    // land the answer in the queue a later frame drains.
+                    let sink = self.clone();
+                    let outcome_label = label.to_string();
+                    let outcome_text = text.to_string();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        let result = wasm_bindgen_futures::JsFuture::from(promise)
+                            .await
+                            .map(|_| ())
+                            .map_err(|e| {
+                                js_sys::Reflect::get(
+                                    &e,
+                                    &wasm_bindgen::JsValue::from_str("message"),
+                                )
+                                .ok()
+                                .and_then(|m| m.as_string())
+                                .unwrap_or_else(|| String::from("the browser refused the write"))
+                            });
+                        sink.push(ClipboardOutcome {
+                            label: outcome_label,
+                            text: outcome_text,
+                            result,
+                        });
+                    });
+                }
+            }
+        }
+    }
+
+    fn push(&self, outcome: ClipboardOutcome) {
+        if let Ok(mut queue) = self.0.lock() {
+            queue.push(outcome);
+        }
+    }
+
+    /// Take everything reported since the last drain.
+    pub fn take(&self) -> Vec<ClipboardOutcome> {
+        self.0
+            .lock()
+            .map(|mut queue| std::mem::take(&mut *queue))
+            .unwrap_or_default()
+    }
+}
+
+/// Put `text` on the OS clipboard via `arboard`. Synchronous: by the time
+/// this returns the write has either landed or failed.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn write_to_clipboard(text: &str) -> Result<(), String> {
+fn write_to_clipboard_native(text: &str) -> Result<(), String> {
     let mut cb = arboard::Clipboard::new().map_err(|e| format!("clipboard init: {e}"))?;
     cb.set_text(text.to_owned())
         .map_err(|e| format!("clipboard set_text: {e}"))
 }
 
+/// Start a browser clipboard write and hand back its Promise, or the
+/// reason no write could be started at all.
 #[cfg(target_arch = "wasm32")]
-pub fn write_to_clipboard(text: &str) -> Result<(), String> {
+fn wasm_clipboard_promise(text: &str) -> Result<js_sys::Promise, String> {
     let window = web_sys::window().ok_or_else(|| "no window".to_string())?;
     let navigator = window.navigator();
     // `navigator.clipboard` is undefined outside secure contexts (plain
@@ -299,11 +394,26 @@ pub fn write_to_clipboard(text: &str) -> Result<(), String> {
     if clipboard_prop.is_undefined() || clipboard_prop.is_null() {
         return Err("Clipboard API unavailable (insecure context or sandboxed iframe)".to_string());
     }
-    // The returned Promise resolves asynchronously; we don't await it
-    // because the egui button click is synchronous. The browser will
-    // surface any failure in DevTools; we treat the call as best-effort.
-    let _ = navigator.clipboard().write_text(text);
-    Ok(())
+    Ok(navigator.clipboard().write_text(text))
+}
+
+/// Toast whatever the clipboard writes turned out to have done.
+///
+/// The success wording is the caller's `label`; a failure names the
+/// reason **and** repeats the text, because a copy that did not land
+/// leaves the user with nothing else to work from.
+pub fn drain_clipboard_outcomes(
+    queue: bevy::prelude::Res<ClipboardQueue>,
+    mut toasts: bevy::prelude::ResMut<crate::ui::toast::Toasts>,
+    time: bevy::prelude::Res<bevy::prelude::Time>,
+) {
+    let now = time.elapsed_secs_f64();
+    for outcome in queue.take() {
+        match outcome.result {
+            Ok(()) => toasts.success(outcome.label, now),
+            Err(reason) => toasts.error(format!("Copy failed ({reason}) — {}", outcome.text), now),
+        }
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -379,6 +489,61 @@ pub fn download_text_file(filename: &str, mime: &str, contents: &str) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A copy the clipboard refused says so, and hands the text back**
+    /// (#1141).
+    ///
+    /// The wasm path used to discard `writeText`'s Promise and return
+    /// `Ok(())`, so every call site toasted a green "Copied: …" whether
+    /// or not the write landed — and `navigator.clipboard.writeText`
+    /// rejects on a document that is not focused, on a denied permission,
+    /// and when the click was not treated as a user activation. Asserting
+    /// on the toast the person reads, through the real system, because
+    /// that string is the whole defect: a silent failure is recoverable,
+    /// a false success is not.
+    #[test]
+    fn a_refused_copy_is_reported_with_the_text_that_did_not_land() {
+        let mut app = bevy::prelude::App::new();
+        app.add_plugins(bevy::time::TimePlugin);
+        app.init_resource::<ClipboardQueue>();
+        app.init_resource::<crate::ui::toast::Toasts>();
+        app.add_systems(bevy::prelude::Update, drain_clipboard_outcomes);
+
+        let queue = app.world().resource::<ClipboardQueue>().clone();
+        queue.push(ClipboardOutcome {
+            label: String::from("Copied: https://example/room"),
+            text: String::from("https://example/room"),
+            result: Err(String::from("Document is not focused")),
+        });
+        queue.push(ClipboardOutcome {
+            label: String::from("Path copied"),
+            text: String::from("/tmp/session.log"),
+            result: Ok(()),
+        });
+        app.update();
+
+        let toasts = app.world().resource::<crate::ui::toast::Toasts>();
+        let shown = toasts.shown();
+        assert_eq!(shown.len(), 2, "one toast per outcome: {shown:?}");
+        assert_eq!(shown[0].0, crate::ui::toast::ToastKind::Error);
+        assert!(
+            shown[0].1.contains("Document is not focused"),
+            "the failure names the browser's reason: {:?}",
+            shown[0].1
+        );
+        assert!(
+            shown[0].1.contains("https://example/room"),
+            "and repeats the text, since the user now has nothing else: {:?}",
+            shown[0].1
+        );
+        assert_eq!(shown[1].0, crate::ui::toast::ToastKind::Success);
+        assert_eq!(shown[1].1, "Path copied");
+
+        // Drained, not re-read: a second frame must not re-toast.
+        app.update();
+        let shown = app.world().resource::<crate::ui::toast::Toasts>().shown();
+        assert_eq!(shown.len(), 2, "outcomes are taken, not peeked: {shown:?}");
+    }
 
     #[test]
     fn parse_pos_xz_form() {

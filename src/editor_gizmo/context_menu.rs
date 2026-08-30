@@ -750,27 +750,21 @@ pub(super) fn scene_context_menu_ui(
             let (Some(live), Some(inv)) = (live_avatar.as_mut(), inventory.as_deref()) else {
                 return;
             };
-            let Some(record) = crate::ui::avatar::record_for_inventory_item(&inv.0, &name) else {
-                return;
-            };
-            let Some(rig) = live.0.body.rigged_mut() else {
-                return;
-            };
-            let worn = rig
-                .resolved
-                .as_ref()
-                .map_or(0, |resolved| resolved.attachments.len());
-            if worn >= crate::pds::avatar::MAX_AVATAR_ATTACHMENTS {
-                toasts.warn(
-                    format!(
-                        "All {} attachment slots are taken — take something off first.",
-                        crate::pds::avatar::MAX_AVATAR_ATTACHMENTS
-                    ),
-                    now,
-                );
+            // The cap ladder this arm used to carry by hand, from the one
+            // source the Inventory row and the catalogue also read
+            // (#1141) — so an unresolved body now says so here too
+            // instead of returning silently from `rigged_mut`.
+            if let Some(reason) = crate::ui::avatar::wear_blocked_reason(Some(&live.0)) {
+                toasts.warn(reason, now);
                 return;
             }
-            if crate::ui::avatar::attach_record(rig, record, &did).is_some() {
+            let Some(record) = crate::ui::avatar::record_for_inventory_item(&inv.0, &name) else {
+                toasts.warn(format!("\"{name}\" is not wearable."), now);
+                return;
+            };
+            if let Some(rig) = live.0.body.rigged_mut()
+                && crate::ui::avatar::attach_record(rig, record, &did).is_some()
+            {
                 undo_labels.set_avatar(format!("wear {name}"));
             }
         }

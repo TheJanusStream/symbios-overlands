@@ -109,6 +109,27 @@ impl Emote {
         }
     }
 
+    /// A one-line hint naming one example word per emote — the chat
+    /// window's caption and the Controls sheet's line (#1141).
+    ///
+    /// Built from [`Self::keywords`] rather than written out. The whole
+    /// feature is invisible: there is no command syntax to discover and
+    /// nothing in the UI ever said the words exist, so a first-session
+    /// visitor could only find it by typing one by accident. A hint that
+    /// named words the table no longer carries would be worse than none,
+    /// so it reads the table.
+    #[must_use]
+    pub fn hint_line() -> String {
+        let examples: Vec<&str> = Emote::ALL
+            .iter()
+            .filter_map(|emote| emote.keywords().first().copied())
+            .collect();
+        format!(
+            "Say {} — and your avatar gestures as you type.",
+            examples.join(", ")
+        )
+    }
+
     /// The emote a chat message asks for, if any.
     ///
     /// **First hit in the message wins, and the scan is by word position rather

@@ -208,11 +208,7 @@ pub(super) fn evict_stale_offer_dialog(
     // the room to filter out.
     sender.to(
         dialog.sender_peer_id,
-        OverlandsMessage::ItemOfferResponse {
-            offer_id: dialog.offer_id,
-            target_did: dialog.sender_did.clone(),
-            accepted: false,
-        },
+        OverlandsMessage::item_offer_response(dialog.offer_id, dialog.sender_did.clone(), false),
         ChannelKind::Reliable,
     );
     session_log.info(
@@ -313,11 +309,7 @@ pub(super) fn dismiss_offer_dialog_from_muted_sender(
     let now = time.elapsed_secs_f64();
     sender.to(
         dialog.sender_peer_id,
-        OverlandsMessage::ItemOfferResponse {
-            offer_id: dialog.offer_id,
-            target_did: dialog.sender_did.clone(),
-            accepted: false,
-        },
+        OverlandsMessage::item_offer_response(dialog.offer_id, dialog.sender_did.clone(), false),
         ChannelKind::Reliable,
     );
     session_log.info(

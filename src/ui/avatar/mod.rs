@@ -56,8 +56,8 @@
 
 mod attachments;
 pub(crate) use attachments::{
-    attach_record, is_worn_from, record_for_inventory_item, save_worn_to_inventory, take_off_rkey,
-    take_off_source, worn_rkeys_from,
+    attach_record, is_worn_from, record_for_inventory_item, rename_worn_source,
+    save_worn_to_inventory, take_off_rkey, take_off_source, wear_blocked_reason, worn_rkeys_from,
 };
 mod body;
 mod locomotion;
@@ -1023,6 +1023,12 @@ pub fn avatar_ui(
                                 && let Some(s) = session.as_ref()
                             {
                                 wardrobe.fetching = true;
+                                wardrobe.attempted = true;
+                                // Clear the last failure as the retry
+                                // starts, so the error line describes the
+                                // attempt in flight and not the one before
+                                // it (#1141).
+                                wardrobe.error = None;
                                 spawn_wardrobe_list_task(&mut commands, &s.did);
                             }
                         });
@@ -1349,7 +1355,9 @@ fn spawn_wardrobe_list_task(commands: &mut Commands, did: &str) {
 }
 
 /// Land finished wardrobe listings. A failed walk clears the spinner and
-/// leaves whatever list was there — the button is the retry.
+/// leaves whatever list was there — the button is the retry — and records
+/// the reason so the tab can say a fetch was tried and failed rather than
+/// re-showing the pristine "Refresh to list…" hint (#1141).
 pub fn poll_wardrobe_list_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut WardrobeListTask)>,
@@ -1365,8 +1373,14 @@ pub fn poll_wardrobe_list_tasks(
         let editor = editor.bypass_change_detection();
         editor.wardrobe.fetching = false;
         match result {
-            Ok(entries) => editor.wardrobe.entries = Some(entries),
-            Err(err) => warn!("wardrobe listing failed: {err:?}"),
+            Ok(entries) => {
+                editor.wardrobe.entries = Some(entries);
+                editor.wardrobe.error = None;
+            }
+            Err(err) => {
+                warn!("wardrobe listing failed: {err:?}");
+                editor.wardrobe.error = Some(err.to_string());
+            }
         }
     }
 }

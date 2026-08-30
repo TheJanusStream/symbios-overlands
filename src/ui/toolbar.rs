@@ -163,9 +163,11 @@ pub fn toolbar_ui(
     mut commands: Commands,
     profile_cache: Res<BskyProfileCache>,
     local_player_q: Query<&Transform, With<LocalPlayer>>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
-    time: Res<Time>,
     mut panel_free: ResMut<crate::ui::layout::PanelFreeRect>,
+    // The account chip's Copy Landmark Link reports through the clipboard
+    // queue now (#1141), which is also where its toast is raised — so the
+    // toolbar no longer needs the toast queue or the clock at all.
+    clipboard: Res<crate::boot_params::ClipboardQueue>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -302,11 +304,7 @@ pub fn toolbar_ui(
                             }
                             let player_tf = local_player_q.single().ok().copied();
                             if crate::ui::diagnostics::landmark_link_button(
-                                ui,
-                                &room.0,
-                                player_tf,
-                                &mut toasts,
-                                time.elapsed_secs_f64(),
+                                ui, &room.0, player_tf, &clipboard,
                             ) {
                                 ui.close();
                             }
@@ -540,6 +538,37 @@ const EDITOR_ROWS: &[ControlRow] = &[
     },
 ];
 
+// Global shortcut rows (#836, #864) — the same on every chassis, and the
+// only place any of them is written down. A `const` rather than inline
+// grid rows so the sheet's coverage is testable: Ctrl+Z / Ctrl+Shift+Z
+// shipped with #864 and stayed discoverable only through the hover text
+// of an editor's Undo button (#1141).
+//
+// Same contract as the movement and editor rows — these mirror live
+// handlers, change both together:
+// * Enter          → `ui::shortcuts` chat focus
+// * Esc            → drag abort · selection clear · window close
+// * Ctrl+S         → `ui::shortcuts` publish
+// * Ctrl+Z / Shift → `ui::undo::trigger`
+const GLOBAL_ROWS: &[ControlRow] = &[
+    ControlRow {
+        keys: "Enter",
+        action: "open chat",
+    },
+    ControlRow {
+        keys: "Esc",
+        action: "back out: drag · selection · windows",
+    },
+    ControlRow {
+        keys: "Ctrl+S",
+        action: "save the editor you're in",
+    },
+    ControlRow {
+        keys: "Ctrl+Z / Ctrl+Shift+Z",
+        action: "undo / redo in the open editor",
+    },
+];
+
 /// Movement key rows for the piloted chassis — the pure preset→rows mapping
 /// (#803, unit-tested below). The camera rows and portal hint are shared and
 /// rendered separately by [`controls_hint_ui`].
@@ -661,21 +690,25 @@ pub fn controls_hint_ui(
                 ui.monospace("Scroll");
                 ui.label("zoom");
                 ui.end_row();
-                // Global shortcuts (#836) — same on every chassis.
-                ui.monospace("Enter");
-                ui.label("open chat");
-                ui.end_row();
-                ui.monospace("Esc");
-                ui.label("back out: drag · selection · windows");
-                ui.end_row();
-                ui.monospace("Ctrl+S");
-                ui.label("save the editor you're in");
-                ui.end_row();
+                for row in GLOBAL_ROWS {
+                    ui.monospace(row.keys);
+                    ui.label(row.action);
+                    ui.end_row();
+                }
             });
         ui.add_space(6.0);
         ui.small("Change your vehicle in Avatar › Locomotion.");
         ui.add_space(6.0);
-        ui.label("Walk through a portal doorway to travel into another overland.");
+        // The chat-keyword emotes (#1068) had no UI surface at all — a
+        // shipped feature nobody could find without typing one of its
+        // words by chance (#1141). Sourced from the keyword table so the
+        // example words cannot drift from the ones that gesture.
+        ui.label(crate::player::emote::Emote::hint_line());
+        ui.add_space(6.0);
+        ui.label(
+            "Walk through a portal doorway — or a gateway — to travel into \
+             another overland.",
+        );
         // Owner-only: the world-editing gestures (#851). Every one of
         // these was previously undiscoverable — and right-click doubling
         // as camera orbit actively taught people to avoid the menu.
@@ -789,6 +822,46 @@ mod tests {
         }
         for row in EDITOR_ROWS {
             assert!(!row.action.is_empty(), "{} row has empty action", row.keys);
+        }
+    }
+
+    /// **The sheet names every global shortcut the app binds** (#1141).
+    ///
+    /// The Controls sheet is the app's one onboarding surface — it opens
+    /// itself on a first run. Undo/redo shipped with #864 and was never
+    /// added here, so the only place it was written down was the hover
+    /// text of a button inside an editor a first-session visitor has no
+    /// reason to open. Pinning the key names here means the next binding
+    /// added without a row fails the suite.
+    #[test]
+    fn global_rows_cover_every_bound_shortcut() {
+        let keys: Vec<&str> = GLOBAL_ROWS.iter().map(|r| r.keys).collect();
+        for expected in ["Enter", "Esc", "Ctrl+S", "Ctrl+Z / Ctrl+Shift+Z"] {
+            assert!(keys.contains(&expected), "global rows lost {expected}");
+        }
+        for row in GLOBAL_ROWS {
+            assert!(!row.action.is_empty(), "{} row has empty action", row.keys);
+        }
+    }
+
+    /// **The emote hint names words that actually gesture** (#1141).
+    ///
+    /// The hint exists because the feature is otherwise invisible, so a
+    /// hint that named a word the keyword table no longer carries would
+    /// be worse than saying nothing. Round-trips each example word back
+    /// through the matcher the chat send path uses.
+    #[test]
+    fn the_emote_hint_names_words_that_still_gesture() {
+        use crate::player::emote::Emote;
+        let hint = Emote::hint_line();
+        for emote in Emote::ALL {
+            let word = emote.keywords()[0];
+            assert!(hint.contains(word), "hint dropped {word:?}: {hint}");
+            assert_eq!(
+                Emote::from_text(word),
+                Some(emote),
+                "{word:?} is advertised but no longer gestures"
+            );
         }
     }
 

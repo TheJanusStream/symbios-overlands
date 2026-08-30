@@ -296,6 +296,7 @@ pub fn run() {
         .init_resource::<ui::shortcuts::PublishShortcut>()
         .init_resource::<ui::chat::ChatFocusRequest>()
         .init_resource::<ui::toast::Toasts>()
+        .init_resource::<boot_params::ClipboardQueue>()
         .init_resource::<world_builder::grammar_diag::GrammarDiagnostics>()
         .init_resource::<ui::catalogue::CatalogueBrowser>()
         .init_resource::<ui::inventory::PendingGeneratorDrop>()
@@ -490,6 +491,11 @@ pub fn run() {
                 // running after the toolbar carves the top strip.
                 ui::travel::travel_overlay_ui,
                 ui::travel::portal_prompt_ui,
+                // Clipboard writes report their outcome asynchronously on
+                // wasm (#1141), so the toast for a copy is raised here —
+                // after every window that could have started one, and
+                // before the toast surface draws.
+                boot_params::drain_clipboard_outcomes,
                 // Last in the chain AND on the egui Foreground order, so
                 // toasts paint above every floating window (#819).
                 ui::toast::toast_ui,

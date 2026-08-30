@@ -728,9 +728,7 @@ pub(super) fn handle_incoming_messages(
             OverlandsMessage::ItemOffer {
                 offer_id,
                 target_did,
-                item_name,
-                generator_json,
-                wear_json,
+                payload_json,
             } => {
                 // Broadcast-with-address: only the peer whose DID matches
                 // `target_did` should act on the offer. Everyone else
@@ -775,15 +773,36 @@ pub(super) fn handle_incoming_messages(
                 if sender_muted {
                     sender.to(
                         msg.sender,
-                        OverlandsMessage::ItemOfferResponse {
-                            offer_id,
-                            target_did: sender_did.clone(),
-                            accepted: false,
-                        },
+                        OverlandsMessage::item_offer_response(offer_id, sender_did.clone(), false),
                         ChannelKind::Reliable,
                     );
                     continue;
                 }
+
+                // Decode the payload. Deliberately AFTER the muted and
+                // busy gates (#1184): this is a broadcast with an
+                // address, so every peer in the room receives every
+                // gift, and parsing a blueprint the recipient is about
+                // to auto-decline is work nobody asked for. The envelope
+                // carries everything those two gates need.
+                //
+                // A malformed payload — or an Unknown generator variant
+                // — is a protocol error: auto-decline and log.
+                let Some(payload) = OverlandsMessage::decode_item_offer(&payload_json) else {
+                    sender.to(
+                        msg.sender,
+                        OverlandsMessage::item_offer_response(offer_id, sender_did.clone(), false),
+                        ChannelKind::Reliable,
+                    );
+                    session_log.warn(
+                        now,
+                        EventPayload::ItemOfferDecodeFailed {
+                            reason: format!("from @{sender_handle}: failed to decode"),
+                        },
+                    );
+                    continue;
+                };
+                let mut generator = payload.generator;
 
                 // Clamp the wire-supplied item name *before* any
                 // diagnostics or dialog state references it. The
@@ -794,7 +813,8 @@ pub(super) fn handle_incoming_messages(
                 // / rejection log line. Clamping up front guarantees
                 // the rest of this handler only sees a bounded value.
                 let item_name = {
-                    let mut n: String = item_name
+                    let mut n: String = payload
+                        .item_name
                         .chars()
                         .filter(|c| !c.is_control())
                         .take(64)
@@ -812,11 +832,7 @@ pub(super) fn handle_incoming_messages(
                 if dialog_open {
                     sender.to(
                         msg.sender,
-                        OverlandsMessage::ItemOfferResponse {
-                            offer_id,
-                            target_did: sender_did.clone(),
-                            accepted: false,
-                        },
+                        OverlandsMessage::item_offer_response(offer_id, sender_did.clone(), false),
                         ChannelKind::Reliable,
                     );
                     session_log.info(now, EventPayload::ItemOfferAutoDeclinedBusy { offer_id });
@@ -828,32 +844,13 @@ pub(super) fn handle_incoming_messages(
                     continue;
                 }
 
-                // Decode + sanitise the inbound generator. A malformed
-                // payload or an Unknown variant is treated as a protocol
-                // error — auto-decline and log.
-                let Some(mut generator) = OverlandsMessage::decode_item_offer(&generator_json)
-                else {
-                    sender.to(
-                        msg.sender,
-                        OverlandsMessage::ItemOfferResponse {
-                            offer_id,
-                            target_did: sender_did.clone(),
-                            accepted: false,
-                        },
-                        ChannelKind::Reliable,
-                    );
-                    session_log.warn(
-                        now,
-                        EventPayload::ItemOfferDecodeFailed {
-                            reason: format!("from @{sender_handle}: failed to decode"),
-                        },
-                    );
-                    continue;
-                };
                 crate::pds::sanitize_generator(&mut generator);
                 // Wear metadata (#1108) through the same clamp the inventory
-                // and attachment records share; a bad payload is decor.
-                let wear = OverlandsMessage::decode_item_offer_wear(&wear_json).map(|mut meta| {
+                // and attachment records share. A `wear` the payload could
+                // not read is already `None` by the time it gets here — the
+                // payload's own lenient decoder degrades a bad one to decor
+                // rather than refusing the gift (#1184).
+                let wear = payload.wear.map(|mut meta| {
                     meta.sanitize();
                     meta
                 });
@@ -866,11 +863,7 @@ pub(super) fn handle_incoming_messages(
                 if !crate::ui::inventory::is_drop_placeable(&generator) {
                     sender.to(
                         msg.sender,
-                        OverlandsMessage::ItemOfferResponse {
-                            offer_id,
-                            target_did: sender_did.clone(),
-                            accepted: false,
-                        },
+                        OverlandsMessage::item_offer_response(offer_id, sender_did.clone(), false),
                         ChannelKind::Reliable,
                     );
                     session_log.warn(
@@ -909,7 +902,7 @@ pub(super) fn handle_incoming_messages(
             OverlandsMessage::ItemOfferResponse {
                 offer_id,
                 target_did,
-                accepted,
+                payload_json,
             } => {
                 // Gate on the local DID first: a response broadcast is
                 // carrying our own sender-side offer_id only when
@@ -947,6 +940,14 @@ pub(super) fn handle_incoming_messages(
                 let Some(pending) = pending_offers.by_id.remove(&offer_id) else {
                     continue;
                 };
+
+                // A payload this build cannot read is NOT an acceptance:
+                // `ItemOfferResponsePayload::accepted` defaults to false
+                // and an outright decode failure declines too (#1184), so
+                // the worst a skewed peer can do is make a gift that
+                // arrived look declined — never the reverse.
+                let accepted = OverlandsMessage::decode_item_offer_response(&payload_json)
+                    .is_some_and(|payload| payload.accepted);
 
                 session_log.info(
                     now,

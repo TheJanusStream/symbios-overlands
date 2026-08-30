@@ -706,7 +706,6 @@ fn inventory_row(
     toasts: &mut crate::ui::toast::Toasts,
     now: f64,
 ) {
-    use crate::pds::avatar::MAX_AVATAR_ATTACHMENTS;
     use crate::pds::inventory::WearMeta;
 
     let weak = crate::ui::theme::current(ui.ctx()).text_weak;
@@ -761,35 +760,25 @@ fn inventory_row(
         let Some(socket) = wearable else {
             return;
         };
-        // "& wear" needs a body to dress; the reasons it cannot are the
-        // same ones the old Wear button gave, as a disabled hint.
-        let Some(live) = live_avatar else {
+        // "& wear" needs a body to dress. The reasons it cannot are the
+        // Inventory row's and the scene menu's, from one source
+        // (#1141) — including the one all three used to miss, a rigged
+        // body whose wardrobe record did not resolve.
+        //
+        // Reads through `as_ref` for the same reason the inventory count
+        // above does: deref_mut here would dirty the avatar record every
+        // frame the catalogue is open.
+        let reason = crate::ui::avatar::wear_blocked_reason(
+            live_avatar.as_ref().map(|live| &live.as_ref().0),
+        );
+        if let Some(reason) = reason {
             ui.add_enabled(false, egui::Button::new("Copy to inventory & wear"));
-            hint(ui, "No avatar loaded yet.");
-            return;
-        };
-        let worn = match live.as_ref().0.body.rigged_ref() {
-            Some(rig) => rig
-                .resolved
-                .as_ref()
-                .map_or(0, |resolved| resolved.attachments.len()),
-            None => {
-                ui.add_enabled(false, egui::Button::new("Copy to inventory & wear"));
-                hint(
-                    ui,
-                    "Vehicles carry no attachments — pilot a body to wear this.",
-                );
-                return;
-            }
-        };
-        if worn >= MAX_AVATAR_ATTACHMENTS {
-            ui.add_enabled(false, egui::Button::new("Copy to inventory & wear"));
-            hint(
-                ui,
-                "All 16 attachment slots are taken — take something off first.",
-            );
+            hint(ui, &reason);
             return;
         }
+        let Some(live) = live_avatar else {
+            return;
+        };
         if ui
             .button("Copy to inventory & wear")
             .on_hover_text(format!(
@@ -798,15 +787,31 @@ fn inventory_row(
             ))
             .clicked()
         {
+            // The copy lands either way — it is a separate, already-done
+            // thing. Only the *wear* half is conditional, and the toast
+            // now reports which halves actually happened (#1141): it used
+            // to say "Wearing …" unconditionally, including on the path
+            // where `attach_record` returned `None` and nothing was worn.
             let saved = copy(inventory);
-            if let Some(record) =
+            let attached =
                 crate::ui::avatar::record_for_inventory_item(&inventory.as_ref().0, &saved)
-                && let Some(rig) = live.0.body.rigged_mut()
-            {
-                crate::ui::avatar::attach_record(rig, record, &session.did);
+                    .and_then(|record| {
+                        live.0.body.rigged_mut().and_then(|rig| {
+                            crate::ui::avatar::attach_record(rig, record, &session.did)
+                        })
+                    });
+            if attached.is_some() {
                 undo_labels.set_avatar(format!("wear {saved}"));
                 toasts.success(
                     format!("Wearing \"{saved}\" — it is in your inventory to adjust or take off."),
+                    now,
+                );
+            } else {
+                toasts.warn(
+                    format!(
+                        "Copied to inventory as \"{saved}\", but it could not be worn — \
+                         wear it from the Inventory window once your body is ready."
+                    ),
                     now,
                 );
             }

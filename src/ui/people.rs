@@ -608,11 +608,11 @@ pub fn incoming_offer_ui(
     // Fire the response back to the sender. Broadcast-with-address: the
     // `target_did` field is the *sender's* DID so only they pick it up.
     writer.write(Broadcast {
-        payload: OverlandsMessage::ItemOfferResponse {
-            offer_id: dialog.offer_id,
-            target_did: dialog.sender_did.clone(),
+        payload: OverlandsMessage::item_offer_response(
+            dialog.offer_id,
+            dialog.sender_did.clone(),
             accepted,
-        },
+        ),
         channel: ChannelKind::Reliable,
     });
 
