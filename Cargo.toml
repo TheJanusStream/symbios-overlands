@@ -1,6 +1,6 @@
 [package]
 name = "symbios-overlands"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 # Targets are declared, not discovered (#1179).
 #
@@ -59,7 +59,7 @@ egui_ltreeview = "0.8"
 # the equivalent gate with a right-button override instead (#702).
 bevy_panorbit_camera = "0.35"
 bevy_symbios = "0.8"
-bevy_symbios_ground = { version = "0.4", features = ["physics"] }
+bevy_symbios_ground = { version = "0.5", features = ["physics"] }
 bevy_symbios_multiuser = "0.7"
 bevy_symbios_texture = { version = "0.10", features = ["egui"] }
 bevy_symbios_audio = { version = "0.3", features = ["egui"] }
@@ -69,7 +69,7 @@ symbios = "1.5"
 symbios-turtle-3d = "0.6"
 symbios-shape = "0.4"
 bevy_symbios_shape = "0.7"
-symbios-tensor = "0.3"
+symbios-tensor = "0.4"
 bevy_symbios_avatar = "0.4"
 gen-jobs = { path = "crates/gen-jobs" }
 avian3d = "0.7"

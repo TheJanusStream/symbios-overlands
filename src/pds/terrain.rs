@@ -241,37 +241,75 @@ impl Default for SovereignMaterialConfig {
         Self {
             texture_size: crate::config::textures::SPLAT,
             tile_scale: Fp(90.0),
+            // Retuned for symbios-ground 0.4's plateau semantics (#1168). A
+            // range now carries full weight across itself, endpoints included,
+            // and fades over a skirt of `half / (1 + sharpness)` *outside* it.
+            // Under the old tent it peaked at the midpoint and scored zero at
+            // both ends, so `slope_min: 0.0` meant "absent on level ground" and
+            // every one of these rules missed a dead-flat texel — the mapper
+            // fell through to its no-rule-matched branch, which paints rock.
+            //
+            // Two things had to move with the semantics:
+            //
+            // * `sharpness: 0.5` was compensation, not taste. It widened the
+            //   tents until near-level ground scored *something*; under
+            //   plateaus it makes the skirts enormous — rock's slope skirt
+            //   reached down to slope 0.0 and put 31% rock on a 0.05 slope.
+            //   2.0 gives an edge a third of the half-range wide, which reads
+            //   as a transition rather than a wash.
+            // * Dirt's height band now runs up to snow. Rock owns every
+            //   height but only steep slopes, so with dirt stopping at 0.65
+            //   a *flat* texel at height 0.8 matched nothing at all and the
+            //   fallback hole re-opened higher up the mountain.
+            //
+            // Snow's slope band is the third change and the one the tent was
+            // actively lying about: `(0.0, 1.0)` peaked at slope 0.5, so snow
+            // was strongest on 45° faces. It now sits on the gentle ground it
+            // belongs on and leaves the cliffs to rock.
+            //
+            // These are defaults; a published region carries its own copy of
+            // these five numbers in its record and keeps them. See the issue
+            // for why they are deliberately not migrated.
             rules: [
-                // R — Grass
+                // R — Grass: low ground, gentle.
                 SovereignSplatRule {
                     height_min: Fp(0.0),
                     height_max: Fp(0.45),
                     slope_min: Fp(0.0),
-                    slope_max: Fp(0.30),
-                    sharpness: Fp(0.5),
+                    slope_max: Fp(0.25),
+                    sharpness: Fp(2.0),
                 },
-                // G — Dirt
+                // G — Dirt: the whole middle and upper band, up to the snow
+                // line, tolerant of moderate slopes.
                 SovereignSplatRule {
                     height_min: Fp(0.30),
-                    height_max: Fp(0.65),
+                    height_max: Fp(0.90),
                     slope_min: Fp(0.0),
-                    slope_max: Fp(0.55),
-                    sharpness: Fp(0.5),
+                    slope_max: Fp(0.50),
+                    sharpness: Fp(2.0),
                 },
-                // B — Rock
+                // B — Rock: any height, steep faces only.
+                //
+                // The gap to grass's 0.25 is deliberate. Two plateaus that
+                // *abut* both read exactly 1 on the shared boundary, and
+                // `dominant_biome` is an argmax — so which one wins there is
+                // decided by the last bit of a `powf`, and a hairline of rock
+                // appeared along dead-level ground at exactly slope 0.25.
+                // Leaving 0.05 between them puts the handover inside the two
+                // skirts, where the weights differ by a real margin.
                 SovereignSplatRule {
                     height_min: Fp(0.0),
                     height_max: Fp(1.0),
-                    slope_min: Fp(0.25),
+                    slope_min: Fp(0.30),
                     slope_max: Fp(1.0),
-                    sharpness: Fp(0.5),
+                    sharpness: Fp(2.0),
                 },
-                // A — Snow
+                // A — Snow: the summit, and only where it could settle.
                 SovereignSplatRule {
                     height_min: Fp(0.88),
                     height_max: Fp(1.0),
                     slope_min: Fp(0.0),
-                    slope_max: Fp(1.0),
+                    slope_max: Fp(0.40),
                     sharpness: Fp(4.0),
                 },
             ],

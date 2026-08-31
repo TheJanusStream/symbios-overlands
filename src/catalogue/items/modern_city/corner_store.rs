@@ -650,36 +650,42 @@ mod tests {
         }
     }
 
-    /// #968: keep the tile's U seam quiet. The generator colours a brick by
-    /// hashing its raw cell index, so the one straddling the seam is hashed
-    /// as two different bricks and renders as two half-bricks of different
-    /// colour — one per tile per staggered course, which at two columns was
-    /// every fourth brick on the wall.
+    /// #968 / #1167: the bricks lie flat and the bond tiles.
     ///
-    /// Neither number can remove the artifact (only the generator could, by
-    /// hashing the index modulo the column count); together they dilute it
-    /// and drop its contrast until it reads as shading. Tuning either one
-    /// back toward the kit defaults brings the split bricks back, so both
-    /// are pinned here.
+    /// This test used to pin two numbers instead — `cols >= 4` and
+    /// `cell_variance <= 0.15` — neither of which was about how the wall
+    /// should look. The generator hashed each brick's raw cell index, so the
+    /// one straddling the tile's U seam drew as two half-bricks of different
+    /// colour, and the only defence available here was dilution: more bricks
+    /// per tile, less colour between them. symbios-texture 0.4.3 wraps the
+    /// index modulo the column count (its #12), so those two ceilings were
+    /// holding a fixed defect down and the standing catalogue overhaul (#972)
+    /// no longer has to re-apply them item by item.
+    ///
+    /// What is left is what the bond actually requires: a brick wider than it
+    /// is tall, and a stagger that carries across the V seam. The V constraint
+    /// is the generator's and it is *not* fixed — `scale × row_offset` must be
+    /// a whole number or course 0 sits on course `scale - 1` at the wrong
+    /// offset (symbios-texture #14).
     #[test]
-    fn brick_tiling_keeps_seam_splits_subtle() {
+    fn the_brick_bond_lies_flat_and_tiles() {
         let mut slabs = Vec::new();
         brick_slabs(&CornerStore.build(""), [0.0; 3], &mut slabs);
+        assert!(!slabs.is_empty(), "the corner store is a brick building");
         for (pos, m) in &slabs {
             let SovereignTextureConfig::Brick(cfg) = &m.texture else {
                 unreachable!("filtered to Brick above");
             };
             let cols = (cfg.scale.0 * cfg.aspect_ratio.0).round();
             assert!(
-                cols >= 4.0,
-                "slab at {pos:?}: {cols} bricks per tile leaves the seam-straddling \
-                 brick too large a share of the wall"
+                cols < cfg.scale.0,
+                "slab at {pos:?}: {cols} columns to {} rows stands its bricks upright",
+                cfg.scale.0
             );
+            let stagger = cfg.scale.0 * cfg.row_offset.0;
             assert!(
-                cfg.cell_variance.0 <= 0.15,
-                "slab at {pos:?}: cell variance {} makes the seam split read as \
-                 two different bricks",
-                cfg.cell_variance.0
+                (stagger - stagger.round()).abs() < 1e-6,
+                "slab at {pos:?}: scale × row_offset = {stagger} does not tile in V"
             );
         }
     }

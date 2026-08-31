@@ -1028,21 +1028,10 @@ mod tests {
                     "flue at {pos:?}: {cols} columns to {} rows stands its bricks upright",
                     cfg.scale.0
                 );
-                assert!(
-                    cols >= 4.0,
-                    "flue at {pos:?}: {cols} bricks per tile leaves the \
-                     seam-straddling brick too large a share of the surface"
-                );
                 let stagger = cfg.scale.0 * cfg.row_offset.0;
                 assert!(
                     (stagger - stagger.round()).abs() < 1e-6,
                     "flue at {pos:?}: scale × row_offset = {stagger} does not tile"
-                );
-                assert!(
-                    cfg.cell_variance.0 <= 0.15,
-                    "flue at {pos:?}: cell variance {} makes the tile seam read \
-                     as two different bricks",
-                    cfg.cell_variance.0
                 );
                 seen += 1;
             }

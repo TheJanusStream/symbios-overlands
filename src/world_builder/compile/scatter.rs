@@ -919,4 +919,90 @@ mod tests {
         };
         assert!(try_sample(&bounds, &open, &[], &mut rng, None, &filters).is_some());
     }
+
+    /// #1168: level ground grows grass, not rock's plants.
+    ///
+    /// The sequence that produced this: upstream's `smooth_range` was a tent,
+    /// so a `SovereignSplatRule` scored zero *at* its own endpoints. Three of
+    /// the four seeded rules name `slope_min: 0.0`, and the fourth (rock)
+    /// names `0.25`, whose tent is also zero at 0.0 — so on an exactly level
+    /// texel all four weights were zero, the total fell under `f32::EPSILON`,
+    /// and both the splat map and this argmax fell through to the rock
+    /// channel. Every scatter with a biome allow-list then read Rock on a lawn
+    /// and put rock's plants there, because `dominant_biome` deliberately
+    /// shares the upstream weight formula rather than re-implementing it.
+    ///
+    /// symbios-ground 0.4 makes a range a plateau, and the defaults are
+    /// retuned for it (see `SovereignMaterialConfig::default`).
+    #[test]
+    fn level_ground_is_grass_and_never_rock() {
+        let cfg = crate::pds::SovereignTerrainConfig::default();
+        let hs = cfg.height_scale.0;
+
+        assert_eq!(
+            dominant_biome(&cfg, 0.0, 0.0),
+            0,
+            "dead-level ground at the bottom of the range should be grass"
+        );
+        // Rock is the steep-face layer. On a dead-flat texel it must never be
+        // the answer at any altitude — below the snow line that is grass or
+        // dirt, above it snow.
+        for step in 0..=100 {
+            let h = step as f32 / 100.0;
+            let biome = dominant_biome(&cfg, h * hs, 0.0);
+            assert_ne!(
+                biome, 2,
+                "level ground at normalised height {h} came out as rock"
+            );
+        }
+    }
+
+    /// #1168: no `(height, slope)` pair leaves every rule at zero.
+    ///
+    /// The rock fallback is what a caller gets when nothing matches, and it is
+    /// indistinguishable from a deliberate rock texel — which is how the tent
+    /// bug hid for so long. Sweeping the whole domain is the only way to see
+    /// a hole: fixing the level-ground case opened a second one higher up
+    /// while dirt still stopped at height 0.65, because rock owns every height
+    /// but only steep slopes, so a *flat* texel at 0.8 matched nothing.
+    #[test]
+    fn every_height_and_slope_pair_matches_some_rule() {
+        let cfg = crate::pds::SovereignTerrainConfig::default();
+        for hs in 0..=50 {
+            for ss in 0..=50 {
+                let (h, slope) = (hs as f32 / 50.0, ss as f32 / 50.0);
+                let total: f32 = (0..4)
+                    .map(|i| convert_rule(&cfg.material.rules[i]).weight(h, slope))
+                    .sum();
+                assert!(
+                    total > f32::EPSILON,
+                    "height {h} / slope {slope} matches no rule, so it takes the \
+                     rock fallback whatever the terrain actually looks like"
+                );
+            }
+        }
+    }
+
+    /// #1168: the seeded rules read as a landscape, not just as non-zero.
+    ///
+    /// Three claims, each of which the pre-0.4 defaults got wrong: a steep
+    /// face is rock at every altitude (it was rock only by fallback); the
+    /// summit is snow when it is flat enough to hold and rock when it is not
+    /// (the old snow rule's slope range `(0.0, 1.0)` was a tent peaking at
+    /// slope 0.5, so snow was *strongest* on 45° faces); and the middle
+    /// altitudes on gentle ground are dirt.
+    #[test]
+    fn the_seeded_rules_paint_a_landscape() {
+        let cfg = crate::pds::SovereignTerrainConfig::default();
+        let hs = cfg.height_scale.0;
+        let at = |h: f32, slope: f32| dominant_biome(&cfg, h * hs, slope);
+
+        for h in [0.0f32, 0.25, 0.5, 0.75, 1.0] {
+            assert_eq!(at(h, 0.9), 2, "a near-vertical face at height {h} is rock");
+        }
+        assert_eq!(at(0.97, 0.05), 3, "a flat summit holds snow");
+        assert_eq!(at(0.97, 0.8), 2, "a summit cliff does not");
+        assert_eq!(at(0.6, 0.05), 1, "gentle mid-altitude ground is dirt");
+        assert_eq!(at(0.1, 0.05), 0, "gentle low ground is grass");
+    }
 }

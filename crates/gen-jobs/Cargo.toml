@@ -13,7 +13,7 @@ description = "Platform-agnostic, serialisable CPU generation jobs shared by the
 crate-type = ["rlib"]
 
 [dependencies]
-symbios-ground = "0.3"
+symbios-ground = "0.4"
 symbios-texture = "0.4"
 symbios-audio = "0.1"
 # The avatar engine, for `GenJob::AvatarBuild` (#1061). Bevy-free by design,

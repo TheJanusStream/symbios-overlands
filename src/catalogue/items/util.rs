@@ -1258,21 +1258,22 @@ pub(super) fn face_uv_offset(face: FaceKey, center: [f32; 3]) -> Fp2 {
 }
 
 /// Brick rows per texture tile — the `Brick` generator's `scale`. Ten rather
-/// than the default five: the tile has to hold enough bricks that the seam
-/// artifact below is rare, and rows and columns scale together.
+/// than the default five, so `BOND_ROWS × BOND_STAGGER` is a whole number and
+/// the bond carries across the V seam; rows and columns scale together.
 const BOND_ROWS: f64 = 10.0;
 /// Brick columns per tile, and the number of bricks a tile spans across a
 /// wall.
 ///
-/// Four is the smallest count that keeps the tile's U seam quiet. The
-/// generator colours each brick by hashing its **raw** cell index, so a brick
-/// straddling the seam is indexed `0` on one side and `cols` on the other and
-/// renders as two half-bricks of different colour. One brick per tile per
-/// staggered course always straddles; at two columns that was every fourth
-/// brick on the wall, and the eye reads it immediately. Raising the count
-/// dilutes it (and kills the two-brick colour repeat that banded walls into
-/// vertical stripes) without changing the brick's size, since
-/// [`bonded_brick`] derives `uv_scale` from the column count.
+/// Four kills the two-brick colour repeat that banded walls into vertical
+/// stripes, without changing the brick's size — [`bonded_brick`] derives
+/// `uv_scale` from the column count.
+///
+/// It was originally four for a second reason that no longer holds: the
+/// generator hashed each brick's **raw** cell index, so the one straddling the
+/// tile's U seam drew as two half-bricks of different colour, and a wider tile
+/// diluted it. symbios-texture 0.4.3 wraps the index modulo the column count
+/// (its #12), so the split is gone at any count and this is a look decision
+/// again (#1167).
 const BOND_COLS: f32 = 4.0;
 /// Cell aspect. **Inverted from what the generator's own doc suggests**: it
 /// derives columns as `scale × aspect_ratio` while `scale` *is* the row
@@ -1285,10 +1286,12 @@ const BOND_ASPECT: f64 = BOND_COLS as f64 / BOND_ROWS;
 /// half-bond. The generator needs `scale × row_offset` to be a whole number
 /// to tile cleanly in V; `10 × 0.5` is, where the kits' `5 × 0.5` was not.
 const BOND_STAGGER: f64 = 0.5;
-/// Per-brick colour jitter. It is what makes a wall read as fired clay rather
-/// than paint, but it is also the *only* thing that makes a seam-straddling
-/// brick visible — the two halves differ by up to twice this. Low enough that
-/// the survivors read as shading, high enough that the wall still varies.
+/// Per-brick colour jitter — what makes a wall read as fired clay rather than
+/// paint. The value used to carry a ceiling as well as a floor: jitter was the
+/// only thing that made a seam-straddling brick *visible*, so it had to stay
+/// low enough that the survivors read as shading. symbios-texture 0.4.3
+/// removed the split, so this is now a free aesthetic choice and is kept at
+/// the value the 24 themes were tuned against (#1167).
 const BOND_VARIANCE: f64 = 0.15;
 
 /// Re-lay a `Brick` material's courses **flat**, at a real brick's size, and
@@ -1314,16 +1317,18 @@ const BOND_VARIANCE: f64 = 0.15;
 /// are mutually exclusive here — the stagger is applied along U by the
 /// generator itself.
 ///
-/// # The seam the generator cannot hide
+/// # The seam, and where it went
 ///
-/// Per-brick colour comes from hashing the **raw** cell index, so the brick
-/// that straddles a tile's U seam is hashed twice and renders as two
-/// half-bricks of different colour. It is unavoidable at this level: a
-/// running bond shifts each course by half a brick, so some course always
-/// crosses the seam mid-brick, and only the generator itself could fix it (by
-/// hashing the index *modulo* the column count, which would make both halves
-/// agree). [`BOND_COLS`] and [`BOND_VARIANCE`] are chosen to make what
-/// remains read as shading.
+/// A running bond shifts each course by half a brick, so some course always
+/// crosses the tile's U seam mid-brick. The generator used to hash that
+/// brick's **raw** cell index, giving its two halves two different colours,
+/// and nothing at this level could repair it — [`BOND_COLS`] and
+/// [`BOND_VARIANCE`] were picked to make what remained read as shading.
+///
+/// symbios-texture 0.4.3 wraps the index modulo the column count, which is
+/// the fix this comment used to say only the generator could make (its #12,
+/// overlands #1167). Both constants stay, for the reasons their own docs now
+/// give, but neither is holding a defect down any more.
 ///
 /// Non-`Brick` textures keep their config and gain only the offset, so this
 /// is safe to funnel a whole wall through.
