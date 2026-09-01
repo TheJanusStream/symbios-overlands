@@ -2484,10 +2484,11 @@ mod tests {
         // Measured like for like under the current metric: 225.3 mm before the
         // fix, 35.2 after.
         //
-        // **THE THRESHOLD IS SET FOR CROSS-ENVIRONMENT SPREAD, NOT FOR THE
-        // MEASUREMENT** (#1182). This simulation is deterministic — a fixed
-        // seed, a fixed 1/60 s step, no wall clock — and it still reads
-        // differently depending on where it is COMPILED:
+        // **THE THRESHOLD WAS SET FOR CROSS-ENVIRONMENT SPREAD, NOT FOR THE
+        // MEASUREMENT, FROM #1182 UNTIL THE 0.5.1 ADOPTION BELOW.** This
+        // simulation is deterministic — a fixed seed, a fixed 1/60 s step, no
+        // wall clock — and it still read differently depending on where it
+        // was COMPILED:
         //
         //     25.4 mm   this repo's dev box (Gentoo-packaged rustc 1.96.1)
         //     35.2 mm   whatever box recorded the figure above
@@ -2507,20 +2508,54 @@ mod tests {
         // symbios-avatar actually link), and not in-process interference (the
         // full threaded suite agrees with the test run alone).
         //
-        // So the guard is at 100 mm: comfortably above the worst reading any
-        // environment has produced, and still four-fold below the 225.3 mm
-        // regression it exists to catch. Tightening it back toward the
-        // measurement needs the transcendentals in the locomotion path routed
-        // through `libm` first (#1183) — until then a tighter number is not a
-        // stricter test, just one that fails on some machines and not others.
+        // **TIGHTENED FROM 100 mm AT THE symbios-avatar 0.5.1 ADOPTION, AND
+        // NOT AS FAR AS PLANNED** (#1183, engine #323/#324; then #1194). The
+        // engine's whole anim path now computes its transcendentals through
+        // the pure-Rust `libm`, the same bits on every toolchain build, and
+        // the plan was to sit this guard just above the resulting single
+        // figure. Tightening it is what EXPOSED that the figure is not
+        // single even on one box: the reading is a function of which tests
+        // share the instrument's process —
+        //
+        //     62.80 mm   alone: own process (nextest), or one-process either
+        //                thread mode — the code under test, by itself
+        //     58.16 mm   after the player::rigged:: tests
+        //     82.09 mm   after all player:: tests, and under the full lib
+        //                suite (CI's exact invocation) — repeatably
+        //
+        // — and the wander pre-exists the routing: the 0.5.0 engine reads
+        // 57.41 alone and 73.37 after player:: from this same tree, so the
+        // 2026-08-29 in-process control above went stale during the ms#11
+        // adoption. The mechanics and the fix shapes live on #1194; every
+        // further tighten is gated there, not on #1183 any more.
+        //
+        // (62.80 rather than the old 25.41 alone is the routing itself:
+        // slerp came off glam's per-backend SIMD polynomial and
+        // `to_axis_angle`'s atan2 off the platform libm — the arithmetic
+        // changed, and reproducible was never going to mean smaller.)
+        //
+        // So the guard is at 90 mm: above the worst context any runner has
+        // produced here, a real ratchet from 100, and still 2.5-fold below
+        // the 225.3 mm regression it exists to catch. If CI reads past it,
+        // read the printed figure against the table above first — a small
+        // excess is #1194's wander or an unroutable `bevy_math`/`avian` glam
+        // site (#323's controlled experiments), not the pre-fix regime,
+        // which reads hundreds.
         let worst = (100..=130)
             .map(|frames| skid_through_a_stop(frames).0)
             .fold(0.0f32, f32::max);
+        // The reading itself, so every run records its figure instead of only
+        // its verdict — the silent environment margin was #1183's complaint,
+        // and the figure-per-context table above only exists because a run
+        // printed one.
+        println!("worst stop skid: {:.2} mm", worst * 1000.0);
         assert!(
-            worst < 0.1,
-            "a foot standing on the ground slid {:.1} mm through a stop, against 25.4-50.1 mm \
-             across build environments after engine #276 and 225.3 mm before it — this is \
-             the pre-fix regime returning, not the cross-environment spread of #1182",
+            worst < 0.09,
+            "a foot standing on the ground slid {:.1} mm through a stop, against \
+             58.2-82.1 mm across process contexts under symbios-avatar 0.5.1 (see the \
+             table above and #1194) and 225.3 mm before engine #276 — the pre-fix \
+             regime reads hundreds; a small excess is the #1194 wander or an \
+             unroutable glam site (#1183/#323), not a regression.",
             worst * 1000.0
         );
     }
