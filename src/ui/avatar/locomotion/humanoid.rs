@@ -31,7 +31,11 @@ impl LocomotionPanel for HumanoidParams {
         egui::CollapsingHeader::new("Locomotion")
             .default_open(true)
             .show(ui, |ui| {
-                ui.label("Walk speed (m/s)");
+                // The record field is still `walk_speed` on the wire, but
+                // since the run key (#1193) it is the speed SHIFT travels at;
+                // unshifted walking is derived from the body. The label says
+                // what the slider does now.
+                ui.label("Run speed (m/s)");
                 fp_slider(ui, &mut self.walk_speed, 1.0..=10.0, 0.1, dirty);
                 ui.label("Acceleration (1/s)");
                 fp_slider(ui, &mut self.acceleration, 2.0..=30.0, 0.5, dirty);

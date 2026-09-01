@@ -13,6 +13,36 @@ use crate::water::WaterSurfaces;
 
 use super::HumanoidPreset;
 
+/// The Froude number unshifted travel walks at (#1193).
+///
+/// The record's `walk_speed` was named before the engine grew a speed axis,
+/// and its 4.0 m/s default sits at Froude 1.81 — a RUN, which milestone #11's
+/// diagnosis (symbios-avatar #325) measured every player holding constantly.
+/// So the record's field is the **travel** speed the run key asks for, and
+/// the walk is derived from the body instead: this is the engine's own
+/// calibration point for a natural walking pace (`Stride::for_body` pins
+/// pace 1.0 ≈ Froude 0.43 against the speed axis), read back through
+/// `Speed::from_froude(..).metres_per_second(rig)` so a child walks slower
+/// and a giant faster on the same dimensionless number — measured 1.73 m/s
+/// on the default body, safely inside a walk band that tops out at 1.87
+/// (the Froude-0.5 transition; anything brisker IS a run on this body).
+/// Derived, not a record field, on purpose: the lexicon does not move, and
+/// every remote peer derives the identical speed from the record and rig it
+/// already has.
+const WALK_FROUDE: f32 = 0.43;
+
+/// Unshifted walk as a share of the record's travel speed, while this body
+/// is still a naked capsule (#1193).
+///
+/// The derivation above needs the built rig, and a freshly spawned chassis
+/// walks before its body lands. The share is the default body's own
+/// derivation, measured by `the_derived_walk_is_a_walk_on_the_engines_own_
+/// axis` — 1.73 m/s of 4.0 — which is that guard's job: the first value
+/// written here was estimated off the viewer's pace scale instead (0.64) and
+/// the control refuted it. It only steers the capsule for the build's second
+/// or two, after which the rig answers.
+const WALK_OF_TRAVEL_FALLBACK: f32 = 0.43;
+
 /// Update-side jump edge latch (#852). The drive systems run in
 /// `FixedUpdate` (64 Hz) but a key's `just_pressed` edge lives for one
 /// *render* frame: at 120/144 Hz many render frames execute zero fixed
@@ -107,8 +137,11 @@ pub fn humanoid_water_state(
 ///
 /// * **Dry** — original land-walking behavior: WASD on the camera-flat
 ///   horizontal plane, snappy friction on release, Space jumps when a
-///   downward raycast hits ground.
-/// * **Wading** — same as Dry but `walk_speed` is multiplied by
+///   downward raycast hits ground. **Shift runs** (#1193): unshifted
+///   movement is a true walk derived from the body itself, and holding
+///   either Shift travels at the record's `walk_speed` — see
+///   [`WALK_FROUDE`] for why the record's field is the run.
+/// * **Wading** — same as Dry but the chosen speed is multiplied by
 ///   `wading_speed_factor`. Jump still works while grounded so the avatar
 ///   can clamber out of the shallows.
 /// * **Swimming** — gravity is overridden by lerping the full 3D linear
@@ -140,6 +173,7 @@ pub(super) fn apply_humanoid_walk(
     traveling: Option<Res<TravelingTo>>,
     jump_queued: Res<JumpQueued>,
     avatar_editor: Option<Res<crate::ui::avatar::AvatarEditorState>>,
+    bodies: Query<(&ChildOf, &bevy_symbios_avatar::AvatarBody), With<super::rigged::RiggedRoot>>,
 ) {
     if traveling.is_some() {
         return;
@@ -186,7 +220,27 @@ pub(super) fn apply_humanoid_walk(
             } else {
                 1.0
             };
-            let walk_speed = p.walk_speed.0 * speed_scale;
+            // **Shift runs** (#1193). The record's `walk_speed` is the travel
+            // speed — a run on the speed axis — and unshifted movement walks
+            // at the body's own natural pace, never faster than the travel
+            // (`min`, so a record tuned slower than its body's walk collapses
+            // to one speed instead of inverting the key). Land only: while
+            // swimming, Shift keeps meaning descend. The visible gait follows
+            // for free — the rigged driver reads the chassis' actual speed
+            // through the speed axis, and the walk↔run posture change rides
+            // the eased pace (#1192) rather than the key edge.
+            let running =
+                keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+            let travel = p.walk_speed.0;
+            let walking = bodies
+                .iter()
+                .find(|(child_of, _)| child_of.parent() == entity)
+                .map_or(travel * WALK_OF_TRAVEL_FALLBACK, |(_, body)| {
+                    symbios_avatar::Speed::from_froude(WALK_FROUDE)
+                        .metres_per_second(&body.avatar.rig)
+                })
+                .min(travel);
+            let walk_speed = if running { travel } else { walking } * speed_scale;
 
             let mut desired = Vec3::ZERO;
             let mut any_input = false;
@@ -471,6 +525,7 @@ mod speed_change {
     use crate::pds::AvatarRecord;
     use crate::water::WaterSurfaces;
     use bevy::ecs::system::RunSystemOnce;
+    use symbios_avatar::BodyPlan;
 
     /// The fixed step the drive systems run at.
     const HZ: f64 = 64.0;
@@ -491,6 +546,14 @@ mod speed_change {
     /// state is `Dry`; no queued jump, so the ground raycast never runs and
     /// `ColliderTrees::default` is enough to satisfy `SpatialQuery`.
     fn chassis_speeds(held: &[bool]) -> Vec<f32> {
+        chassis_speeds_shifted(held, false)
+    }
+
+    /// As [`chassis_speeds`], with the run key held or not for the whole
+    /// trajectory (#1193). No rigged body is spawned here, so the controller
+    /// walks on [`WALK_OF_TRAVEL_FALLBACK`] — which is what makes the two
+    /// converged speeds exactly predictable.
+    fn chassis_speeds_shifted(held: &[bool], shift: bool) -> Vec<f32> {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.init_resource::<ButtonInput<KeyCode>>();
@@ -510,6 +573,11 @@ mod speed_change {
             ))
             .id();
 
+        if shift {
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::ShiftLeft);
+        }
         let mut speeds = Vec::with_capacity(held.len());
         for &down in held {
             {
@@ -617,5 +685,67 @@ mod speed_change {
                 0.7 / rate.max(f32::EPSILON)
             );
         }
+    }
+
+    /// The run key, end to end through the controller (#1193): W alone
+    /// converges on the walk, W with Shift held converges on the record's
+    /// travel speed. Driven by [`apply_humanoid_walk`] itself, like
+    /// everything in this module — a probe re-deriving the arithmetic would
+    /// measure its own arithmetic. The harness spawns no rigged body, so the
+    /// walk is the fallback share of the record's own (seeded, per-DID)
+    /// travel speed — read off the record rather than assumed 4.0.
+    #[test]
+    fn shift_is_the_run_key_and_unshifted_is_a_walk() {
+        let LocomotionConfig::Humanoid(p) =
+            AvatarRecord::wearing("3jzfcijpj2z2a").locomotion.clone()
+        else {
+            panic!("the harness record is a humanoid");
+        };
+        let travel = p.walk_speed.0;
+        // Two seconds at 64 Hz: the controller's 12/s exponential is
+        // parts-per-million converged long before the end.
+        let walked = chassis_speeds_shifted(&[true; 128], false);
+        let ran = chassis_speeds_shifted(&[true; 128], true);
+        let (walk, run) = (*walked.last().unwrap(), *ran.last().unwrap());
+        assert!(
+            (run - travel).abs() < 0.02,
+            "shift must travel at the record's speed: {run} against {travel}"
+        );
+        assert!(
+            (walk - travel * WALK_OF_TRAVEL_FALLBACK).abs() < 0.02,
+            "unshifted must walk the fallback share: {walk} of {travel}"
+        );
+        assert!(walk < run, "the walk outran the run: {walk} vs {run}");
+    }
+
+    /// The derivation the fallback stands in for (#1193): on a built default
+    /// body, the walk the run key releases to is a WALK on the engine's own
+    /// axis — below the walk-run transition — while the default record's
+    /// travel speed is a run above it. Relations against the engine's own
+    /// classifier, not millimetre thresholds.
+    #[test]
+    fn the_derived_walk_is_a_walk_on_the_engines_own_axis() {
+        let rig = symbios_avatar::Rig::from_skeleton(
+            &symbios_avatar::HumanoidParams::default()
+                .skeleton(&symbios_avatar::Composites::default()),
+        )
+        .expect("the default body rigs");
+        let walking = symbios_avatar::Speed::from_froude(WALK_FROUDE).metres_per_second(&rig);
+        assert!(
+            !symbios_avatar::Speed::new(&rig, walking).is_running(),
+            "the derived walk reads as a run at {walking} m/s"
+        );
+        assert!(
+            symbios_avatar::Speed::new(&rig, 4.0).is_running(),
+            "the default travel speed stopped being a run"
+        );
+        // The fallback share tracks the real derivation on the default body,
+        // so the capsule's second of walking is in family with the body that
+        // lands on it.
+        assert!(
+            (walking / 4.0 - WALK_OF_TRAVEL_FALLBACK).abs() < 0.1,
+            "the fallback share drifted from the default body's derivation: \
+             {walking:.2} m/s of 4.0"
+        );
     }
 }

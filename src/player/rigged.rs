@@ -51,9 +51,10 @@ use avian3d::prelude::LinearVelocity;
 use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 use bevy::prelude::*;
 use bevy_symbios_avatar::{AvatarBody as BuiltBody, AvatarClosure, AvatarPose, spawn_avatar};
-use symbios_avatar::anim::{Stage, gesture, transition};
+use symbios_avatar::anim::{Stage, Steps, gesture, transition};
 use symbios_avatar::{
-    Avatar, Blink, Expression, Ground, Idle, Inertializer, Leap, Limb, Pose, Speed, Swim, Walk,
+    Avatar, Blink, Expression, Footholds, Ground, Idle, Inertializer, Leap, Limb, Pose, Speed,
+    Swim, Walk,
 };
 
 use crate::interaction::locomotion::locomotion_total_height;
@@ -65,6 +66,27 @@ use crate::water::WaterSurfaces;
 
 /// Below this horizontal speed the body idles.
 const IDLE_BELOW: f32 = 0.3;
+/// How long the gait takes to believe a change of speed, in seconds (#1192).
+///
+/// The engine's postural terms — trunk lean, stride, duty, the neck's
+/// counter — are pure functions of the pace they are fed, so they are exactly
+/// as continuous as this repo's chassis, which assigns velocity at a measured
+/// 12 m/s² up and 39–50 m/s² on stops. Fed raw, a speed step unloads the
+/// whole trunk pitch between two frames 55 ms apart (symbios-avatar #325's
+/// conviction, `decel.png`); no gait looks human fed a step function. The
+/// pace the speed axis reads is therefore eased through a first-order lag
+/// with this time constant — the playbook's human load-response figure, of
+/// the order of one step (§4: springs for every steppable input) — so a
+/// change of speed reads as intent the body carries out over a step rather
+/// than a snap. **The pace only, never the source**: stopping still hands
+/// over to the idle on the frame the chassis stops, because holding the gait
+/// while the world stands still is a measured skid (#1071), and the planted
+/// feet stay honest through the eased pace by the foothold ledger (engine
+/// #277). The stop itself barely meets this filter — the chassis crosses
+/// `IDLE_BELOW` in under 0.1 s — its work is the changes that stay inside
+/// the gait: the run key's walk↔run steps, partial slowdowns, and a remote
+/// peer's corrected velocity.
+const PACE_RESPONSE: f32 = 0.3;
 /// Upward speed that can only be a launch, in m/s.
 ///
 /// Nothing a body does on the ground pushes it up this fast — the humanoid
@@ -198,6 +220,12 @@ pub(super) struct RiggedMotion {
     /// speed rather than the gait keeps this component a value and rebuilds
     /// the gait only on the frames a change of duty actually needs one.
     gaiting: Option<Speed>,
+    /// The eased pace the gait was last fed, in m/s (#1192): the chassis'
+    /// speed through a first-order lag of [`PACE_RESPONSE`], so postural
+    /// terms ride a human load-response instead of the chassis' 40 m/s²
+    /// steps. `None` whenever the gait is not carrying the body — the next
+    /// walk eases from its own first frame, not from a stale speed.
+    paced: Option<f32>,
     /// The leap in progress, or `None` while the body is on the ground
     /// (#1072).
     airborne: Option<Airborne>,
@@ -212,6 +240,18 @@ pub(super) struct RiggedMotion {
     /// advanced while something else carries the body, so a body that stops
     /// walking resumes its own idle rather than a reset one.
     idler: Idle,
+    /// The world plant-point ledger (engine #277, adopted at 0.5.0): while a
+    /// foot is down its world point is held and served back, so a planted
+    /// contact stands still through speed changes — the stride-derived offset
+    /// slides `|t − 0.5| · dL` under a changing speed, measured upstream at
+    /// 91 mm against a 2 mm steady control on this app's own speed profile.
+    /// Fed the chassis transform each gait frame; reset whenever something
+    /// other than the gait carries the body, so a resumed walk plants afresh
+    /// instead of serving points the idle's weight shifts walked away from.
+    /// The P2P asterisk is the engine's: a peer's ledger integrates its own
+    /// observed travel, so holds may diverge cosmetically between peers, and
+    /// nothing here feeds back into the clock.
+    footholds: Footholds,
     /// The emote playing over the locomotion, if any (#1068).
     gesture: Option<ActiveGesture>,
     /// When the last emote *started*, in seconds since app start, for the
@@ -273,12 +313,14 @@ impl Default for RiggedMotion {
             source: MotionSource::Rest,
             last_position: None,
             gaiting: None,
+            paced: None,
             airborne: None,
             previous: None,
             current: None,
             transition: None,
             blink: Blink::seeded(seed),
             idler: Idle::seeded(seed),
+            footholds: Footholds::new(),
             gesture: None,
             gestured_at: None,
         }
@@ -859,7 +901,21 @@ pub(super) fn drive_rigged_motion(
         // with the wait, the phases it engaged on went 131.2 mm to 351.3 and
         // the worst rose to 351.3. See `a_stop_does_not_skate_further_than_it_
         // already_does`, which ratchets the figure, and #1071 for the write-up.
-        let travelling = (planar >= IDLE_BELOW).then(|| Speed::new(rig, planar));
+        // The eased pace (#1192): first-order lag toward the chassis' raw
+        // speed, alive only while the gait is — see [`PACE_RESPONSE`]. The
+        // gate below stays on the RAW speed on purpose, so a stop hands over
+        // to the idle the frame the chassis stops (#1071's measured call) and
+        // gait initiation starts from the crossing speed rather than zero.
+        let paced = if planar >= IDLE_BELOW {
+            let from = motion.paced.unwrap_or(planar);
+            let eased = from + (planar - from) * (1.0 - (-delta / PACE_RESPONSE).exp());
+            motion.paced = Some(eased);
+            eased
+        } else {
+            motion.paced = None;
+            planar
+        };
+        let travelling = (planar >= IDLE_BELOW).then(|| Speed::new(rig, paced));
         // A leap owns the legs for as long as it lasts: a body cannot be
         // mid-stride and mid-air at once, and pretending otherwise is how a
         // jump ends up with a walk cycle running underneath it (#1072).
@@ -966,7 +1022,13 @@ pub(super) fn drive_rigged_motion(
 
         // Build this frame's target pose.
         let mut pose = Pose::rest(rig);
-        let mut stance: Vec<Limb> = Vec::new();
+        // The whole `Steps`, not just the stance list, since engine 0.5:
+        // `Walk::settle` re-aims swing legs toward the goals `step` sent them
+        // after the plant settles the pelvis, and `steps.placed` is how it
+        // knows a limb is still the gait's to re-solve. A path that fills only
+        // `stance` (the leap below) leaves `placed` empty, which is exactly
+        // how it keeps the limbs it authored (bevy_symbios_avatar #40).
+        let mut steps = Steps::default();
         // The floor under this body, in the rigged root's own frame: the root
         // is offset so `y = 0` is the chassis collider's bottom, which on a
         // standing body is the ground the physics chassis rests on. Slopes are
@@ -983,6 +1045,20 @@ pub(super) fn drive_rigged_motion(
         // Always the LOCOMOTION pose, never the gesture: an emote is laid over
         // what the body is already doing rather than replacing it, so the legs
         // keep their walk and their contacts (#1068).
+        //
+        // The foothold ledger lives only while the gait does: the idle shifts
+        // weight and fidgets feet on its own authority, so a hold surviving
+        // an idle would serve a point the body has since walked away from.
+        // (A held stance re-plants on stance ENTRY, so clearing here costs a
+        // resumed walk nothing.) This is also the teleport reset the engine
+        // asks for: every warp this app performs — portals, the respawn —
+        // zeroes the chassis velocity, so the body passes through a non-gait
+        // frame and the ledger clears here without any cross-system plumbing.
+        // A warp that somehow keeps the body walking (a peer's network
+        // correction) is the engine's own self-heal, one frame late.
+        if locomotion != MotionSource::Gait {
+            motion.footholds.reset();
+        }
         match locomotion {
             MotionSource::Rest => {}
             MotionSource::Idle => {
@@ -1021,13 +1097,33 @@ pub(super) fn drive_rigged_motion(
                 // rather than before (symbios-avatar #253). This file used to
                 // spell the stages out and was one of the three consumers that
                 // had forgotten the ankles entirely (#1069).
-                let walked = Walk {
-                    footing: None,
-                    ..Walk::at(motion.cycle)
-                }
-                .drive(rig, &mut pose, &gait, &stride, floor);
+                //
+                // **Through the ledger, not `Walk::drive` directly** (engine
+                // #277): `Footholds::drive` runs the same sequence with each
+                // planted contact held to the world point it went down at, fed
+                // the transform the pose renders under. The body's world
+                // forward is the engine's `+Z` carried through the chassis'
+                // rotation AND the rigged root's half turn — which is the
+                // chassis' own `-Z` (#1066) — and handing the ledger the
+                // chassis' yaw raw would hold every plant mirrored through
+                // the body.
+                let cycle = motion.cycle;
+                let forward = transform.rotation() * Vec3::NEG_Z;
+                let walked = motion.footholds.drive(
+                    Walk {
+                        footing: None,
+                        ..Walk::at(cycle)
+                    },
+                    rig,
+                    &mut pose,
+                    &gait,
+                    &stride,
+                    position,
+                    forward.x.atan2(forward.z),
+                    floor,
+                );
                 strained |= !walked.steps.straining.is_empty();
-                stance = walked.steps.stance;
+                steps = walked.steps;
                 // The stride travels with the gait, because the tail of the
                 // sequence needs it too: a turning body's ankles are turned to
                 // face where they were planted, and `roll_feet` is where that
@@ -1071,7 +1167,7 @@ pub(super) fn drive_rigged_motion(
                     let leapt = air.leap.drive(rig, &mut pose, air.elapsed, floor);
                     strained |= !leapt.straining.is_empty();
                     if leapt.stage.is_grounded() {
-                        stance = rig.ground_contacts();
+                        steps.stance = rig.ground_contacts();
                     } else {
                         pose.translation.y -= leapt.height;
                     }
@@ -1097,15 +1193,14 @@ pub(super) fn drive_rigged_motion(
         // The leap keeps its own contacts: `Leap::drive` plants them itself
         // during a wind-up or a landing, and in flight there are none.
         if airborne && locomotion != MotionSource::Leap {
-            stance.clear();
+            steps.stance.clear();
         }
         // The tail of the drive: settle the contacts, then roll the ankles, in
         // that order — the engine owns both so this file cannot get the order
         // wrong again (symbios-avatar #253). Gait only: the idle plants its
         // own feet inside `Idle::drive`, and a resting body has nothing down.
         if let Some((gait, stride)) = &walking {
-            let walked =
-                Walk::at(motion.cycle).settle(rig, &mut pose, gait, stride, &stance, floor);
+            let walked = Walk::at(motion.cycle).settle(rig, &mut pose, gait, stride, &steps, floor);
             strained |= walked.straining() > 0;
         }
 
@@ -1431,9 +1526,19 @@ mod tests {
         for frame in 0..150 {
             let at = Vec3::Z * (PACE * STEP_SECS * frame as f32);
             let mut chassis_mut = app.world_mut().entity_mut(chassis);
-            *chassis_mut.get_mut::<Transform>().unwrap() = Transform::from_translation(at);
-            *chassis_mut.get_mut::<GlobalTransform>().unwrap() =
-                GlobalTransform::from_translation(at);
+            // Aimed into the travel the way the app's controller steers a
+            // chassis (`looking_to`, whose −Z faces the movement), not a bare
+            // translation — since the foothold ledger (engine #277) the drive
+            // is handed the transform the pose renders under, and a chassis
+            // marching +Z while facing world −Z is a permanent moonwalk no
+            // app state produces: the ledger rightly holds its plants where
+            // the RENDER puts them, and the old bare-translation harness read
+            // that as half a metre of skate. Aimed, the chassis' π yaw and
+            // the rigged root's own half turn (#1066) cancel, so the
+            // instruments' plain `at + posed` world reads stay exact.
+            let aimed = Transform::from_translation(at).looking_to(Vec3::Z, Vec3::Y);
+            *chassis_mut.get_mut::<Transform>().unwrap() = aimed;
+            *chassis_mut.get_mut::<GlobalTransform>().unwrap() = GlobalTransform::from(aimed);
             app.world_mut()
                 .resource_mut::<Time>()
                 .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
@@ -1548,9 +1653,19 @@ mod tests {
         for frame in 0..240 {
             let at = Vec3::Z * (metres_per_second * STEP_SECS * frame as f32);
             let mut chassis_mut = app.world_mut().entity_mut(chassis);
-            *chassis_mut.get_mut::<Transform>().unwrap() = Transform::from_translation(at);
-            *chassis_mut.get_mut::<GlobalTransform>().unwrap() =
-                GlobalTransform::from_translation(at);
+            // Aimed into the travel the way the app's controller steers a
+            // chassis (`looking_to`, whose −Z faces the movement), not a bare
+            // translation — since the foothold ledger (engine #277) the drive
+            // is handed the transform the pose renders under, and a chassis
+            // marching +Z while facing world −Z is a permanent moonwalk no
+            // app state produces: the ledger rightly holds its plants where
+            // the RENDER puts them, and the old bare-translation harness read
+            // that as half a metre of skate. Aimed, the chassis' π yaw and
+            // the rigged root's own half turn (#1066) cancel, so the
+            // instruments' plain `at + posed` world reads stay exact.
+            let aimed = Transform::from_translation(at).looking_to(Vec3::Z, Vec3::Y);
+            *chassis_mut.get_mut::<Transform>().unwrap() = aimed;
+            *chassis_mut.get_mut::<GlobalTransform>().unwrap() = GlobalTransform::from(aimed);
             app.world_mut()
                 .resource_mut::<Time>()
                 .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
@@ -1655,9 +1770,19 @@ mod tests {
             let pace = from + (to - from) * (frame as f32 / frames as f32);
             at += Vec3::Z * (pace * step_secs);
             let mut chassis_mut = app.world_mut().entity_mut(chassis);
-            *chassis_mut.get_mut::<Transform>().unwrap() = Transform::from_translation(at);
-            *chassis_mut.get_mut::<GlobalTransform>().unwrap() =
-                GlobalTransform::from_translation(at);
+            // Aimed into the travel the way the app's controller steers a
+            // chassis (`looking_to`, whose −Z faces the movement), not a bare
+            // translation — since the foothold ledger (engine #277) the drive
+            // is handed the transform the pose renders under, and a chassis
+            // marching +Z while facing world −Z is a permanent moonwalk no
+            // app state produces: the ledger rightly holds its plants where
+            // the RENDER puts them, and the old bare-translation harness read
+            // that as half a metre of skate. Aimed, the chassis' π yaw and
+            // the rigged root's own half turn (#1066) cancel, so the
+            // instruments' plain `at + posed` world reads stay exact.
+            let aimed = Transform::from_translation(at).looking_to(Vec3::Z, Vec3::Y);
+            *chassis_mut.get_mut::<Transform>().unwrap() = aimed;
+            *chassis_mut.get_mut::<GlobalTransform>().unwrap() = GlobalTransform::from(aimed);
             app.world_mut()
                 .resource_mut::<Time>()
                 .advance_by(std::time::Duration::from_secs_f32(step_secs));
@@ -1668,7 +1793,17 @@ mod tests {
             if motion.source != MotionSource::Gait {
                 continue;
             }
-            let speed = Speed::new(&rig, pace);
+            // **The speed the DRIVER fed the gait, not a re-derivation from
+            // the raw ramp.** Since #1192 the pace the clock advances on is
+            // eased, so a gait rebuilt here from the chassis' instantaneous
+            // speed crosses the walk-run duty step on a different frame than
+            // the driven one did — and a phase read against the wrong duty
+            // reported a near-full-step relabel that never reached a body.
+            // The module's own rule: measure the subject, not this file's
+            // arithmetic.
+            let Some(speed) = motion.gaiting else {
+                continue;
+            };
             crossed = (
                 crossed.0 || !speed.is_running(),
                 crossed.1 || speed.is_running(),
@@ -1755,6 +1890,23 @@ mod tests {
         to: f32,
         ramp_frames: usize,
     ) -> f32 {
+        skate_through(walk_frames, from, to, ramp_frames, None)
+    }
+
+    /// As [`skate_through_a_speed_change`], with an emote optionally laid
+    /// over the walk for the whole measured window — the system-level half of
+    /// the #329 adoption: the Bow's vocabulary is the body line, pelvis and
+    /// hips included, and the promise that the planted soles stay planted
+    /// through it belongs to the DRIVE (the settle tail plants stance
+    /// contacts after the overlay, #253's order), which only a full-drive
+    /// instrument can ask.
+    fn skate_through(
+        walk_frames: usize,
+        from: f32,
+        to: f32,
+        ramp_frames: usize,
+        over: Option<Emote>,
+    ) -> f32 {
         let mut app = test_app();
         let chassis = app
             .world_mut()
@@ -1833,9 +1985,19 @@ mod tests {
         let mut at = Vec3::ZERO;
         let frame = |app: &mut App, at: Vec3| {
             let mut chassis_mut = app.world_mut().entity_mut(chassis);
-            *chassis_mut.get_mut::<Transform>().unwrap() = Transform::from_translation(at);
-            *chassis_mut.get_mut::<GlobalTransform>().unwrap() =
-                GlobalTransform::from_translation(at);
+            // Aimed into the travel the way the app's controller steers a
+            // chassis (`looking_to`, whose −Z faces the movement), not a bare
+            // translation — since the foothold ledger (engine #277) the drive
+            // is handed the transform the pose renders under, and a chassis
+            // marching +Z while facing world −Z is a permanent moonwalk no
+            // app state produces: the ledger rightly holds its plants where
+            // the RENDER puts them, and the old bare-translation harness read
+            // that as half a metre of skate. Aimed, the chassis' π yaw and
+            // the rigged root's own half turn (#1066) cancel, so the
+            // instruments' plain `at + posed` world reads stay exact.
+            let aimed = Transform::from_translation(at).looking_to(Vec3::Z, Vec3::Y);
+            *chassis_mut.get_mut::<Transform>().unwrap() = aimed;
+            *chassis_mut.get_mut::<GlobalTransform>().unwrap() = GlobalTransform::from(aimed);
             app.world_mut()
                 .resource_mut::<Time>()
                 .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
@@ -1846,6 +2008,18 @@ mod tests {
         for _ in 0..walk_frames {
             at += Vec3::Z * (from * STEP_SECS);
             frame(&mut app, at);
+        }
+        // The emote begins exactly where the measurement does, so the window
+        // covers its whole play (1.5 s of the 2 s measured) plus its ending
+        // blend.
+        if let Some(emote) = over {
+            app.world_mut()
+                .get_mut::<RiggedMotion>(root)
+                .expect("motion state")
+                .gesture = Some(ActiveGesture {
+                emote,
+                elapsed: 0.0,
+            });
         }
         let mut track: Vec<Vec<Vec<Vec3>>> = Vec::with_capacity(120);
         let mut down: Vec<Vec<bool>> = Vec::with_capacity(120);
@@ -1987,6 +2161,36 @@ mod tests {
     }
 
     #[test]
+    fn a_bow_over_a_walk_keeps_its_planted_soles() {
+        // **The system-level half of the #329 adoption** (the clip-level
+        // half, with the reasoning, is in
+        // `a_gesture_leaves_the_legs_to_the_locomotion_layer`). The Bow
+        // pitches the pelvis and swings the hip sockets, so at the clip
+        // level the leg chain moves — and the drive's settle tail then
+        // plants the stance contacts after the overlay, which is the
+        // promise a walking body actually makes: bow mid-walk, and the
+        // sole bearing your weight stays essentially put.
+        //
+        // The ceiling is NOT the steady-pace one, and the difference is the
+        // gesture blend, priced deliberately: a gesture starts and ends
+        // through a 0.15 s inertializer (#1068 — dropping it snaps 75-100 mm
+        // of joint travel into one frame), and the blend is applied AFTER
+        // the settle tail, so through those two windows the drawn foot is a
+        // mix of the settled walk and the bowed walk. A wave moves no leg,
+        // so its blend dragged nothing; the whole-body bow gives the blend
+        // ~13 mm of hip line to mix across, measured 13.9 mm here against
+        // 4.1 steady. The guard holds the whole action under 20 mm — a raw
+        // uncompensated leg track reads an order of magnitude past that.
+        let bowed = skate_through(120, 1.0, 1.0, 1, Some(Emote::Bow));
+        assert!(
+            bowed < 0.020,
+            "bowing over a walk slid a planted sole {:.1} mm, against a ceiling of 20.0 \
+             (13.9 measured: the gesture blend's own mixing, see the comment)",
+            bowed * 1000.0,
+        );
+    }
+
+    #[test]
     #[ignore = "probe for #277: does changing speed slide a planted foot"]
     fn probe_whether_changing_speed_slides_a_planted_foot() {
         // **Two controls, one per end speed** (#277). A ramp case ENDS at a
@@ -2083,9 +2287,19 @@ mod tests {
         let mut at = Vec3::ZERO;
         let frame = |app: &mut App, at: Vec3| {
             let mut chassis_mut = app.world_mut().entity_mut(chassis);
-            *chassis_mut.get_mut::<Transform>().unwrap() = Transform::from_translation(at);
-            *chassis_mut.get_mut::<GlobalTransform>().unwrap() =
-                GlobalTransform::from_translation(at);
+            // Aimed into the travel the way the app's controller steers a
+            // chassis (`looking_to`, whose −Z faces the movement), not a bare
+            // translation — since the foothold ledger (engine #277) the drive
+            // is handed the transform the pose renders under, and a chassis
+            // marching +Z while facing world −Z is a permanent moonwalk no
+            // app state produces: the ledger rightly holds its plants where
+            // the RENDER puts them, and the old bare-translation harness read
+            // that as half a metre of skate. Aimed, the chassis' π yaw and
+            // the rigged root's own half turn (#1066) cancel, so the
+            // instruments' plain `at + posed` world reads stay exact.
+            let aimed = Transform::from_translation(at).looking_to(Vec3::Z, Vec3::Y);
+            *chassis_mut.get_mut::<Transform>().unwrap() = aimed;
+            *chassis_mut.get_mut::<GlobalTransform>().unwrap() = GlobalTransform::from(aimed);
             app.world_mut()
                 .resource_mut::<Time>()
                 .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
@@ -2513,7 +2727,18 @@ mod tests {
         // Judged against the rig's own zones — the same question
         // `gait::swing_arms` asks to decide which limbs are legs, so a body
         // plan nobody has written yet answers it correctly too.
-        let carried: Vec<symbios_avatar::Zone> = rig
+        //
+        // **The contract moved with engine 0.5 (#329), and this guard moved
+        // with its meaning.** It used to demand the pelvis and every leg
+        // joint's LOCAL rotation stay bit-identical, which was true of the
+        // folded 0.4 bow and is exactly what #329 removed: a bow is one
+        // ankle-to-crown line now, so the gesture pitches the pelvis — hip
+        // extension — and counter-rotates the limbs so the legs keep the pose
+        // the step authored. What the locomotion layer actually owns is WHERE
+        // THE LEGS ARE: every joint a ground contact hangs its chain on must
+        // stay put in space, which a leg track without compensation cannot
+        // fake and the distributed bow preserves by construction.
+        let carried: Vec<usize> = rig
             .ground_contacts()
             .into_iter()
             .flat_map(|limb| {
@@ -2523,13 +2748,14 @@ mod tests {
                     symbios_avatar::Zone::Extremity(limb),
                 ]
             })
-            .chain([symbios_avatar::Zone::Pelvis])
+            .flat_map(|zone| rig.in_zone(zone))
             .collect();
         assert!(
             carried.len() > 3,
-            "a biped should carry itself on more than {} zones",
+            "a biped should carry itself on more than {} joints",
             carried.len()
         );
+        let planted = walking.forward(rig);
 
         // Every emote in the roster, over the same walk, at three points of
         // its play — the claim is about the set, not about the wave, and a
@@ -2546,19 +2772,33 @@ mod tests {
                     "{emote:?} moved the root at {through} — a Root track has no \
                      business in an emote"
                 );
-                let mut upper_moved = 0;
-                for joint in 0..posed.rotations.len() {
-                    if carried.contains(&rig.joints[joint].zone) {
-                        assert_eq!(
-                            posed.rotations[joint], walking.rotations[joint],
-                            "joint {joint} ({:?}) carries the body and {emote:?} moved it \
-                             at {through}",
-                            rig.joints[joint].zone
-                        );
-                    } else if apart(posed.rotations[joint], walking.rotations[joint]) > 1e-6 {
-                        upper_moved += 1;
-                    }
+                let gestured = posed.forward(rig);
+                // The Bow is the one emote whose vocabulary is the whole body
+                // line (engine #329): it pitches the pelvis — hip extension —
+                // which swings the hip sockets on an arc, so its leg chain
+                // legitimately translates ~13 mm at the clip level. The
+                // planted feet are the SYSTEM's promise, not the clip's: the
+                // settle tail plants stance contacts after the overlay (#253
+                // order), guarded through the full drive by
+                // `a_bow_over_a_walk_keeps_its_planted_soles`. What the clip
+                // level still owes is a ceiling — a raw leg track without the
+                // distribution's compensation swings a foot by hundreds of
+                // millimetres, and that must never come back.
+                let allowance = if emote == Emote::Bow { 5e-2 } else { 2e-3 };
+                for &joint in &carried {
+                    let moved = gestured.positions[joint].distance(planted.positions[joint]);
+                    assert!(
+                        moved < allowance,
+                        "joint {joint} ({:?}) carries the body and {emote:?} moved it \
+                         {:.1} mm at {through} — a leg belongs to the locomotion layer",
+                        rig.joints[joint].zone,
+                        moved * 1000.0
+                    );
                 }
+                let upper_moved = (0..posed.rotations.len())
+                    .filter(|&joint| !carried.contains(&joint))
+                    .filter(|&joint| apart(posed.rotations[joint], walking.rotations[joint]) > 1e-6)
+                    .count();
                 if through == 0.5 {
                     assert!(
                         upper_moved > 0,
@@ -2913,9 +3153,19 @@ mod tests {
         let mut at = Vec3::ZERO;
         let frame = |app: &mut App, at: Vec3| {
             let mut chassis_mut = app.world_mut().entity_mut(chassis);
-            *chassis_mut.get_mut::<Transform>().unwrap() = Transform::from_translation(at);
-            *chassis_mut.get_mut::<GlobalTransform>().unwrap() =
-                GlobalTransform::from_translation(at);
+            // Aimed into the travel the way the app's controller steers a
+            // chassis (`looking_to`, whose −Z faces the movement), not a bare
+            // translation — since the foothold ledger (engine #277) the drive
+            // is handed the transform the pose renders under, and a chassis
+            // marching +Z while facing world −Z is a permanent moonwalk no
+            // app state produces: the ledger rightly holds its plants where
+            // the RENDER puts them, and the old bare-translation harness read
+            // that as half a metre of skate. Aimed, the chassis' π yaw and
+            // the rigged root's own half turn (#1066) cancel, so the
+            // instruments' plain `at + posed` world reads stay exact.
+            let aimed = Transform::from_translation(at).looking_to(Vec3::Z, Vec3::Y);
+            *chassis_mut.get_mut::<Transform>().unwrap() = aimed;
+            *chassis_mut.get_mut::<GlobalTransform>().unwrap() = GlobalTransform::from(aimed);
             app.world_mut()
                 .resource_mut::<Time>()
                 .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
@@ -3195,9 +3445,19 @@ mod tests {
         for _ in 0..180 {
             at += Vec3::Z * (pace * STEP_SECS);
             let mut chassis_mut = app.world_mut().entity_mut(chassis);
-            *chassis_mut.get_mut::<Transform>().unwrap() = Transform::from_translation(at);
-            *chassis_mut.get_mut::<GlobalTransform>().unwrap() =
-                GlobalTransform::from_translation(at);
+            // Aimed into the travel the way the app's controller steers a
+            // chassis (`looking_to`, whose −Z faces the movement), not a bare
+            // translation — since the foothold ledger (engine #277) the drive
+            // is handed the transform the pose renders under, and a chassis
+            // marching +Z while facing world −Z is a permanent moonwalk no
+            // app state produces: the ledger rightly holds its plants where
+            // the RENDER puts them, and the old bare-translation harness read
+            // that as half a metre of skate. Aimed, the chassis' π yaw and
+            // the rigged root's own half turn (#1066) cancel, so the
+            // instruments' plain `at + posed` world reads stay exact.
+            let aimed = Transform::from_translation(at).looking_to(Vec3::Z, Vec3::Y);
+            *chassis_mut.get_mut::<Transform>().unwrap() = aimed;
+            *chassis_mut.get_mut::<GlobalTransform>().unwrap() = GlobalTransform::from(aimed);
             app.world_mut()
                 .resource_mut::<Time>()
                 .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
@@ -3507,9 +3767,19 @@ mod tests {
         for frame in 0..90 {
             let at = Vec3::Z * (PACE * STEP_SECS * frame as f32);
             let mut chassis_mut = app.world_mut().entity_mut(chassis);
-            *chassis_mut.get_mut::<Transform>().unwrap() = Transform::from_translation(at);
-            *chassis_mut.get_mut::<GlobalTransform>().unwrap() =
-                GlobalTransform::from_translation(at);
+            // Aimed into the travel the way the app's controller steers a
+            // chassis (`looking_to`, whose −Z faces the movement), not a bare
+            // translation — since the foothold ledger (engine #277) the drive
+            // is handed the transform the pose renders under, and a chassis
+            // marching +Z while facing world −Z is a permanent moonwalk no
+            // app state produces: the ledger rightly holds its plants where
+            // the RENDER puts them, and the old bare-translation harness read
+            // that as half a metre of skate. Aimed, the chassis' π yaw and
+            // the rigged root's own half turn (#1066) cancel, so the
+            // instruments' plain `at + posed` world reads stay exact.
+            let aimed = Transform::from_translation(at).looking_to(Vec3::Z, Vec3::Y);
+            *chassis_mut.get_mut::<Transform>().unwrap() = aimed;
+            *chassis_mut.get_mut::<GlobalTransform>().unwrap() = GlobalTransform::from(aimed);
             app.world_mut()
                 .resource_mut::<Time>()
                 .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
