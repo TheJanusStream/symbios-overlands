@@ -851,6 +851,7 @@ mod tests {
         assert_cards_do_not_overlap, assert_no_glazing_on_solids, assert_no_tilted_parents,
         assert_sanitize_stable, has_emissive, rotate_by,
     };
+    use crate::pds::PrimCommon;
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     fn walk(g: &Generator, at: [f32; 3], f: &mut dyn FnMut(&Generator, [f32; 3])) {
@@ -945,7 +946,11 @@ mod tests {
     fn every_card_laps_its_opening() {
         let mut widths: Vec<f32> = Vec::new();
         walk(&Motel.build(""), [0.0; 3], &mut |g, _| {
-            if let GeneratorKind::Plane { size, material, .. } = &g.kind
+            if let GeneratorKind::Plane {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && matches!(material.texture, SovereignTextureConfig::Window(_))
             {
                 widths.push(size.0[0]);
@@ -977,7 +982,12 @@ mod tests {
         use FaceKey::*;
         let mut checked = 0;
         walk(&Motel.build(""), [0.0; 3], &mut |g, at| {
-            let GeneratorKind::Cuboid { size, material, .. } = &g.kind else {
+            let GeneratorKind::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            else {
                 return;
             };
             if g.transform.rotation.0 != [0.0, 0.0, 0.0, 1.0] {

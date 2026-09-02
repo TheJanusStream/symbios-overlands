@@ -589,9 +589,13 @@ mod tests {
 
         let mut offenders = Vec::new();
         for path in files {
-            // `util.rs` defines the idiom, and shows the wrong call in
+            // `util/` defines the idiom, and shows the wrong call in
             // `attach`'s docs precisely so authors recognise it.
-            if path.file_name().is_some_and(|n| n == "util.rs") {
+            if path
+                .parent()
+                .and_then(|d| d.file_name())
+                .is_some_and(|n| n == "util")
+            {
                 continue;
             }
             let src = std::fs::read_to_string(&path).expect("read source");

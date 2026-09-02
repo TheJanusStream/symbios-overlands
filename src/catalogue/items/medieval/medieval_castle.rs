@@ -294,6 +294,7 @@ fn build_kind() -> GeneratorKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pds::PrimCommon;
     use crate::pds::sanitize_generator;
 
     #[test]
@@ -303,7 +304,13 @@ mod tests {
         // The entry root is now the centred foundation plinth; the
         // grammar hangs beneath it as the first child.
         assert!(
-            matches!(g.kind, GeneratorKind::Cuboid { solid: true, .. }),
+            matches!(
+                g.kind,
+                GeneratorKind::Cuboid {
+                    common: PrimCommon { solid: true, .. },
+                    ..
+                }
+            ),
             "{} root must be the solid foundation plinth",
             "castle"
         );

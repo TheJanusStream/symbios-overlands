@@ -16,11 +16,11 @@ use super::super::terrain::draw_terrain_forge;
 use super::super::widgets::draw_transform;
 use super::particles::draw_generator_particles;
 use super::primitive::{
-    FacePanel, FacePickUi, draw_primitive_bevel, draw_primitive_blob_group, draw_primitive_capsule,
-    draw_primitive_cone, draw_primitive_cuboid, draw_primitive_cylinder, draw_primitive_helix,
-    draw_primitive_lathe, draw_primitive_plane, draw_primitive_sphere, draw_primitive_spine,
-    draw_primitive_superellipsoid, draw_primitive_tetrahedron, draw_primitive_torus,
-    draw_primitive_tube,
+    FacePanel, FacePickUi, PrimEdit, draw_primitive_bevel, draw_primitive_blob_group,
+    draw_primitive_capsule, draw_primitive_cone, draw_primitive_cuboid, draw_primitive_cylinder,
+    draw_primitive_helix, draw_primitive_lathe, draw_primitive_plane, draw_primitive_sphere,
+    draw_primitive_spine, draw_primitive_superellipsoid, draw_primitive_tetrahedron,
+    draw_primitive_torus, draw_primitive_tube,
 };
 use super::reparent::{current_id, find_node, find_node_mut};
 use super::sign::draw_generator_sign;
@@ -800,24 +800,28 @@ fn draw_generator_detail(
     // runs holds the same node's `faces` mutably. Only primitives (the kinds
     // that have faces at all) pay the clone.
     let snapshot = kind.faces().is_some().then(|| kind.clone());
-    // One `FacePanel` per primitive arm, from the arm's own `faces` binding
-    // plus the snapshot. A macro rather than a helper fn because the panel
-    // borrows `undo_label` mutably, and only the arm that runs may take
-    // that borrow.
+    // One `PrimEdit` per primitive arm, from the arm's own `common` binding
+    // plus the snapshot (#1188). A macro rather than a helper fn because the
+    // panel borrows `undo_label` mutably, and only the arm that runs may
+    // take that borrow.
     let FacePickUi {
         armed: pick_armed,
         picked: just_picked,
     } = pick;
-    macro_rules! face_panel {
-        ($faces:expr) => {
-            FacePanel {
-                overrides: $faces,
-                snapshot: snapshot.as_ref(),
-                undo_label: &mut *undo_label,
-                pick: FacePickUi {
-                    armed: &mut *pick_armed,
-                    picked: just_picked,
+    macro_rules! edit {
+        ($common:expr) => {
+            PrimEdit {
+                common: $common,
+                faces: FacePanel {
+                    snapshot: snapshot.as_ref(),
+                    undo_label: &mut *undo_label,
+                    pick: FacePickUi {
+                        armed: &mut *pick_armed,
+                        picked: just_picked,
+                    },
                 },
+                salt,
+                dirty: &mut *dirty,
             }
         };
     }
@@ -885,127 +889,43 @@ fn draw_generator_detail(
             target_pos,
         } => draw_portal_editor(ui, target_did, target_pos, dirty),
         GeneratorKind::Gateway { size } => draw_gateway_editor(ui, size, dirty),
-        GeneratorKind::Cuboid {
-            size,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            faces,
-            ..
-        } => draw_primitive_cuboid(
-            ui,
-            size,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            face_panel!(faces),
-            salt,
-            dirty,
-        ),
+        GeneratorKind::Cuboid { size, common, .. } => {
+            draw_primitive_cuboid(ui, size, edit!(common))
+        }
         GeneratorKind::Sphere {
             radius,
             resolution,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            faces,
+            common,
             ..
-        } => draw_primitive_sphere(
-            ui,
-            radius,
-            resolution,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            face_panel!(faces),
-            salt,
-            dirty,
-        ),
+        } => draw_primitive_sphere(ui, radius, resolution, edit!(common)),
         GeneratorKind::Cylinder {
             radius,
             height,
             resolution,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            faces,
+            common,
             ..
-        } => draw_primitive_cylinder(
-            ui,
-            radius,
-            height,
-            resolution,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            face_panel!(faces),
-            salt,
-            dirty,
-        ),
+        } => draw_primitive_cylinder(ui, radius, height, resolution, edit!(common)),
         GeneratorKind::Capsule {
             radius,
             length,
             latitudes,
             longitudes,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            faces,
+            common,
             ..
-        } => draw_primitive_capsule(
-            ui,
-            radius,
-            length,
-            latitudes,
-            longitudes,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            face_panel!(faces),
-            salt,
-            dirty,
-        ),
+        } => draw_primitive_capsule(ui, radius, length, latitudes, longitudes, edit!(common)),
         GeneratorKind::Cone {
             radius,
             height,
             resolution,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            faces,
+            common,
             ..
-        } => draw_primitive_cone(
-            ui,
-            radius,
-            height,
-            resolution,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            face_panel!(faces),
-            salt,
-            dirty,
-        ),
+        } => draw_primitive_cone(ui, radius, height, resolution, edit!(common)),
         GeneratorKind::Torus {
             minor_radius,
             major_radius,
             minor_resolution,
             major_resolution,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            faces,
+            common,
             ..
         } => draw_primitive_torus(
             ui,
@@ -1013,134 +933,42 @@ fn draw_generator_detail(
             major_radius,
             minor_resolution,
             major_resolution,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            face_panel!(faces),
-            salt,
-            dirty,
+            edit!(common),
         ),
         GeneratorKind::Plane {
             size,
             subdivisions,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            faces,
+            common,
             ..
-        } => draw_primitive_plane(
-            ui,
-            size,
-            subdivisions,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            face_panel!(faces),
-            salt,
-            dirty,
-        ),
-        GeneratorKind::Tetrahedron {
-            size,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            faces,
-            ..
-        } => draw_primitive_tetrahedron(
-            ui,
-            size,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            face_panel!(faces),
-            salt,
-            dirty,
-        ),
+        } => draw_primitive_plane(ui, size, subdivisions, edit!(common)),
+        GeneratorKind::Tetrahedron { size, common, .. } => {
+            draw_primitive_tetrahedron(ui, size, edit!(common))
+        }
         GeneratorKind::Tube {
             radius,
             inner_radius,
             height,
             resolution,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            faces,
+            common,
             ..
-        } => draw_primitive_tube(
-            ui,
-            radius,
-            inner_radius,
-            height,
-            resolution,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            face_panel!(faces),
-            salt,
-            dirty,
-        ),
+        } => draw_primitive_tube(ui, radius, inner_radius, height, resolution, edit!(common)),
         GeneratorKind::Bevel {
             size,
             bevel,
             bevel_segments,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            faces,
+            common,
             ..
-        } => draw_primitive_bevel(
-            ui,
-            size,
-            bevel,
-            bevel_segments,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            face_panel!(faces),
-            salt,
-            dirty,
-        ),
+        } => draw_primitive_bevel(ui, size, bevel, bevel_segments, edit!(common)),
         // A wedge carries the same fields as a cuboid (a bounding box); reuse
         // the cuboid editor.
-        GeneratorKind::Wedge {
-            size,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            faces,
-            ..
-        } => draw_primitive_cuboid(
-            ui,
-            size,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            face_panel!(faces),
-            salt,
-            dirty,
-        ),
+        GeneratorKind::Wedge { size, common, .. } => draw_primitive_cuboid(ui, size, edit!(common)),
         GeneratorKind::Helix {
             radius,
             tube_radius,
             pitch,
             turns,
             resolution,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            faces,
+            common,
             ..
         } => draw_primitive_helix(
             ui,
@@ -1149,13 +977,7 @@ fn draw_generator_detail(
             pitch,
             turns,
             resolution,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            face_panel!(faces),
-            salt,
-            dirty,
+            edit!(common),
         ),
         GeneratorKind::Superellipsoid {
             half_extents,
@@ -1163,11 +985,7 @@ fn draw_generator_detail(
             exponent_ew,
             latitudes,
             longitudes,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            faces,
+            common,
             ..
         } => draw_primitive_superellipsoid(
             ui,
@@ -1176,80 +994,32 @@ fn draw_generator_detail(
             exponent_ew,
             latitudes,
             longitudes,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            face_panel!(faces),
-            salt,
-            dirty,
+            edit!(common),
         ),
         GeneratorKind::Spine {
             points,
             resolution,
             samples_per_segment,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            faces,
+            common,
             ..
-        } => draw_primitive_spine(
-            ui,
-            points,
-            resolution,
-            samples_per_segment,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            face_panel!(faces),
-            salt,
-            dirty,
-        ),
+        } => draw_primitive_spine(ui, points, resolution, samples_per_segment, edit!(common)),
         GeneratorKind::Lathe {
             points,
             resolution,
             smooth,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            faces,
+            common,
             ..
-        } => draw_primitive_lathe(
-            ui,
-            points,
-            resolution,
-            smooth,
-            uv_mapping,
-            solid,
-            material,
-            torture,
-            face_panel!(faces),
-            salt,
-            dirty,
-        ),
+        } => draw_primitive_lathe(ui, points, resolution, smooth, edit!(common)),
         GeneratorKind::BlobGroup {
             elements,
             resolution,
-            solid,
-            uv_mapping,
-            material,
-            torture,
-            faces,
+            common,
             ..
         } => draw_primitive_blob_group(
             ui,
             elements,
             resolution,
-            solid,
-            uv_mapping,
-            material,
-            torture,
-            face_panel!(faces),
-            salt,
-            dirty,
+            edit!(common),
             blob_selected_element,
         ),
         // The legacy `uv_repeat` / `uv_offset` have no editor: the sanitizer

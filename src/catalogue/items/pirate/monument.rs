@@ -357,6 +357,7 @@ mod tests {
         assert_no_glazing_on_solids, assert_no_tilted_parents, assert_owner_panel,
         assert_sanitize_stable,
     };
+    use crate::pds::PrimCommon;
 
     const DID: &str = "did:plc:test";
 
@@ -553,7 +554,9 @@ mod tests {
             let t = g.transform.translation.0;
             let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
             if let crate::pds::GeneratorKind::Sphere {
-                radius, material, ..
+                radius,
+                common: PrimCommon { material, .. },
+                ..
             } = &g.kind
                 && material.base_color.0 == IRON_BLACK
                 && (radius.0 - SHOT_R).abs() < 1e-4

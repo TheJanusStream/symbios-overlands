@@ -596,6 +596,7 @@ mod tests {
         assert_cards_do_not_overlap, assert_no_glazing_on_solids, assert_no_tilted_parents,
         assert_sanitize_stable,
     };
+    use crate::pds::PrimCommon;
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     fn walk(g: &Generator, at: [f32; 3], f: &mut dyn FnMut(&Generator, [f32; 3])) {
@@ -665,7 +666,11 @@ mod tests {
     fn boarding_is_upright_and_shares_one_frame() {
         let mut checked = 0;
         walk(&FishingShack.build(""), [0.0; 3], &mut |g, at| {
-            let GeneratorKind::Cuboid { material, .. } = &g.kind else {
+            let GeneratorKind::Cuboid {
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            else {
                 return;
             };
             let SovereignTextureConfig::Plank(cfg) = &material.texture else {
@@ -713,7 +718,11 @@ mod tests {
     fn the_roof_comes_to_a_ridge() {
         let mut found = false;
         walk(&FishingShack.build(""), [0.0; 3], &mut |g, _| {
-            let GeneratorKind::Cuboid { torture, faces, .. } = &g.kind else {
+            let GeneratorKind::Cuboid {
+                common: PrimCommon { torture, faces, .. },
+                ..
+            } = &g.kind
+            else {
                 return;
             };
             let [tx, tz] = torture.taper.0;

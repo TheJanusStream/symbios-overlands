@@ -182,6 +182,7 @@ pub(super) fn collider_for_primitive(kind: &GeneratorKind, mesh: &Mesh) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pds::PrimCommon;
     use crate::pds::TortureParams;
     use crate::pds::texture::SovereignMaterialSettings;
     use crate::pds::types::{Fp, Fp2, Fp3};
@@ -189,17 +190,18 @@ mod tests {
 
     fn cuboid(size: [f32; 3], twist: f32, taper: f32, bend: [f32; 3]) -> GeneratorKind {
         GeneratorKind::Cuboid {
-            uv_mapping: crate::pds::generator::UvMapping::default(),
-            size: Fp3(size),
-            solid: true,
-            material: SovereignMaterialSettings::default(),
-            faces: Vec::new(),
-            torture: TortureParams {
-                twist: Fp(twist),
-                taper: Fp2([taper, taper]),
-                bend: Fp3(bend),
+            common: PrimCommon {
+                solid: true,
+                material: SovereignMaterialSettings::default(),
+                torture: TortureParams {
+                    twist: Fp(twist),
+                    taper: Fp2([taper, taper]),
+                    bend: Fp3(bend),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
+            size: Fp3(size),
         }
     }
 
@@ -208,14 +210,15 @@ mod tests {
             radius: Fp(radius),
             height: Fp(height),
             resolution: 24,
-            solid: true,
-            uv_mapping: crate::pds::generator::UvMapping::fit(),
-            material: SovereignMaterialSettings::default(),
-            faces: Vec::new(),
-            torture: TortureParams {
-                twist: Fp(twist),
-                taper: Fp2([taper, taper]),
-                bend: Fp3(bend),
+            common: PrimCommon {
+                solid: true,
+                material: SovereignMaterialSettings::default(),
+                torture: TortureParams {
+                    twist: Fp(twist),
+                    taper: Fp2([taper, taper]),
+                    bend: Fp3(bend),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         }
@@ -318,15 +321,16 @@ mod tests {
     fn per_axis_taper_narrows_one_axis() {
         // Taper X only → a wedge: the top narrows in X but keeps full Z width.
         let kind = GeneratorKind::Cuboid {
-            uv_mapping: crate::pds::generator::UvMapping::default(),
-            size: Fp3([1.0, 1.0, 1.0]),
-            solid: true,
-            material: SovereignMaterialSettings::default(),
-            faces: Vec::new(),
-            torture: TortureParams {
-                taper: Fp2([0.6, 0.0]),
+            common: PrimCommon {
+                solid: true,
+                material: SovereignMaterialSettings::default(),
+                torture: TortureParams {
+                    taper: Fp2([0.6, 0.0]),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
+            size: Fp3([1.0, 1.0, 1.0]),
         };
         let mesh = mesh_of(&kind);
         let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
@@ -356,15 +360,16 @@ mod tests {
         // The #688 two-ended taper: bottom narrows, top keeps full width —
         // the shape the old top-only taper needed upside-down authoring for.
         let kind = GeneratorKind::Cuboid {
-            uv_mapping: crate::pds::generator::UvMapping::default(),
-            size: Fp3([1.0, 1.0, 1.0]),
-            solid: true,
-            material: SovereignMaterialSettings::default(),
-            faces: Vec::new(),
-            torture: TortureParams {
-                taper_bottom: Fp2([0.6, 0.6]),
+            common: PrimCommon {
+                solid: true,
+                material: SovereignMaterialSettings::default(),
+                torture: TortureParams {
+                    taper_bottom: Fp2([0.6, 0.6]),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
+            size: Fp3([1.0, 1.0, 1.0]),
         };
         let mesh = mesh_of(&kind);
         let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
@@ -392,12 +397,13 @@ mod tests {
             radius: Fp(0.5),
             height: Fp(2.0),
             resolution: 24,
-            solid: true,
-            uv_mapping: crate::pds::generator::UvMapping::fit(),
-            material: SovereignMaterialSettings::default(),
-            faces: Vec::new(),
-            torture: TortureParams {
-                bulge: Fp2([b, b]),
+            common: PrimCommon {
+                solid: true,
+                material: SovereignMaterialSettings::default(),
+                torture: TortureParams {
+                    bulge: Fp2([b, b]),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         };
@@ -434,16 +440,16 @@ mod tests {
     #[test]
     fn superellipsoid_stays_inside_extents_and_morphs() {
         let se = |e1: f32, e2: f32| GeneratorKind::Superellipsoid {
-            uv_mapping: crate::pds::generator::UvMapping::default(),
+            common: PrimCommon {
+                solid: true,
+                material: SovereignMaterialSettings::default(),
+                ..Default::default()
+            },
             half_extents: Fp3([0.5, 0.5, 0.5]),
             exponent_ns: Fp(e1),
             exponent_ew: Fp(e2),
             latitudes: 16,
             longitudes: 24,
-            solid: true,
-            material: SovereignMaterialSettings::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
         };
         let corner_reach = |kind: &GeneratorKind| {
             let mesh = mesh_of(kind);
@@ -502,11 +508,11 @@ mod tests {
             ],
             resolution: 16,
             samples_per_segment: 8,
-            solid: true,
-            uv_mapping: crate::pds::generator::UvMapping::fit(),
-            material: SovereignMaterialSettings::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
+            common: PrimCommon {
+                solid: true,
+                material: SovereignMaterialSettings::default(),
+                ..Default::default()
+            },
         };
         let mesh = mesh_of(&kind);
         let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
@@ -555,11 +561,11 @@ mod tests {
             ],
             resolution: 24,
             smooth,
-            solid: true,
-            uv_mapping: crate::pds::generator::UvMapping::fit(),
-            material: SovereignMaterialSettings::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
+            common: PrimCommon {
+                solid: true,
+                material: SovereignMaterialSettings::default(),
+                ..Default::default()
+            },
         };
         for smooth in [false, true] {
             let mesh = mesh_of(&lathe(smooth));
@@ -590,13 +596,13 @@ mod tests {
         use crate::pds::generator::{BlobElement, BlobShape};
         use crate::pds::types::Fp4;
         let blob = |elements: Vec<BlobElement>| GeneratorKind::BlobGroup {
-            uv_mapping: crate::pds::generator::UvMapping::default(),
+            common: PrimCommon {
+                solid: true,
+                material: SovereignMaterialSettings::default(),
+                ..Default::default()
+            },
             elements,
             resolution: 32,
-            solid: true,
-            material: SovereignMaterialSettings::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
         };
         let positions = |kind: &GeneratorKind| -> Vec<[f32; 3]> {
             let mesh = mesh_of(kind);
@@ -691,11 +697,11 @@ mod tests {
             ],
             resolution: 24,
             smooth: false,
-            solid: true,
-            uv_mapping: crate::pds::generator::UvMapping::fit(),
-            material: SovereignMaterialSettings::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
+            common: PrimCommon {
+                solid: true,
+                material: SovereignMaterialSettings::default(),
+                ..Default::default()
+            },
         };
         if let Some(t) = kind.torture_mut() {
             t.profile_cut = Fp2([0.25, 0.75]);
@@ -725,7 +731,11 @@ mod tests {
         use crate::pds::generator::{BlobElement, BlobShape};
         let blob = |pc: [f32; 2], prc: [f32; 2], hollow: f32| {
             let mut kind = GeneratorKind::BlobGroup {
-                uv_mapping: crate::pds::generator::UvMapping::default(),
+                common: PrimCommon {
+                    solid: true,
+                    material: SovereignMaterialSettings::default(),
+                    ..Default::default()
+                },
                 elements: vec![BlobElement {
                     shape: BlobShape::Sphere,
                     radii: Fp3([0.4, 0.4, 0.4]),
@@ -733,10 +743,6 @@ mod tests {
                     ..Default::default()
                 }],
                 resolution: 32,
-                solid: true,
-                material: SovereignMaterialSettings::default(),
-                faces: Vec::new(),
-                torture: TortureParams::default(),
             };
             if let Some(t) = kind.torture_mut() {
                 t.path_cut = Fp2(pc);
@@ -800,7 +806,11 @@ mod tests {
     fn blob_new_shapes_mesh_true_to_form() {
         use crate::pds::generator::{BlobElement, BlobShape};
         let one = |shape: BlobShape, radii: [f32; 3]| GeneratorKind::BlobGroup {
-            uv_mapping: crate::pds::generator::UvMapping::default(),
+            common: PrimCommon {
+                solid: true,
+                material: SovereignMaterialSettings::default(),
+                ..Default::default()
+            },
             elements: vec![BlobElement {
                 shape,
                 radii: Fp3(radii),
@@ -808,10 +818,6 @@ mod tests {
                 ..Default::default()
             }],
             resolution: 32,
-            solid: true,
-            material: SovereignMaterialSettings::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
         };
         let positions = |kind: &GeneratorKind| -> Vec<[f32; 3]> {
             let mesh = mesh_of(kind);
@@ -901,27 +907,30 @@ mod tests {
     #[test]
     fn blob_uv_modes_produce_sane_uvs() {
         use crate::pds::generator::{BlobElement, UvMapping};
-        let group = |uv_mapping: UvMapping| GeneratorKind::BlobGroup {
-            elements: vec![
-                BlobElement {
-                    position: Fp3([0.0, -0.3, 0.0]),
-                    radii: Fp3([0.3, 0.3, 0.3]),
-                    blend: Fp(0.2),
+        let group = |uv_mapping: UvMapping| {
+            let mut kind = GeneratorKind::BlobGroup {
+                elements: vec![
+                    BlobElement {
+                        position: Fp3([0.0, -0.3, 0.0]),
+                        radii: Fp3([0.3, 0.3, 0.3]),
+                        blend: Fp(0.2),
+                        ..Default::default()
+                    },
+                    BlobElement {
+                        position: Fp3([0.0, 0.35, 0.1]),
+                        radii: Fp3([0.22, 0.22, 0.22]),
+                        blend: Fp(0.2),
+                        ..Default::default()
+                    },
+                ],
+                resolution: 32,
+                common: PrimCommon {
+                    solid: true,
                     ..Default::default()
                 },
-                BlobElement {
-                    position: Fp3([0.0, 0.35, 0.1]),
-                    radii: Fp3([0.22, 0.22, 0.22]),
-                    blend: Fp(0.2),
-                    ..Default::default()
-                },
-            ],
-            resolution: 32,
-            solid: true,
-            uv_mapping,
-            material: SovereignMaterialSettings::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
+            };
+            kind.set_uv_mapping(uv_mapping);
+            kind
         };
         for mode in [
             UvMapping::Spherical,
@@ -1166,7 +1175,7 @@ mod tests {
             if let GeneratorKind::Cylinder {
                 radius,
                 height,
-                torture,
+                common: PrimCommon { torture, .. },
                 ..
             } = &mut k
             {
@@ -1228,7 +1237,7 @@ mod tests {
             if let GeneratorKind::Capsule {
                 radius,
                 length,
-                torture,
+                common: PrimCommon { torture, .. },
                 ..
             } = &mut k
             {
@@ -1260,7 +1269,9 @@ mod tests {
         let sphere = |hollow: f32| {
             let mut k = GeneratorKind::default_primitive_for_tag("Sphere").unwrap();
             if let GeneratorKind::Sphere {
-                radius, torture, ..
+                radius,
+                common: PrimCommon { torture, .. },
+                ..
             } = &mut k
             {
                 *radius = Fp(1.5);
@@ -1288,8 +1299,10 @@ mod tests {
     fn a_revolved_prim_honours_a_non_fit_mapping() {
         let uvs_of = |tag: &str, mapping: UvMapping| -> Vec<[f32; 2]> {
             let mut k = GeneratorKind::default_primitive_for_tag(tag).unwrap();
-            *k.uv_mapping_mut()
-                .expect("every primitive carries a mapping") = mapping;
+            assert!(
+                k.set_uv_mapping(mapping),
+                "every primitive carries a mapping"
+            );
             match mesh_of(&k).attribute(Mesh::ATTRIBUTE_UV_0) {
                 Some(VertexAttributeValues::Float32x2(uv)) => uv.clone(),
                 _ => panic!("{tag}: no UVs"),

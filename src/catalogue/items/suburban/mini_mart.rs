@@ -610,6 +610,7 @@ fn pylon() -> Generator {
 mod tests {
     use super::*;
     use crate::catalogue::items::util::assert_sanitize_stable;
+    use crate::pds::PrimCommon;
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     #[test]
@@ -637,9 +638,11 @@ mod tests {
     fn the_glazing_is_unscaled_lapping_quads() {
         let mut planes = 0;
         walk(&MiniMart.build(""), [0.0; 3], &mut |g, _| match &g.kind {
-            GeneratorKind::Plane { size, material, .. }
-                if matches!(material.texture, SovereignTextureConfig::Window(_)) =>
-            {
+            GeneratorKind::Plane {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } if matches!(material.texture, SovereignTextureConfig::Window(_)) => {
                 assert_eq!(
                     material.uv_scale.0, 1.0,
                     "Window cards upload clamp-to-edge; uv_scale must stay 1.0"
@@ -651,7 +654,10 @@ mod tests {
                 );
                 planes += 1;
             }
-            GeneratorKind::Cuboid { material, .. } => assert!(
+            GeneratorKind::Cuboid {
+                common: PrimCommon { material, .. },
+                ..
+            } => assert!(
                 !matches!(material.texture, SovereignTextureConfig::Window(_)),
                 "a Window card on a solid is a frame over nothing"
             ),
@@ -669,7 +675,10 @@ mod tests {
     fn the_fitout_stands_close_behind_the_glass() {
         let mut near = 0;
         walk(&MiniMart.build(""), [0.0; 3], &mut |g, pos| {
-            if let GeneratorKind::Cuboid { material, .. } = &g.kind
+            if let GeneratorKind::Cuboid {
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && material.emission_strength.0 > 0.12
                 && material.emission_strength.0 < 1.0
                 && pos[2] < AISLE_Z + 0.3
@@ -693,7 +702,10 @@ mod tests {
         let mut overrides = Vec::new();
         walk(&root, [0.0; 3], &mut |g, pos| {
             if let GeneratorKind::Cuboid {
-                material, faces, ..
+                common: PrimCommon {
+                    material, faces, ..
+                },
+                ..
             } = &g.kind
                 && matches!(material.texture, SovereignTextureConfig::Brick(_))
             {
@@ -771,7 +783,12 @@ mod tests {
         let mut brick_x = 0.0_f32;
         let mut render_x = 0.0_f32;
         walk(&root, [0.0; 3], &mut |g, pos| {
-            let GeneratorKind::Cuboid { size, material, .. } = &g.kind else {
+            let GeneratorKind::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            else {
                 return;
             };
             // The side walls: slender in X, deep in Z, centred on x = 0's

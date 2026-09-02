@@ -455,6 +455,7 @@ mod tests {
     use crate::catalogue::items::util::{
         assert_no_glazing_on_solids, assert_no_tilted_parents, assert_sanitize_stable,
     };
+    use crate::pds::PrimCommon;
 
     fn built() -> Generator {
         PirateGateway.build("")
@@ -652,7 +653,11 @@ mod tests {
     fn the_broad_lit_face_is_deep_and_the_hot_ones_are_small() {
         use crate::pds::GeneratorKind as K;
         fn walk(g: &Generator, out: &mut Vec<([f32; 3], f32, [f32; 3])>) {
-            if let K::Cuboid { size, material, .. } = &g.kind
+            if let K::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && material.emission_strength.0 > 0.3
             {
                 out.push((size.0, material.emission_strength.0, material.base_color.0));

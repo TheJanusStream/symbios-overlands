@@ -511,6 +511,7 @@ mod tests {
         assert_no_glazing_on_solids, assert_no_tilted_parents, assert_sanitize_stable,
     };
     use crate::pds::GeneratorKind;
+    use crate::pds::PrimCommon;
 
     fn walk(g: &Generator, at: [f32; 3], f: &mut dyn FnMut(&Generator, [f32; 3])) {
         let t = g.transform.translation.0;
@@ -549,10 +550,22 @@ mod tests {
         let mut per_stall = [Vec::new(), Vec::new(), Vec::new()];
         walk(&root, [0.0; 3], &mut |g, at| {
             let material = match &g.kind {
-                GeneratorKind::Cuboid { material, .. }
-                | GeneratorKind::Cylinder { material, .. }
-                | GeneratorKind::Cone { material, .. }
-                | GeneratorKind::Torus { material, .. } => material,
+                GeneratorKind::Cuboid {
+                    common: PrimCommon { material, .. },
+                    ..
+                }
+                | GeneratorKind::Cylinder {
+                    common: PrimCommon { material, .. },
+                    ..
+                }
+                | GeneratorKind::Cone {
+                    common: PrimCommon { material, .. },
+                    ..
+                }
+                | GeneratorKind::Torus {
+                    common: PrimCommon { material, .. },
+                    ..
+                } => material,
                 _ => return,
             };
             if material.emission_strength.0 < 0.15 || at[2] < FRONT || at[1] < DECK_TOP {

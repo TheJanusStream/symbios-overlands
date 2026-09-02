@@ -192,20 +192,17 @@ pub(super) fn retain_touched<V: Clone>(cache: &mut GeneratorCache<u64, V>, touch
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pds::{Fp, Fp2, Fp3, SovereignMaterialSettings, TortureParams};
+    use crate::pds::PrimCommon;
+    use crate::pds::{Fp, Fp2, Fp3, SovereignMaterialSettings};
 
     fn plane(size: [f32; 2], base_color: [f32; 3]) -> GeneratorKind {
         GeneratorKind::Plane {
-            uv_mapping: crate::pds::generator::UvMapping::fit(),
-            size: Fp2(size),
-            subdivisions: 0,
-            solid: false,
-            faces: Vec::new(),
-            material: SovereignMaterialSettings {
+            common: PrimCommon::with_material(SovereignMaterialSettings {
                 base_color: Fp3(base_color),
                 ..Default::default()
-            },
-            torture: TortureParams::default(),
+            }),
+            size: Fp2(size),
+            subdivisions: 0,
         }
     }
 
@@ -288,7 +285,11 @@ mod tests {
         );
         // Solidity changes the collider, so it must not share a key either.
         let mut solid = plane([1.0, 2.0], [1.0, 1.0, 1.0]);
-        if let GeneratorKind::Plane { solid: s, .. } = &mut solid {
+        if let GeneratorKind::Plane {
+            common: PrimCommon { solid: s, .. },
+            ..
+        } = &mut solid
+        {
             *s = true;
         }
         assert_ne!(
@@ -300,21 +301,13 @@ mod tests {
     #[test]
     fn distinct_primitive_kinds_do_not_collide() {
         let cuboid = GeneratorKind::Cuboid {
-            uv_mapping: crate::pds::generator::UvMapping::default(),
+            common: PrimCommon::with_material(SovereignMaterialSettings::default()),
             size: Fp3([1.0, 1.0, 1.0]),
-            solid: false,
-            material: SovereignMaterialSettings::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
         };
         let sphere = GeneratorKind::Sphere {
             radius: Fp(1.0),
             resolution: 5,
-            solid: false,
-            uv_mapping: crate::pds::generator::UvMapping::fit(),
-            material: SovereignMaterialSettings::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
+            common: PrimCommon::with_material(SovereignMaterialSettings::default()),
         };
         assert_ne!(
             prim_geometry_fingerprint(&cuboid),

@@ -607,6 +607,7 @@ mod tests {
         blob_cell_size, blob_components, rotate_by, window_cards,
     };
     use crate::pds::GeneratorKind as K;
+    use crate::pds::PrimCommon;
 
     fn built() -> Generator {
         Longboat.build("")
@@ -770,7 +771,11 @@ mod tests {
         fn walk(g: &Generator, at: [f32; 3], out: &mut Vec<[f32; 3]>) {
             let t = g.transform.translation.0;
             let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
-            if let K::Cuboid { size, material, .. } = &g.kind
+            if let K::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && (size.0[0] - PLANK_T).abs() < 1e-4
                 && material.base_color.0 == HULL_TAR
             {

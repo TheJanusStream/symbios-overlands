@@ -86,8 +86,8 @@ fn finish_tree(node: &mut Generator, wealth: f32, scorch: f32) {
 /// [`crate::pds::ruin`] so the damage pass walks the same material set.
 pub(crate) fn node_materials_mut(kind: &mut GeneratorKind) -> Vec<&mut SovereignMaterialSettings> {
     match kind {
-        crate::for_each_primitive!(pattern { material, faces }) => std::iter::once(material)
-            .chain(faces.iter_mut().map(|f| &mut f.material))
+        crate::for_each_primitive!(pattern { common }) => std::iter::once(&mut common.material)
+            .chain(common.faces.iter_mut().map(|f| &mut f.material))
             .collect(),
         GeneratorKind::Shape { materials, .. } => materials.values_mut().collect(),
         GeneratorKind::LSystem { materials, .. } => materials.values_mut().collect(),
@@ -170,6 +170,7 @@ fn clamp3(a: [f32; 3]) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pds::PrimCommon;
     use std::collections::HashMap;
 
     /// #977: a `Sign` keeps its tint whatever the dials say.
@@ -222,19 +223,19 @@ mod tests {
 
     fn cuboid(color: [f32; 3], roughness: f32, metallic: f32, emission: f32) -> Generator {
         Generator::from_kind(GeneratorKind::Cuboid {
-            uv_mapping: crate::pds::generator::UvMapping::default(),
-            size: Fp3([1.0, 1.0, 1.0]),
-            solid: true,
-            material: SovereignMaterialSettings {
-                base_color: Fp3(color),
-                emission_color: Fp3([1.0, 1.0, 1.0]),
-                emission_strength: Fp(emission),
-                roughness: Fp(roughness),
-                metallic: Fp(metallic),
-                ..SovereignMaterialSettings::default()
+            common: PrimCommon {
+                solid: true,
+                material: SovereignMaterialSettings {
+                    base_color: Fp3(color),
+                    emission_color: Fp3([1.0, 1.0, 1.0]),
+                    emission_strength: Fp(emission),
+                    roughness: Fp(roughness),
+                    metallic: Fp(metallic),
+                    ..SovereignMaterialSettings::default()
+                },
+                ..Default::default()
             },
-            faces: Vec::new(),
-            torture: crate::pds::TortureParams::default(),
+            size: Fp3([1.0, 1.0, 1.0]),
         })
     }
 
@@ -271,7 +272,10 @@ mod tests {
 
     fn only_material(node: &Generator) -> &SovereignMaterialSettings {
         match &node.kind {
-            GeneratorKind::Cuboid { material, .. } => material,
+            GeneratorKind::Cuboid {
+                common: PrimCommon { material, .. },
+                ..
+            } => material,
             _ => panic!("expected cuboid"),
         }
     }

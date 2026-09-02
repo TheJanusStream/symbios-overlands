@@ -710,6 +710,7 @@ mod tests {
         assert_cards_do_not_overlap, assert_no_glazing_on_solids, assert_no_tilted_parents,
         assert_sanitize_stable, has_emissive,
     };
+    use crate::pds::PrimCommon;
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     fn walk(g: &Generator, at: [f32; 3], f: &mut dyn FnMut(&Generator, [f32; 3])) {
@@ -789,7 +790,11 @@ mod tests {
     fn every_card_laps_its_opening() {
         let mut sizes: Vec<[f32; 2]> = Vec::new();
         walk(&Dormitory.build(""), [0.0; 3], &mut |g, _| {
-            if let GeneratorKind::Plane { size, material, .. } = &g.kind
+            if let GeneratorKind::Plane {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && matches!(material.texture, SovereignTextureConfig::Window(_))
             {
                 sizes.push(size.0);
@@ -822,7 +827,11 @@ mod tests {
     fn every_card_sits_inside_its_own_storey() {
         let mut cards: Vec<([f32; 3], [f32; 2])> = Vec::new();
         walk(&Dormitory.build(""), [0.0; 3], &mut |g, at| {
-            if let GeneratorKind::Plane { size, material, .. } = &g.kind
+            if let GeneratorKind::Plane {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && matches!(material.texture, SovereignTextureConfig::Window(_))
             {
                 cards.push((at, size.0));
@@ -851,7 +860,12 @@ mod tests {
         use FaceKey::*;
         let mut checked = 0;
         walk(&Dormitory.build(""), [0.0; 3], &mut |g, at| {
-            let GeneratorKind::Cuboid { size, material, .. } = &g.kind else {
+            let GeneratorKind::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            else {
                 return;
             };
             if g.transform.rotation.0 != [0.0, 0.0, 0.0, 1.0] {
@@ -1014,7 +1028,12 @@ mod tests {
         let mut canopy: Option<([f32; 3], [f32; 3])> = None;
         let mut brackets: Vec<([f32; 3], f32)> = Vec::new();
         walk(&root, [0.0; 3], &mut |g, at| {
-            let GeneratorKind::Cuboid { size, material, .. } = &g.kind else {
+            let GeneratorKind::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            else {
                 return;
             };
             if (size.0[0] - (ENTRY_W + 1.5)).abs() < 1e-4 {

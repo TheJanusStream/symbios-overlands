@@ -14,6 +14,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::pds::PrimCommon;
 use crate::pds::generator::FaceKey;
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::{GeneratorKind, TortureParams};
@@ -83,9 +84,13 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
     match kind {
         GeneratorKind::Cuboid {
             size,
-            torture,
-            solid,
-            material,
+            common:
+                PrimCommon {
+                    torture,
+                    solid,
+                    material,
+                    ..
+                },
             ..
         } => parts(
             Box::new(CuboidShape {
@@ -98,9 +103,13 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
         GeneratorKind::Sphere {
             radius,
             resolution,
-            torture,
-            solid,
-            material,
+            common:
+                PrimCommon {
+                    torture,
+                    solid,
+                    material,
+                    ..
+                },
             ..
         } => parts(
             Box::new(SphereShape {
@@ -115,9 +124,13 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             radius,
             height,
             resolution,
-            torture,
-            solid,
-            material,
+            common:
+                PrimCommon {
+                    torture,
+                    solid,
+                    material,
+                    ..
+                },
             ..
         } => parts(
             Box::new(CylinderShape {
@@ -134,9 +147,13 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             length,
             latitudes,
             longitudes,
-            torture,
-            solid,
-            material,
+            common:
+                PrimCommon {
+                    torture,
+                    solid,
+                    material,
+                    ..
+                },
             ..
         } => parts(
             Box::new(CapsuleShape {
@@ -153,9 +170,13 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             radius,
             height,
             resolution,
-            torture,
-            solid,
-            material,
+            common:
+                PrimCommon {
+                    torture,
+                    solid,
+                    material,
+                    ..
+                },
             ..
         } => parts(
             Box::new(ConeShape {
@@ -172,9 +193,13 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             major_radius,
             minor_resolution,
             major_resolution,
-            torture,
-            solid,
-            material,
+            common:
+                PrimCommon {
+                    torture,
+                    solid,
+                    material,
+                    ..
+                },
             ..
         } => parts(
             Box::new(TorusShape {
@@ -190,8 +215,9 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
         GeneratorKind::Plane {
             size,
             subdivisions,
-            solid,
-            material,
+            common: PrimCommon {
+                solid, material, ..
+            },
             ..
         } => parts(
             Box::new(PlaneShape {
@@ -203,9 +229,13 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
         ),
         GeneratorKind::Tetrahedron {
             size,
-            torture,
-            solid,
-            material,
+            common:
+                PrimCommon {
+                    torture,
+                    solid,
+                    material,
+                    ..
+                },
             ..
         } => parts(
             Box::new(TetrahedronShape {
@@ -220,9 +250,13 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             inner_radius,
             height,
             resolution,
-            torture,
-            solid,
-            material,
+            common:
+                PrimCommon {
+                    torture,
+                    solid,
+                    material,
+                    ..
+                },
             ..
         } => parts(
             Box::new(TubeShape {
@@ -239,9 +273,13 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             size,
             bevel,
             bevel_segments,
-            torture,
-            solid,
-            material,
+            common:
+                PrimCommon {
+                    torture,
+                    solid,
+                    material,
+                    ..
+                },
             ..
         } => parts(
             Box::new(BevelShape {
@@ -255,9 +293,13 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
         ),
         GeneratorKind::Wedge {
             size,
-            torture,
-            solid,
-            material,
+            common:
+                PrimCommon {
+                    torture,
+                    solid,
+                    material,
+                    ..
+                },
             ..
         } => parts(
             Box::new(WedgeShape {
@@ -273,9 +315,13 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             pitch,
             turns,
             resolution,
-            torture,
-            solid,
-            material,
+            common:
+                PrimCommon {
+                    torture,
+                    solid,
+                    material,
+                    ..
+                },
             ..
         } => parts(
             Box::new(HelixShape {
@@ -295,9 +341,13 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             exponent_ew,
             latitudes,
             longitudes,
-            torture,
-            solid,
-            material,
+            common:
+                PrimCommon {
+                    torture,
+                    solid,
+                    material,
+                    ..
+                },
             ..
         } => parts(
             Box::new(SuperellipsoidShape {
@@ -315,9 +365,13 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             points,
             resolution,
             samples_per_segment,
-            torture,
-            solid,
-            material,
+            common:
+                PrimCommon {
+                    torture,
+                    solid,
+                    material,
+                    ..
+                },
             ..
         } => parts(
             Box::new(SpineShape {
@@ -336,9 +390,13 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
             points,
             resolution,
             smooth,
-            torture,
-            solid,
-            material,
+            common:
+                PrimCommon {
+                    torture,
+                    solid,
+                    material,
+                    ..
+                },
             ..
         } => parts(
             Box::new(LatheShape {
@@ -353,16 +411,22 @@ pub(in crate::world_builder) fn prim_parts(kind: &GeneratorKind) -> Option<PrimP
         GeneratorKind::BlobGroup {
             elements,
             resolution,
-            uv_mapping,
-            torture,
-            solid,
-            material,
+            common:
+                PrimCommon {
+                    uv_mapping,
+                    torture,
+                    solid,
+                    material,
+                    ..
+                },
             ..
         } => parts(
             Box::new(BlobGroupShape {
                 elements,
                 resolution: *resolution,
-                uv_mapping: *uv_mapping,
+                // `None` is the family default, which for a group is Box
+                // (`UvMapping::default()`, #742).
+                uv_mapping: uv_mapping.unwrap_or_default(),
                 torture,
             }),
             solid,

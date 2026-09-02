@@ -850,6 +850,7 @@ fn porch() -> Generator {
 mod tests {
     use super::*;
     use crate::catalogue::items::util::assert_sanitize_stable;
+    use crate::pds::PrimCommon;
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     #[test]
@@ -878,7 +879,11 @@ mod tests {
     fn glazing_cards_are_unscaled_quads() {
         let mut planes = 0;
         walk(&SuburbanHouse.build(""), [0.0; 3], &mut |g, _| {
-            if let GeneratorKind::Plane { size, material, .. } = &g.kind
+            if let GeneratorKind::Plane {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && matches!(material.texture, SovereignTextureConfig::Window(_))
             {
                 assert_eq!(
@@ -897,7 +902,11 @@ mod tests {
             }
             // And no solid may carry one: a card on a cuboid grows windows on
             // all six faces and punches holes onto whatever is inside.
-            if let GeneratorKind::Cuboid { material, .. } = &g.kind {
+            if let GeneratorKind::Cuboid {
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            {
                 assert!(
                     !matches!(material.texture, SovereignTextureConfig::Window(_)),
                     "a Window card on a solid is a frame over nothing"
@@ -915,7 +924,10 @@ mod tests {
     fn the_fitout_stands_close_behind_the_glass() {
         let mut near = 0;
         walk(&SuburbanHouse.build(""), [0.0; 3], &mut |g, pos| {
-            if let GeneratorKind::Cuboid { material, .. } = &g.kind
+            if let GeneratorKind::Cuboid {
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && material.emission_strength.0 > 0.15
                 && material.emission_strength.0 < 1.0
                 && pos[2] < FRONT + 2.5
@@ -934,7 +946,10 @@ mod tests {
     fn siding_surfaces(root: &Generator) -> Vec<([f32; 3], SovereignMaterialSettings)> {
         let mut out = Vec::new();
         walk(root, [0.0; 3], &mut |g, pos| {
-            if let GeneratorKind::Cuboid { material, .. } = &g.kind
+            if let GeneratorKind::Cuboid {
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && let SovereignTextureConfig::Plank(cfg) = &material.texture
                 && cfg.plank_count.0 == super::super::SIDING_COURSES
             {
@@ -1019,7 +1034,10 @@ mod tests {
     fn the_flue_bricks_lie_flat() {
         let mut seen = 0;
         walk(&SuburbanHouse.build(""), [0.0; 3], &mut |g, pos| {
-            if let GeneratorKind::Cuboid { material, .. } = &g.kind
+            if let GeneratorKind::Cuboid {
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && let SovereignTextureConfig::Brick(cfg) = &material.texture
             {
                 let cols = (cfg.scale.0 * cfg.aspect_ratio.0).round();

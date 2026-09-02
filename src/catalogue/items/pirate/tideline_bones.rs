@@ -483,6 +483,7 @@ mod tests {
         window_cards,
     };
     use crate::pds::GeneratorKind as K;
+    use crate::pds::PrimCommon;
 
     fn built() -> Generator {
         TidelineBones.build("")
@@ -620,7 +621,9 @@ mod tests {
             let t = g.transform.translation.0;
             let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
             if let K::Cylinder {
-                radius, material, ..
+                radius,
+                common: PrimCommon { material, .. },
+                ..
             } = &g.kind
                 && (radius.0 - COIN_R).abs() < 0.003
             {

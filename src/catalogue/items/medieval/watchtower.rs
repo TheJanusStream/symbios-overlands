@@ -187,6 +187,7 @@ fn build_kind() -> GeneratorKind {
 mod tests {
     use super::*;
     use crate::catalogue::items::shape_grammar_test::assert_grammar_parses_and_derives;
+    use crate::pds::PrimCommon;
     use crate::pds::sanitize_generator;
 
     #[test]
@@ -196,7 +197,13 @@ mod tests {
         // The entry root is now the centred foundation plinth; the
         // grammar hangs beneath it as the first child.
         assert!(
-            matches!(g.kind, GeneratorKind::Cuboid { solid: true, .. }),
+            matches!(
+                g.kind,
+                GeneratorKind::Cuboid {
+                    common: PrimCommon { solid: true, .. },
+                    ..
+                }
+            ),
             "{} root must be the solid foundation plinth",
             "watchtower"
         );

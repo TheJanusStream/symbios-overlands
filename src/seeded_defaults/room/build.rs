@@ -23,6 +23,7 @@
 use std::collections::HashMap;
 
 use crate::pds::COLLECTION;
+use crate::pds::PrimCommon;
 use crate::pds::contact_effects::ContactEffects;
 use crate::pds::generator::{Generator, GeneratorKind, ParticleParams, Placement, WaterSurface};
 use crate::pds::room::{DefaultLanding, Environment, RoomRecord, generator_entity_count};
@@ -86,7 +87,6 @@ const SETTLEMENT_PROXY_GRID: u32 = 96;
 pub fn build_room(seed: u64, did: &str) -> RoomRecord {
     use crate::pds::generator::{
         AnimationFrameMode, EmitterShape, ParticleBlendMode, SimulationSpace, TextureFilter,
-        UvMapping,
     };
     use crate::pds::texture::{
         SovereignMaterialSettings, SovereignRockConfig, SovereignTextureConfig,
@@ -398,25 +398,26 @@ pub fn build_room(seed: u64, did: &str) -> RoomRecord {
     let boulder = Generator::from_kind(GeneratorKind::Sphere {
         radius: Fp(rock_scatters.boulder_radius),
         resolution: 1,
-        // Solid: a walk-through boulder breaks the fiction the
-        // moment someone drives into one.
-        solid: true,
-        uv_mapping: UvMapping::fit(),
-        faces: Vec::new(),
-        material: SovereignMaterialSettings {
-            base_color: Fp3(palette.rock_stone),
-            roughness: Fp(0.95),
-            uv_scale: Fp(1.5),
-            texture: SovereignTextureConfig::Rock(SovereignRockConfig {
-                color_light: Fp3(palette.rock_stone),
-                color_dark: Fp3(palette.rock_gap),
+        common: PrimCommon {
+            // Solid: a walk-through boulder breaks the fiction the
+            // moment someone drives into one.
+            solid: true,
+            material: SovereignMaterialSettings {
+                base_color: Fp3(palette.rock_stone),
+                roughness: Fp(0.95),
+                uv_scale: Fp(1.5),
+                texture: SovereignTextureConfig::Rock(SovereignRockConfig {
+                    color_light: Fp3(palette.rock_stone),
+                    color_dark: Fp3(palette.rock_gap),
+                    ..Default::default()
+                }),
                 ..Default::default()
-            }),
-            ..Default::default()
-        },
-        torture: TortureParams {
-            twist: Fp(rock_scatters.boulder_twist),
-            taper: Fp2([rock_scatters.boulder_taper, rock_scatters.boulder_taper]),
+            },
+            torture: TortureParams {
+                twist: Fp(rock_scatters.boulder_twist),
+                taper: Fp2([rock_scatters.boulder_taper, rock_scatters.boulder_taper]),
+                ..Default::default()
+            },
             ..Default::default()
         },
     });

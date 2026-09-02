@@ -14,25 +14,14 @@ use crate::pds::generator::GeneratorKind;
 use crate::pds::types::{Fp, Fp2, Fp3};
 
 pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
-    sanitize_faces(kind);
+    sanitize_common(kind);
     let c_dim = |v: f32| clamp_finite(v, 0.01, 100.0, 1.0);
     match kind {
-        GeneratorKind::Cuboid {
-            size,
-            material,
-            torture,
-            ..
-        } => {
+        GeneratorKind::Cuboid { size, .. } => {
             size.0 = [c_dim(size.0[0]), c_dim(size.0[1]), c_dim(size.0[2])];
-            material.sanitize();
-            sanitize_torture(torture);
         }
         GeneratorKind::Sphere {
-            radius,
-            resolution,
-            material,
-            torture,
-            ..
+            radius, resolution, ..
         } => {
             *radius = Fp(c_dim(radius.0));
             // Ico subdivision count is exponential in triangles (~20·4ⁿ), so
@@ -40,98 +29,65 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
             // content, which tops out at ico 4 ≈ 5k), while the old cap of 10
             // would be ~20M tris per sphere — a single-record perf cliff.
             *resolution = (*resolution).clamp(0, 6);
-            material.sanitize();
-            sanitize_torture(torture);
         }
         GeneratorKind::Cylinder {
             radius,
             height,
             resolution,
-            material,
-            torture,
             ..
         } => {
             *radius = Fp(c_dim(radius.0));
             *height = Fp(c_dim(height.0));
             *resolution = (*resolution).clamp(3, 128);
-            material.sanitize();
-            sanitize_torture(torture);
         }
         GeneratorKind::Capsule {
             radius,
             length,
             latitudes,
             longitudes,
-            material,
-            torture,
             ..
         } => {
             *radius = Fp(c_dim(radius.0));
             *length = Fp(c_dim(length.0));
             *latitudes = (*latitudes).clamp(2, 64);
             *longitudes = (*longitudes).clamp(4, 128);
-            material.sanitize();
-            sanitize_torture(torture);
         }
         GeneratorKind::Cone {
             radius,
             height,
             resolution,
-            material,
-            torture,
             ..
         } => {
             *radius = Fp(c_dim(radius.0));
             *height = Fp(c_dim(height.0));
             *resolution = (*resolution).clamp(3, 128);
-            material.sanitize();
-            sanitize_torture(torture);
         }
         GeneratorKind::Torus {
             minor_radius,
             major_radius,
             minor_resolution,
             major_resolution,
-            material,
-            torture,
             ..
         } => {
             *minor_radius = Fp(c_dim(minor_radius.0));
             *major_radius = Fp(c_dim(major_radius.0));
             *minor_resolution = (*minor_resolution).clamp(3, 64);
             *major_resolution = (*major_resolution).clamp(3, 128);
-            material.sanitize();
-            sanitize_torture(torture);
         }
         GeneratorKind::Plane {
-            size,
-            subdivisions,
-            material,
-            torture,
-            ..
+            size, subdivisions, ..
         } => {
             *size = Fp2([c_dim(size.0[0]), c_dim(size.0[1])]);
             *subdivisions = (*subdivisions).clamp(0, 32);
-            material.sanitize();
-            sanitize_torture(torture);
         }
-        GeneratorKind::Tetrahedron {
-            size,
-            material,
-            torture,
-            ..
-        } => {
+        GeneratorKind::Tetrahedron { size, .. } => {
             *size = Fp(c_dim(size.0));
-            material.sanitize();
-            sanitize_torture(torture);
         }
         GeneratorKind::Tube {
             radius,
             inner_radius,
             height,
             resolution,
-            material,
-            torture,
             ..
         } => {
             *radius = Fp(c_dim(radius.0));
@@ -144,15 +100,11 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
                 radius.0 * 0.5,
             ));
             *resolution = (*resolution).clamp(3, 128);
-            material.sanitize();
-            sanitize_torture(torture);
         }
         GeneratorKind::Bevel {
             size,
             bevel,
             bevel_segments,
-            material,
-            torture,
             ..
         } => {
             size.0 = [c_dim(size.0[0]), c_dim(size.0[1]), c_dim(size.0[2])];
@@ -160,18 +112,9 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
             let max_b = (size.0[0].min(size.0[2]) * 0.5).max(0.0);
             *bevel = Fp(clamp_finite(bevel.0, 0.0, max_b, 0.0));
             *bevel_segments = (*bevel_segments).clamp(1, 16);
-            material.sanitize();
-            sanitize_torture(torture);
         }
-        GeneratorKind::Wedge {
-            size,
-            material,
-            torture,
-            ..
-        } => {
+        GeneratorKind::Wedge { size, .. } => {
             size.0 = [c_dim(size.0[0]), c_dim(size.0[1]), c_dim(size.0[2])];
-            material.sanitize();
-            sanitize_torture(torture);
         }
         GeneratorKind::Superellipsoid {
             half_extents,
@@ -179,8 +122,6 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
             exponent_ew,
             latitudes,
             longitudes,
-            material,
-            torture,
             ..
         } => {
             half_extents.0 = [
@@ -197,14 +138,10 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
             }
             *latitudes = (*latitudes).clamp(4, 64);
             *longitudes = (*longitudes).clamp(4, 128);
-            material.sanitize();
-            sanitize_torture(torture);
         }
         GeneratorKind::BlobGroup {
             elements,
             resolution,
-            material,
-            torture,
             ..
         } => {
             elements.truncate(super::limits::MAX_BLOB_ELEMENTS);
@@ -229,15 +166,11 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
                     crate::pds::types::Fp4(super::common::sanitize_unit_quat(e.rotation.0));
             }
             *resolution = (*resolution).clamp(8, super::limits::MAX_BLOB_RESOLUTION);
-            material.sanitize();
-            sanitize_torture(torture);
         }
         GeneratorKind::Spine {
             points,
             resolution,
             samples_per_segment,
-            material,
-            torture,
             ..
         } => {
             points.truncate(super::limits::MAX_SWEEP_POINTS);
@@ -258,15 +191,9 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
             }
             *resolution = (*resolution).clamp(3, 64);
             *samples_per_segment = (*samples_per_segment).clamp(2, 32);
-            material.sanitize();
-            sanitize_torture(torture);
         }
         GeneratorKind::Lathe {
-            points,
-            resolution,
-            material,
-            torture,
-            ..
+            points, resolution, ..
         } => {
             points.truncate(super::limits::MAX_SWEEP_POINTS);
             while points.len() < 2 {
@@ -283,8 +210,6 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
                 p.height = Fp(clamp_finite(p.height.0, -100.0, 100.0, 0.0));
             }
             *resolution = (*resolution).clamp(3, 128);
-            material.sanitize();
-            sanitize_torture(torture);
         }
         GeneratorKind::Helix {
             radius,
@@ -292,8 +217,6 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
             pitch,
             turns,
             resolution,
-            material,
-            torture,
             ..
         } => {
             *radius = Fp(c_dim(radius.0));
@@ -309,8 +232,6 @@ pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
             *pitch = Fp(clamp_finite(pitch.0, 0.0, 100.0, 0.4));
             *turns = Fp(clamp_finite(turns.0, 0.05, 16.0, 3.0));
             *resolution = (*resolution).clamp(3, 128);
-            material.sanitize();
-            sanitize_torture(torture);
         }
         _ => {}
     }
@@ -331,6 +252,30 @@ fn sanitize_faces(kind: &mut GeneratorKind) {
     faces.truncate(super::limits::MAX_FACE_OVERRIDES);
     for f in faces.iter_mut() {
         f.material.sanitize();
+    }
+}
+
+/// The shared block of every primitive (#1188), clamped once for all
+/// sixteen kinds: the base material, the per-face overrides, the torture
+/// block, and the projection.
+///
+/// The projection fold is the one piece of canonicalisation the hoist
+/// added. The wire elides a `uv_mapping` equal to the family's own
+/// default, and this client stores that state as `None`; a record from a
+/// writer that spelled the default out decodes as `Some(default)` and
+/// would re-serialise with the key present — different bytes, a different
+/// content-addressed child rkey, for the same picture. Folding here keeps
+/// what this client publishes byte-identical to what it always published.
+fn sanitize_common(kind: &mut GeneratorKind) {
+    sanitize_faces(kind);
+    let family = kind.family_uv_mapping();
+    let Some(common) = kind.common_mut() else {
+        return;
+    };
+    common.material.sanitize();
+    sanitize_torture(&mut common.torture);
+    if common.uv_mapping.is_some() && common.uv_mapping == family {
+        common.uv_mapping = None;
     }
 }
 
@@ -462,6 +407,16 @@ mod tests {
             );
             assert!(kind.is_primitive(), "{tag} does not report as a primitive");
             assert!(
+                kind.family_uv_mapping().is_some(),
+                "{tag} is on the roster but GeneratorKind::family_uv_mapping places it \
+                 in neither the flat nor the revolved family"
+            );
+            assert_eq!(
+                kind.common().expect("primitive").uv_mapping,
+                None,
+                "{tag}'s default spells out a projection the wire would elide"
+            );
+            assert!(
                 crate::catalogue::items::measure::is_primitive(&kind),
                 "{tag} is not a primitive to the mesher-side is_primitive"
             );
@@ -545,11 +500,14 @@ mod tests {
         }
     }
 
-    /// Every primitive's arm must hand its shared blocks to their own
-    /// sanitisers: the base material, each per-face override's material,
-    /// and the torture block.
+    /// Every primitive's shared blocks reach their own sanitisers: the base
+    /// material, each per-face override's material, and the torture block.
+    /// Since #1188 that is one `sanitize_common` step over the hoisted
+    /// [`PrimCommon`](crate::pds::PrimCommon) rather than a call in each of
+    /// sixteen arms, and this test is what says the step still runs for
+    /// every kind on the roster.
     ///
-    /// A forgotten `material.sanitize()` is invisible to the envelope check
+    /// A skipped `material.sanitize()` is invisible to the envelope check
     /// above — a texture seed is legitimately a full-range integer, so no
     /// magnitude bound can be asserted over that subtree — but shows up
     /// here as a sanitised prim that is not a fixed point of the material
@@ -597,8 +555,8 @@ mod tests {
             settled.sanitize();
             assert_eq!(
                 &settled, mat,
-                "{tag}: base material is not clamped — its arm in \
-                 pds::sanitize::primitive never called material.sanitize()"
+                "{tag}: base material is not clamped — sanitize_common in \
+                 pds::sanitize::primitive did not reach it"
             );
 
             let faces = kind.faces().expect("primitive");
@@ -615,8 +573,55 @@ mod tests {
             sanitize_torture(&mut settled);
             assert_eq!(
                 &settled, tort,
-                "{tag}: torture is not clamped — its arm in \
-                 pds::sanitize::primitive never called sanitize_torture()"
+                "{tag}: torture is not clamped — sanitize_common in \
+                 pds::sanitize::primitive did not reach it"
+            );
+        }
+    }
+
+    /// A projection equal to the family's own default arrives on the wire
+    /// spelled out (another writer, an older hand-edited record) and must
+    /// fold to `None`, so what this client republishes elides it exactly
+    /// as it always did (#1188). A non-default choice survives untouched.
+    #[test]
+    fn a_spelled_out_family_default_projection_folds_away() {
+        use crate::pds::generator::UvMapping;
+        for tag in primitive_kind_tags() {
+            let kind = GeneratorKind::default_primitive_for_tag(tag).expect("roster has a default");
+            let family = kind.family_uv_mapping().expect("primitive");
+            let mut doc = serde_json::to_value(&kind).expect("serialises");
+            doc["uv_mapping"] = serde_json::to_value(family).expect("mode serialises");
+            let mut spelled: GeneratorKind = serde_json::from_value(doc).expect("decodes");
+            assert_eq!(
+                spelled.common().expect("primitive").uv_mapping,
+                Some(family),
+                "{tag}: the decoder must not fold — the sanitiser does"
+            );
+            sanitize_kind(&mut spelled);
+            assert_eq!(
+                spelled, kind,
+                "{tag}: spelled-out default did not fold to None"
+            );
+
+            let other = if family == UvMapping::Box {
+                UvMapping::Fit
+            } else {
+                UvMapping::Box
+            };
+            let mut chosen = kind.clone();
+            assert!(chosen.set_uv_mapping(other));
+            sanitize_kind(&mut chosen);
+            assert_eq!(
+                chosen.uv_mapping(),
+                Some(other),
+                "{tag}: a real choice must survive sanitising"
+            );
+            assert!(
+                serde_json::to_value(&chosen)
+                    .unwrap()
+                    .get("uv_mapping")
+                    .is_some(),
+                "{tag}: a real choice must reach the wire"
             );
         }
     }

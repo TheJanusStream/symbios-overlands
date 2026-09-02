@@ -474,6 +474,7 @@ fn street_furniture(prims: &mut Vec<Generator>) {
 mod tests {
     use super::*;
     use crate::catalogue::items::util::assert_sanitize_stable;
+    use crate::pds::PrimCommon;
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     #[test]
@@ -492,7 +493,10 @@ mod tests {
     #[test]
     fn glazing_cards_are_unscaled_quads() {
         fn walk(g: &Generator, seen: &mut usize) {
-            if let GeneratorKind::Plane { material, .. } = &g.kind
+            if let GeneratorKind::Plane {
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && matches!(material.texture, SovereignTextureConfig::Window(_))
             {
                 assert_eq!(
@@ -522,7 +526,10 @@ mod tests {
     ) {
         let t = g.transform.translation.0;
         let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
-        if let GeneratorKind::Cuboid { material, .. } = &g.kind
+        if let GeneratorKind::Cuboid {
+            common: PrimCommon { material, .. },
+            ..
+        } = &g.kind
             && matches!(material.texture, SovereignTextureConfig::Brick(_))
         {
             out.push((here, material.clone()));
@@ -542,7 +549,10 @@ mod tests {
         let t = g.transform.translation.0;
         let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
         if let GeneratorKind::Cuboid {
-            material, faces, ..
+            common: PrimCommon {
+                material, faces, ..
+            },
+            ..
         } = &g.kind
             && matches!(material.texture, SovereignTextureConfig::Brick(_))
         {

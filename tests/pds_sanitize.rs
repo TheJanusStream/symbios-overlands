@@ -6,6 +6,7 @@
 //! giant counts — and that every numeric field lands inside the
 //! `pds::limits` envelope afterwards.
 
+use symbios_overlands::pds::PrimCommon;
 use symbios_overlands::pds::{
     DefaultLanding, Fp, Fp2, Fp3, Generator, GeneratorKind, InventoryRecord, RoomRecord,
     TortureParams, limits, sanitize_generator,
@@ -616,12 +617,12 @@ fn generator_node_transform_rejects_non_finite_fields() {
     use symbios_overlands::pds::{Fp4, TransformData};
     let mut generator = Generator {
         kind: GeneratorKind::Cuboid {
-            uv_mapping: symbios_overlands::pds::generator::UvMapping::default(),
+            common: PrimCommon {
+                solid: true,
+                material: Default::default(),
+                ..Default::default()
+            },
             size: Fp3([1.0, 1.0, 1.0]),
-            solid: true,
-            material: Default::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
         },
         transform: TransformData {
             translation: Fp3([f32::NAN, f32::INFINITY, 0.0]),
@@ -662,13 +663,13 @@ fn spine_and_lathe_point_lists_clamped() {
                 radius: Fp(-5.0),
             })
             .collect(),
-        uv_mapping: symbios_overlands::pds::generator::UvMapping::fit(),
-        faces: Vec::new(),
+        common: PrimCommon {
+            solid: true,
+            material: Default::default(),
+            ..Default::default()
+        },
         resolution: 10_000,
         samples_per_segment: 10_000,
-        solid: true,
-        material: Default::default(),
-        torture: TortureParams::default(),
     });
     sanitize_generator(&mut spine);
     let GeneratorKind::Spine {
@@ -698,11 +699,11 @@ fn spine_and_lathe_point_lists_clamped() {
         points: vec![],
         resolution: 0,
         smooth: true,
-        solid: true,
-        uv_mapping: symbios_overlands::pds::generator::UvMapping::fit(),
-        material: Default::default(),
-        faces: Vec::new(),
-        torture: TortureParams::default(),
+        common: PrimCommon {
+            solid: true,
+            material: Default::default(),
+            ..Default::default()
+        },
     });
     sanitize_generator(&mut lathe);
     let GeneratorKind::Lathe {
@@ -768,26 +769,31 @@ fn primitive_torture_clamped() {
     // primitive must be driven back into the finite envelope so the
     // CPU-side vertex mutation pass never sees non-finite math.
     let mut prim = Generator::from_kind(GeneratorKind::Cuboid {
-        uv_mapping: symbios_overlands::pds::generator::UvMapping::default(),
-        size: Fp3([1.0, 1.0, 1.0]),
-        solid: true,
-        material: Default::default(),
-        faces: Vec::new(),
-        torture: TortureParams {
-            twist: Fp(f32::INFINITY),
-            taper: Fp2([f32::NAN, 1_000.0]),
-            taper_bottom: Fp2([f32::INFINITY, -1_000.0]),
-            bulge: Fp2([f32::NAN, f32::NEG_INFINITY]),
-            bend: Fp3([f32::INFINITY, f32::NAN, 1_000.0]),
-            s_bend: Fp2([f32::NAN, f32::INFINITY]),
-            shear: Fp2([f32::NAN, 1_000.0]),
-            path_cut: Fp2([0.8, 0.2]),
-            profile_cut: Fp2([f32::NAN, f32::INFINITY]),
-            hollow: Fp(2.0),
+        common: PrimCommon {
+            solid: true,
+            material: Default::default(),
+            torture: TortureParams {
+                twist: Fp(f32::INFINITY),
+                taper: Fp2([f32::NAN, 1_000.0]),
+                taper_bottom: Fp2([f32::INFINITY, -1_000.0]),
+                bulge: Fp2([f32::NAN, f32::NEG_INFINITY]),
+                bend: Fp3([f32::INFINITY, f32::NAN, 1_000.0]),
+                s_bend: Fp2([f32::NAN, f32::INFINITY]),
+                shear: Fp2([f32::NAN, 1_000.0]),
+                path_cut: Fp2([0.8, 0.2]),
+                profile_cut: Fp2([f32::NAN, f32::INFINITY]),
+                hollow: Fp(2.0),
+            },
+            ..Default::default()
         },
+        size: Fp3([1.0, 1.0, 1.0]),
     });
     sanitize_generator(&mut prim);
-    if let GeneratorKind::Cuboid { torture, .. } = &prim.kind {
+    if let GeneratorKind::Cuboid {
+        common: PrimCommon { torture, .. },
+        ..
+    } = &prim.kind
+    {
         assert!(torture.twist.0.is_finite());
         assert!(torture.twist.0.abs() <= limits::MAX_TORTURE_TWIST + 1e-3);
         for &v in torture.taper.0.iter().chain(torture.taper_bottom.0.iter()) {

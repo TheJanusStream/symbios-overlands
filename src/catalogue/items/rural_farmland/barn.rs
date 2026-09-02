@@ -838,6 +838,7 @@ fn cupola() -> Generator {
 mod tests {
     use super::*;
     use crate::catalogue::items::util::assert_sanitize_stable;
+    use crate::pds::PrimCommon;
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     fn walk(g: &Generator, at: [f32; 3], f: &mut dyn FnMut(&Generator, [f32; 3])) {
@@ -894,7 +895,10 @@ mod tests {
         let mut checked = 0;
         walk(&Barn.build(""), [0.0; 3], &mut |g, at| {
             let m = match &g.kind {
-                GeneratorKind::Cuboid { material, .. } => material,
+                GeneratorKind::Cuboid {
+                    common: PrimCommon { material, .. },
+                    ..
+                } => material,
                 _ => return,
             };
             let SovereignTextureConfig::Plank(cfg) = &m.texture else {
@@ -992,7 +996,11 @@ mod tests {
         let mut mow_z = f32::MAX;
         let mut lamp: Option<[f32; 3]> = None;
         walk(&root, [0.0; 3], &mut |g, at| {
-            let GeneratorKind::Cuboid { material, .. } = &g.kind else {
+            let GeneratorKind::Cuboid {
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            else {
                 return;
             };
             if material.emission_strength.0 > 2.0 {

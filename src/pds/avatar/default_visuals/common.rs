@@ -8,9 +8,9 @@
 //! ([`crate::pds::avatar::parts`]) build from this bin so geometry plumbing
 //! lives in exactly one place.
 
-use crate::pds::generator::UvMapping;
+use crate::pds::PrimCommon;
 use crate::pds::generator::{
-    BlobElement, BlobShape, Generator, GeneratorKind, LathePoint, SpinePoint, TortureParams,
+    BlobElement, BlobShape, Generator, GeneratorKind, LathePoint, SpinePoint,
 };
 use crate::pds::texture::SovereignMaterialSettings;
 use crate::pds::types::{Fp, Fp2, Fp3, Fp4, TransformData};
@@ -90,11 +90,7 @@ pub(crate) fn prim(kind: GeneratorKind, translation: [f32; 3], rotation: Fp4) ->
 pub(crate) fn cuboid(size: [f32; 3], material: SovereignMaterialSettings) -> GeneratorKind {
     GeneratorKind::Cuboid {
         size: Fp3(size),
-        uv_mapping: UvMapping::default(),
-        solid: false,
-        material,
-        faces: Vec::new(),
-        torture: TortureParams::default(),
+        common: PrimCommon::with_material(material),
     }
 }
 
@@ -106,11 +102,7 @@ pub(crate) fn sphere(
     GeneratorKind::Sphere {
         radius: Fp(radius),
         resolution,
-        solid: false,
-        uv_mapping: UvMapping::fit(),
-        material,
-        faces: Vec::new(),
-        torture: TortureParams::default(),
+        common: PrimCommon::with_material(material),
     }
 }
 
@@ -124,11 +116,7 @@ pub(crate) fn cylinder(
         radius: Fp(radius),
         height: Fp(height),
         resolution,
-        solid: false,
-        uv_mapping: UvMapping::fit(),
-        material,
-        faces: Vec::new(),
-        torture: TortureParams::default(),
+        common: PrimCommon::with_material(material),
     }
 }
 
@@ -159,15 +147,13 @@ pub(crate) fn blob_group_uv(
     uv_mapping: crate::pds::generator::UvMapping,
     material: SovereignMaterialSettings,
 ) -> GeneratorKind {
-    GeneratorKind::BlobGroup {
+    let mut kind = GeneratorKind::BlobGroup {
         elements,
         resolution,
-        solid: false,
-        uv_mapping,
-        material,
-        faces: Vec::new(),
-        torture: TortureParams::default(),
-    }
+        common: PrimCommon::with_material(material),
+    };
+    kind.set_uv_mapping(uv_mapping);
+    kind
 }
 
 /// Snap an authored blob-element rotation onto the sanitiser's
@@ -292,11 +278,7 @@ pub(crate) fn spine(
             .collect(),
         resolution,
         samples_per_segment: 8,
-        solid: false,
-        uv_mapping: UvMapping::fit(),
-        material,
-        faces: Vec::new(),
-        torture: TortureParams::default(),
+        common: PrimCommon::with_material(material),
     }
 }
 
@@ -319,11 +301,7 @@ pub(crate) fn lathe(
             .collect(),
         resolution,
         smooth,
-        solid: false,
-        uv_mapping: UvMapping::fit(),
-        material,
-        faces: Vec::new(),
-        torture: TortureParams::default(),
+        common: PrimCommon::with_material(material),
     }
 }
 
@@ -337,11 +315,7 @@ pub(crate) fn cone(
         radius: Fp(radius),
         height: Fp(height),
         resolution,
-        solid: false,
-        uv_mapping: UvMapping::fit(),
-        material,
-        faces: Vec::new(),
-        torture: TortureParams::default(),
+        common: PrimCommon::with_material(material),
     }
 }
 
@@ -359,15 +333,11 @@ pub(crate) fn superellipsoid(
 ) -> GeneratorKind {
     GeneratorKind::Superellipsoid {
         half_extents: Fp3(half_extents),
-        uv_mapping: UvMapping::default(),
+        common: PrimCommon::with_material(material),
         exponent_ns: Fp(exponent_ns),
         exponent_ew: Fp(exponent_ew),
         latitudes: 16,
         longitudes: 24,
-        solid: false,
-        material,
-        faces: Vec::new(),
-        torture: TortureParams::default(),
     }
 }
 
@@ -381,11 +351,7 @@ pub(crate) fn torus(
         major_radius: Fp(major_radius),
         minor_resolution: 12,
         major_resolution: 24,
-        solid: false,
-        uv_mapping: UvMapping::fit(),
-        material,
-        faces: Vec::new(),
-        torture: TortureParams::default(),
+        common: PrimCommon::with_material(material),
     }
 }
 
@@ -407,11 +373,7 @@ pub(crate) fn helix(
         pitch: Fp(pitch),
         turns: Fp(turns),
         resolution,
-        solid: false,
-        uv_mapping: UvMapping::fit(),
-        material,
-        faces: Vec::new(),
-        torture: TortureParams::default(),
+        common: PrimCommon::with_material(material),
     }
 }
 
@@ -421,7 +383,8 @@ pub(crate) fn helix(
 /// top (`0.5` → half-width crown, negative flares outward), `bend` displaces
 /// the top quadratically on world X/Z. The scalar `new_taper` sets a uniform
 /// (X == Z) taper; author per-axis taper or an S-bend by building
-/// [`TortureParams`] directly. Non-primitive kinds pass through.
+/// [`TortureParams`](crate::pds::TortureParams) directly. Non-primitive
+/// kinds pass through.
 pub(crate) fn with_torture(
     mut kind: GeneratorKind,
     new_twist: f32,

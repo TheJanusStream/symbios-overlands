@@ -948,6 +948,7 @@ mod tests {
         assert_cards_do_not_overlap, assert_no_glazing_on_solids, assert_no_tilted_parents,
         assert_sanitize_stable, has_emissive, rotate_by,
     };
+    use crate::pds::PrimCommon;
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     fn walk(g: &Generator, at: [f32; 3], f: &mut dyn FnMut(&Generator, [f32; 3])) {
@@ -1037,7 +1038,11 @@ mod tests {
         let root = Greenhouse.build("");
         let mut widths: Vec<f32> = Vec::new();
         walk(&root, [0.0; 3], &mut |g, _| {
-            if let GeneratorKind::Plane { size, material, .. } = &g.kind
+            if let GeneratorKind::Plane {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && matches!(material.texture, SovereignTextureConfig::Window(_))
             {
                 widths.push(size.0[0]);
@@ -1070,7 +1075,12 @@ mod tests {
         use FaceKey::*;
         let mut checked = 0;
         walk(&Greenhouse.build(""), [0.0; 3], &mut |g, at| {
-            let GeneratorKind::Cuboid { size, material, .. } = &g.kind else {
+            let GeneratorKind::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            else {
                 return;
             };
             // A turned slab has no shared face frame, and small stock (posts,
@@ -1270,7 +1280,12 @@ mod tests {
     fn the_louvre_fits_the_gable_at_its_own_head() {
         let mut vents = 0;
         walk(&Greenhouse.build(""), [0.0; 3], &mut |g, at| {
-            let GeneratorKind::Cuboid { size, material, .. } = &g.kind else {
+            let GeneratorKind::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            else {
                 return;
             };
             // The louvre frame: an upright board of vent height, standing

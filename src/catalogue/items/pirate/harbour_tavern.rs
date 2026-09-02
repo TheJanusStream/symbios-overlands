@@ -882,6 +882,7 @@ mod tests {
         assert_cards_do_not_overlap, assert_no_glazing_on_solids, assert_no_tilted_parents,
         assert_sanitize_stable, has_emissive, window_cards,
     };
+    use crate::pds::PrimCommon;
 
     fn built() -> Generator {
         HarbourTavern.build("")
@@ -1107,7 +1108,12 @@ mod tests {
         fn walk(g: &Generator, at: [f32; 3], out: &mut Vec<([f32; 3], [f32; 3], f32)>) {
             let t = g.transform.translation.0;
             let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
-            if let K::Cuboid { size, material, .. } = &g.kind {
+            if let K::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            {
                 out.push((here, size.0, material.emission_strength.0));
             }
             for c in &g.children {

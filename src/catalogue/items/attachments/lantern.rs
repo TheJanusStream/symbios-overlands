@@ -284,6 +284,7 @@ fn lantern_creak() -> crate::pds::SovereignAudioConfig {
 mod tests {
     use super::*;
     use crate::catalogue::items::util::assert_sanitize_stable;
+    use crate::pds::PrimCommon;
     use crate::pds::{GeneratorKind, SovereignAudioConfig};
 
     #[test]
@@ -331,10 +332,22 @@ mod tests {
         }
         fn material_of(kind: &GeneratorKind) -> Option<&crate::pds::SovereignMaterialSettings> {
             match kind {
-                GeneratorKind::Cuboid { material, .. }
-                | GeneratorKind::Sphere { material, .. }
-                | GeneratorKind::Cylinder { material, .. }
-                | GeneratorKind::Torus { material, .. } => Some(material),
+                GeneratorKind::Cuboid {
+                    common: PrimCommon { material, .. },
+                    ..
+                }
+                | GeneratorKind::Sphere {
+                    common: PrimCommon { material, .. },
+                    ..
+                }
+                | GeneratorKind::Cylinder {
+                    common: PrimCommon { material, .. },
+                    ..
+                }
+                | GeneratorKind::Torus {
+                    common: PrimCommon { material, .. },
+                    ..
+                } => Some(material),
                 _ => None,
             }
         }

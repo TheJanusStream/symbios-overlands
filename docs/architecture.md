@@ -181,7 +181,7 @@ does `BlobGroup`, whose mesher consumes the mapping itself.
 **Authoring.** In the editor: the **Faces** section of any primitive's panel,
 either from its dropdown or by clicking the face in the viewport ("Pick from
 scene"). In code: `with_face(kind, FaceKey::Top, material)` in the catalogue's
-[`util`](../src/catalogue/items/util.rs) vocabulary — see
+[`util`](../src/catalogue/items/util/mod.rs) vocabulary — see
 [`pv_panel`](../src/catalogue/items/space_outpost/mod.rs), whose photovoltaic
 face and aluminium backsheet are one prim with one override.
 

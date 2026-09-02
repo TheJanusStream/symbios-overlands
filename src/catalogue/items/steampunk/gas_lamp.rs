@@ -477,6 +477,7 @@ mod tests {
         assert_cards_do_not_overlap, assert_no_glazing_on_solids, assert_no_tilted_parents,
         assert_sanitize_stable, has_emissive,
     };
+    use crate::pds::PrimCommon;
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     fn walk(g: &Generator, at: [f32; 3], f: &mut dyn FnMut(&Generator, [f32; 3])) {
@@ -523,7 +524,12 @@ mod tests {
         let mut cards = 0;
         let clear = pane_size();
         walk(&GasLamp.build(""), [0.0; 3], &mut |g, _| {
-            let GeneratorKind::Plane { size, material, .. } = &g.kind else {
+            let GeneratorKind::Plane {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            else {
                 // Nothing else in the tree may wear the card texture; that is
                 // `assert_no_glazing_on_solids`' job, and it runs above.
                 return;
@@ -557,13 +563,14 @@ mod tests {
         let mut panes: Vec<[f32; 3]> = Vec::new();
         walk(&root, [0.0; 3], &mut |g, at| match &g.kind {
             GeneratorKind::Sphere {
-                radius, material, ..
+                radius,
+                common: PrimCommon { material, .. },
+                ..
             } if material.emission_strength.0 > 1.0 => mantle = Some((at, radius.0)),
-            GeneratorKind::Plane { material, .. }
-                if matches!(material.texture, SovereignTextureConfig::Window(_)) =>
-            {
-                panes.push(at)
-            }
+            GeneratorKind::Plane {
+                common: PrimCommon { material, .. },
+                ..
+            } if matches!(material.texture, SovereignTextureConfig::Window(_)) => panes.push(at),
             _ => {}
         });
         let (at, r) = mantle.expect("no mantle in the lantern");

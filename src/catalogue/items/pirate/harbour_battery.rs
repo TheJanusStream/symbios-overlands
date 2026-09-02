@@ -1289,6 +1289,7 @@ mod tests {
         assert_sanitize_stable, has_emissive,
     };
     use crate::pds::GeneratorKind as K;
+    use crate::pds::PrimCommon;
 
     fn built() -> Generator {
         HarbourBattery.build("")
@@ -1387,7 +1388,11 @@ mod tests {
         fn count_barrels(g: &Generator) -> usize {
             let own = match &g.kind {
                 K::Cylinder {
-                    material, torture, ..
+                    common:
+                        PrimCommon {
+                            material, torture, ..
+                        },
+                    ..
                 } => {
                     let bronze_ish = material.base_color.0 == BRONZE_GUN;
                     let tapered = torture.taper.0[0] > 0.2;
@@ -1443,7 +1448,10 @@ mod tests {
         fn flames(g: &Generator, at: [f32; 3], out: &mut Vec<[f32; 3]>) {
             let t = g.transform.translation.0;
             let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
-            if let K::Sphere { material, .. } = &g.kind
+            if let K::Sphere {
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && material.emission_strength.0 > 2.0
             {
                 out.push(here);
@@ -1517,8 +1525,7 @@ mod tests {
             let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
             if let crate::pds::GeneratorKind::Cuboid {
                 size,
-                material,
-                torture,
+                common: PrimCommon { material, torture, .. },
                 ..
             } = &g.kind
                 && matches!(material.texture, Tex::Ashlar(_))
@@ -1653,7 +1660,11 @@ mod tests {
         fn lit_parts(g: &Generator, at: [f32; 3], out: &mut Vec<([f32; 3], [f32; 3])>) {
             let t = g.transform.translation.0;
             let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
-            if let crate::pds::GeneratorKind::Cuboid { size, material, .. } = &g.kind
+            if let crate::pds::GeneratorKind::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && matches!(material.texture, Tex::None)
                 && material.emission_strength.0 > 0.0
             {
@@ -1915,14 +1926,20 @@ mod tests {
             let t = g.transform.translation.0;
             let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
             let (dims, strength) = match &g.kind {
-                K::Cuboid { size, material, .. } => (Some(size.0), material.emission_strength.0),
+                K::Cuboid {
+                    size,
+                    common: PrimCommon { material, .. },
+                    ..
+                } => (Some(size.0), material.emission_strength.0),
                 K::Sphere {
-                    radius, material, ..
+                    radius,
+                    common: PrimCommon { material, .. },
+                    ..
                 } => (Some([radius.0 * 2.0; 3]), material.emission_strength.0),
                 K::Cylinder {
                     radius,
                     height,
-                    material,
+                    common: PrimCommon { material, .. },
                     ..
                 } => (
                     Some([radius.0 * 2.0, height.0, radius.0 * 2.0]),

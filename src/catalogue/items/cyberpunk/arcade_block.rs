@@ -778,6 +778,7 @@ mod tests {
         assert_sanitize_stable, has_emissive,
     };
     use crate::pds::GeneratorKind;
+    use crate::pds::PrimCommon;
 
     fn walk(g: &Generator, at: [f32; 3], f: &mut dyn FnMut(&Generator, [f32; 3])) {
         let t = g.transform.translation.0;
@@ -843,7 +844,12 @@ mod tests {
     fn no_hot_emissive_surface_is_a_panel() {
         let mut bars = 0;
         walk(&ArcadeBlock.build(""), [0.0; 3], &mut |g, at| {
-            let GeneratorKind::Cuboid { size, material, .. } = &g.kind else {
+            let GeneratorKind::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            else {
                 return;
             };
             if material.emission_strength.0 < NEON_HOT {
@@ -889,7 +895,11 @@ mod tests {
     fn every_card_laps_its_opening() {
         let mut widths: Vec<f32> = Vec::new();
         walk(&ArcadeBlock.build(""), [0.0; 3], &mut |g, _| {
-            if let GeneratorKind::Plane { size, material, .. } = &g.kind
+            if let GeneratorKind::Plane {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && matches!(material.texture, SovereignTextureConfig::Window(_))
             {
                 widths.push(size.0[0]);
@@ -918,7 +928,12 @@ mod tests {
         let mut cabs = 0;
         let mut screens = 0;
         walk(&ArcadeBlock.build(""), [0.0; 3], &mut |g, at| {
-            let GeneratorKind::Cuboid { size, material, .. } = &g.kind else {
+            let GeneratorKind::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            else {
                 return;
             };
             if material.base_color.0 == CABINET_DARK && size.0[0] < 1.0 && size.0[1] > 1.0 {
@@ -958,7 +973,12 @@ mod tests {
         use FaceKey::*;
         let mut checked = 0;
         walk(&ArcadeBlock.build(""), [0.0; 3], &mut |g, at| {
-            let GeneratorKind::Cuboid { size, material, .. } = &g.kind else {
+            let GeneratorKind::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            else {
                 return;
             };
             if g.transform.rotation.0 != [0.0, 0.0, 0.0, 1.0] {

@@ -311,6 +311,7 @@ fn build_kind() -> GeneratorKind {
 mod tests {
     use super::*;
     use crate::catalogue::items::shape_grammar_test::assert_grammar_parses_and_derives;
+    use crate::pds::PrimCommon;
     use crate::pds::sanitize_generator;
     use symbios_shape::ShapeModel;
 
@@ -360,7 +361,13 @@ mod tests {
         let mut g = StaveChurch.build("");
         sanitize_generator(&mut g);
         assert!(
-            matches!(g.kind, GeneratorKind::Cuboid { solid: true, .. }),
+            matches!(
+                g.kind,
+                GeneratorKind::Cuboid {
+                    common: PrimCommon { solid: true, .. },
+                    ..
+                }
+            ),
             "stave_church root must be the solid foundation plinth"
         );
         let GeneratorKind::Shape {

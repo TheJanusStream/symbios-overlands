@@ -204,8 +204,8 @@ pub use contact_effects::{
 };
 pub use generator::{
     AlphaModeKind, AnimationFrameMode, EmitterShape, Generator, GeneratorKind, ParticleBlendMode,
-    ParticleParams, Placement, SignSource, SimulationSpace, TextureAtlas, TextureFilter,
-    TortureParams, WaterSurface,
+    ParticleParams, Placement, PrimCommon, SignSource, SimulationSpace, TextureAtlas,
+    TextureFilter, TortureParams, WaterSurface,
 };
 pub use inventory::{
     InventoryItemRecord, InventoryRecord, fetch_inventory_record, publish_inventory_record,

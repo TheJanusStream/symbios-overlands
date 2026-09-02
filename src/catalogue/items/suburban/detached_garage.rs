@@ -567,6 +567,7 @@ fn roof() -> Generator {
 mod tests {
     use super::*;
     use crate::catalogue::items::util::assert_sanitize_stable;
+    use crate::pds::PrimCommon;
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     #[test]
@@ -597,9 +598,11 @@ mod tests {
             &DetachedGarage.build(""),
             [0.0; 3],
             &mut |g, _| match &g.kind {
-                GeneratorKind::Plane { size, material, .. }
-                    if matches!(material.texture, SovereignTextureConfig::Window(_)) =>
-                {
+                GeneratorKind::Plane {
+                    size,
+                    common: PrimCommon { material, .. },
+                    ..
+                } if matches!(material.texture, SovereignTextureConfig::Window(_)) => {
                     assert_eq!(
                         material.uv_scale.0, 1.0,
                         "Window cards upload clamp-to-edge; uv_scale must stay 1.0"
@@ -611,7 +614,10 @@ mod tests {
                     );
                     planes += 1;
                 }
-                GeneratorKind::Cuboid { material, .. } => assert!(
+                GeneratorKind::Cuboid {
+                    common: PrimCommon { material, .. },
+                    ..
+                } => assert!(
                     !matches!(material.texture, SovereignTextureConfig::Window(_)),
                     "a Window card on a solid is a frame over nothing"
                 ),
@@ -629,8 +635,14 @@ mod tests {
         let mut near = 0;
         walk(&DetachedGarage.build(""), [0.0; 3], &mut |g, pos| {
             let m = match &g.kind {
-                GeneratorKind::Cuboid { material, .. }
-                | GeneratorKind::Cylinder { material, .. } => material,
+                GeneratorKind::Cuboid {
+                    common: PrimCommon { material, .. },
+                    ..
+                }
+                | GeneratorKind::Cylinder {
+                    common: PrimCommon { material, .. },
+                    ..
+                } => material,
                 _ => return,
             };
             if m.emission_strength.0 > 0.2 && m.emission_strength.0 < 1.0 && pos[2] < 2.6 {
@@ -656,7 +668,10 @@ mod tests {
     fn every_siding_surface_sits_in_the_world_course_frame() {
         let mut surfaces = Vec::new();
         walk(&DetachedGarage.build(""), [0.0; 3], &mut |g, pos| {
-            if let GeneratorKind::Cuboid { material, .. } = &g.kind
+            if let GeneratorKind::Cuboid {
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && let SovereignTextureConfig::Plank(cfg) = &material.texture
                 && cfg.plank_count.0 == super::super::SIDING_COURSES
             {
@@ -703,7 +718,11 @@ mod tests {
     fn the_front_wall_slabs_tile_without_overlapping() {
         let mut spans: Vec<([f32; 2], [f32; 2])> = Vec::new();
         walk(&DetachedGarage.build(""), [0.0; 3], &mut |g, pos| {
-            if let GeneratorKind::Cuboid { size, material, .. } = &g.kind
+            if let GeneratorKind::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && matches!(material.texture, SovereignTextureConfig::Plank(_))
                 && (pos[2] - FRONT_MID).abs() < 1e-3
             {

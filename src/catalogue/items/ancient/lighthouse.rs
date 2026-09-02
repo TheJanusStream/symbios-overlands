@@ -175,6 +175,7 @@ fn build_tree() -> Generator {
 mod tests {
     use super::*;
     use crate::catalogue::items::util::assert_sanitize_stable;
+    use crate::pds::PrimCommon;
 
     #[test]
     fn build_round_trips_through_sanitize() {
@@ -185,9 +186,10 @@ mod tests {
     fn has_emissive_beacon() {
         fn any_emissive(g: &Generator) -> bool {
             let own = match &g.kind {
-                crate::pds::GeneratorKind::Sphere { material, .. } => {
-                    material.emission_strength.0 > 1.0
-                }
+                crate::pds::GeneratorKind::Sphere {
+                    common: PrimCommon { material, .. },
+                    ..
+                } => material.emission_strength.0 > 1.0,
                 _ => false,
             };
             own || g.children.iter().any(any_emissive)

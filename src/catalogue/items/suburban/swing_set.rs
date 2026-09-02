@@ -135,6 +135,7 @@ mod tests {
     use super::*;
     use crate::catalogue::items::util::assert_sanitize_stable;
     use crate::pds::GeneratorKind;
+    use crate::pds::PrimCommon;
 
     #[test]
     fn build_round_trips_through_sanitize() {
@@ -153,7 +154,12 @@ mod tests {
         let root = SwingSet.build("");
         let mut seats = 0;
         for seat in &root.children {
-            let GeneratorKind::Cuboid { size, material, .. } = &seat.kind else {
+            let GeneratorKind::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &seat.kind
+            else {
                 continue;
             };
             if size.0[0] != SEAT_W || material.base_color.0 == FRAME {

@@ -703,6 +703,7 @@ mod tests {
     use crate::catalogue::items::util::{
         assert_cards_do_not_overlap, assert_sanitize_stable, window_cards,
     };
+    use crate::pds::PrimCommon;
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     fn walk(g: &Generator, at: [f32; 3], f: &mut dyn FnMut(&Generator, [f32; 3])) {
@@ -775,7 +776,11 @@ mod tests {
         walk(&Farmhouse.build(""), [0.0; 3], &mut |g, at| {
             let (material, faces) = match &g.kind {
                 GeneratorKind::Cuboid {
-                    material, faces, ..
+                    common:
+                        PrimCommon {
+                            material, faces, ..
+                        },
+                    ..
                 } => (material, faces),
                 _ => return,
             };
@@ -833,9 +838,13 @@ mod tests {
         let mut found = false;
         walk(&root, [0.0; 3], &mut |g, _| {
             let GeneratorKind::Cuboid {
-                torture,
-                faces,
-                material,
+                common:
+                    PrimCommon {
+                        torture,
+                        faces,
+                        material,
+                        ..
+                    },
                 ..
             } = &g.kind
             else {
@@ -928,7 +937,12 @@ mod tests {
         let mut deck: Option<([f32; 3], [f32; 3])> = None;
         let mut steps = Vec::new();
         walk(porch, root.transform.translation.0, &mut |g, at| {
-            let GeneratorKind::Cuboid { size, material, .. } = &g.kind else {
+            let GeneratorKind::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            else {
                 return;
             };
             let half = [size.0[0] * 0.5, size.0[1] * 0.5, size.0[2] * 0.5];

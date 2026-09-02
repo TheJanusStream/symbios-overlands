@@ -825,6 +825,7 @@ mod tests {
         assert_cards_do_not_overlap, assert_no_glazing_on_solids, assert_no_tilted_parents,
         assert_sanitize_stable, window_cards,
     };
+    use crate::pds::PrimCommon;
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     fn walk(g: &Generator, at: [f32; 3], f: &mut dyn FnMut(&Generator, [f32; 3])) {
@@ -1007,9 +1008,18 @@ mod tests {
         let mut lit: Vec<[f32; 3]> = Vec::new();
         walk(&root, [0.0; 3], &mut |g, at| {
             let material = match &g.kind {
-                GeneratorKind::Cuboid { material, .. } => material,
-                GeneratorKind::Cone { material, .. } => material,
-                GeneratorKind::Cylinder { material, .. } => material,
+                GeneratorKind::Cuboid {
+                    common: PrimCommon { material, .. },
+                    ..
+                } => material,
+                GeneratorKind::Cone {
+                    common: PrimCommon { material, .. },
+                    ..
+                } => material,
+                GeneratorKind::Cylinder {
+                    common: PrimCommon { material, .. },
+                    ..
+                } => material,
                 _ => return,
             };
             if material.emission_strength.0 > 0.15 && at[2] > FRONT && at[1] < PODIUM_H + LOBBY_HEAD

@@ -3,6 +3,7 @@
 //! DID document URL builder.
 
 use symbios_overlands::format_elapsed_ts;
+use symbios_overlands::pds::PrimCommon;
 use symbios_overlands::pds::{
     Fp, Fp2, Fp3, Generator, GeneratorKind, TortureParams, sanitize_generator,
 };
@@ -81,91 +82,92 @@ fn primitive_sanitize_clamps_non_finite_dimensions() {
     // Bevy's mesh / Avian's collider constructors.
     let cases: Vec<Generator> = vec![
         Generator::from_kind(GeneratorKind::Cuboid {
-            uv_mapping: symbios_overlands::pds::generator::UvMapping::default(),
-            size: Fp3([f32::NAN, -1.0, f32::INFINITY]),
-            solid: true,
-            material: Default::default(),
-            faces: Vec::new(),
-            torture: TortureParams {
-                twist: Fp(f32::NAN),
-                taper: Fp2([f32::INFINITY, f32::NAN]),
-                taper_bottom: Fp2([f32::NAN, -10_000.0]),
-                bulge: Fp2([f32::NEG_INFINITY, 10_000.0]),
-                bend: Fp3([f32::NAN, f32::NEG_INFINITY, 10_000.0]),
-                s_bend: Fp2([f32::NAN, f32::INFINITY]),
-                shear: Fp2([f32::INFINITY, 10_000.0]),
-                path_cut: Fp2([-1.0, 5.0]),
-                profile_cut: Fp2([f32::NAN, 2.0]),
-                hollow: Fp(10.0),
+            common: PrimCommon {
+                solid: true,
+                material: Default::default(),
+                torture: TortureParams {
+                    twist: Fp(f32::NAN),
+                    taper: Fp2([f32::INFINITY, f32::NAN]),
+                    taper_bottom: Fp2([f32::NAN, -10_000.0]),
+                    bulge: Fp2([f32::NEG_INFINITY, 10_000.0]),
+                    bend: Fp3([f32::NAN, f32::NEG_INFINITY, 10_000.0]),
+                    s_bend: Fp2([f32::NAN, f32::INFINITY]),
+                    shear: Fp2([f32::INFINITY, 10_000.0]),
+                    path_cut: Fp2([-1.0, 5.0]),
+                    profile_cut: Fp2([f32::NAN, 2.0]),
+                    hollow: Fp(10.0),
+                },
+                ..Default::default()
             },
+            size: Fp3([f32::NAN, -1.0, f32::INFINITY]),
         }),
         Generator::from_kind(GeneratorKind::Sphere {
             radius: Fp(f32::NAN),
             resolution: u32::MAX,
-            solid: true,
-            uv_mapping: symbios_overlands::pds::generator::UvMapping::fit(),
-            material: Default::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
+            common: PrimCommon {
+                solid: true,
+                material: Default::default(),
+                ..Default::default()
+            },
         }),
         Generator::from_kind(GeneratorKind::Cylinder {
             radius: Fp(-10.0),
             height: Fp(f32::INFINITY),
             resolution: 10_000,
-            solid: true,
-            uv_mapping: symbios_overlands::pds::generator::UvMapping::fit(),
-            material: Default::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
+            common: PrimCommon {
+                solid: true,
+                material: Default::default(),
+                ..Default::default()
+            },
         }),
         Generator::from_kind(GeneratorKind::Capsule {
             radius: Fp(-1.0),
             length: Fp(f32::NAN),
             latitudes: 10_000,
             longitudes: 10_000,
-            solid: true,
-            uv_mapping: symbios_overlands::pds::generator::UvMapping::fit(),
-            material: Default::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
+            common: PrimCommon {
+                solid: true,
+                material: Default::default(),
+                ..Default::default()
+            },
         }),
         Generator::from_kind(GeneratorKind::Cone {
             radius: Fp(f32::NEG_INFINITY),
             height: Fp(-5.0),
             resolution: 10_000,
-            solid: true,
-            uv_mapping: symbios_overlands::pds::generator::UvMapping::fit(),
-            material: Default::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
+            common: PrimCommon {
+                solid: true,
+                material: Default::default(),
+                ..Default::default()
+            },
         }),
         Generator::from_kind(GeneratorKind::Torus {
             minor_radius: Fp(f32::NAN),
             major_radius: Fp(-2.0),
             minor_resolution: 10_000,
             major_resolution: 10_000,
-            solid: true,
-            uv_mapping: symbios_overlands::pds::generator::UvMapping::fit(),
-            material: Default::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
+            common: PrimCommon {
+                solid: true,
+                material: Default::default(),
+                ..Default::default()
+            },
         }),
         Generator::from_kind(GeneratorKind::Plane {
-            uv_mapping: symbios_overlands::pds::generator::UvMapping::fit(),
+            common: PrimCommon {
+                solid: true,
+                material: Default::default(),
+                ..Default::default()
+            },
             size: Fp2([f32::INFINITY, -1.0]),
             subdivisions: 10_000,
-            solid: true,
-            material: Default::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
         }),
         Generator::from_kind(GeneratorKind::Tetrahedron {
-            uv_mapping: symbios_overlands::pds::generator::UvMapping::default(),
+            common: PrimCommon {
+                solid: true,
+                material: Default::default(),
+                ..Default::default()
+            },
             size: Fp(f32::NAN),
-            solid: true,
-            material: Default::default(),
-            faces: Vec::new(),
-            torture: TortureParams::default(),
         }),
     ];
 

@@ -34,6 +34,7 @@ use super::generator::{Generator, GeneratorKind, TortureParams};
 use super::material_finish::node_materials_mut;
 use super::texture::{SovereignConcreteConfig, SovereignMaterialSettings, SovereignTextureConfig};
 use super::types::{Fp, Fp2, Fp3, Fp4, Fp64, TransformData};
+use crate::pds::PrimCommon;
 use crate::seeded_defaults::{EscalationTier, range_f32, signed_unit_f32, unit_f32};
 
 /// Sub-stream salt so the ruin RNG is decorrelated from the member's
@@ -582,15 +583,16 @@ fn scatter_rubble(node: &mut Generator, rng: &mut ChaCha8Rng) {
         let taper = range_f32(rng, 0.0, 0.3);
         node.children.push(Generator {
             kind: GeneratorKind::Cuboid {
-                uv_mapping: crate::pds::generator::UvMapping::default(),
-                size: Fp3([sx, sy, sz]),
-                solid: true,
-                material: rubble_material(grey),
-                faces: Vec::new(),
-                torture: TortureParams {
-                    taper: Fp2([taper, taper]),
+                common: PrimCommon {
+                    solid: true,
+                    material: rubble_material(grey),
+                    torture: TortureParams {
+                        taper: Fp2([taper, taper]),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
+                size: Fp3([sx, sy, sz]),
             },
             transform: TransformData {
                 translation: Fp3([angle.sin() * dist, sy * 0.5, angle.cos() * dist]),
@@ -638,12 +640,12 @@ mod tests {
         // catalogue member.
         let part = |y: f32| Generator {
             kind: GeneratorKind::Cuboid {
-                uv_mapping: crate::pds::generator::UvMapping::default(),
+                common: PrimCommon {
+                    solid: true,
+                    material: SovereignMaterialSettings::default(),
+                    ..Default::default()
+                },
                 size: Fp3([1.0, 1.0, 1.0]),
-                solid: true,
-                material: SovereignMaterialSettings::default(),
-                faces: Vec::new(),
-                torture: TortureParams::default(),
             },
             transform: TransformData {
                 translation: Fp3([0.0, y, 0.0]),
@@ -728,16 +730,12 @@ mod tests {
         fn lit(y: f32) -> Generator {
             Generator {
                 kind: GeneratorKind::Cuboid {
-                    uv_mapping: crate::pds::generator::UvMapping::default(),
-                    size: Fp3([0.5, 0.5, 0.5]),
-                    solid: false,
-                    faces: Vec::new(),
-                    material: SovereignMaterialSettings {
+                    common: PrimCommon::with_material(SovereignMaterialSettings {
                         emission_color: Fp3(NEON),
                         emission_strength: Fp(8.0),
                         ..SovereignMaterialSettings::default()
-                    },
-                    torture: TortureParams::default(),
+                    }),
+                    size: Fp3([0.5, 0.5, 0.5]),
                 },
                 transform: TransformData {
                     translation: Fp3([0.0, y, 0.0]),
@@ -749,7 +747,10 @@ mod tests {
             }
         }
         fn neon_strengths(n: &Generator, out: &mut Vec<f32>) {
-            if let GeneratorKind::Cuboid { material, .. } = &n.kind
+            if let GeneratorKind::Cuboid {
+                common: PrimCommon { material, .. },
+                ..
+            } = &n.kind
                 && material.emission_color.0 == NEON
             {
                 out.push(material.emission_strength.0);
@@ -807,12 +808,12 @@ mod tests {
     fn boxed(size: [f32; 3], at: [f32; 3]) -> Generator {
         Generator {
             kind: GeneratorKind::Cuboid {
-                uv_mapping: crate::pds::generator::UvMapping::default(),
+                common: PrimCommon {
+                    solid: true,
+                    material: SovereignMaterialSettings::default(),
+                    ..Default::default()
+                },
                 size: Fp3(size),
-                solid: true,
-                material: SovereignMaterialSettings::default(),
-                faces: Vec::new(),
-                torture: TortureParams::default(),
             },
             transform: TransformData {
                 translation: Fp3(at),
@@ -830,11 +831,11 @@ mod tests {
                 radius: Fp(0.15),
                 height: Fp(2.0),
                 resolution: 12,
-                solid: true,
-                uv_mapping: crate::pds::generator::UvMapping::fit(),
-                material: SovereignMaterialSettings::default(),
-                faces: Vec::new(),
-                torture: TortureParams::default(),
+                common: PrimCommon {
+                    solid: true,
+                    material: SovereignMaterialSettings::default(),
+                    ..Default::default()
+                },
             },
             transform: TransformData {
                 translation: Fp3([x, 1.2, 0.0]),

@@ -93,3 +93,150 @@ macro_rules! impl_default_eliding_serialize {
 }
 
 pub(crate) use impl_default_eliding_serialize;
+
+/// Declare a `SovereignXxx` mirror of an upstream config struct — the
+/// struct, its `Default`, `to_native()` and `from_native()` — from one
+/// field list, so the four cannot drift apart (#1160).
+///
+/// Each field is declared by its *kind* followed by `: name = default`;
+/// the kind selects the wire-format wrapper and the conversion rule:
+///
+/// | kind            | mirror type | native type   | conversion                  |
+/// |-----------------|-------------|---------------|-----------------------------|
+/// | `fp`            | `Fp`        | `f32`         | wrap / unwrap               |
+/// | `fp3`           | `Fp3`       | `[f32; 3]`    | wrap / unwrap               |
+/// | `fp64`          | `Fp64`      | `f64`         | wrap / unwrap               |
+/// | `u32`           | `u32`       | `u32`         | copy                        |
+/// | `usize`         | `u32`       | `usize`       | `as` cast each way          |
+/// | `bool`          | `bool`      | `bool`        | copy                        |
+/// | `enum(T)`       | `T`         | `T`           | clone — one shared type     |
+/// | `nested(S)`     | `S`         | `S::native`   | `S::to_native(&)` / `from_native(&)` |
+/// | `mirror(S)`     | `S`         | `S::native`   | `S::to_native(self)` / `from_native(by value)` — `Copy` mirror enums |
+///
+/// The first token picks the wire discipline, and it is the one thing the
+/// two families of mirror disagree on:
+///
+/// * `eliding` — the texture mirrors (#695): a container-level
+///   `#[serde(default)]` on read and
+///   [`impl_default_eliding_serialize!`] on write, so a default-valued
+///   config collapses to `{}` on the wire.
+/// * `verbatim` — the audio mirrors: a plain derived `Serialize` /
+///   `Deserialize`, every field written every time in declaration order.
+///   Generators carrying an audio patch are content-addressed over those
+///   bytes, and the audio mirrors have always written the full form, so
+///   switching them to elision would re-address every such child record
+///   on its next publish. Per-field `#[serde(...)]` attributes pass
+///   through, which is how a field added after a record shape shipped
+///   keeps its own decode default.
+///
+/// Attributes and doc comments before the struct name apply to the
+/// struct; those before a field kind apply to that field.
+macro_rules! define_sovereign_mirror {
+    (
+        eliding
+        $(#[$meta:meta])*
+        $sov:ident => $native:path {
+            $( $(#[$fmeta:meta])* $kind:ident $( ( $sub:ty ) )? : $field:ident = $default:expr ),+ $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        #[derive(serde::Deserialize, Clone, Debug, PartialEq)]
+        #[serde(default)]
+        pub struct $sov {
+            $( $(#[$fmeta])* pub $field: $crate::pds::serde_util::define_sovereign_mirror!(@ty $kind $(($sub))?), )+
+        }
+
+        $crate::pds::serde_util::impl_default_eliding_serialize!($sov {
+            $( $field ),+
+        });
+
+        $crate::pds::serde_util::define_sovereign_mirror!(@impls $sov => $native {
+            $( $kind $(($sub))? : $field = $default ),+
+        });
+    };
+    (
+        verbatim
+        $(#[$meta:meta])*
+        $sov:ident => $native:path {
+            $( $(#[$fmeta:meta])* $kind:ident $( ( $sub:ty ) )? : $field:ident = $default:expr ),+ $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+        pub struct $sov {
+            $( $(#[$fmeta])* pub $field: $crate::pds::serde_util::define_sovereign_mirror!(@ty $kind $(($sub))?), )+
+        }
+
+        $crate::pds::serde_util::define_sovereign_mirror!(@impls $sov => $native {
+            $( $kind $(($sub))? : $field = $default ),+
+        });
+    };
+
+    (@impls $sov:ident => $native:path {
+        $( $kind:ident $( ( $sub:ty ) )? : $field:ident = $default:expr ),+ $(,)?
+    }) => {
+        impl Default for $sov {
+            fn default() -> Self {
+                Self {
+                    $( $field: $crate::pds::serde_util::define_sovereign_mirror!(@default $kind $(($sub))?, $default), )+
+                }
+            }
+        }
+
+        impl $sov {
+            pub fn to_native(&self) -> $native {
+                $native {
+                    $( $field: $crate::pds::serde_util::define_sovereign_mirror!(@to_native $kind $(($sub))?, self.$field), )+
+                }
+            }
+
+            pub fn from_native(native: &$native) -> Self {
+                Self {
+                    $( $field: $crate::pds::serde_util::define_sovereign_mirror!(@from_native $kind $(($sub))?, native.$field), )+
+                }
+            }
+        }
+    };
+
+    (@ty fp)          => { $crate::pds::types::Fp };
+    (@ty fp3)         => { $crate::pds::types::Fp3 };
+    (@ty fp64)        => { $crate::pds::types::Fp64 };
+    (@ty u32)         => { u32 };
+    (@ty usize)       => { u32 };
+    (@ty bool)        => { bool };
+    (@ty enum ($e:ty))   => { $e };
+    (@ty nested ($t:ty)) => { $t };
+    (@ty mirror ($t:ty)) => { $t };
+
+    (@default fp, $v:expr)            => { $crate::pds::types::Fp($v) };
+    (@default fp3, $v:expr)           => { $crate::pds::types::Fp3($v) };
+    (@default fp64, $v:expr)          => { $crate::pds::types::Fp64($v) };
+    (@default u32, $v:expr)           => { $v };
+    (@default usize, $v:expr)         => { $v };
+    (@default bool, $v:expr)          => { $v };
+    (@default enum ($e:ty), $v:expr)    => { $v };
+    (@default nested ($t:ty), $v:expr)  => { $v };
+    (@default mirror ($t:ty), $v:expr)  => { $v };
+
+    (@to_native fp, $v:expr)          => { $v.0 };
+    (@to_native fp3, $v:expr)         => { $v.0 };
+    (@to_native fp64, $v:expr)        => { $v.0 };
+    (@to_native u32, $v:expr)         => { $v };
+    (@to_native usize, $v:expr)       => { $v as usize };
+    (@to_native bool, $v:expr)        => { $v };
+    (@to_native enum ($e:ty), $v:expr)   => { $v.clone() };
+    (@to_native nested ($t:ty), $v:expr) => { $v.to_native() };
+    (@to_native mirror ($t:ty), $v:expr) => { $v.to_native() };
+
+    (@from_native fp, $v:expr)        => { $crate::pds::types::Fp($v) };
+    (@from_native fp3, $v:expr)       => { $crate::pds::types::Fp3($v) };
+    (@from_native fp64, $v:expr)      => { $crate::pds::types::Fp64($v) };
+    (@from_native u32, $v:expr)       => { $v };
+    (@from_native usize, $v:expr)     => { $v as u32 };
+    (@from_native bool, $v:expr)      => { $v };
+    (@from_native enum ($e:ty), $v:expr)   => { ($v).clone() };
+    (@from_native nested ($t:ty), $v:expr) => { <$t>::from_native(&$v) };
+    (@from_native mirror ($t:ty), $v:expr) => { <$t>::from_native($v) };
+}
+
+pub(crate) use define_sovereign_mirror;

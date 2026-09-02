@@ -942,6 +942,7 @@ mod tests {
         assert_cards_do_not_overlap, assert_no_glazing_on_solids, assert_no_tilted_parents,
         assert_sanitize_stable, window_cards,
     };
+    use crate::pds::PrimCommon;
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     fn walk(g: &Generator, at: [f32; 3], f: &mut dyn FnMut(&Generator, [f32; 3])) {
@@ -1040,8 +1041,14 @@ mod tests {
         let mut checked = 0;
         walk(&Factory.build(""), [0.0; 3], &mut |g, at| {
             let mats = match &g.kind {
-                GeneratorKind::Cuboid { material, .. } => material,
-                GeneratorKind::Cylinder { material, .. } => material,
+                GeneratorKind::Cuboid {
+                    common: PrimCommon { material, .. },
+                    ..
+                } => material,
+                GeneratorKind::Cylinder {
+                    common: PrimCommon { material, .. },
+                    ..
+                } => material,
                 _ => return,
             };
             if !matches!(mats.texture, SovereignTextureConfig::Brick(_)) {
@@ -1110,7 +1117,11 @@ mod tests {
         let drum_y = YARD_H + FLOOR + DOCK_H - 0.45;
         let mut below = false;
         walk(&root, [0.0; 3], &mut |g, at| {
-            let GeneratorKind::Cuboid { material, .. } = &g.kind else {
+            let GeneratorKind::Cuboid {
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            else {
                 return;
             };
             if material.emission_strength.0 > 2.0

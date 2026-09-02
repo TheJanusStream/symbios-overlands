@@ -386,6 +386,7 @@ mod tests {
         window_cards,
     };
     use crate::pds::GeneratorKind as K;
+    use crate::pds::PrimCommon;
 
     fn built() -> Generator {
         RumTuns.build("")
@@ -539,7 +540,10 @@ mod tests {
         fn fittings(g: &Generator, at: [f32; 3], out: &mut Vec<[f32; 3]>) {
             let t = g.transform.translation.0;
             let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
-            if let K::Cylinder { material, .. } = &g.kind
+            if let K::Cylinder {
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && material.base_color.0 == BRONZE_FITTING
             {
                 out.push(here);

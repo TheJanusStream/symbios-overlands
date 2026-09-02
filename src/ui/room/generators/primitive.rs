@@ -5,26 +5,22 @@
 use bevy_egui::egui;
 
 use crate::pds::generator::{
-    BlobElement, BlobShape, FaceKey, FaceOverride, GeneratorKind, LathePoint, SpinePoint, UvMapping,
+    BlobElement, BlobShape, FaceKey, FaceOverride, GeneratorKind, LathePoint, PrimCommon,
+    SpinePoint, UvMapping,
 };
 use crate::pds::sanitize::limits::{MAX_BLOB_ELEMENTS, MAX_FACE_OVERRIDES, MAX_SWEEP_POINTS};
-use crate::pds::{Fp, Fp2, Fp3, SovereignMaterialSettings, TortureParams};
+use crate::pds::{Fp, Fp2, Fp3, SovereignMaterialSettings};
 
 use super::super::construct::{draw_torture, draw_universal_material};
 use super::super::widgets::{drag_u32, euler_rotation_row, fp_slider};
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn draw_primitive_cuboid(
-    ui: &mut egui::Ui,
-    size: &mut Fp3,
-    uv_mapping: &mut UvMapping,
-    solid: &mut bool,
-    material: &mut SovereignMaterialSettings,
-    torture: &mut TortureParams,
-    faces: FacePanel<'_, '_>,
-    salt: &str,
-    dirty: &mut bool,
-) {
+pub(super) fn draw_primitive_cuboid(ui: &mut egui::Ui, size: &mut Fp3, edit: PrimEdit<'_, '_>) {
+    let PrimEdit {
+        common,
+        faces,
+        salt,
+        dirty,
+    } = edit;
     ui.horizontal(|ui| {
         ui.label("Size X/Y/Z:");
         let mut v = size.0;
@@ -39,69 +35,63 @@ pub(super) fn draw_primitive_cuboid(
             *dirty = true;
         }
     });
-    draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_primitive_sphere(
     ui: &mut egui::Ui,
     radius: &mut Fp,
     resolution: &mut u32,
-    uv_mapping: &mut UvMapping,
-    solid: &mut bool,
-    material: &mut SovereignMaterialSettings,
-    torture: &mut TortureParams,
-    faces: FacePanel<'_, '_>,
-    salt: &str,
-    dirty: &mut bool,
+    edit: PrimEdit<'_, '_>,
 ) {
+    let PrimEdit {
+        common,
+        faces,
+        salt,
+        dirty,
+    } = edit;
     ui.horizontal(|ui| {
         fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
         drag_u32(ui, "Ico Res", resolution, 0, 6, dirty);
     });
-    draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_primitive_cylinder(
     ui: &mut egui::Ui,
     radius: &mut Fp,
     height: &mut Fp,
     resolution: &mut u32,
-    uv_mapping: &mut UvMapping,
-    solid: &mut bool,
-    material: &mut SovereignMaterialSettings,
-    torture: &mut TortureParams,
-    faces: FacePanel<'_, '_>,
-    salt: &str,
-    dirty: &mut bool,
+    edit: PrimEdit<'_, '_>,
 ) {
+    let PrimEdit {
+        common,
+        faces,
+        salt,
+        dirty,
+    } = edit;
     ui.horizontal(|ui| {
         fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
-    draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_primitive_capsule(
     ui: &mut egui::Ui,
     radius: &mut Fp,
     length: &mut Fp,
     latitudes: &mut u32,
     longitudes: &mut u32,
-    uv_mapping: &mut UvMapping,
-    solid: &mut bool,
-    material: &mut SovereignMaterialSettings,
-    torture: &mut TortureParams,
-    faces: FacePanel<'_, '_>,
-    salt: &str,
-    dirty: &mut bool,
+    edit: PrimEdit<'_, '_>,
 ) {
+    let PrimEdit {
+        common,
+        faces,
+        salt,
+        dirty,
+    } = edit;
     ui.horizontal(|ui| {
         fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
         fp_slider(ui, "Length", length, 0.01, 100.0, dirty);
@@ -110,48 +100,44 @@ pub(super) fn draw_primitive_capsule(
         drag_u32(ui, "Lats", latitudes, 2, 64, dirty);
         drag_u32(ui, "Lons", longitudes, 4, 128, dirty);
     });
-    draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_primitive_cone(
     ui: &mut egui::Ui,
     radius: &mut Fp,
     height: &mut Fp,
     resolution: &mut u32,
-    uv_mapping: &mut UvMapping,
-    solid: &mut bool,
-    material: &mut SovereignMaterialSettings,
-    torture: &mut TortureParams,
-    faces: FacePanel<'_, '_>,
-    salt: &str,
-    dirty: &mut bool,
+    edit: PrimEdit<'_, '_>,
 ) {
+    let PrimEdit {
+        common,
+        faces,
+        salt,
+        dirty,
+    } = edit;
     ui.horizontal(|ui| {
         fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
-    draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_primitive_torus(
     ui: &mut egui::Ui,
     minor_radius: &mut Fp,
     major_radius: &mut Fp,
     minor_resolution: &mut u32,
     major_resolution: &mut u32,
-    uv_mapping: &mut UvMapping,
-    solid: &mut bool,
-    material: &mut SovereignMaterialSettings,
-    torture: &mut TortureParams,
-    faces: FacePanel<'_, '_>,
-    salt: &str,
-    dirty: &mut bool,
+    edit: PrimEdit<'_, '_>,
 ) {
+    let PrimEdit {
+        common,
+        faces,
+        salt,
+        dirty,
+    } = edit;
     ui.horizontal(|ui| {
         fp_slider(ui, "Minor R", minor_radius, 0.01, 50.0, dirty);
         fp_slider(ui, "Major R", major_radius, 0.01, 100.0, dirty);
@@ -160,23 +146,21 @@ pub(super) fn draw_primitive_torus(
         drag_u32(ui, "Minor Res", minor_resolution, 3, 64, dirty);
         drag_u32(ui, "Major Res", major_resolution, 3, 128, dirty);
     });
-    draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_primitive_plane(
     ui: &mut egui::Ui,
     size: &mut Fp2,
     subdivisions: &mut u32,
-    uv_mapping: &mut UvMapping,
-    solid: &mut bool,
-    material: &mut SovereignMaterialSettings,
-    torture: &mut TortureParams,
-    faces: FacePanel<'_, '_>,
-    salt: &str,
-    dirty: &mut bool,
+    edit: PrimEdit<'_, '_>,
 ) {
+    let PrimEdit {
+        common,
+        faces,
+        salt,
+        dirty,
+    } = edit;
     ui.horizontal(|ui| {
         ui.label("Size X/Z:");
         let mut v = size.0;
@@ -194,42 +178,34 @@ pub(super) fn draw_primitive_plane(
     });
     // The Plane has no revolve axis — its mesher ignores the topology cuts,
     // so don't offer them.
-    draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, faces, salt, false, dirty);
+    draw_common_primitive(ui, common, faces, salt, false, dirty);
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn draw_primitive_tetrahedron(
-    ui: &mut egui::Ui,
-    size: &mut Fp,
-    uv_mapping: &mut UvMapping,
-    solid: &mut bool,
-    material: &mut SovereignMaterialSettings,
-    torture: &mut TortureParams,
-    faces: FacePanel<'_, '_>,
-    salt: &str,
-    dirty: &mut bool,
-) {
+pub(super) fn draw_primitive_tetrahedron(ui: &mut egui::Ui, size: &mut Fp, edit: PrimEdit<'_, '_>) {
+    let PrimEdit {
+        common,
+        faces,
+        salt,
+        dirty,
+    } = edit;
     fp_slider(ui, "Size", size, 0.01, 100.0, dirty);
-    draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_primitive_tube(
     ui: &mut egui::Ui,
     radius: &mut Fp,
     inner_radius: &mut Fp,
     height: &mut Fp,
     resolution: &mut u32,
-    uv_mapping: &mut UvMapping,
-    solid: &mut bool,
-    material: &mut SovereignMaterialSettings,
-    torture: &mut TortureParams,
-    faces: FacePanel<'_, '_>,
-    salt: &str,
-    dirty: &mut bool,
+    edit: PrimEdit<'_, '_>,
 ) {
+    let PrimEdit {
+        common,
+        faces,
+        salt,
+        dirty,
+    } = edit;
     ui.horizontal(|ui| {
         fp_slider(ui, "Outer R", radius, 0.01, 100.0, dirty);
         fp_slider(ui, "Inner R", inner_radius, 0.0, 100.0, dirty);
@@ -238,24 +214,22 @@ pub(super) fn draw_primitive_tube(
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
-    draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_primitive_bevel(
     ui: &mut egui::Ui,
     size: &mut Fp3,
     bevel: &mut Fp,
     bevel_segments: &mut u32,
-    uv_mapping: &mut UvMapping,
-    solid: &mut bool,
-    material: &mut SovereignMaterialSettings,
-    torture: &mut TortureParams,
-    faces: FacePanel<'_, '_>,
-    salt: &str,
-    dirty: &mut bool,
+    edit: PrimEdit<'_, '_>,
 ) {
+    let PrimEdit {
+        common,
+        faces,
+        salt,
+        dirty,
+    } = edit;
     ui.horizontal(|ui| {
         ui.label("Size X/Y/Z:");
         let mut v = size.0;
@@ -274,11 +248,9 @@ pub(super) fn draw_primitive_bevel(
         fp_slider(ui, "Bevel", bevel, 0.0, 50.0, dirty);
         drag_u32(ui, "Segments", bevel_segments, 1, 16, dirty);
     });
-    draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_primitive_helix(
     ui: &mut egui::Ui,
     radius: &mut Fp,
@@ -286,14 +258,14 @@ pub(super) fn draw_primitive_helix(
     pitch: &mut Fp,
     turns: &mut Fp,
     resolution: &mut u32,
-    uv_mapping: &mut UvMapping,
-    solid: &mut bool,
-    material: &mut SovereignMaterialSettings,
-    torture: &mut TortureParams,
-    faces: FacePanel<'_, '_>,
-    salt: &str,
-    dirty: &mut bool,
+    edit: PrimEdit<'_, '_>,
 ) {
+    let PrimEdit {
+        common,
+        faces,
+        salt,
+        dirty,
+    } = edit;
     ui.horizontal(|ui| {
         fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
         fp_slider(ui, "Tube", tube_radius, 0.01, 50.0, dirty);
@@ -303,11 +275,9 @@ pub(super) fn draw_primitive_helix(
         fp_slider(ui, "Turns", turns, 0.05, 16.0, dirty);
         drag_u32(ui, "Res/turn", resolution, 3, 128, dirty);
     });
-    draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_primitive_superellipsoid(
     ui: &mut egui::Ui,
     half_extents: &mut Fp3,
@@ -315,14 +285,14 @@ pub(super) fn draw_primitive_superellipsoid(
     exponent_ew: &mut Fp,
     latitudes: &mut u32,
     longitudes: &mut u32,
-    uv_mapping: &mut UvMapping,
-    solid: &mut bool,
-    material: &mut SovereignMaterialSettings,
-    torture: &mut TortureParams,
-    faces: FacePanel<'_, '_>,
-    salt: &str,
-    dirty: &mut bool,
+    edit: PrimEdit<'_, '_>,
 ) {
+    let PrimEdit {
+        common,
+        faces,
+        salt,
+        dirty,
+    } = edit;
     ui.horizontal(|ui| {
         ui.label("Half-extents X/Y/Z:");
         let mut v = half_extents.0;
@@ -347,24 +317,22 @@ pub(super) fn draw_primitive_superellipsoid(
         drag_u32(ui, "Lats", latitudes, 4, 64, dirty);
         drag_u32(ui, "Lons", longitudes, 4, 128, dirty);
     });
-    draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_primitive_spine(
     ui: &mut egui::Ui,
     points: &mut Vec<SpinePoint>,
     resolution: &mut u32,
     samples_per_segment: &mut u32,
-    uv_mapping: &mut UvMapping,
-    solid: &mut bool,
-    material: &mut SovereignMaterialSettings,
-    torture: &mut TortureParams,
-    faces: FacePanel<'_, '_>,
-    salt: &str,
-    dirty: &mut bool,
+    edit: PrimEdit<'_, '_>,
 ) {
+    let PrimEdit {
+        common,
+        faces,
+        salt,
+        dirty,
+    } = edit;
     ui.label("Spine points (X/Y/Z, radius):");
     let mut remove: Option<usize> = None;
     for (i, p) in points.iter_mut().enumerate() {
@@ -420,24 +388,22 @@ pub(super) fn draw_primitive_spine(
         drag_u32(ui, "Ring segs", resolution, 3, 64, dirty);
         drag_u32(ui, "Samples/seg", samples_per_segment, 2, 32, dirty);
     });
-    draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_primitive_lathe(
     ui: &mut egui::Ui,
     points: &mut Vec<LathePoint>,
     resolution: &mut u32,
     smooth: &mut bool,
-    uv_mapping: &mut UvMapping,
-    solid: &mut bool,
-    material: &mut SovereignMaterialSettings,
-    torture: &mut TortureParams,
-    faces: FacePanel<'_, '_>,
-    salt: &str,
-    dirty: &mut bool,
+    edit: PrimEdit<'_, '_>,
 ) {
+    let PrimEdit {
+        common,
+        faces,
+        salt,
+        dirty,
+    } = edit;
     ui.label("Profile (radius, height — bottom to top):");
     let mut remove: Option<usize> = None;
     for (i, p) in points.iter_mut().enumerate() {
@@ -488,27 +454,25 @@ pub(super) fn draw_primitive_lathe(
             *dirty = true;
         }
     });
-    draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_primitive_blob_group(
     ui: &mut egui::Ui,
     elements: &mut Vec<BlobElement>,
     resolution: &mut u32,
-    solid: &mut bool,
-    uv_mapping: &mut UvMapping,
-    material: &mut SovereignMaterialSettings,
-    torture: &mut TortureParams,
-    faces: FacePanel<'_, '_>,
-    salt: &str,
-    dirty: &mut bool,
+    edit: PrimEdit<'_, '_>,
     // In-scene edit selection (#705): which element carries the 3D gizmo.
     // Mirrors `editor_gizmo::BlobEditContext::selected_element` — a row
     // click here and a proxy click in the scene land in the same slot.
     selected_element: &mut Option<usize>,
 ) {
+    let PrimEdit {
+        common,
+        faces,
+        salt,
+        dirty,
+    } = edit;
     ui.label("Blob elements (evaluated top to bottom):");
     ui.label(
         egui::RichText::new(
@@ -679,8 +643,7 @@ pub(super) fn draw_primitive_blob_group(
         *dirty = true;
     }
     drag_u32(ui, "Grid res", resolution, 8, 48, dirty);
-    draw_uv_mapping(ui, uv_mapping, salt, dirty);
-    draw_common_primitive(ui, solid, material, torture, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty);
 }
 
 /// The UV projection modes an author can pick, with the hover copy that
@@ -757,10 +720,16 @@ fn uv_mode_name(mapping: UvMapping) -> &'static str {
 /// meshers' analytic wrap — so nothing that already existed moved.
 pub(super) fn draw_uv_mapping(
     ui: &mut egui::Ui,
-    uv_mapping: &mut UvMapping,
+    common: &mut PrimCommon,
+    family: UvMapping,
     salt: &str,
     dirty: &mut bool,
 ) {
+    // The record stores `None` for the family's own projection (#1188);
+    // the picker shows the resolved mode and folds a pick of the family
+    // default back to `None`, so the wire never gains a key an older
+    // client would have elided.
+    let current = common.uv_mapping.unwrap_or(family);
     ui.horizontal(|ui| {
         ui.label("UV mapping").on_hover_text(
             "How the texture is projected onto the meshed surface. Every \
@@ -768,16 +737,16 @@ pub(super) fn draw_uv_mapping(
              per metre and one material looks the same on prims of any size.",
         );
         egui::ComboBox::from_id_salt((salt, "uv_mapping"))
-            .selected_text(uv_mode_name(*uv_mapping))
+            .selected_text(uv_mode_name(current))
             .show_ui(ui, |ui| {
                 for (v, n, hint) in UV_MODES {
                     if ui
-                        .selectable_label(*uv_mapping == v, n)
+                        .selectable_label(current == v, n)
                         .on_hover_text(hint)
                         .clicked()
-                        && *uv_mapping != v
+                        && current != v
                     {
-                        *uv_mapping = v;
+                        common.uv_mapping = (v != family).then_some(v);
                         *dirty = true;
                     }
                 }
@@ -785,20 +754,32 @@ pub(super) fn draw_uv_mapping(
     });
 }
 
-/// Everything the shared Faces panel (#960) needs, bundled into one
-/// parameter so the fifteen per-kind editors thread a single extra
-/// argument down to [`draw_common_primitive`].
+/// Everything a primitive editor needs beyond its own dimensional knobs
+/// (#1188): the shared block it edits in place, the Faces panel's context,
+/// the egui salt and the dirty flag. One parameter, so the fifteen
+/// per-kind editors are `(ui, own knobs…, edit)` and a field added to
+/// [`PrimCommon`] reaches every one of them without a signature moving.
+pub(super) struct PrimEdit<'a, 'u> {
+    /// The prim's shared block — solid, projection, material, faces,
+    /// torture — edited in place.
+    pub common: &'a mut PrimCommon,
+    pub faces: FacePanel<'a, 'u>,
+    /// This node's egui ID salt, threaded to every nested widget.
+    pub salt: &'a str,
+    pub dirty: &'a mut bool,
+}
+
+/// Everything the shared Faces panel (#960) needs besides the override
+/// list itself, which lives in the [`PrimCommon`] the editor already holds.
 pub(super) struct FacePanel<'a, 'u> {
-    /// The prim's override list, edited in place.
-    pub overrides: &'a mut Vec<FaceOverride>,
     /// The whole node as of this frame — what the panel enumerates faces
     /// from, and where an inherited projection comes from. `None` for a
     /// kind with no faces at all.
     ///
-    /// A *snapshot* because the dispatch match holds `overrides` mutably
-    /// from that same node: the panel cannot borrow the node again. It is
-    /// taken before the match and costs one clone per frame for the
-    /// selected node only.
+    /// A *snapshot* because the dispatch match holds the node's `common`
+    /// mutably: the panel cannot borrow the node again. It is taken
+    /// before the match and costs one clone per frame for the selected
+    /// node only.
     pub snapshot: Option<&'a GeneratorKind>,
     /// Undo-history label sink, so a face edit reads as one in the ⌘Z list
     /// instead of the generic "edit".
@@ -821,39 +802,44 @@ pub(super) struct FacePickUi<'a> {
     pub picked: Option<FaceKey>,
 }
 
-/// Shared tail for every primitive editor: solid checkbox, torture triple,
-/// collapsible material panel, per-face overrides. Factored out so each
+/// Shared tail for every primitive editor: the UV-mapping picker, solid
+/// checkbox, torture triple, collapsible material panel and per-face
+/// overrides — the whole [`PrimCommon`] block. Factored out so each
 /// per-primitive editor only owns its shape-specific parameter widgets, and
 /// so all sixteen kinds — plus the avatar editor, which routes through the
 /// same dispatch — get the Faces panel from one place. `show_cuts` gates the
 /// topology-cut widgets for kinds whose mesher ignores them (Plane).
-#[allow(clippy::too_many_arguments)]
 fn draw_common_primitive(
     ui: &mut egui::Ui,
-    solid: &mut bool,
-    material: &mut SovereignMaterialSettings,
-    torture: &mut TortureParams,
+    common: &mut PrimCommon,
     faces: FacePanel<'_, '_>,
     salt: &str,
     show_cuts: bool,
     dirty: &mut bool,
 ) {
-    if ui.checkbox(solid, "Solid (collider)").changed() {
+    // The family default the picker folds to comes from the snapshot,
+    // which is the node itself; a faceless kind never reaches here.
+    let family = faces
+        .snapshot
+        .and_then(GeneratorKind::family_uv_mapping)
+        .unwrap_or_default();
+    draw_uv_mapping(ui, common, family, salt, dirty);
+    if ui.checkbox(&mut common.solid, "Solid (collider)").changed() {
         *dirty = true;
     }
     ui.add_space(2.0);
-    draw_torture(ui, torture, show_cuts, dirty);
+    draw_torture(ui, &mut common.torture, show_cuts, dirty);
     ui.add_space(2.0);
     egui::CollapsingHeader::new("Material")
         .id_salt(format!("{}_mat", salt))
         .default_open(false)
         .show(ui, |ui| {
-            draw_universal_material(ui, material, salt, dirty);
+            draw_universal_material(ui, &mut common.material, salt, dirty);
         });
     // A new override starts as a copy of the base material, so adding one
     // changes nothing until it is edited (see `draw_face_overrides`).
-    let base = material.clone();
-    draw_face_overrides(ui, faces, &base, salt, dirty);
+    let base = common.material.clone();
+    draw_face_overrides(ui, &mut common.faces, faces, &base, salt, dirty);
 }
 
 /// The per-face override list (#960): the SL "select a face, give it its own
@@ -877,13 +863,13 @@ fn draw_common_primitive(
 /// inside a collapsed header would look like nothing happened.
 fn draw_face_overrides(
     ui: &mut egui::Ui,
+    overrides: &mut Vec<FaceOverride>,
     faces: FacePanel<'_, '_>,
     base: &SovereignMaterialSettings,
     salt: &str,
     dirty: &mut bool,
 ) {
     let FacePanel {
-        overrides,
         snapshot,
         undo_label,
         pick,

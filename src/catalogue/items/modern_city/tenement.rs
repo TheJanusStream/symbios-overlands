@@ -883,6 +883,7 @@ mod tests {
     use crate::catalogue::items::util::{
         assert_cards_do_not_overlap, assert_sanitize_stable, window_cards,
     };
+    use crate::pds::PrimCommon;
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     /// Walk the tree accumulating translations, calling `f` with every node's
@@ -969,7 +970,10 @@ mod tests {
         let mut checked = 0;
         walk(&root, [0.0; 3], &mut |g, at| {
             let GeneratorKind::Cuboid {
-                material, faces, ..
+                common: PrimCommon {
+                    material, faces, ..
+                },
+                ..
             } = &g.kind
             else {
                 return;

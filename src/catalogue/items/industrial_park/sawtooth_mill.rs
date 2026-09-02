@@ -250,6 +250,7 @@ fn build_kind() -> GeneratorKind {
 mod tests {
     use super::*;
     use crate::catalogue::items::shape_grammar_test::assert_grammar_parses_and_derives;
+    use crate::pds::PrimCommon;
     use crate::pds::sanitize_generator;
 
     #[test]
@@ -262,7 +263,13 @@ mod tests {
         let mut g = SawtoothMill.build("");
         sanitize_generator(&mut g);
         assert!(
-            matches!(g.kind, GeneratorKind::Cuboid { solid: true, .. }),
+            matches!(
+                g.kind,
+                GeneratorKind::Cuboid {
+                    common: PrimCommon { solid: true, .. },
+                    ..
+                }
+            ),
             "sawtooth_mill root must be the solid foundation plinth"
         );
         let shape = &g.children[0];

@@ -775,6 +775,7 @@ mod tests {
         assert_cards_do_not_overlap, assert_no_glazing_on_solids, assert_no_tilted_parents,
         assert_sanitize_stable, has_emissive,
     };
+    use crate::pds::PrimCommon;
     use crate::pds::{GeneratorKind, SovereignTextureConfig};
 
     fn walk(g: &Generator, at: [f32; 3], f: &mut dyn FnMut(&Generator, [f32; 3])) {
@@ -855,7 +856,11 @@ mod tests {
     fn every_card_laps_its_opening() {
         let mut widths: Vec<f32> = Vec::new();
         walk(&VerticalFarm.build(""), [0.0; 3], &mut |g, _| {
-            if let GeneratorKind::Plane { size, material, .. } = &g.kind
+            if let GeneratorKind::Plane {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
                 && matches!(material.texture, SovereignTextureConfig::Window(_))
             {
                 widths.push(size.0[0]);
@@ -882,7 +887,12 @@ mod tests {
         use FaceKey::*;
         let mut checked = 0;
         walk(&VerticalFarm.build(""), [0.0; 3], &mut |g, at| {
-            let GeneratorKind::Cuboid { size, material, .. } = &g.kind else {
+            let GeneratorKind::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            else {
                 return;
             };
             if g.transform.rotation.0 != [0.0, 0.0, 0.0, 1.0]
@@ -981,14 +991,18 @@ mod tests {
         let mut lights: Vec<([f32; 3], f32)> = Vec::new();
         let mut cards: Vec<([f32; 3], f32)> = Vec::new();
         walk(&root, [0.0; 3], &mut |g, at| match &g.kind {
-            GeneratorKind::Cuboid { size, material, .. }
-                if material.emission_strength.0 > 1.5 && material.base_color.0 == GROW_PINK =>
-            {
+            GeneratorKind::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } if material.emission_strength.0 > 1.5 && material.base_color.0 == GROW_PINK => {
                 lights.push((at, size.0[1] * 0.5));
             }
-            GeneratorKind::Plane { size, material, .. }
-                if matches!(material.texture, SovereignTextureConfig::Window(_)) =>
-            {
+            GeneratorKind::Plane {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } if matches!(material.texture, SovereignTextureConfig::Window(_)) => {
                 cards.push((at, size.0[1] * 0.5));
             }
             _ => {}
@@ -1052,14 +1066,21 @@ mod tests {
                 m.base_color.0 == LEAF_GREEN || m.base_color.0 == CROP_GREEN
             };
             match &g.kind {
-                GeneratorKind::Cuboid { size, material, .. } if green(material) => {
+                GeneratorKind::Cuboid {
+                    size,
+                    common: PrimCommon { material, .. },
+                    ..
+                } if green(material) => {
                     let big = size.0.iter().cloned().fold(0.0_f32, f32::max);
                     panic!(
                         "vertical_farm: a {big} m green cuboid at {at:?} is a painted plate, \
                          not planting — build the curtain out of things the size of plants"
                     );
                 }
-                GeneratorKind::Sphere { material, .. } if green(material) => clumps += 1,
+                GeneratorKind::Sphere {
+                    common: PrimCommon { material, .. },
+                    ..
+                } if green(material) => clumps += 1,
                 _ => {}
             }
         });
@@ -1084,7 +1105,12 @@ mod tests {
         let mut lights: Vec<([f32; 3], f32)> = Vec::new();
         let mut boxes: Vec<([f32; 3], [f32; 3])> = Vec::new();
         walk(&root, [0.0; 3], &mut |g, at| {
-            let GeneratorKind::Cuboid { size, material, .. } = &g.kind else {
+            let GeneratorKind::Cuboid {
+                size,
+                common: PrimCommon { material, .. },
+                ..
+            } = &g.kind
+            else {
                 return;
             };
             if g.transform.rotation.0 != [0.0, 0.0, 0.0, 1.0] {
