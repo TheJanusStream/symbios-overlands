@@ -1,6 +1,6 @@
 seed 1	a692f8cecd64878b	13 generators
-seed 2	584baa36d438320e	22 generators
-seed 3	5ee2c1a61f6efe1b	16 generators
+seed 2	fa56fd0bf80cf6a4	22 generators
+seed 3	79f1fef754b4c0bc	16 generators
 seed 4	a75cc09436549da1	22 generators
 seed 5	04e653d46f14296f	19 generators
 seed 6	d27d00b276694ff1	16 generators
@@ -8,5 +8,5 @@ seed 7	ec59e56f5b848f1a	11 generators
 seed 8	835e1c77dac61dc4	17 generators
 seed 9	5b6787972bcad071	10 generators
 seed 10	3ca28f49d254e563	15 generators
-seed 11	fc2588c72594d89f	23 generators
-seed 12	28296e98c7a5b135	25 generators
+seed 11	1aa2ca55ed65d7a7	23 generators
+seed 12	f8833a801215a8d2	25 generators
