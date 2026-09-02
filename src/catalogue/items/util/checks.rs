@@ -566,3 +566,214 @@ pub(in crate::catalogue::items) fn has_emissive(g: &crate::pds::Generator) -> bo
     };
     own || g.children.iter().any(has_emissive)
 }
+
+/// One axis-aligned face of a built primitive as [`assert_no_coplanar_faces`]
+/// sees it: the world axis it faces along, which way, the plane it lies on,
+/// and the rectangle it covers on the other two axes (ascending order).
+struct AaFace {
+    axis: usize,
+    sign: f32,
+    plane: f32,
+    lo: [f32; 2],
+    hi: [f32; 2],
+    tag: &'static str,
+    at: [f32; 3],
+}
+
+/// The world half-extents of a prim's local half-extents under a rotation
+/// that is a whole number of quarter turns — or `None` if the turn is
+/// oblique, in which case the prim has no axis-aligned faces to speak of.
+fn quarter_turned(q: [f32; 4], half: [f32; 3]) -> Option<[f32; 3]> {
+    let mut ext = [0.0_f32; 3];
+    for (axis, h) in half.iter().enumerate() {
+        let mut v = [0.0; 3];
+        v[axis] = 1.0;
+        let w = rotate_by(q, v);
+        let big = w.iter().map(|c| c.abs()).fold(0.0_f32, f32::max);
+        if big < 0.9999 {
+            return None;
+        }
+        for (e, c) in ext.iter_mut().zip(w) {
+            *e += c.abs() * h;
+        }
+    }
+    Some(ext)
+}
+
+fn aa_faces(g: &Generator, at: [f32; 3]) -> Vec<AaFace> {
+    let q = g.transform.rotation.0;
+    let tag = g.kind.kind_tag();
+    let mut out = Vec::new();
+    let rect = |axis: usize, ext: [f32; 3], shrink: f32| -> ([f32; 2], [f32; 2]) {
+        let others: Vec<usize> = (0..3).filter(|a| *a != axis).collect();
+        let (b, c) = (others[0], others[1]);
+        (
+            [at[b] - ext[b] * shrink, at[c] - ext[c] * shrink],
+            [at[b] + ext[b] * shrink, at[c] + ext[c] * shrink],
+        )
+    };
+    let push =
+        |out: &mut Vec<AaFace>, axis: usize, sign: f32, plane: f32, r: ([f32; 2], [f32; 2])| {
+            out.push(AaFace {
+                axis,
+                sign,
+                plane,
+                lo: r.0,
+                hi: r.1,
+                tag,
+                at,
+            });
+        };
+    match &g.kind {
+        GeneratorKind::Cuboid {
+            size,
+            common: PrimCommon { torture, .. },
+            ..
+        } => {
+            let half = [size.0[0] * 0.5, size.0[1] * 0.5, size.0[2] * 0.5];
+            let Some(ext) = quarter_turned(q, half) else {
+                return out;
+            };
+            let taper = torture.taper.0[0].max(torture.taper.0[1]);
+            let up = rotate_by(q, [0.0, 1.0, 0.0]);
+            let (up_axis, up_sign) = (0..3)
+                .map(|a| (a, up[a]))
+                .max_by(|x, y| x.1.abs().partial_cmp(&y.1.abs()).unwrap())
+                .unwrap();
+            for axis in 0..3 {
+                for sign in [-1.0_f32, 1.0] {
+                    let is_top = axis == up_axis && sign == up_sign.signum();
+                    let is_bottom = axis == up_axis && sign == -up_sign.signum();
+                    if taper > 1e-6 && !is_top && !is_bottom {
+                        continue; // slanted, not a plane
+                    }
+                    let shrink = if is_top { 1.0 - taper } else { 1.0 };
+                    if shrink < 1e-3 {
+                        continue;
+                    }
+                    let plane = at[axis] + sign * ext[axis];
+                    push(&mut out, axis, sign, plane, rect(axis, ext, shrink));
+                }
+            }
+        }
+        GeneratorKind::Cylinder {
+            radius,
+            height,
+            common: PrimCommon { torture, .. },
+            ..
+        }
+        | GeneratorKind::Tube {
+            radius,
+            height,
+            common: PrimCommon { torture, .. },
+            ..
+        }
+        | GeneratorKind::Cone {
+            radius,
+            height,
+            common: PrimCommon { torture, .. },
+            ..
+        } => {
+            let cut = torture.path_cut.0 != [0.0, 1.0] || torture.profile_cut.0 != [0.0, 1.0];
+            if cut {
+                return out; // partial caps: not a whole face
+            }
+            let r = radius.0;
+            let Some(ext) = quarter_turned(q, [r, height.0 * 0.5, r]) else {
+                return out;
+            };
+            let up = rotate_by(q, [0.0, 1.0, 0.0]);
+            let (axis, s) = (0..3)
+                .map(|a| (a, up[a]))
+                .max_by(|x, y| x.1.abs().partial_cmp(&y.1.abs()).unwrap())
+                .unwrap();
+            let s = s.signum();
+            // Bottom cap, full radius, facing -local Y.
+            push(
+                &mut out,
+                axis,
+                -s,
+                at[axis] - s * ext[axis],
+                rect(axis, ext, 1.0),
+            );
+            // Top cap, tapered radius (a cone's is a point: no face).
+            let top = match &g.kind {
+                GeneratorKind::Cone { .. } => 0.0,
+                _ => 1.0 - torture.taper.0[0].max(torture.taper.0[1]),
+            };
+            if top > 1e-3 {
+                push(
+                    &mut out,
+                    axis,
+                    s,
+                    at[axis] + s * ext[axis],
+                    rect(axis, ext, top),
+                );
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+/// Assert that no two axis-aligned faces in a tree lie on one plane, face
+/// the **same** way, and overlap (#972).
+///
+/// This is the coplanar z-fight stated as a guard. Two faces on one plane
+/// with the same normal tie for depth wherever they overlap, and the
+/// rasteriser breaks the tie per pixel per frame — the speckle the standing
+/// gotcha describes. The classic shapes: a lid cylinder exactly as long as
+/// the box it caps, so its end discs sit on the box's end faces; a spoke bar
+/// whose outer face lands flush with the hub's; a trim slab sized to meet
+/// its host exactly.
+///
+/// Abutting faces — coincident but facing *opposite* ways, a slat's bottom
+/// on a rail's top — are how solids sit on each other and are not flagged.
+/// Only whole planar faces are read: rotated prims by a whole number of
+/// quarter turns, the caps of uncut revolved prims, a tapered box's top and
+/// bottom (its sides slant). Oblique, cut or organic prims are left alone,
+/// which is the conservative direction for a guard whose false positive
+/// would be a fault nobody can see.
+pub(in crate::catalogue::items) fn assert_no_coplanar_faces(root: &Generator, slug: &str) {
+    fn walk(g: &Generator, at: [f32; 3], out: &mut Vec<AaFace>) {
+        let t = g.transform.translation.0;
+        let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
+        out.extend(aa_faces(g, here));
+        for c in &g.children {
+            walk(c, here, out);
+        }
+    }
+    let mut faces = Vec::new();
+    walk(root, [0.0; 3], &mut faces);
+    // Every tie, not the first: a fresh guard on a new build usually finds
+    // several, and one round trip per tie is the expensive way to learn them.
+    let mut ties = Vec::new();
+    for (i, a) in faces.iter().enumerate() {
+        for b in &faces[i + 1..] {
+            if a.axis != b.axis || a.sign != b.sign || (a.plane - b.plane).abs() > 5e-4 {
+                continue;
+            }
+            let overlap = (0..2).all(|k| a.lo[k].max(b.lo[k]) < a.hi[k].min(b.hi[k]) - 1e-4);
+            if overlap {
+                ties.push(format!(
+                    "a {} at {:?} and a {} at {:?} on the plane axis {} = {:.4} facing {}",
+                    a.tag,
+                    a.at,
+                    b.tag,
+                    b.at,
+                    a.axis,
+                    a.plane,
+                    if a.sign > 0.0 { "+" } else { "-" }
+                ));
+            }
+        }
+    }
+    assert!(
+        ties.is_empty(),
+        "{slug}: {} pair(s) of faces share a plane, face the same way and overlap — a depth \
+         tie the rasteriser breaks per pixel (z-fight). Sink one into the other or stand it \
+         proud:\n  {}",
+        ties.len(),
+        ties.join("\n  ")
+    );
+}

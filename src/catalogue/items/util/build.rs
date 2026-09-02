@@ -756,6 +756,35 @@ pub(in crate::catalogue::items) fn pfp_panel(
     prim(kind, center, quat_x(std::f32::consts::FRAC_PI_2))
 }
 
+/// The rotation that turns a prim's own axis (`+Y`) onto the unit direction
+/// `dir` — the one place this family converts "it points that way" into a
+/// quaternion (#972 lesson 23 for authoring: a hand-rolled rotate is a coin
+/// flip, and it was flipped three times in one file before [`strut`]
+/// existed).
+///
+/// Axis-angle: axis = `Ŷ × d̂`, angle = `atan2(|Ŷ × d̂|, Ŷ · d̂)`, packed via
+/// the half-angle. Straight up is the identity, straight down a half-turn
+/// about X. [`strut`] uses it for a bar between two points; a steering wheel
+/// or a dish aimed at a driver uses it directly, because a torus's ring
+/// normal is its local `+Y` too.
+pub(in crate::catalogue::items) fn aim_y(dir: [f32; 3]) -> Fp4 {
+    let d = dir;
+    // axis = Y × d = (d.z, 0, -d.x); its length is sin(angle), d.y is cos.
+    let (ax, az) = (d[2], -d[0]);
+    let sin_a = (ax * ax + az * az).sqrt();
+    if sin_a < 1e-5 {
+        if d[1] >= 0.0 {
+            id_quat() // straight up: the prim's own axis already
+        } else {
+            Fp4([1.0, 0.0, 0.0, 0.0]) // straight down: half-turn about X
+        }
+    } else {
+        let angle = sin_a.atan2(d[1]);
+        let (half_s, half_c) = (angle * 0.5).sin_cos();
+        Fp4([ax / sin_a * half_s, 0.0, az / sin_a * half_s, half_c])
+    }
+}
+
 /// A cylinder spanning two world points — the catalogue's ONE conversion
 /// from "this rope/spar/shore runs from A to B" into a rotation.
 ///
@@ -785,21 +814,7 @@ pub(in crate::catalogue::items) fn strut(
 ) -> Generator {
     let v = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
     let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(1e-4);
-    let d = [v[0] / len, v[1] / len, v[2] / len];
-    // axis = Y × d = (d.z, 0, -d.x); its length is sin(angle), d.y is cos.
-    let (ax, az) = (d[2], -d[0]);
-    let sin_a = (ax * ax + az * az).sqrt();
-    let rotation = if sin_a < 1e-5 {
-        if d[1] >= 0.0 {
-            id_quat() // straight up: the cylinder's own axis already
-        } else {
-            Fp4([1.0, 0.0, 0.0, 0.0]) // straight down: half-turn about X
-        }
-    } else {
-        let angle = sin_a.atan2(d[1]);
-        let (half_s, half_c) = (angle * 0.5).sin_cos();
-        Fp4([ax / sin_a * half_s, 0.0, az / sin_a * half_s, half_c])
-    };
+    let rotation = aim_y([v[0] / len, v[1] / len, v[2] / len]);
     prim(
         cylinder_tapered(radius, len, resolution, 0.0, material),
         [

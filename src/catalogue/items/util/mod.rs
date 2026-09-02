@@ -15,17 +15,17 @@ mod material;
 #[cfg(test)]
 pub(super) use build::blob_cell_size;
 pub(super) use build::{
-    BALUSTER_PITCH, assemble, attach, blob_box, blob_capsule, blob_ellipsoid, blob_group, carved,
-    cone, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, footing_disc,
+    BALUSTER_PITCH, aim_y, assemble, attach, blob_box, blob_capsule, blob_ellipsoid, blob_group,
+    carved, cone, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, footing_disc,
     foundation_block, foundation_disc, helix, id_quat, nest, pfp_panel, plane, prim, prim_scaled,
     quat_mul, quat_x, quat_y, quat_z, railing, solid, sphere, strut, superellipsoid, torus, tube,
     wedge, with_cut, with_face,
 };
 #[cfg(test)]
 pub(super) use checks::{
-    assert_cards_do_not_overlap, assert_no_glazing_on_solids, assert_no_tilted_parents,
-    assert_owner_panel, assert_sanitize_stable, blob_components, has_emissive, rotate_by,
-    window_cards,
+    assert_cards_do_not_overlap, assert_no_coplanar_faces, assert_no_glazing_on_solids,
+    assert_no_tilted_parents, assert_owner_panel, assert_sanitize_stable, blob_components,
+    has_emissive, rotate_by, window_cards,
 };
 pub(super) use material::{
     ageing, bonded_boards, bonded_brick, bonded_siding, face_uv_offset, foundation_mat, glow,
@@ -246,5 +246,68 @@ mod tests {
         let particles = GeneratorKind::default_particles();
         let out = with_face(particles.clone(), FaceKey::Top, tinted([1.0, 0.0, 0.0]));
         assert_eq!(out, particles);
+    }
+    /// The coplanar guard flags two same-facing faces on one plane that
+    /// overlap, and leaves abutting (opposite-facing) and adjacent faces
+    /// alone — including a lid cylinder turned onto its side.
+    #[test]
+    fn coplanar_guard_flags_a_flush_face_and_allows_an_abutting_one() {
+        use std::f32::consts::FRAC_PI_2;
+        let mat = SovereignMaterialSettings::default();
+        let body = prim(
+            cuboid_tapered([0.5, 0.3, 0.7], 0.0, mat.clone()),
+            [0.0, 1.0, 0.0],
+            id_quat(),
+        );
+        // A lid exactly as long as the body: its caps tie with the body's ends.
+        let flush = assemble(vec![
+            body.clone(),
+            prim(
+                cylinder_tapered(0.26, 0.7, 10, 0.0, mat.clone()),
+                [0.0, 1.15, 0.0],
+                quat_x(FRAC_PI_2),
+            ),
+        ]);
+        let hit = std::panic::catch_unwind(|| assert_no_coplanar_faces(&flush, "fixture"));
+        assert!(hit.is_err(), "a flush lid cap must be flagged");
+        // A slat standing on the body's top: coincident, opposite-facing.
+        let abutting = assemble(vec![
+            body.clone(),
+            prim(
+                cuboid_tapered([0.4, 0.04, 0.1], 0.0, mat.clone()),
+                [0.0, 1.17, 0.0],
+                id_quat(),
+            ),
+        ]);
+        assert_no_coplanar_faces(&abutting, "fixture");
+        // Two deck boards side by side at one height: coplanar tops, no overlap.
+        let adjacent = assemble(vec![
+            body,
+            prim(
+                cuboid_tapered([0.2, 0.04, 0.7], 0.0, mat.clone()),
+                [-0.1, 1.5, 0.0],
+                id_quat(),
+            ),
+            prim(
+                cuboid_tapered([0.2, 0.04, 0.7], 0.0, mat),
+                [0.1, 1.5, 0.0],
+                id_quat(),
+            ),
+        ]);
+        assert_no_coplanar_faces(&adjacent, "fixture");
+    }
+
+    /// [`aim_y`] is the rotation [`strut`] is built on, and a torus aimed
+    /// with it has its ring normal on the given direction.
+    #[test]
+    fn aim_y_points_the_axis_where_it_is_told() {
+        let (dx, dy) = (-0.79_f32, 0.61_f32);
+        let len = (dx * dx + dy * dy).sqrt();
+        let d = [dx / len, dy / len, 0.0];
+        let n = rotate_by(build::aim_y(d).0, [0.0, 1.0, 0.0]);
+        for i in 0..3 {
+            assert!((n[i] - d[i]).abs() < 1e-4, "{n:?} vs {d:?}");
+        }
+        assert_eq!(build::aim_y([0.0, 1.0, 0.0]), id_quat());
     }
 }
