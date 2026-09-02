@@ -253,6 +253,7 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &sports_rec::floodlight_mast::FloodlightMast,
     &sports_rec::scoreboard::Scoreboard,
     &sports_rec::players_bench::PlayersBench,
+    &sports_rec::pelican_bicycle::PelicanBicycle,
     // Buildings — Sports / Recreation poor (rec-ground) variants, prosperity Poor.
     &sports_rec::rec_court::RecCourt,
     &sports_rec::backstop::Backstop,

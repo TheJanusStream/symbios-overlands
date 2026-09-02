@@ -1057,6 +1057,7 @@ mod tests {
                 "floodlight_mast",
                 "scoreboard",
                 "players_bench",
+                "pelican_bicycle",
             ],
             poor_kit: &["rec_court", "backstop", "tire_stack"],
             rich_landmark: Some("stadium"),

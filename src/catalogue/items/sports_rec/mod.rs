@@ -3,8 +3,8 @@
 //!
 //! Two prosperity registers share one sporting identity: the established
 //! ([`SPORTS_BAND`]) stadium kit (the bowl, a gym, open bleachers, a ticket
-//! booth, a clubhouse, goalposts, floodlight masts, a scoreboard and a team
-//! bench) and the destitute ([`SPORTS_POOR`]) rec-ground kit (a cracked
+//! booth, a clubhouse, goalposts, floodlight masts, a scoreboard, a team
+//! bench and a pelican on a bicycle) and the destitute ([`SPORTS_POOR`]) rec-ground kit (a cracked
 //! court, a chain-link backstop, a stack of training tyres).
 //!
 //! Surfaces use the real procedural generators rather than flat colour:
@@ -23,6 +23,7 @@ pub mod gateway;
 pub mod goalpost;
 pub mod gym;
 pub mod monument;
+pub mod pelican_bicycle;
 pub mod players_bench;
 pub mod scoreboard;
 pub mod stadium;
