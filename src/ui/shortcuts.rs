@@ -22,6 +22,9 @@
 //!   `install_ctrl_s_blocker` — wasm-only, so not linkable from a
 //!   native doc build) because `prevent_default_event_handling` is
 //!   deliberately `false` (F5, Ctrl+R and friends must keep working).
+//!   The chord never fires silently (#1208): [`SaveChord`] says what it
+//!   did, and a request the row then refuses comes back as
+//!   [`crate::ui::editable::RecordAction::Refused`] with the reason.
 //!
 //! Routing — which chord may fire at all — is [`ShortcutGate`], and it
 //! answers two questions, not one (#1139):
@@ -62,11 +65,69 @@ pub enum EditorKind {
 }
 
 /// Frames a pending Ctrl+S request stays alive waiting for its editor
-/// window to render and consume it. The shortcut only targets an OPEN
-/// window, so consumption is normally next egui pass — the TTL just
-/// stops a request from firing much later if the window closes in the
-/// same instant.
+/// window to render and consume it. The shortcut opens and expands the
+/// window it targets, so consumption is normally the same frame's egui
+/// pass — the TTL just stops a request from firing much later if the
+/// window closes in the same instant.
 const PUBLISH_REQUEST_TTL_FRAMES: u8 = 3;
+
+/// What Ctrl+S does this frame (#1208), decided from the two facts the
+/// chord already had: the front-most OPEN dirty editor in egui's stacking
+/// order, and which records are dirty at all. Before this the second fact
+/// was never consulted — an empty candidate list did nothing and said
+/// nothing, while the undo chord two blocks away toasts its own no-op.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SaveChord {
+    /// An open editor with unsaved edits is front-most: save it. Its
+    /// window is expanded first if collapsed — a collapsed `egui::Window`
+    /// never runs its body, and the Save row that consumes the request
+    /// lives in the body, so the request used to age out unseen.
+    Save(EditorKind),
+    /// No open editor is dirty, but this record is: open its window, save
+    /// it, and say so. Reachable by editing, Esc-closing the window, and
+    /// pressing the chord the Controls sheet advertises.
+    OpenAndSave(EditorKind),
+    /// Nothing anywhere is dirty. Said aloud rather than eaten.
+    NothingToSave,
+}
+
+/// The decision behind [`SaveChord`], pure so it is testable without an
+/// egui context. `front_most` is the top-most open dirty editor; `dirty`
+/// answers for any editor, open or not. With several dirty and none open,
+/// the first in World → Avatar → Inventory order wins — the same order
+/// the candidate scan lists them.
+pub fn resolve_save_chord(
+    front_most: Option<EditorKind>,
+    dirty: impl Fn(EditorKind) -> bool,
+) -> SaveChord {
+    if let Some(kind) = front_most {
+        return SaveChord::Save(kind);
+    }
+    [EditorKind::World, EditorKind::Avatar, EditorKind::Inventory]
+        .into_iter()
+        .find(|kind| dirty(*kind))
+        .map_or(SaveChord::NothingToSave, SaveChord::OpenAndSave)
+}
+
+impl EditorKind {
+    /// The toolbar window that hosts this editor's Save row.
+    fn window(self) -> UiWindow {
+        match self {
+            Self::World => UiWindow::WorldEditor,
+            Self::Avatar => UiWindow::Avatar,
+            Self::Inventory => UiWindow::Inventory,
+        }
+    }
+
+    /// The record, as the user hears it.
+    fn noun(self) -> &'static str {
+        match self {
+            Self::World => "world",
+            Self::Avatar => "avatar",
+            Self::Inventory => "inventory",
+        }
+    }
+}
 
 /// Pending Ctrl+S publish request (#836). The shortcut system decides
 /// WHICH editor (front-most open + dirty) and parks it here; that
@@ -211,11 +272,10 @@ fn topmost<T: Copy>(ctx: &egui::Context, candidates: &[(egui::Id, T)]) -> Option
     })
 }
 
-/// The egui area id of a toolbar-managed window — `egui::Window` keys
-/// its area by `Id::new(title)`. The audio pop-out salts its own id and
-/// is handled as an explicit ladder step instead.
-fn window_area_id(window: UiWindow) -> egui::Id {
-    egui::Id::new(match window {
+/// The title a toolbar-managed window is drawn with — which is also its
+/// egui identity, see [`window_area_id`].
+fn window_title(window: UiWindow) -> &'static str {
+    match window {
         UiWindow::Chat => "Chat",
         UiWindow::People => "People",
         UiWindow::Avatar => "Avatar",
@@ -226,7 +286,38 @@ fn window_area_id(window: UiWindow) -> egui::Id {
         UiWindow::AudioEditor => "Audio Editor",
         UiWindow::Controls => "Controls",
         UiWindow::Settings => "Settings",
-    })
+    }
+}
+
+/// The egui area id of a toolbar-managed window. The audio pop-out salts
+/// its own id and is handled as an explicit ladder step instead.
+///
+/// Derived the way `egui::Window::new` derives it — `Id::new` over the
+/// title's `Atoms::text()`, an `Option<Cow<str>>` — not over the bare
+/// `&str`. Those hash differently, and from the egui 0.35 upgrade until
+/// #1208 this function hashed the `&str`: `topmost` matched no window, so
+/// Ctrl+S never parked a request, Ctrl+Z always reported "no editor open"
+/// and Esc never closed a window. A test pins the id against the layer
+/// egui actually registers.
+fn window_area_id(window: UiWindow) -> egui::Id {
+    use egui::IntoAtoms as _;
+    egui::Id::new(window_title(window).into_atoms().text())
+}
+
+/// Un-collapse a toolbar window so its body runs on the next egui pass
+/// (#1208). `egui::Window` keeps the title-bar collapse flag in a
+/// `CollapsingState` stored under the area id salted with `"collapsing"`
+/// (`Window::show_dyn`); writing `open = true` there is exactly what the
+/// title-bar arrow does. A window never drawn has no stored state and
+/// opens expanded by default, so there is nothing to do for it.
+fn expand_window(ctx: &egui::Context, window: UiWindow) {
+    let id = window_area_id(window).with("collapsing");
+    if let Some(mut state) = egui::collapsing_header::CollapsingState::load(ctx, id)
+        && !state.is_open()
+    {
+        state.set_open(true);
+        state.store(ctx);
+    }
 }
 
 /// The one global-shortcut system (Update, `InGame` only).
@@ -244,6 +335,8 @@ pub fn global_shortcuts(
     mut audio_requests: MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
     dirty: EditorDirtyState,
     mut undo: ResMut<crate::ui::undo::UndoShortcut>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    time: Res<Time>,
 ) {
     // Guarded so the every-frame system doesn't flag the resource
     // changed while nothing is pending.
@@ -346,8 +439,32 @@ pub fn global_shortcuts(
         .filter(|(_, kind, open)| *open && dirty.dirty(*kind))
         .map(|(w, kind, _)| (window_area_id(w), kind))
         .collect();
-        if let Some(kind) = topmost(ctx, &candidates) {
-            publish.request(kind);
+        let now = time.elapsed_secs_f64();
+        match resolve_save_chord(topmost(ctx, &candidates), |kind| dirty.dirty(kind)) {
+            SaveChord::Save(kind) => {
+                publish.request(kind);
+                expand_window(ctx, kind.window());
+            }
+            SaveChord::OpenAndSave(kind) => {
+                match kind {
+                    EditorKind::World => panels.world_editor = true,
+                    EditorKind::Avatar => panels.avatar = true,
+                    EditorKind::Inventory => panels.inventory = true,
+                }
+                publish.request(kind);
+                expand_window(ctx, kind.window());
+                toasts.info(
+                    format!(
+                        "Opened the {} to save your {}",
+                        window_title(kind.window()),
+                        kind.noun()
+                    ),
+                    now,
+                );
+            }
+            SaveChord::NothingToSave => {
+                toasts.info("Nothing to save — no unsaved edits", now);
+            }
         }
     }
 
@@ -529,6 +646,120 @@ mod tests {
         assert!(
             dirty,
             "Ctrl+S must see the same unsaved work the Save row does"
+        );
+    }
+
+    /// #1208, finding 262. Sequence: edit in the World Editor, Esc-close
+    /// the window (or delete an item from the scene menu, which never
+    /// opens a window), press Ctrl+S. The candidate scan was empty and the
+    /// chord did nothing and said nothing — while Ctrl+Z in the same state
+    /// toasts "no editor open". The chord now opens the dirty record's
+    /// window and saves it.
+    #[test]
+    fn ctrl_s_with_no_editor_open_opens_the_dirty_one_and_saves() {
+        let only_world = |kind: EditorKind| kind == EditorKind::World;
+        assert_eq!(
+            resolve_save_chord(None, only_world),
+            SaveChord::OpenAndSave(EditorKind::World)
+        );
+        let only_inventory = |kind: EditorKind| kind == EditorKind::Inventory;
+        assert_eq!(
+            resolve_save_chord(None, only_inventory),
+            SaveChord::OpenAndSave(EditorKind::Inventory)
+        );
+        // Several dirty and none open: the scan's own order decides, and
+        // the toast names which one opened.
+        assert_eq!(
+            resolve_save_chord(None, |_| true),
+            SaveChord::OpenAndSave(EditorKind::World)
+        );
+    }
+
+    /// The no-op half: nothing dirty anywhere is said aloud, mirroring
+    /// the undo chord's "Nothing to undo".
+    #[test]
+    fn ctrl_s_with_nothing_dirty_says_so() {
+        assert_eq!(
+            resolve_save_chord(None, |_| false),
+            SaveChord::NothingToSave
+        );
+    }
+
+    /// The control: an open dirty editor front-most saves exactly as
+    /// before, whatever else is dirty behind it.
+    #[test]
+    fn ctrl_s_saves_the_front_most_open_dirty_editor() {
+        assert_eq!(
+            resolve_save_chord(Some(EditorKind::Avatar), |_| true),
+            SaveChord::Save(EditorKind::Avatar)
+        );
+    }
+
+    /// The id every routed chord and the Esc ladder's window step depend
+    /// on: [`window_area_id`] must be the id egui actually keys the window
+    /// on, or `topmost` matches nothing and Ctrl+S, Ctrl+Z and Esc-close
+    /// all go quiet. egui 0.35 changed `Window::new` to hash the title's
+    /// `Atoms::text()` — an `Option<Cow<str>>`, not the `&str` — and a
+    /// hand-built `Id::new(title)` stopped matching.
+    #[test]
+    fn window_area_id_is_the_id_egui_keys_the_window_on() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+            egui::Window::new(window_title(UiWindow::WorldEditor)).show(root.ctx(), |_ui| {});
+        });
+        let expected = window_area_id(UiWindow::WorldEditor);
+        let found = ctx.memory(|memory| memory.layer_ids().any(|layer| layer.id == expected));
+        assert!(found, "the derived id must be the window's own area id");
+    }
+
+    /// #1208, finding 72. Sequence: collapse the World Editor with its
+    /// title-bar arrow to see the world, edit through the gizmo, press
+    /// Ctrl+S. The request was parked for an open window, but a collapsed
+    /// `egui::Window` never runs its body — and the Save row that consumes
+    /// the request is in the body — so it aged out on the TTL with no
+    /// effect. The chord now expands the window, and the body runs on the
+    /// very next pass, inside the TTL.
+    #[test]
+    fn a_collapsed_editor_window_is_expanded_so_its_save_row_runs() {
+        let ctx = egui::Context::default();
+        // One egui pass drawing the World Editor; reports whether its body
+        // ran. Time advances a whole second per pass so egui's collapse
+        // animation settles.
+        let pass = |t: f64| {
+            let mut body_ran = false;
+            let input = egui::RawInput {
+                time: Some(t),
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |root| {
+                egui::Window::new(window_title(UiWindow::WorldEditor))
+                    .collapsible(true)
+                    .show(root.ctx(), |_ui| body_ran = true);
+            });
+            body_ran
+        };
+        assert!(pass(0.0), "control: an expanded window runs its body");
+
+        // Collapse it the way the title-bar arrow does.
+        let id = window_area_id(UiWindow::WorldEditor).with("collapsing");
+        let mut state = egui::collapsing_header::CollapsingState::load(&ctx, id)
+            .expect("drawn once, so the collapse flag is stored");
+        state.set_open(false);
+        state.store(&ctx);
+        let mut t = 1.0;
+        for _ in 0..30 {
+            pass(t);
+            t += 1.0;
+        }
+        assert!(
+            !pass(t),
+            "the swallow: a collapsed window does not run the closure that takes Ctrl+S"
+        );
+
+        expand_window(&ctx, UiWindow::WorldEditor);
+        assert!(
+            pass(t + 1.0),
+            "after expanding, the body runs on the next pass — inside PUBLISH_REQUEST_TTL_FRAMES"
         );
     }
 

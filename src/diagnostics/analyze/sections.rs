@@ -35,12 +35,20 @@ pub(super) fn timeline_label(p: &EventPayload) -> Option<String> {
         WorldCompileCompleted {
             entity_count,
             digest,
+            skipped_placements,
             ..
         } => {
             // The digest rides the timeline (#1146) so two peers' captured
             // logs can be diffed line-for-line after a desync report, without
             // either of them having been live when the other was.
-            format!("world compiled ({entity_count} entities, {digest:016x})")
+            if *skipped_placements > 0 {
+                format!(
+                    "world compiled ({entity_count} entities, {digest:016x}) — \
+                     {skipped_placements} placements skipped at the entity budget"
+                )
+            } else {
+                format!("world compiled ({entity_count} entities, {digest:016x})")
+            }
         }
         AvatarReseeded { seed } => format!("avatar reseeded (seed {seed})"),
         LoadingGateTransitionToInGame { elapsed_secs } => format!("→ InGame ({elapsed_secs:.1}s)"),

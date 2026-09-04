@@ -561,7 +561,7 @@ const GLOBAL_ROWS: &[ControlRow] = &[
     },
     ControlRow {
         keys: "Ctrl+S",
-        action: "save the editor you're in",
+        action: "save the front-most editor (opens it if none is open)",
     },
     ControlRow {
         keys: "Ctrl+Z / Ctrl+Shift+Z",

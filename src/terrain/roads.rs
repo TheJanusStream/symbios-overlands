@@ -223,10 +223,11 @@ pub(super) fn maybe_rebuild_roads(
                 commands.entity(e).try_despawn();
             }
             *state = RoadRebuild::default();
-            let (buildings, props) = (stats.buildings, stats.props);
+            let (buildings, props, clamps) = (stats.buildings, stats.props, stats.clamps);
             *stats = super::RoadPanelStats {
                 buildings,
                 props,
+                clamps,
                 ..default()
             };
         }
@@ -261,10 +262,11 @@ pub(super) fn maybe_rebuild_roads(
                 }
                 state.building = None;
                 state.live = None;
-                let (buildings, props) = (stats.buildings, stats.props);
+                let (buildings, props, clamps) = (stats.buildings, stats.props, stats.clamps);
                 *stats = super::RoadPanelStats {
                     buildings,
                     props,
+                    clamps,
                     ..default()
                 };
             } else {

@@ -1221,7 +1221,15 @@ pub(crate) mod http {
     /// toast and the log all name the same limit rather than each
     /// inventing its own wording.
     pub fn timed_out(what: &str) -> String {
-        format!("{what} timed out after {}s", REQUEST_TIMEOUT.as_secs())
+        timed_out_after(what, REQUEST_TIMEOUT)
+    }
+
+    /// The same sentence for a different bound. The outer
+    /// [`PUBLISH_TASK_DEADLINE`] reports its own number through this
+    /// (#1206): it used to borrow [`timed_out`] and tell the owner their
+    /// save gave up "after 30s" a full minute after they pressed it.
+    pub fn timed_out_after(what: &str, after: Duration) -> String {
+        format!("{what} timed out after {}s", after.as_secs())
     }
 
     pub async fn run_or<F: std::future::Future>(fut: F, on_timeout: F::Output) -> F::Output {

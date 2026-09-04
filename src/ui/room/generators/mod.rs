@@ -101,18 +101,48 @@ pub(crate) trait GeneratorTreeSource {
     fn placement_ref_count(&self, _root: &str) -> usize {
         0
     }
+    /// How many more roots [`Self::add_root`] will accept (#1210). The
+    /// room answers from [`Cap::Generators`]; a single-root source has no
+    /// cap beyond its one root, which `add_root` already refuses.
+    ///
+    /// [`Cap::Generators`]: crate::ui::room::caps::Cap::Generators
+    fn root_capacity_remaining(&self) -> usize {
+        usize::MAX
+    }
+    /// Nodes in `root`'s tree, root included — what
+    /// [`Cap::NodesPerGenerator`] bounds (#1210). Zero for an unknown root.
+    ///
+    /// [`Cap::NodesPerGenerator`]: crate::ui::room::caps::Cap::NodesPerGenerator
+    fn node_count(&self, root: &str) -> usize {
+        self.get_root(root)
+            .map_or(0, crate::ui::room::caps::node_count)
+    }
 }
 
 /// Pending destructive tree operations awaiting confirmation (#838):
-/// a root delete (cascades through referencing placements) and a kind
-/// change on a node with children or tuned params (discards both).
+/// a root delete (cascades through referencing placements), a kind
+/// change that discards tuned params or strands children, and a drag
+/// that nests a placed root (#1209, the same cascade as the delete).
 /// Embedded in each editor's state and threaded through
 /// [`draw_generators_tab`].
 #[derive(Default)]
 pub(crate) struct TreeConfirms {
     pub(crate) delete: crate::ui::confirm::ConfirmState<GenNodeId>,
     pub(crate) kind: crate::ui::confirm::ConfirmState<(GenNodeId, &'static str)>,
+    pub(crate) reparent: crate::ui::confirm::ConfirmState<reparent::PendingReparent>,
 }
+
+impl TreeConfirms {
+    /// Drop every parked payload — an undo restore or a record swap makes
+    /// the node ids they were resolved against stale.
+    pub(crate) fn cancel_all(&mut self) {
+        self.delete.cancel();
+        self.kind.cancel();
+        self.reparent.cancel();
+    }
+}
+
+pub(crate) use reparent::request_root_delete;
 
 /// `GeneratorTreeSource` adapter for the room editor: directly mutates
 /// `RoomRecord::generators` and runs [`sweep_root_refs`] on root removal
@@ -144,9 +174,22 @@ impl GeneratorTreeSource for RoomTreeSource<'_> {
         true
     }
     fn add_root(&mut self, prefix: &str, generator: Generator) -> Option<String> {
+        // The cap is enforced HERE, at the one insert every add path
+        // funnels through (#1210): "+ New", "+ From Inventory", "+ From
+        // Catalogue", the scene menu's Create, a drop, a drag-promotion.
+        // Inserting a 257th used to let the next sanitize flush delete
+        // whichever generator sorted last alphabetically.
+        if self.root_capacity_remaining() == 0 {
+            return None;
+        }
         let name = unique_key(&self.record.generators, prefix);
         self.record.generators.insert(name.clone(), generator);
         Some(name)
+    }
+    fn root_capacity_remaining(&self) -> usize {
+        crate::ui::room::caps::Cap::Generators
+            .max()
+            .saturating_sub(self.record.generators.len())
     }
     fn remove_root(&mut self, name: &str) -> Option<Generator> {
         let removed = self.record.generators.remove(name);
@@ -400,8 +443,26 @@ pub(crate) fn draw_generators_tab(
         && let Some(node) = reparent::find_node_mut(source, &id)
     {
         label.set(format!("kind change to {kind_tag}"));
-        node.kind = super::construct::make_default_for_kind(kind_tag);
+        super::construct::apply_kind_change(node, kind_tag);
         *dirty = true;
+    }
+    if let Some(reparent::PendingReparent {
+        source: drag_source,
+        target,
+        position,
+    }) = confirms.reparent.show(ui.ctx(), "tree-nest")
+    {
+        reparent::apply_reparent(
+            source,
+            selected_generator,
+            selected_prim_path,
+            tree_view_state,
+            drag_source,
+            target,
+            position,
+            dirty,
+            label,
+        );
     }
 }
 

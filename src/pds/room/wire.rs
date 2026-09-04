@@ -395,18 +395,24 @@ pub async fn fetch_room_record(
 /// per-record figure the #694 size budget applies to now that the room is
 /// split across records (#697).
 pub fn max_publish_record_bytes(record: &RoomRecord) -> Option<usize> {
-    let manifest =
-        crate::pds::record_size::serialized_record_bytes(&RoomManifestOut::from_record(record));
-    let biggest_child = record
-        .generators
-        .iter()
-        .filter_map(|(name, generator)| {
-            crate::pds::record_size::serialized_record_bytes(&RoomGeneratorRecord::new(
-                name, generator,
-            ))
-        })
-        .max();
-    manifest.into_iter().chain(biggest_child).max()
+    measure_publish(record).bytes
+}
+
+/// Everything the size readout shows for a room (#1207): the largest of
+/// the manifest and the child generator records, named the way
+/// [`plan_room_writes`] names them when it refuses one, and the refusal
+/// sentence if any of them cannot be serialized (a generator, placement or
+/// material from a newer build — `wire_ready` refuses the same save).
+pub fn measure_publish(record: &RoomRecord) -> crate::pds::record_size::SizeReadout {
+    let mut readout = crate::pds::record_size::SizeReadout::default();
+    readout.consider(&RoomManifestOut::from_record(record), "room manifest");
+    for (name, generator) in &record.generators {
+        readout.consider(
+            &RoomGeneratorRecord::new(name, generator),
+            &format!("room generator \"{name}\""),
+        );
+    }
+    readout
 }
 
 /// Build the ordered `applyWrites` batches that publish `record` as a
@@ -658,6 +664,31 @@ mod split_wire_tests {
         let mut g = Generator::default_cuboid();
         g.transform.translation.0[0] = x;
         g
+    }
+
+    /// #1207, finding 208. Sequence: the readout turns red at "912.4 KiB
+    /// — too large to save" and the only guidance is "remove or shrink
+    /// content" — nothing says which of forty generators holds the budget,
+    /// and the preflight that names it is behind the very Save the ceiling
+    /// disables. The measurement names the winner in preflight's words.
+    #[test]
+    fn measure_publish_names_the_record_that_holds_the_budget() {
+        let mut record = RoomRecord::default_for_did("did:plc:measure-test");
+        let mut grove = cuboid_at(0.0);
+        grove.children = vec![cuboid_at(1.0); 1_500];
+        record.generators.insert(String::from("oak_grove"), grove);
+        let readout = measure_publish(&record);
+        assert_eq!(
+            readout.largest.as_deref(),
+            Some("room generator \"oak_grove\"")
+        );
+        assert_eq!(readout.bytes, max_publish_record_bytes(&record));
+        assert_eq!(readout.unserializable, None);
+        // And when the manifest is the biggest record, it says so — which
+        // is when deleting placements DOES move the number.
+        record.generators.remove("oak_grove");
+        let readout = measure_publish(&record);
+        assert!(readout.largest.is_some());
     }
 
     #[test]

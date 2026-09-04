@@ -276,6 +276,7 @@ fn report_renders_timeline_and_loading_gate_stage_timings() {
                     digest: 0xdef,
                     entity_count: 1200,
                     duration_secs: 0.9,
+                    skipped_placements: 0,
                 },
             ),
             ev(

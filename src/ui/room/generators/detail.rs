@@ -265,6 +265,78 @@ fn road_slider(
 /// heavy is a real slice of the wasm frame/memory budget.
 const ROAD_HEAVY_VERTS: usize = 150_000;
 
+/// The lot layer's arithmetic as readout lines, `(text, warn)` (#1211,
+/// finding 384). Four clamps used to drop content with no report — density
+/// thinning, the per-district building cap or the room's free placement
+/// budget, the furniture cap, and the generator ceiling — leaving the owner
+/// tuning density, extent and spacing against a number that moved for
+/// reasons they could not attribute. Nothing for adopted (saved) content,
+/// which this session did not inject.
+pub(crate) fn lot_clamp_lines(
+    clamps: &crate::terrain::LotClamps,
+    buildings: usize,
+) -> Vec<(String, bool)> {
+    let mut lines = Vec::new();
+    if clamps.lots_found > 0 {
+        lines.push((
+            format!(
+                "{} lots · {} kept by density · {buildings} grown",
+                clamps.lots_found, clamps.lots_kept
+            ),
+            false,
+        ));
+    }
+    if clamps.buildings_dropped > 0 {
+        lines.push((
+            if clamps.buildings_capped_by_budget {
+                format!(
+                    "{} lots left empty — only {} placements were left in this world's \
+                     {}-placement budget",
+                    clamps.buildings_dropped,
+                    buildings,
+                    crate::pds::sanitize::limits::MAX_PLACEMENTS
+                )
+            } else {
+                format!(
+                    "{} lots left empty — capped at {} buildings per district",
+                    clamps.buildings_dropped,
+                    crate::terrain::MAX_LOT_BUILDINGS
+                )
+            },
+            true,
+        ));
+    }
+    if clamps.props_dropped > 0 {
+        lines.push((
+            if clamps.props_capped_by_budget {
+                format!(
+                    "{} furniture spots left empty — this world's {}-placement budget is used up",
+                    clamps.props_dropped,
+                    crate::pds::sanitize::limits::MAX_PLACEMENTS
+                )
+            } else {
+                format!(
+                    "{} furniture spots left empty — capped at {} props per district",
+                    clamps.props_dropped,
+                    crate::terrain::MAX_FURNITURE_PROPS
+                )
+            },
+            true,
+        ));
+    }
+    if clamps.generator_cap_skips > 0 {
+        lines.push((
+            format!(
+                "{} lots skipped — the world is at its {}-generator limit",
+                clamps.generator_cap_skips,
+                crate::pds::sanitize::limits::MAX_GENERATORS
+            ),
+            true,
+        ));
+    }
+    lines
+}
+
 fn draw_road_editor(
     ui: &mut egui::Ui,
     config: &mut crate::pds::generator::RoadConfig,
@@ -309,6 +381,16 @@ fn draw_road_editor(
                     "This road mesh is heavy — consider a smaller district or \
                      wider spacing, especially for wasm visitors.",
                 );
+            }
+            // The arithmetic behind the building count (#1211): every
+            // clamp that emptied a lot, named, where the knobs are.
+            for (line, warn) in lot_clamp_lines(&stats.clamps, stats.buildings) {
+                let color = if warn {
+                    theme.status.warn
+                } else {
+                    theme.text_weak
+                };
+                ui.label(egui::RichText::new(line).small().color(color));
             }
         } else if config.enabled {
             ui.label(
@@ -1062,5 +1144,43 @@ fn draw_generator_detail(
                 "Unknown generator type — editable only via the Raw JSON tab.",
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod lot_clamp_tests {
+    use super::*;
+    use crate::terrain::LotClamps;
+
+    /// #1211, finding 384. Each clamp that emptied a lot gets a warn line
+    /// naming it; the plain arithmetic line is quiet; adopted content
+    /// (nothing injected this session) says nothing.
+    #[test]
+    fn every_clamp_that_bit_is_named() {
+        assert!(lot_clamp_lines(&LotClamps::default(), 12).is_empty());
+        let clamps = LotClamps {
+            lots_found: 400,
+            lots_kept: 200,
+            buildings_dropped: 76,
+            buildings_capped_by_budget: true,
+            props_dropped: 3,
+            props_capped_by_budget: false,
+            generator_cap_skips: 2,
+        };
+        let lines = lot_clamp_lines(&clamps, 124);
+        assert_eq!(lines.len(), 4);
+        assert_eq!(
+            lines[0],
+            (
+                String::from("400 lots · 200 kept by density · 124 grown"),
+                false
+            )
+        );
+        assert!(lines[1].0.contains("76 lots left empty"), "{}", lines[1].0);
+        assert!(lines[1].0.contains("placement budget"), "{}", lines[1].0);
+        assert!(lines[1].1);
+        assert!(lines[2].0.contains("3 furniture spots"), "{}", lines[2].0);
+        assert!(lines[2].0.contains("per district"), "{}", lines[2].0);
+        assert!(lines[3].0.contains("generator limit"), "{}", lines[3].0);
     }
 }

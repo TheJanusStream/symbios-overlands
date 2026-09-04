@@ -117,6 +117,10 @@ pub(super) struct ActiveJob {
     /// monolithic pass's per-pass cap).
     pub(super) entities_spawned: u32,
     pub(super) budget_warned: bool,
+    /// Units abandoned when the budget tripped (#1211): how many, and the
+    /// first index — the owner's clue to which rows are missing.
+    pub(super) skipped_units: u32,
+    pub(super) skipped_from: Option<usize>,
     /// The room's water level at plan time, for `start_unit`'s dry-land
     /// walk. Cached on the job so the execute slices don't re-scan every
     /// generator each frame (#673); a replan recomputes it, and the record
@@ -137,6 +141,8 @@ impl ActiveJob {
             touched: TouchSets::default(),
             entities_spawned: 0,
             budget_warned: false,
+            skipped_units: 0,
+            skipped_from: None,
             room_water_y,
             work: Duration::ZERO,
             frames: 0,

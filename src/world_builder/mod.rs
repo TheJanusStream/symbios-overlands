@@ -238,6 +238,23 @@ impl PlacementUnit {
 #[derive(Resource)]
 pub struct WorldCompiled;
 
+/// The last compile hit [`compile::MAX_ROOM_ENTITIES`] and abandoned the
+/// rest of its placement queue (#1211). Inserted at job completion when
+/// that happened, removed by a completion that did not, and swept on
+/// logout. Until this existed the only report was one `warn!` in the
+/// console: the completion event and the info line read like a success,
+/// and the owner concluded they had deleted their own buildings.
+#[derive(Resource, Debug, Clone, PartialEq, Eq)]
+pub struct WorldCompileTruncated {
+    /// Placements never built — the tail of the list, in index order.
+    pub skipped_placements: u32,
+    /// The first placement index that was not built.
+    pub first_skipped_index: Option<usize>,
+    /// The one-shot toast has fired for this compile
+    /// (`ui::room::announce_compile_truncation`).
+    pub announced: bool,
+}
+
 /// One-frame delay latch for the first compile of a `Loading` pass
 /// (#849). [`arm_world_compile`] inserts this the frame the compile's
 /// dependencies (room record + terrain mesh) are satisfied; the compile

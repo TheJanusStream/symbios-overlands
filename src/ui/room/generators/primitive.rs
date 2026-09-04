@@ -14,6 +14,37 @@ use crate::pds::{Fp, Fp2, Fp3, SovereignMaterialSettings};
 use super::super::construct::{draw_torture, draw_universal_material};
 use super::super::widgets::{drag_u32, euler_rotation_row, fp_slider};
 
+/// A list row's remove control, disabled with the reason at the list's
+/// minimum (#1210). It used to be always enabled: the click registered,
+/// the post-hoc `len() > min` guard discarded it, and nothing happened.
+fn remove_row_button(ui: &mut egui::Ui, hover: &str, enabled: bool, min_reason: &str) -> bool {
+    let th = crate::ui::theme::current(ui.ctx());
+    ui.add_enabled(
+        enabled,
+        egui::Button::new(egui::RichText::new("−").color(egui::Color32::WHITE))
+            .fill(th.danger_fill)
+            .small(),
+    )
+    .on_hover_text(hover)
+    .on_disabled_hover_text(min_reason)
+    .clicked()
+}
+
+/// A list's add control, present-but-disabled at the cap with the reason
+/// (#1210). It used to be short-circuited out of existence at the cap,
+/// which read as a UI glitch. `max` is the sanitiser's number for this
+/// list — the same one [`crate::ui::room::caps`] speaks for.
+fn add_row_button(ui: &mut egui::Ui, label: &str, len: usize, max: usize) -> bool {
+    let reason = if max == MAX_BLOB_ELEMENTS {
+        super::super::caps::Cap::BlobElements.full_reason()
+    } else {
+        super::super::caps::Cap::SweepPoints.full_reason()
+    };
+    ui.add_enabled(len < max, egui::Button::new(label))
+        .on_disabled_hover_text(reason)
+        .clicked()
+}
+
 pub(super) fn draw_primitive_cuboid(ui: &mut egui::Ui, size: &mut Fp3, edit: PrimEdit<'_, '_>) {
     let PrimEdit {
         common,
@@ -335,6 +366,7 @@ pub(super) fn draw_primitive_spine(
     } = edit;
     ui.label("Spine points (X/Y/Z, radius):");
     let mut remove: Option<usize> = None;
+    let can_remove = points.len() > 2;
     for (i, p) in points.iter_mut().enumerate() {
         ui.horizontal(|ui| {
             ui.label(format!("{i}"));
@@ -357,7 +389,12 @@ pub(super) fn draw_primitive_spine(
                 p.radius = Fp(r);
                 *dirty = true;
             }
-            if crate::ui::affordances::remove_button(ui, "Remove point").clicked() {
+            if remove_row_button(
+                ui,
+                "Remove point",
+                can_remove,
+                super::super::caps::SPINE_MIN_REASON,
+            ) {
                 remove = Some(i);
             }
         });
@@ -368,7 +405,7 @@ pub(super) fn draw_primitive_spine(
         points.remove(i);
         *dirty = true;
     }
-    if points.len() < MAX_SWEEP_POINTS && ui.button("+ Add point").clicked() {
+    if add_row_button(ui, "+ Add point", points.len(), MAX_SWEEP_POINTS) {
         // Extend past the current end, continuing the last segment's
         // direction so the new point doesn't fold the spline back.
         let last = points[points.len() - 1];
@@ -406,6 +443,7 @@ pub(super) fn draw_primitive_lathe(
     } = edit;
     ui.label("Profile (radius, height — bottom to top):");
     let mut remove: Option<usize> = None;
+    let can_remove = points.len() > 2;
     for (i, p) in points.iter_mut().enumerate() {
         ui.horizontal(|ui| {
             ui.label(format!("{i}"));
@@ -429,7 +467,12 @@ pub(super) fn draw_primitive_lathe(
                 p.height = Fp(h);
                 *dirty = true;
             }
-            if crate::ui::affordances::remove_button(ui, "Remove station").clicked() {
+            if remove_row_button(
+                ui,
+                "Remove station",
+                can_remove,
+                super::super::caps::LATHE_MIN_REASON,
+            ) {
                 remove = Some(i);
             }
         });
@@ -440,7 +483,7 @@ pub(super) fn draw_primitive_lathe(
         points.remove(i);
         *dirty = true;
     }
-    if points.len() < MAX_SWEEP_POINTS && ui.button("+ Add station").clicked() {
+    if add_row_button(ui, "+ Add station", points.len(), MAX_SWEEP_POINTS) {
         let last = points[points.len() - 1];
         points.push(LathePoint {
             radius: last.radius,
@@ -484,6 +527,8 @@ pub(super) fn draw_primitive_blob_group(
     );
     let mut remove: Option<usize> = None;
     let mut duplicate: Option<usize> = None;
+    let can_duplicate = elements.len() < MAX_BLOB_ELEMENTS;
+    let can_remove = elements.len() > 1;
     for (i, e) in elements.iter_mut().enumerate() {
         ui.push_id((salt, "blob_el", i), |ui| {
             ui.horizontal(|ui| {
@@ -531,10 +576,20 @@ pub(super) fn draw_primitive_blob_group(
                     e.blend = Fp(b);
                     *dirty = true;
                 }
-                if ui.button("⎘").on_hover_text("Duplicate").clicked() {
+                if ui
+                    .add_enabled(can_duplicate, egui::Button::new("⎘"))
+                    .on_hover_text("Duplicate")
+                    .on_disabled_hover_text(super::super::caps::Cap::BlobElements.full_reason())
+                    .clicked()
+                {
                     duplicate = Some(i);
                 }
-                if crate::ui::affordances::remove_button(ui, "Remove this element").clicked() {
+                if remove_row_button(
+                    ui,
+                    "Remove this element",
+                    can_remove,
+                    super::super::caps::BLOB_MIN_REASON,
+                ) {
                     remove = Some(i);
                 }
             });
@@ -638,7 +693,7 @@ pub(super) fn draw_primitive_blob_group(
         }
         *dirty = true;
     }
-    if elements.len() < MAX_BLOB_ELEMENTS && ui.button("+ Add element").clicked() {
+    if add_row_button(ui, "+ Add element", elements.len(), MAX_BLOB_ELEMENTS) {
         elements.push(BlobElement::default());
         *dirty = true;
     }

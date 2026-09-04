@@ -268,6 +268,22 @@ pub fn handle_generator_drop(
     // unwrap to the inner record for the field writes below.
     let record = &mut record.0;
 
+    // The caps, before any insert (#1210): a drop at the placement cap
+    // used to land, get selected, and be truncated by the next flush; a
+    // drop that needed a new generator at the generator cap cost whichever
+    // generator sorted last.
+    {
+        use crate::ui::room::caps::Cap;
+        if Cap::Placements.is_full(record.placements.len()) {
+            toasts.warn(Cap::Placements.full_reason(), time.elapsed_secs_f64());
+            return;
+        }
+        if Cap::Generators.is_full(record.generators.len()) {
+            toasts.warn(Cap::Generators.full_reason(), time.elapsed_secs_f64());
+            return;
+        }
+    }
+
     let gen_key = match source {
         DropSource::Inventory => {
             let Some(inv) = inventory.as_ref() else {

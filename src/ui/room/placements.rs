@@ -151,12 +151,24 @@ pub(super) fn draw_placements_tab(
         .default_size(260.0)
         .min_size(180.0)
         .show(ui, |ui| {
-            // Add actions ABOVE the list (#825).
+            // Add actions ABOVE the list (#825). Every add stands down at
+            // the placement cap with the reason (#1210) — the 1025th used
+            // to be pushed, selected, and truncated by the next flush.
             let anchor = anchor_xz(player_pose);
+            let cap = crate::ui::room::caps::Cap::Placements;
+            let full = cap.is_full(record.placements.len());
+            let full_reason = cap.full_reason();
+            let (count_text, tone) = cap.readout(record.placements.len());
+            ui.label(
+                egui::RichText::new(count_text)
+                    .small()
+                    .color(crate::ui::room::caps::tone_color(ui, tone)),
+            );
             ui.horizontal(|ui| {
                 if ui
-                    .small_button("+ Absolute")
+                    .add_enabled(!full, egui::Button::new("+ Absolute").small())
                     .on_hover_text("Add a single placement at your position")
+                    .on_disabled_hover_text(&full_reason)
                     .clicked()
                 {
                     label.set("add of absolute placement");
@@ -172,9 +184,18 @@ pub(super) fn draw_placements_tab(
                 // Water root, so the user can't seed an immediately-invalid
                 // placement that the sanitiser would just drop on next save.
                 let has_eligible = !eligible_names.is_empty();
+                let scatter_refusal = if full {
+                    full_reason.as_str()
+                } else {
+                    "No scatterable generator in this world yet"
+                };
                 if ui
-                    .add_enabled(has_eligible, egui::Button::new("+ Scatter").small())
+                    .add_enabled(
+                        has_eligible && !full,
+                        egui::Button::new("+ Scatter").small(),
+                    )
                     .on_hover_text("Scatter instances in a region centred on you")
+                    .on_disabled_hover_text(scatter_refusal)
                     .clicked()
                 {
                     label.set("add of scatter placement");
@@ -186,8 +207,9 @@ pub(super) fn draw_placements_tab(
                     *dirty = true;
                 }
                 if ui
-                    .add_enabled(has_eligible, egui::Button::new("+ Grid").small())
+                    .add_enabled(has_eligible && !full, egui::Button::new("+ Grid").small())
                     .on_hover_text("Add a grid of instances anchored at your position")
+                    .on_disabled_hover_text(scatter_refusal)
                     .clicked()
                 {
                     label.set("add of grid placement");

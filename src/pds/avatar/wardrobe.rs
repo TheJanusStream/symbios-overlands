@@ -811,7 +811,7 @@ pub(crate) fn plan_avatar_writes(
     for (rkey, attachment) in &plan.attachments {
         let value =
             serde_json::to_value(attachment).map_err(|e| format!("serialize attachment: {e}"))?;
-        crate::pds::record_size::preflight(&value, &format!("attachment \"{rkey}\""))?;
+        crate::pds::record_size::preflight(&value, &attachment_label(rkey, attachment))?;
         ordered.push(upsert(
             repo.attachments.contains(rkey),
             AVATAR_ATTACHMENT_COLLECTION,
@@ -851,6 +851,60 @@ pub(crate) fn plan_avatar_writes(
     }
 
     chunk_writes(ordered)
+}
+
+/// How a refusal names a worn prop (#1207): by the inventory item it was
+/// worn from, which is a name the owner can find on screen — never by the
+/// TID rkey, which maps to nothing they can see. A prop attached from a
+/// bare generator has no source name, so it is named by its socket.
+fn attachment_label(rkey: &str, attachment: &AttachmentRecord) -> String {
+    match attachment.source.as_deref() {
+        Some(name) => format!("worn item \"{name}\""),
+        None => format!("prop worn at {} ({rkey})", attachment.socket),
+    }
+}
+
+/// Everything the size readout shows for an avatar (#1207): the largest
+/// record in the bundle one save writes — the worn engine body, each worn
+/// prop, the profile and the avatar record itself — named as
+/// [`plan_avatar_writes`] names it when refusing one, and the refusal
+/// sentence for a body this build cannot write back.
+///
+/// For a rigged body the avatar record is references only: the sculpt
+/// lives on the serde-skipped `resolved` and is written as the wardrobe
+/// and attachment records. Measuring the record alone — what the Avatar
+/// footer did until now — showed "4.1 KiB" beside a green Save for an
+/// outfit whose heaviest prop was past the ceiling, and the refusal
+/// arrived after the round trip with an rkey in it.
+pub fn measure_publish(record: &super::AvatarRecord) -> crate::pds::record_size::SizeReadout {
+    let mut readout = crate::pds::record_size::SizeReadout::default();
+    if let Err(reason) = record.body.wire_ready() {
+        readout.refuse(reason);
+    }
+    // The fill-ins `plan_avatar_publish` makes are a name and a timestamp;
+    // a placeholder of the same length keeps the measurement honest to the
+    // byte without needing a clock (wasm has none in `std::time`).
+    let plan = plan_avatar_publish(record, &[], "2026-01-01T00:00:00.000000+00:00");
+    if let Some((_, body)) = &plan.wardrobe {
+        match engine_record_wire(body) {
+            Ok(value) => readout.consider(&value, "wardrobe body"),
+            Err(reason) => readout.refuse(reason),
+        }
+    }
+    for (rkey, attachment) in &plan.attachments {
+        readout.consider(attachment, &attachment_label(rkey, attachment));
+    }
+    if let Some(profile) = &plan.profile {
+        readout.consider(
+            &WireProfile {
+                lex_type: AVATAR_PROFILE_COLLECTION.into(),
+                profile: profile.clone(),
+            },
+            "avatar profile",
+        );
+    }
+    readout.consider(&plan.record, "avatar record");
+    readout
 }
 
 /// `#update` when the record is already there, `#create` when it is not.
@@ -1209,6 +1263,55 @@ mod tests {
             "the cross-app pointer follows the worn body"
         );
         assert_eq!(plan.attachment_deletes, vec![String::from("3jzfcijpj2z2c")]);
+    }
+
+    /// #1207, finding 200. Sequence: wear a heavy prop on a rigged body,
+    /// read "4.1 KiB" beside a green Save, press it, wait a round trip, and
+    /// get "attachment \"3jzfcijpj2z2b\" record is … past the ceiling". The
+    /// footer measured the reference-only avatar record; the prop lives in
+    /// its own attachment record. The readout now measures the bundle and
+    /// names the prop by the item it was worn from.
+    #[test]
+    fn the_avatar_readout_measures_the_bundle_and_names_a_prop_by_its_item() {
+        let mut record = super::super::AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = record.body.rigged_mut() {
+            rig.attachments.push(String::from("3jzfcijpj2z2b"));
+            let mut heavy = Generator::default_cuboid();
+            heavy.children = vec![Generator::default_cuboid(); 400];
+            let mut prop = AttachmentRecord::new(heavy, symbios_avatar::Socket::Crown);
+            prop.source = Some(String::from("Harbour battery"));
+            rig.resolved = Some(ResolvedRig {
+                body: engine_default_for_did("did:plc:measure-test"),
+                attachments: vec![ResolvedAttachment {
+                    rkey: String::from("3jzfcijpj2z2b"),
+                    record: prop,
+                }],
+            });
+        }
+        let readout = measure_publish(&record);
+        let monolith = crate::pds::record_size::serialized_record_bytes(&record).unwrap();
+        let bytes = readout.bytes.expect("measured");
+        assert!(
+            bytes > monolith,
+            "the bundle ({bytes} B) is what the PDS is asked to store, not the \
+             reference-only record ({monolith} B)"
+        );
+        assert_eq!(
+            readout.largest.as_deref(),
+            Some("worn item \"Harbour battery\""),
+            "named by the inventory item, never by the rkey"
+        );
+        assert_eq!(readout.unserializable, None);
+    }
+
+    /// The readout for a body this build cannot write back carries the
+    /// same sentence the publish refuses with, before the click.
+    #[test]
+    fn an_unknown_body_is_reported_as_unserializable() {
+        let mut record = super::super::AvatarRecord::wearing("3jzfcijpj2z2a");
+        record.body = super::super::body::AvatarBody::Unknown;
+        let readout = measure_publish(&record);
+        assert_eq!(readout.unserializable, record.body.wire_ready().err());
     }
 
     /// A rigged record wearing exactly `rkeys`, resolved so the plan has a

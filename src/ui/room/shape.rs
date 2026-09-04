@@ -227,7 +227,15 @@ pub(super) fn draw_shape_forge(
                 materials.insert(new, settings);
                 *dirty = true;
             }
-            if ui.button("+ Add material slot").clicked() {
+            let cap = crate::ui::room::caps::Cap::MaterialSlots;
+            if ui
+                .add_enabled(
+                    !cap.is_full(materials.len()),
+                    egui::Button::new("+ Add material slot"),
+                )
+                .on_disabled_hover_text(cap.full_reason())
+                .clicked()
+            {
                 // Pick a fresh `SlotN` key so the same default doesn't
                 // conflict with an already-defined slot. This stays inside
                 // the per-rule identifier cap enforced by the sanitiser.

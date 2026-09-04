@@ -591,7 +591,7 @@ pub fn incoming_offer_ui(
                 );
             } else if let (Some(sess), Some(refresh)) = (session.as_deref(), refresh_ctx.as_deref())
             {
-                inventory_feedback.status = PublishStatus::Publishing;
+                inventory_feedback.status = PublishStatus::Publishing { since_secs: now };
                 crate::ui::inventory::spawn_publish_inventory_task(
                     &mut commands,
                     sess,

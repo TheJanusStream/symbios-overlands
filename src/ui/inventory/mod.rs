@@ -467,6 +467,16 @@ pub fn inventory_ui(
                                 .get(&name)
                                 .map(is_drop_placeable)
                                 .unwrap_or(false);
+                            // An item this build cannot decode (#1207): a
+                            // gift from a newer client, or a stash saved by
+                            // one. It cannot be placed, worn, renamed or
+                            // written back — only kept or deleted — and it
+                            // is what disables Save for the whole stash.
+                            let unreadable = live
+                                .0
+                                .generators
+                                .get(&name)
+                                .is_some_and(|g| matches!(g.kind, GeneratorKind::Unknown));
                             // What KIND of blueprint each row is (#841) —
                             // names alone ("cuboid_2", "my_tree") didn't say.
                             let kind_tag = live
@@ -525,6 +535,14 @@ pub fn inventory_ui(
                                         }
                                     });
                                 }
+                            } else if unreadable {
+                                ui.label(&name);
+                                ui.label(
+                                    egui::RichText::new(UNREADABLE_ITEM_TAG)
+                                        .small()
+                                        .color(crate::ui::theme::current(ui.ctx()).status.warn),
+                                )
+                                .on_hover_text(UNREADABLE_ITEM_HOVER);
                             } else {
                                 // Room-scoped kinds (terrain/water) can't be
                                 // point-placed — say so instead of rendering
@@ -549,7 +567,14 @@ pub fn inventory_ui(
                                     {
                                         to_remove = Some(name.clone());
                                     }
-                                    if ui.small_button("Rename").clicked() {
+                                    if ui
+                                        .add_enabled(
+                                            !unreadable,
+                                            egui::Button::new("Rename").small(),
+                                        )
+                                        .on_disabled_hover_text(UNREADABLE_ITEM_HOVER)
+                                        .clicked()
+                                    {
                                         state.renaming_generator =
                                             Some((name.clone(), name.clone()));
                                     }
@@ -690,31 +715,36 @@ pub fn inventory_ui(
             // not the whole stash. Same throttled cache as the other
             // editors, custom measurement.
             let now = time.elapsed_secs_f64();
-            if feedback
-                .live_bytes_at
-                .is_none_or(|at| now - at >= crate::config::ui::editor::SIZE_READOUT_REFRESH_SECS)
-            {
-                feedback.live_bytes = crate::pds::inventory::max_item_bytes(&live.0);
-                feedback.live_bytes_at = Some(now);
-            }
-            let record_bytes = feedback.live_bytes;
+            crate::ui::editable::refresh_size_readout(
+                &mut *feedback,
+                &live.0,
+                now,
+                crate::pds::inventory::measure_publish,
+            );
+            let size = feedback.live_size.clone();
             let ctrl_s = publish_shortcut.take(crate::ui::shortcuts::EditorKind::Inventory);
             let mut do_publish = false;
             match save_load_reset_row(
                 ui,
-                dirty,
-                within_cap,
-                can_reset,
-                record_bytes,
-                ctrl_s,
-                matches!(feedback.status, PublishStatus::Publishing),
-                // Inventory has no undo stack (#866) — keep the modal.
-                Some(&mut state.row_confirm),
-                crate::ui::editable::ResetWording::EmptyStash {
-                    items: live.0.generators.len(),
+                crate::ui::editable::SaveRow {
+                    kind: RecordKind::Inventory,
+                    dirty,
+                    can_publish: within_cap,
+                    can_reset,
+                    size: &size,
+                    publish_shortcut: ctrl_s,
+                    status: &mut feedback.status,
+                    // Inventory has no undo stack (#866) — keep the modal.
+                    confirm: Some(&mut state.row_confirm),
+                    reset: crate::ui::editable::ResetWording::EmptyStash {
+                        items: live.0.generators.len(),
+                    },
                 },
             ) {
                 RecordAction::None => {}
+                RecordAction::Refused(reason) => {
+                    toasts.info(crate::ui::editable::ctrl_s_refused(&reason), now);
+                }
                 RecordAction::Publish => {
                     // Clobber protection (#840): while the session is
                     // degraded, saving this (empty-default) stash would
@@ -748,18 +778,18 @@ pub fn inventory_ui(
                 do_publish = true;
             }
             if do_publish {
-                feedback.status = PublishStatus::Publishing;
+                feedback.status = PublishStatus::Publishing { since_secs: now };
                 spawn_publish_inventory_task(
                     &mut commands,
                     &session,
                     &refresh_ctx,
                     live.0.clone(),
                     stored.0.clone(),
-                    time.elapsed_secs_f64(),
+                    now,
                 );
             }
 
-            publish_status_line(ui, &feedback.status, time.elapsed_secs_f64());
+            publish_status_line(ui, &feedback.status, now, dirty);
         });
     if let Some(response) = response {
         chrome.remember(
@@ -909,6 +939,16 @@ pub fn poll_publish_inventory_tasks(
         }
     }
 }
+
+/// The row tag for an item this build cannot decode (#1207). It used to
+/// share the terrain/water "room-scoped" tag, which sent the owner looking
+/// for a placement rule when the item was simply unreadable.
+pub const UNREADABLE_ITEM_TAG: &str = "(from a newer version of Overlands)";
+
+/// What the owner can do about an unreadable item.
+pub const UNREADABLE_ITEM_HOVER: &str = "This item was made by a newer version of Overlands. \
+     This build cannot read it, so it cannot be placed, worn, renamed or saved — and while it \
+     is in your stash, the stash cannot be saved at all. Update Overlands, or delete the item.";
 
 /// Which generator kinds can be point-placed via drag-and-drop.
 /// Terrain + water describe whole-room scope (one heightmap / one water

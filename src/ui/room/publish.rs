@@ -291,7 +291,7 @@ pub fn poll_publish_tasks(
 /// A stale result is dropped whole: `stored` is a claim about what the PDS
 /// holds for THIS identity and room, and the status line describes THIS
 /// editor. Logout sweeps the task entities; this covers a task that
-/// outlived a portal hop under "Continue in background", and the wasm case
+/// outlived a portal hop under "Stay here (save continues)", and the wasm case
 /// where a dropped task's fetch keeps running.
 pub(crate) fn stale_result(label: &str, task_did: &str, expected: Option<&str>) -> bool {
     match expected {

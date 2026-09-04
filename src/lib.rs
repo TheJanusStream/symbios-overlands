@@ -533,6 +533,11 @@ pub fn run() {
                 .chain()
                 .run_if(in_state(AppState::InGame)),
         )
+        // A compile that hit the entity budget says so once (#1211).
+        .add_systems(
+            Update,
+            ui::room::announce_compile_truncation.run_if(in_state(AppState::InGame)),
+        )
         // Gateway destination picker (#748): the zone watcher opens/closes
         // the picker from the player's sensor overlap, the window renders
         // only while the picker resource is present.

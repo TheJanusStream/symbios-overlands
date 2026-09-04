@@ -24,13 +24,13 @@ use bevy_egui::egui;
 use crate::diagnostics::event::{EventPayload, RecordKind};
 use crate::diagnostics::{MetricsRegistry, SessionLog, names};
 use crate::pds::record_size::{
-    self, HARD_RECORD_CEILING_BYTES, SOFT_RECORD_BUDGET_BYTES, SizeClass, human_bytes,
+    HARD_RECORD_CEILING_BYTES, SOFT_RECORD_BUDGET_BYTES, SizeClass, SizeReadout, human_bytes,
 };
 use crate::state::PublishStatus;
 
 /// Which Save/Load/Reset button the owner clicked this frame. The
 /// caller maps each arm to the record-specific effect.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum RecordAction {
     /// Nothing clicked this frame.
     None,
@@ -43,6 +43,125 @@ pub enum RecordAction {
     Load,
     /// "Reset to default" — `live = default_for_did(did)`.
     Reset,
+    /// Ctrl+S arrived and the row's own gate refused it (#1208): the
+    /// reason, in the words the disabled Save button's hover uses. The
+    /// caller toasts it through [`ctrl_s_refused`] — the button can be
+    /// hovered to learn why, a keypress cannot, so the shortcut has to be
+    /// told out loud.
+    Refused(String),
+}
+
+/// Why "Save to PDS" is disabled right now, in ONE place: the button's
+/// disabled hover and the Ctrl+S refusal toast both read it, so the click
+/// and the chord can never explain the same gate two ways. `None` means
+/// the button is enabled. Order is by immediacy: a save in flight is the
+/// fact of the moment; a record that cannot be written is the fact of the
+/// session; the size ceiling and "nothing to save" come after.
+fn save_refusal(
+    dirty: bool,
+    can_publish: bool,
+    size: &SizeReadout,
+    publishing: bool,
+) -> Option<String> {
+    if publishing {
+        Some(String::from("a save is already in flight"))
+    } else if let Some(reason) = &size.unserializable {
+        Some(reason.clone())
+    } else if size.class() == Some(SizeClass::OverHardCeiling) {
+        Some(match &size.largest {
+            Some(largest) => format!(
+                "{largest} is {} — past the {} ceiling; remove or shrink it",
+                human_bytes(size.bytes.unwrap_or_default()),
+                human_bytes(HARD_RECORD_CEILING_BYTES)
+            ),
+            None => String::from("the record is too large to save"),
+        })
+    } else if !dirty {
+        Some(String::from("nothing to save — no unsaved edits"))
+    } else if !can_publish {
+        Some(String::from("saving is not possible right now"))
+    } else {
+        None
+    }
+}
+
+/// Why "Revert to saved" is disabled (#1206). Revert is a whole-record
+/// replacement with `stored`, and during a save `stored` is about to
+/// change: a Revert clicked while "Saving…" restored the PRE-save snapshot,
+/// the landing publish then pinned `stored` to what it wrote, and the row
+/// went dirty again holding the very edits the owner had just discarded.
+fn revert_refusal(dirty: bool, publishing: bool) -> Option<&'static str> {
+    if publishing {
+        Some("Wait for the save to finish")
+    } else if !dirty {
+        Some("Nothing to revert — no unsaved edits")
+    } else {
+        None
+    }
+}
+
+/// Why "Reset to default" is disabled — the same in-flight rule as
+/// Revert, and otherwise "already the default" (#1209).
+fn reset_refusal(can_reset: bool, publishing: bool) -> Option<&'static str> {
+    if publishing {
+        Some("Wait for the save to finish")
+    } else if !can_reset {
+        Some("Already the default")
+    } else {
+        None
+    }
+}
+
+/// The toast for a Ctrl+S the row refused, so all three editors word it
+/// identically.
+pub fn ctrl_s_refused(reason: &str) -> String {
+    format!("Ctrl+S did not save: {reason}")
+}
+
+/// What the size readout's number measures, per record (#1207). One
+/// sentence used to cover all three and was wrong for two of them: it
+/// said "the whole record" while the Room measured its biggest child and
+/// the Avatar measured a reference-only record.
+fn size_measures(kind: RecordKind) -> &'static str {
+    match kind {
+        RecordKind::Room => {
+            "the largest single record a save writes — the room manifest (environment, \
+             placements, traits, effects) or the biggest generator"
+        }
+        RecordKind::Avatar => {
+            "the largest record in the avatar bundle — the avatar record, the worn body, \
+             a worn prop, or the profile"
+        }
+        RecordKind::Inventory => "the largest single item in the stash",
+    }
+}
+
+/// Inputs to [`save_load_reset_row`]. A struct rather than ten positional
+/// parameters, so the three call sites name what they pass.
+pub struct SaveRow<'a> {
+    /// Which record this row saves — words the size hover per record.
+    pub kind: RecordKind,
+    /// The live record differs from its stored mirror.
+    pub dirty: bool,
+    /// A session and refresh context exist to write with (and, for the
+    /// stash, the item cap is not exceeded).
+    pub can_publish: bool,
+    /// The live record differs from the canonical default.
+    pub can_reset: bool,
+    /// The throttled measurement of what a save would write.
+    pub size: &'a SizeReadout,
+    /// A Ctrl+S request landed on this row this frame.
+    pub publish_shortcut: bool,
+    /// The record's publish status; read for the in-flight gate, reset to
+    /// `Idle` by a Revert or Reset so an outcome from before the
+    /// replacement is never quoted after it (#1206).
+    pub status: &'a mut PublishStatus,
+    /// `Some` routes Revert/Reset through the confirm modal — required
+    /// for the Inventory editor, which has no undo stack (#866). Room
+    /// and Avatar pass `None`: both replacements are one Ctrl+Z away,
+    /// so the guard would only double-charge a now-recoverable click.
+    pub confirm: Option<&'a mut crate::ui::confirm::ConfirmState<RecordAction>>,
+    pub reset: ResetWording,
 }
 
 /// What "Reset to default" does to this editor's record, for the button's
@@ -59,8 +178,16 @@ pub enum ResetWording {
 }
 
 impl ResetWording {
-    fn hover(self) -> String {
+    /// The button's hover. `undoable` (no confirm: an undo stack is behind
+    /// the editor) adds the recovery sentence the neighbouring Revert
+    /// carries — the most destructive control in the row used to be the
+    /// only one that did not say Ctrl+Z restores it (#1209).
+    fn hover(self, undoable: bool) -> String {
         match self {
+            Self::Record if undoable => String::from(
+                "Replace the whole record with its generated default. The copy on \
+                 your PDS is untouched until you save. Undo (Ctrl+Z) restores your edits.",
+            ),
             Self::Record => String::from(
                 "Replace the whole record with its generated default. The copy on \
                  your PDS is untouched until you save.",
@@ -111,31 +238,27 @@ impl ResetWording {
 /// * **Reset to default** — `can_reset` (the live record already
 ///   differs from the canonical default).
 ///
-/// `record_bytes` is the live record's serialized size (the throttled
-/// cache in [`crate::state::PublishFeedback`], `None` while never
-/// measured). The row appends a size readout — neutral under the
-/// [`SOFT_RECORD_BUDGET_BYTES`] soft budget, amber past it, red past the
-/// [`HARD_RECORD_CEILING_BYTES`] hard ceiling — and past the ceiling the
-/// Publish button is disabled outright, mirroring the pre-flight guard
-/// in `crate::pds::record_size::preflight` (#694).
-#[allow(clippy::too_many_arguments)]
-pub fn save_load_reset_row(
-    ui: &mut egui::Ui,
-    dirty: bool,
-    can_publish: bool,
-    can_reset: bool,
-    record_bytes: Option<usize>,
-    publish_shortcut: bool,
-    publishing: bool,
-    // `Some` routes Revert/Reset through the confirm modal — required
-    // for the Inventory editor, which has no undo stack (#866). Room
-    // and Avatar pass `None`: both replacements are one Ctrl+Z away,
-    // so the guard would only double-charge a now-recoverable click.
-    mut confirm: Option<&mut crate::ui::confirm::ConfirmState<RecordAction>>,
-    reset: ResetWording,
-) -> RecordAction {
-    let size_class = record_bytes.map(record_size::classify);
-    let over_hard = size_class == Some(SizeClass::OverHardCeiling);
+/// `size` is the throttled measurement of what a save would write (the
+/// cache in [`crate::state::PublishFeedback`]). The row appends a size
+/// readout — neutral under the [`SOFT_RECORD_BUDGET_BYTES`] soft budget,
+/// amber past it, red past the [`HARD_RECORD_CEILING_BYTES`] hard ceiling,
+/// and red "can't be saved" for a record this build cannot serialize —
+/// and in the last two states the Publish button is disabled outright
+/// with the reason on its hover, mirroring the pre-flight guard in
+/// `crate::pds::record_size::preflight` (#694, #1207).
+pub fn save_load_reset_row(ui: &mut egui::Ui, row: SaveRow<'_>) -> RecordAction {
+    let SaveRow {
+        kind,
+        dirty,
+        can_publish,
+        can_reset,
+        size,
+        publish_shortcut,
+        status,
+        mut confirm,
+        reset,
+    } = row;
+    let publishing = status.is_publishing();
     let mut action = RecordAction::None;
     ui.horizontal(|ui| {
         // While a publish is in flight the button reads "Saving…" and is
@@ -153,23 +276,33 @@ pub fn save_load_reset_row(
                 crate::ui::theme::current(ui.ctx()).text_weak
             },
         ));
-        let enabled = dirty && can_publish && !over_hard && !publishing;
+        let refusal = save_refusal(dirty, can_publish, size, publishing);
+        let enabled = refusal.is_none();
         if ui
             .add_enabled(enabled, publish)
             .on_hover_text("Save your edits to your PDS (Ctrl+S)")
+            .on_disabled_hover_text(format!(
+                "Can't save: {}",
+                refusal.as_deref().unwrap_or_default()
+            ))
             .clicked()
         {
             action = RecordAction::Publish;
         }
         // Ctrl+S (#836) — behind the SAME gate as the button, so the
-        // shortcut can never publish what a click could not.
-        if publish_shortcut && enabled {
-            action = RecordAction::Publish;
+        // shortcut can never publish what a click could not. A refused
+        // chord reports the gate's reason instead of vanishing (#1208).
+        if publish_shortcut {
+            action = match refusal {
+                None => RecordAction::Publish,
+                Some(reason) => RecordAction::Refused(reason),
+            };
         }
         // Revert / Reset are whole-record replacements. With an undo
         // stack behind the editor (`confirm: None`) they fire directly —
         // Ctrl+Z restores the pre-click state. Without one (Inventory)
         // they still route through the confirm modal (#838 → #866).
+        // Both stand down while a save is in flight (#1206).
         let revert_hover = if confirm.is_none() {
             "Discard unsaved edits and restore the last state saved to \
              your PDS this session. Undo (Ctrl+Z) restores them."
@@ -177,9 +310,14 @@ pub fn save_load_reset_row(
             "Discard unsaved edits and restore the last state saved to \
              your PDS this session"
         };
+        let revert_refused = revert_refusal(dirty, publishing);
         if ui
-            .add_enabled(dirty, egui::Button::new("Revert to saved"))
+            .add_enabled(
+                revert_refused.is_none(),
+                egui::Button::new("Revert to saved"),
+            )
             .on_hover_text(revert_hover)
+            .on_disabled_hover_text(revert_refused.unwrap_or_default())
             .clicked()
         {
             match confirm.as_deref_mut() {
@@ -193,9 +331,14 @@ pub fn save_load_reset_row(
                 ),
             }
         }
+        let reset_refused = reset_refusal(can_reset, publishing);
         if ui
-            .add_enabled(can_reset, egui::Button::new("Reset to default"))
-            .on_hover_text(reset.hover())
+            .add_enabled(
+                reset_refused.is_none(),
+                egui::Button::new("Reset to default"),
+            )
+            .on_hover_text(reset.hover(confirm.is_none()))
+            .on_disabled_hover_text(reset_refused.unwrap_or_default())
             .clicked()
         {
             match confirm.as_deref_mut() {
@@ -206,36 +349,7 @@ pub fn save_load_reset_row(
                 }
             }
         }
-        if let (Some(bytes), Some(class)) = (record_bytes, size_class) {
-            let (text, color) = match class {
-                SizeClass::WithinBudget => (
-                    human_bytes(bytes),
-                    crate::ui::theme::current(ui.ctx()).text_weak,
-                ),
-                SizeClass::OverSoftBudget => (
-                    format!("⚠ {}", human_bytes(bytes)),
-                    crate::ui::theme::current(ui.ctx()).status.warn,
-                ),
-                SizeClass::OverHardCeiling => (
-                    format!(
-                        "{} {} — too large to save",
-                        crate::ui::affordances::CROSS,
-                        human_bytes(bytes)
-                    ),
-                    crate::ui::theme::current(ui.ctx()).status.error,
-                ),
-            };
-            ui.label(egui::RichText::new(text).color(color).small())
-                .on_hover_text(format!(
-                    "Serialized size of the largest record this editor publishes \
-                     (the whole record for Room/Avatar; the biggest single item \
-                     for Inventory). Soft budget {} (warns), hard ceiling {} \
-                     (blocks saving — an ATProto record is a single ~1 MiB-max repo \
-                     block). Remove or shrink content to fit.",
-                    human_bytes(SOFT_RECORD_BUDGET_BYTES),
-                    human_bytes(HARD_RECORD_CEILING_BYTES),
-                ));
-        }
+        size_readout(ui, kind, size);
     });
     // A confirmed Revert/Reset surfaces as this frame's action, exactly
     // as if the (guarded) button had fired directly.
@@ -244,30 +358,88 @@ pub fn save_load_reset_row(
     {
         action = confirmed;
     }
+    // A Revert or Reset replaces the record the last outcome was about;
+    // quoting that outcome afterwards — "✔ Saved" over a reverted record,
+    // or a "✖ Save failed" the unsaved guard later reads as THIS attempt's
+    // reason — is what #1206 found. Nothing is in flight here: both
+    // buttons stand down while publishing.
+    if matches!(action, RecordAction::Load | RecordAction::Reset) {
+        *status = PublishStatus::Idle;
+    }
     action
 }
 
-/// Throttled refresh of the live record's serialized-size cache in
+/// The size readout at the end of the row: a number classed against the
+/// budgets, or "can't be saved" for a record this build cannot write, with
+/// a hover that says what the number measures for THIS record and which
+/// part holds it (#1207).
+fn size_readout(ui: &mut egui::Ui, kind: RecordKind, size: &SizeReadout) {
+    let theme = crate::ui::theme::current(ui.ctx());
+    if let Some(reason) = &size.unserializable {
+        ui.label(
+            egui::RichText::new(format!("{} can't be saved", crate::ui::affordances::CROSS))
+                .color(theme.status.error)
+                .small(),
+        )
+        .on_hover_text(reason);
+        return;
+    }
+    let (Some(bytes), Some(class)) = (size.bytes, size.class()) else {
+        return;
+    };
+    let (text, color) = match class {
+        SizeClass::WithinBudget => (human_bytes(bytes), theme.text_weak),
+        SizeClass::OverSoftBudget => (format!("⚠ {}", human_bytes(bytes)), theme.status.warn),
+        SizeClass::OverHardCeiling => (
+            format!(
+                "{} {} — too large to save",
+                crate::ui::affordances::CROSS,
+                human_bytes(bytes)
+            ),
+            theme.status.error,
+        ),
+    };
+    let largest = size
+        .largest
+        .as_deref()
+        .map(|largest| format!("Largest: {largest} at {}. ", human_bytes(bytes)))
+        .unwrap_or_default();
+    ui.label(egui::RichText::new(text).color(color).small())
+        .on_hover_text(format!(
+            "Serialized size of {}. {largest}Soft budget {} (warns), hard ceiling {} \
+             (blocks saving — an ATProto record is a single ~1 MiB-max repo block). \
+             Remove or shrink content to fit.",
+            size_measures(kind),
+            human_bytes(SOFT_RECORD_BUDGET_BYTES),
+            human_bytes(HARD_RECORD_CEILING_BYTES),
+        ));
+}
+
+/// Throttled refresh of the live record's size cache in
 /// [`PublishFeedback`](crate::state::PublishFeedback), returning the current
-/// reading for [`save_load_reset_row`]. Serializing the full record every
-/// frame would be wasted work, so the cache refreshes at
+/// reading for [`save_load_reset_row`]. `measure` is the record's own
+/// `measure_publish` — what its save actually writes (#1207). Serializing
+/// the full record every frame would be wasted work, so the cache refreshes at
 /// [`SIZE_READOUT_REFRESH_SECS`](crate::config::ui::editor::SIZE_READOUT_REFRESH_SECS)
 /// cadence — at worst the readout (and its publish hard-block) lags an edit
 /// by half a second, and the pre-flight guard in
 /// `crate::pds::record_size::preflight` backstops that window.
-pub fn refresh_size_readout<R: Send + Sync + 'static, T: serde::Serialize>(
+pub fn refresh_size_readout<R: Send + Sync + 'static, T>(
     feedback: &mut crate::state::PublishFeedback<R>,
     live: &T,
     now: f64,
-) -> Option<usize> {
+    measure: impl FnOnce(&T) -> SizeReadout,
+) -> bool {
     if feedback
         .live_bytes_at
         .is_none_or(|at| now - at >= crate::config::ui::editor::SIZE_READOUT_REFRESH_SECS)
     {
-        feedback.live_bytes = record_size::serialized_record_bytes(live);
+        feedback.live_size = measure(live);
         feedback.live_bytes_at = Some(now);
+        true
+    } else {
+        false
     }
-    feedback.live_bytes
 }
 
 /// Record a publish attempt's serialized size into the metrics registry and
@@ -297,7 +469,7 @@ pub fn log_record_size(
         soft_budget_bytes: SOFT_RECORD_BUDGET_BYTES as u64,
         hard_ceiling_bytes: HARD_RECORD_CEILING_BYTES as u64,
     };
-    match record_size::classify(bytes) {
+    match crate::pds::record_size::classify(bytes) {
         SizeClass::WithinBudget => session_log.info(now, payload),
         SizeClass::OverSoftBudget => session_log.warn(now, payload),
         SizeClass::OverHardCeiling => session_log.error(now, payload),
@@ -332,7 +504,7 @@ pub struct FailureSinks<'a, R: 'static + Send + Sync> {
 /// starts from older state. Three everyday flows leave the editor's own
 /// footer unread when the failure arrives — Ctrl+S then Esc-closing the
 /// window (the request TTL lets the save proceed with the window shut), the
-/// unsaved guard's "Continue in background", and a publish fired just
+/// unsaved guard's "Stay here (save continues)", and a publish fired just
 /// before a portal hop. So the report is: log it, record the typed session
 /// event, toast it, and re-open the window that carries the Retry.
 ///
@@ -488,35 +660,99 @@ pub fn publish_blocked_hover(blocked: &[(RecordKind, &str)]) -> String {
     lines.join("\n")
 }
 
+/// How the status line is coloured — a tone, so the wording can be decided
+/// (and tested) without an egui context.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StatusTone {
+    Ok,
+    Warn,
+    Error,
+    Weak,
+}
+
+/// Seconds a save may be in flight before the status line stops saying
+/// merely "Saving…" and starts saying how long, and when it gives up. The
+/// login gate (#849) uses the same threshold for the same class of PDS
+/// round trip.
+const SAVE_SLOW_SECS: f64 = 15.0;
+
+/// The status line's words and tone (#1206). `dirty` qualifies a
+/// success: an edit made while the save was in flight leaves the row dirty
+/// (`stored` is pinned to what was WRITTEN, #1116), and "✔ Saved" beside a
+/// green Save button said yes to "did my work land?" when the answer was
+/// "partly". A save in flight counts up, and past [`SAVE_SLOW_SECS`] names
+/// the deadline it will give up at — a bare "Saving…" that could sit for a
+/// minute taught the owner that quiet means hung.
+pub fn status_line_text(
+    status: &PublishStatus,
+    now_secs: f64,
+    dirty: bool,
+) -> Option<(StatusTone, String)> {
+    let ago = |at: f64| (now_secs - at).max(0.0);
+    match status {
+        PublishStatus::Idle => None,
+        PublishStatus::Publishing { since_secs } => {
+            let elapsed = ago(*since_secs);
+            if elapsed >= SAVE_SLOW_SECS {
+                Some((
+                    StatusTone::Error,
+                    format!(
+                        "⟳ Saving to PDS… ({elapsed:.0}s) — still trying; gives up at {}s",
+                        crate::config::http::PUBLISH_TASK_DEADLINE.as_secs()
+                    ),
+                ))
+            } else {
+                Some((
+                    StatusTone::Warn,
+                    format!("⟳ Saving to PDS… ({elapsed:.0}s)"),
+                ))
+            }
+        }
+        PublishStatus::Success { at_secs } if dirty => Some((
+            StatusTone::Weak,
+            format!(
+                "{} Saved ({:.0}s ago) — edited since",
+                crate::ui::affordances::CHECK,
+                ago(*at_secs)
+            ),
+        )),
+        PublishStatus::Success { at_secs } => Some((
+            StatusTone::Ok,
+            format!(
+                "{} Saved ({:.0}s ago)",
+                crate::ui::affordances::CHECK,
+                ago(*at_secs)
+            ),
+        )),
+        PublishStatus::Failed { at_secs, message } => Some((
+            StatusTone::Error,
+            format!(
+                "{} Save failed ({:.0}s ago): {message}",
+                crate::ui::affordances::CROSS,
+                ago(*at_secs)
+            ),
+        )),
+    }
+}
+
 /// Render the uniform publish status line. `Idle` draws nothing; every
 /// other state is a single coloured line, and **both** Success and
 /// Failed carry the same live `(Ns ago)` counter (Avatar used to drop
 /// it). Wording is identical across editors — the editor window's own
-/// title already says *which* record, so the line stays terse.
-pub fn publish_status_line(ui: &mut egui::Ui, status: &PublishStatus, now_secs: f64) {
-    let ago = |at: f64| (now_secs - at).max(0.0);
-    match status {
-        PublishStatus::Idle => {}
-        PublishStatus::Publishing => {
-            ui.colored_label(
-                crate::ui::theme::current(ui.ctx()).status.warn,
-                "⟳ Saving to PDS…",
-            );
-        }
-        PublishStatus::Success { at_secs } => {
-            crate::ui::affordances::ok_label(ui, format!("Saved ({:.0}s ago)", ago(*at_secs)));
-        }
-        PublishStatus::Failed { at_secs, message } => {
-            ui.colored_label(
-                crate::ui::theme::current(ui.ctx()).status.error,
-                format!(
-                    "{} Save failed ({:.0}s ago): {message}",
-                    crate::ui::affordances::CROSS,
-                    ago(*at_secs)
-                ),
-            );
-        }
-    }
+/// title already says *which* record, so the line stays terse. `dirty` is
+/// the row's own derived flag, see [`status_line_text`].
+pub fn publish_status_line(ui: &mut egui::Ui, status: &PublishStatus, now_secs: f64, dirty: bool) {
+    let Some((tone, text)) = status_line_text(status, now_secs, dirty) else {
+        return;
+    };
+    let theme = crate::ui::theme::current(ui.ctx());
+    let color = match tone {
+        StatusTone::Ok => theme.status.ok,
+        StatusTone::Warn => theme.status.warn,
+        StatusTone::Error => theme.status.error,
+        StatusTone::Weak => theme.text_weak,
+    };
+    ui.colored_label(color, text);
 }
 
 /// Outcome of the manual re-roll [`seed_row`].
@@ -799,7 +1035,12 @@ pub fn poll_or_expire(
         return Some(result);
     }
     if now - spawned_at > crate::config::http::PUBLISH_TASK_DEADLINE.as_secs_f64() {
-        return Some(Err(crate::config::http::timed_out(label)));
+        // Its OWN bound (#1206): borrowing `timed_out` reported the inner
+        // 30 s a full minute after the click.
+        return Some(Err(crate::config::http::timed_out_after(
+            label,
+            crate::config::http::PUBLISH_TASK_DEADLINE,
+        )));
     }
     None
 }
@@ -840,6 +1081,15 @@ mod publish_deadline_tests {
         assert!(
             message.contains("timed out"),
             "the owner is told why, not just that Save came back: {message}"
+        );
+        // #1206, finding 209: the outer deadline reports ITS number. It
+        // borrowed `timed_out` and said "after 30s" a full minute in.
+        assert!(
+            message.contains(&format!(
+                "after {}s",
+                crate::config::http::PUBLISH_TASK_DEADLINE.as_secs()
+            )),
+            "{message}"
         );
     }
 
@@ -895,12 +1145,142 @@ mod tests {
         assert_eq!(button, "Empty inventory");
         assert!(
             ResetWording::EmptyStash { items: 1 }
-                .hover()
+                .hover(false)
                 .contains("all 1 item.")
         );
+        // #1209, finding 202: with an undo stack behind it the hover says
+        // so, like the Revert beside it; behind a confirm it does not
+        // promise an undo that does not exist.
+        assert!(ResetWording::Record.hover(true).contains("Undo (Ctrl+Z)"));
+        assert!(!ResetWording::Record.hover(false).contains("Undo"));
         let (title, body, _) = ResetWording::Record.confirm();
         assert_eq!(title, "Reset to default?");
         assert!(body.contains("generated default"));
+    }
+
+    /// #1208, finding 72 (the hard-ceiling half). Sequence: the record
+    /// grows past the ceiling, the owner presses Ctrl+S. The row took the
+    /// request and its `enabled` gate discarded it — the same silence as a
+    /// collapsed window. The gate now names its reason, and the reason is
+    /// the one the disabled button's hover shows.
+    #[test]
+    fn a_refused_ctrl_s_names_the_gate_that_refused_it() {
+        let fine = SizeReadout {
+            bytes: Some(1_000),
+            largest: Some(String::from("room manifest")),
+            unserializable: None,
+        };
+        let over = SizeReadout {
+            bytes: Some(HARD_RECORD_CEILING_BYTES + 1),
+            largest: Some(String::from("room generator \"oak_grove\"")),
+            unserializable: None,
+        };
+        assert_eq!(save_refusal(true, true, &fine, false), None);
+        let too_big = save_refusal(true, true, &over, false).expect("over the ceiling refuses");
+        assert!(too_big.contains("past the"));
+        assert!(
+            too_big.contains("oak_grove"),
+            "the refusal names the offender (#1207): {too_big}"
+        );
+        let busy = save_refusal(true, true, &fine, true).expect("in flight refuses");
+        assert!(busy.contains("already"));
+        // Priority: an in-flight save is the more immediate fact.
+        assert_eq!(save_refusal(true, true, &over, true), Some(busy));
+        assert!(
+            save_refusal(false, true, &fine, false)
+                .expect("clean refuses")
+                .contains("nothing to save")
+        );
+        assert!(ctrl_s_refused(&too_big).starts_with("Ctrl+S did not save: "));
+    }
+
+    /// #1207, findings 122 and 204. Sequence: a gift from a newer build
+    /// lands in the stash (or a world holds a generator this build cannot
+    /// decode); the row showed either no readout and an enabled Save that
+    /// failed on the click, or — with the item in both live and stored —
+    /// a Save that never lit up, with no reason anywhere. The readout now
+    /// says "can't be saved", the Save button carries the sentence, and a
+    /// Ctrl+S is refused with the same sentence, before any I/O.
+    #[test]
+    fn an_unserializable_record_refuses_save_with_the_newer_build_sentence() {
+        let mut size = SizeReadout::default();
+        size.consider(&serde_json::json!({"ok": true}), "inventory item \"lamp\"");
+        // `serde_json::to_vec` of a map with a non-string key is the one
+        // failure serde_json produces on its own; the real case is the
+        // `skip_serializing` Unknown arm, whose error text contains
+        // "cannot be serialized" — model that text directly.
+        size.refuse(crate::pds::record_size::unserializable_reason(
+            "inventory item \"gift\"",
+            "unknown variant cannot be serialized",
+        ));
+        // Clean AND cannot serialize: the refusal is the session fact, not
+        // "nothing to save".
+        let reason = save_refusal(false, true, &size, false).expect("refused");
+        assert!(reason.contains("newer version of Overlands"), "{reason}");
+        assert!(reason.contains("inventory item \"gift\""), "{reason}");
+    }
+
+    /// #1206, finding 201. Sequence: press Save, change your mind, click
+    /// "Revert to saved" while the button reads "Saving…". Revert was
+    /// gated on `dirty` alone, restored the PRE-save snapshot, and the
+    /// landing publish then pinned `stored` to what it wrote — the row lit
+    /// up dirty again holding the edits just discarded, and the PDS held
+    /// them. Both replacements stand down while a save is in flight.
+    #[test]
+    fn revert_and_reset_stand_down_while_a_save_is_in_flight() {
+        assert_eq!(revert_refusal(true, false), None);
+        assert!(
+            revert_refusal(true, true)
+                .expect("in flight refuses")
+                .contains("Wait for the save")
+        );
+        assert!(revert_refusal(false, false).is_some());
+        assert_eq!(reset_refusal(true, false), None);
+        assert!(reset_refusal(true, true).is_some());
+        assert_eq!(reset_refusal(false, false), Some("Already the default"));
+    }
+
+    /// #1206, findings 205 and 277. Sequence: keep editing while "Saving…"
+    /// is up; the save lands. The line said "✔ Saved (0s ago)" in green
+    /// beside a green, dirty Save button — an unqualified yes to "did my
+    /// work land?" when the answer was "partly". And while in flight it
+    /// showed no elapsed time against a 60 s deadline.
+    #[test]
+    fn the_status_line_qualifies_a_save_the_owner_edited_past_and_counts_a_slow_one() {
+        let landed = PublishStatus::Success { at_secs: 100.0 };
+        let (tone, text) = status_line_text(&landed, 103.0, true).expect("drawn");
+        assert_eq!(tone, StatusTone::Weak);
+        assert!(text.contains("Saved (3s ago) — edited since"), "{text}");
+        let (tone, text) = status_line_text(&landed, 103.0, false).expect("drawn");
+        assert_eq!(tone, StatusTone::Ok);
+        assert!(!text.contains("edited since"));
+
+        let in_flight = PublishStatus::Publishing { since_secs: 100.0 };
+        let (tone, text) = status_line_text(&in_flight, 104.0, true).expect("drawn");
+        assert_eq!(tone, StatusTone::Warn);
+        assert!(text.contains("(4s)"), "{text}");
+        let (tone, text) = status_line_text(&in_flight, 120.0, true).expect("drawn");
+        assert_eq!(tone, StatusTone::Error);
+        assert!(text.contains("(20s)"), "{text}");
+        assert!(
+            text.contains(&format!(
+                "gives up at {}s",
+                crate::config::http::PUBLISH_TASK_DEADLINE.as_secs()
+            )),
+            "{text}"
+        );
+        assert!(status_line_text(&PublishStatus::Idle, 0.0, true).is_none());
+    }
+
+    /// #1207, finding 203. One sentence used to say "the whole record for
+    /// Room/Avatar" — false for both. Each record says what its number
+    /// measures.
+    #[test]
+    fn the_size_hover_says_what_each_record_measures() {
+        assert!(size_measures(RecordKind::Room).contains("manifest"));
+        assert!(size_measures(RecordKind::Room).contains("generator"));
+        assert!(size_measures(RecordKind::Avatar).contains("worn"));
+        assert!(size_measures(RecordKind::Inventory).contains("item"));
     }
 
     /// #1199: the three editors used to word the same warning three ways,

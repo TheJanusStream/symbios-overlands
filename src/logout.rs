@@ -129,6 +129,9 @@ session_scoped_resources! {
     // re-arms the one-frame compile delay for the next Loading pass (#849).
     crate::world_builder::WorldCompiled,
     crate::world_builder::WorldCompileArmed,
+    // The last compile's budget-stop report (#1211) is about a world that
+    // is being despawned.
+    crate::world_builder::WorldCompileTruncated,
 }
 
 /// Reset the two editor windows' cross-frame state and sweep any in-flight
@@ -586,7 +589,7 @@ mod tests {
     }
 
     /// #1204 (finding 194). Sequence: press Save, then log out while the
-    /// spinner is up ("Discard & log out" or "Continue in background").
+    /// spinner is up ("Discard & log out" or "Cancel (save continues)").
     /// The publish task entity was on no sweep list and its poll runs only
     /// `InGame`, so it sat until the next login and then wrote
     /// `stored = published` into the NEW session — a stranger's record as

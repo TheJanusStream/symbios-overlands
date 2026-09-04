@@ -919,27 +919,40 @@ pub fn avatar_ui(
                         let can_reset = default_record
                             .is_some_and(|d| pds::avatar::avatar_is_dirty(&live_mut.0, d));
 
-                        let record_bytes = crate::ui::editable::refresh_size_readout(
+                        // The bundle a save writes, not the reference-only
+                        // record (#1207).
+                        crate::ui::editable::refresh_size_readout(
                             &mut *feedback,
                             &live_mut.0,
                             time.elapsed_secs_f64(),
+                            pds::avatar::wardrobe::measure_publish,
                         );
+                        let size = feedback.live_size.clone();
                         let ctrl_s =
                             publish_shortcut.take(crate::ui::shortcuts::EditorKind::Avatar);
                         let mut do_publish = false;
                         match save_load_reset_row(
                             ui,
-                            dirty,
-                            can_publish,
-                            can_reset,
-                            record_bytes,
-                            ctrl_s,
-                            matches!(feedback.status, PublishStatus::Publishing),
-                            // Undo covers Revert/Reset here (#866).
-                            None,
-                            crate::ui::editable::ResetWording::Record,
+                            crate::ui::editable::SaveRow {
+                                kind: RecordKind::Avatar,
+                                dirty,
+                                can_publish,
+                                can_reset,
+                                size: &size,
+                                publish_shortcut: ctrl_s,
+                                status: &mut feedback.status,
+                                // Undo covers Revert/Reset here (#866).
+                                confirm: None,
+                                reset: crate::ui::editable::ResetWording::Record,
+                            },
                         ) {
                             RecordAction::None => {}
+                            RecordAction::Refused(reason) => {
+                                toasts.info(
+                                    crate::ui::editable::ctrl_s_refused(&reason),
+                                    time.elapsed_secs_f64(),
+                                );
+                            }
                             RecordAction::Publish => {
                                 // Clobber protection (#840): after an
                                 // unrecoverable fetch the editor holds the
@@ -980,7 +993,9 @@ pub fn avatar_ui(
                             && let (Some(session), Some(refresh)) =
                                 (session.as_ref(), refresh_ctx.as_ref())
                         {
-                            feedback.status = PublishStatus::Publishing;
+                            feedback.status = PublishStatus::Publishing {
+                                since_secs: time.elapsed_secs_f64(),
+                            };
                             spawn_publish_avatar_task(
                                 &mut commands,
                                 session,
@@ -993,7 +1008,7 @@ pub fn avatar_ui(
                             );
                         }
 
-                        publish_status_line(ui, &feedback.status, time.elapsed_secs_f64());
+                        publish_status_line(ui, &feedback.status, time.elapsed_secs_f64(), dirty);
                     });
 
                 // The tab body fills exactly what the footer left over.

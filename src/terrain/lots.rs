@@ -41,7 +41,7 @@ const FURNITURE_PREFIX: &str = "street_prop_";
 const FURNITURE_STREAM_SALT: u64 = 0x57F0_0F57_F00F_57F0;
 /// Cap on injected furniture placements — beyond ~160 lamps the wasm spawn
 /// cost outruns the ambience.
-const MAX_FURNITURE_PROPS: usize = 160;
+pub(crate) const MAX_FURNITURE_PROPS: usize = 160;
 /// Shallow terrain sink for furniture (m) — props stand on the verge, they
 /// don't need a building's foundation bite.
 const FURNITURE_SINK_M: f32 = 0.1;
@@ -55,7 +55,7 @@ const FALLBACK_THEME: ThemeArchetype = ThemeArchetype::AncientClassical;
 /// placement budget (`MAX_PLACEMENTS` − existing) so a packed map can't trip
 /// sanitiser truncation. The enclosed-lot count is usually the real limiter;
 /// tune down if spawn cost bites on wasm.
-const MAX_LOT_BUILDINGS: usize = 256;
+pub(crate) const MAX_LOT_BUILDINGS: usize = 256;
 /// Distinct sub-stream salt for the building-pick RNG.
 const LOT_STREAM_SALT: u64 = 0x10C5_B011_D196_5EED;
 /// Sink (m) below the terrain snap so foundations bite into slopes rather than
@@ -138,6 +138,32 @@ fn lot_action(populated: bool, session_fp: Option<&str>, current_fp: &str) -> Lo
     }
 }
 
+/// Whether a placement was planted by either road-derived layer (#1211).
+pub(super) fn is_road_grown(p: &Placement) -> bool {
+    refs_lot_building(p) || refs_street_prop(p)
+}
+
+/// What one injection pass did and did not do (#1211). `placed` is the
+/// old return value; the rest is the arithmetic behind it, which used to
+/// be invisible: density thinning, the cap (per-district constant or the
+/// room's free placement budget, whichever bit) and the generator ceiling.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+struct InjectReport {
+    found: usize,
+    kept: usize,
+    placed: usize,
+    dropped_to_cap: usize,
+    capped_by_budget: bool,
+    generator_cap_skips: usize,
+}
+
+/// The cap one injection may fill: the layer's own constant, or the
+/// room's free placement budget when that is smaller (#1211 names which).
+fn placement_cap(layer_max: usize, record: &RoomRecord) -> (usize, bool) {
+    let budget = limits::MAX_PLACEMENTS.saturating_sub(record.placements.len());
+    (layer_max.min(budget), budget < layer_max)
+}
+
 /// Whether a placement (any referencing variant) targets an injected lot
 /// building.
 fn refs_lot_building(p: &Placement) -> bool {
@@ -189,7 +215,11 @@ fn inject_lot_buildings(
     seed: u64,
     prefix: &str,
     settings: &crate::pds::generator::LotSettings,
-) -> usize {
+) -> InjectReport {
+    let mut report = InjectReport {
+        found: lots.len(),
+        ..InjectReport::default()
+    };
     let scene = SceneCharacter::for_seed(fnv1a_64(did));
     // Authored theme override (#892): a case-insensitive label match against
     // the theme roster; empty / unrecognised falls through to the room theme.
@@ -218,7 +248,7 @@ fn inject_lot_buildings(
     let secondary = pool(StructureRole::Secondary);
     let prop = pool(StructureRole::Prop);
     if landmark.is_empty() && secondary.is_empty() && prop.is_empty() {
-        return 0;
+        return report;
     }
 
     // Rank lots largest-first: the biggest block takes the landmark, the next
@@ -231,10 +261,15 @@ fn inject_lot_buildings(
     let keep = ((ranked.len() as f32 * settings.density.0.clamp(0.0, 1.0)).ceil() as usize)
         .min(ranked.len());
     ranked.truncate(keep);
+    report.kept = keep;
     // One placement per lot, capped to the free placement budget so a packed
     // map can't trip sanitiser truncation. Generators are shared by entry, so
     // the placement budget — not the generator budget — is the binding limit.
-    let cap = MAX_LOT_BUILDINGS.min(limits::MAX_PLACEMENTS.saturating_sub(record.placements.len()));
+    // Counted, not merely applied (#1211): a record already carrying 900
+    // authored placements grew 124 buildings out of 400 lots with no notice.
+    let (cap, capped_by_budget) = placement_cap(MAX_LOT_BUILDINGS, record);
+    report.dropped_to_cap = ranked.len().saturating_sub(cap);
+    report.capped_by_budget = capped_by_budget && report.dropped_to_cap > 0;
     ranked.truncate(cap);
 
     let mut rng = ChaCha8Rng::seed_from_u64(seed ^ LOT_STREAM_SALT);
@@ -295,6 +330,7 @@ fn inject_lot_buildings(
             // No budget for a new distinct asset — never hit in practice (the
             // catalogue pool is tens of entries). Skip rather than mis-scale a
             // reuse onto a lot meant for a different building.
+            report.generator_cap_skips += 1;
             continue;
         } else {
             let mut tree = entry.build(did);
@@ -337,7 +373,8 @@ fn inject_lot_buildings(
         });
         placed += 1;
     }
-    placed
+    report.placed = placed;
+    report
 }
 
 /// Inject street-furniture props (#893) at the extracted spots,
@@ -351,7 +388,12 @@ fn inject_street_furniture(
     seed: u64,
     prefix: &str,
     settings: &crate::pds::generator::LotSettings,
-) -> usize {
+) -> InjectReport {
+    let mut report = InjectReport {
+        found: spots.len(),
+        kept: spots.len(),
+        ..InjectReport::default()
+    };
     let scene = SceneCharacter::for_seed(fnv1a_64(did));
     // Same theme resolution as the buildings (#892 override honoured), with
     // the prop pool falling back to the guaranteed-populated theme.
@@ -370,11 +412,12 @@ fn inject_street_furniture(
             entries_for_room(FALLBACK_THEME, StructureRole::Prop, prosperity, escalation).collect();
     }
     if pool.is_empty() {
-        return 0;
+        return report;
     }
 
-    let cap =
-        MAX_FURNITURE_PROPS.min(limits::MAX_PLACEMENTS.saturating_sub(record.placements.len()));
+    let (cap, capped_by_budget) = placement_cap(MAX_FURNITURE_PROPS, record);
+    report.dropped_to_cap = spots.len().saturating_sub(cap);
+    report.capped_by_budget = capped_by_budget && report.dropped_to_cap > 0;
     let mut rng = ChaCha8Rng::seed_from_u64(seed ^ FURNITURE_STREAM_SALT);
     let mut by_slug: HashMap<&'static str, String> = HashMap::new();
     let mut placed = 0usize;
@@ -384,6 +427,7 @@ fn inject_street_furniture(
         let name = if let Some(existing) = by_slug.get(slug) {
             existing.clone()
         } else if record.generators.len() >= limits::MAX_GENERATORS {
+            report.generator_cap_skips += 1;
             continue;
         } else {
             let mut tree = entry.build(did);
@@ -413,7 +457,8 @@ fn inject_street_furniture(
         });
         placed += 1;
     }
-    placed
+    report.placed = placed;
+    report
 }
 
 /// Every active road-derived-content config (#895): enabled, and at least
@@ -548,11 +593,12 @@ pub(super) fn maybe_populate_lots(
     *session_fp = Some(fp);
     stats.buildings = 0;
     stats.props = 0;
+    stats.clamps = super::LotClamps::default();
     for (i, config) in &configs {
         if config.populate_lots {
             let lots = crate::urban::extract_building_lots(&heightmap.0, config);
             if !lots.is_empty() {
-                stats.buildings += inject_lot_buildings(
+                let report = inject_lot_buildings(
                     &mut record.0,
                     &lots,
                     did_str,
@@ -560,12 +606,19 @@ pub(super) fn maybe_populate_lots(
                     &net_prefix(LOT_PREFIX, *i, config.seed),
                     &config.lots,
                 );
+                stats.buildings += report.placed;
+                // The arithmetic behind the number (#1211).
+                stats.clamps.lots_found += report.found;
+                stats.clamps.lots_kept += report.kept;
+                stats.clamps.buildings_dropped += report.dropped_to_cap;
+                stats.clamps.buildings_capped_by_budget |= report.capped_by_budget;
+                stats.clamps.generator_cap_skips += report.generator_cap_skips;
             }
         }
         // Street furniture (#893) — independent of the building layer.
         if config.furniture.enabled {
             let spots = crate::urban::extract_furniture_spots(&heightmap.0, config);
-            stats.props += inject_street_furniture(
+            let report = inject_street_furniture(
                 &mut record.0,
                 &spots,
                 did_str,
@@ -573,6 +626,10 @@ pub(super) fn maybe_populate_lots(
                 &net_prefix(FURNITURE_PREFIX, *i, config.seed),
                 &config.lots,
             );
+            stats.props += report.placed;
+            stats.clamps.props_dropped += report.dropped_to_cap;
+            stats.clamps.props_capped_by_budget |= report.capped_by_budget;
+            stats.clamps.generator_cap_skips += report.generator_cap_skips;
         }
     }
 }
@@ -656,6 +713,51 @@ mod tests {
         assert_eq!(lot_action(true, None, fp), LotAction::Adopt);
     }
 
+    /// #1211, finding 384. Sequence: a room already carrying most of its
+    /// placement budget grows a district of 20 lots; the injector filled
+    /// what was left and reported only the smaller number. The report now
+    /// carries the arithmetic — found, kept, dropped, and WHICH cap bit —
+    /// so the Lots readout can say "only N placements were left".
+    #[test]
+    fn the_inject_report_names_the_cap_that_emptied_the_lots() {
+        let did = urban_did();
+        let mut record = RoomRecord::default_for_did(&did);
+        let free = 3;
+        while record.placements.len() < limits::MAX_PLACEMENTS - free {
+            record.placements.push(Placement::Absolute {
+                generator_ref: String::from("filler"),
+                transform: TransformData::default(),
+                snap_to_terrain: false,
+                avoid_water: false,
+                avoid_water_clearance: Fp(0.0),
+            });
+        }
+        let lots: Vec<BuildingLot> = (0..20)
+            .map(|i| lot(i as f32 * 8.0, 0.0, 12.0, 14.0))
+            .collect();
+        let report = inject_lot_buildings(
+            &mut record,
+            &lots,
+            &did,
+            4242,
+            &seed_prefix(4242),
+            &Default::default(),
+        );
+        assert_eq!(report.found, 20);
+        assert_eq!(report.kept, 20, "density 1.0 keeps every lot");
+        assert_eq!(report.placed, free);
+        assert_eq!(report.dropped_to_cap, 20 - free);
+        assert!(
+            report.capped_by_budget,
+            "the placement budget, not the per-district constant, is what bit"
+        );
+        assert_eq!(record.placements.len(), limits::MAX_PLACEMENTS);
+        assert!(
+            record.placements.iter().any(is_road_grown),
+            "the grown placements are attributable (#1211, finding 394)"
+        );
+    }
+
     #[test]
     fn inject_places_buildings_and_strip_removes_them() {
         let did = urban_did();
@@ -672,7 +774,8 @@ mod tests {
             4242,
             &seed_prefix(4242),
             &Default::default(),
-        );
+        )
+        .placed;
         assert!(n > 0, "expected buildings injected onto the lots");
         // One placement per lot...
         let placements = record
@@ -721,8 +824,10 @@ mod tests {
         let mut a = RoomRecord::default_for_did(&did);
         let mut b = RoomRecord::default_for_did(&did);
         let before = a.generators.len();
-        let na = inject_lot_buildings(&mut a, &lots, &did, 7, &seed_prefix(7), &Default::default());
-        let nb = inject_lot_buildings(&mut b, &lots, &did, 7, &seed_prefix(7), &Default::default());
+        let na = inject_lot_buildings(&mut a, &lots, &did, 7, &seed_prefix(7), &Default::default())
+            .placed;
+        let nb = inject_lot_buildings(&mut b, &lots, &did, 7, &seed_prefix(7), &Default::default())
+            .placed;
         assert_eq!(na, nb);
         assert!(na <= MAX_LOT_BUILDINGS, "exceeded the placement cap");
         // Dedup: 400 lots collapse onto a handful of shared generators (one per

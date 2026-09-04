@@ -7,7 +7,9 @@
 
 use bevy_egui::egui;
 
-use crate::pds::{Fp2, Fp3, GeneratorKind, SovereignMaterialSettings, TortureParams, WaterSurface};
+use crate::pds::{
+    Fp2, Fp3, Generator, GeneratorKind, SovereignMaterialSettings, TortureParams, WaterSurface,
+};
 
 use super::material::{draw_texture_bridge, draw_uv_transform_rows};
 use super::widgets::{color_picker, fp_slider};
@@ -57,20 +59,11 @@ pub(super) fn generator_kind_picker(
         .show_ui(ui, |ui| {
             for k in kinds {
                 if ui.selectable_label(current == *k, *k).clicked() && current != *k {
-                    if child_count == 0 && is_pristine {
+                    let losses = kind_change_losses(current, is_pristine, child_count, k);
+                    if losses.is_empty() {
                         *kind = make_default_for_kind(k);
                         *dirty = true;
                     } else {
-                        let mut losses: Vec<String> = Vec::new();
-                        if !is_pristine {
-                            losses.push(format!("this node's {current} settings"));
-                        }
-                        if child_count > 0 {
-                            losses.push(format!(
-                                "{child_count} child node{}",
-                                if child_count == 1 { "" } else { "s" }
-                            ));
-                        }
                         confirm.request(
                             format!("Change kind to {k}?"),
                             format!(
@@ -85,6 +78,50 @@ pub(super) fn generator_kind_picker(
                 }
             }
         });
+}
+
+/// Whether switching a node to `kind_tag` leaves its children with no
+/// parent that can carry them — true only for the leaf-only kinds.
+fn kind_strands_children(kind_tag: &str) -> bool {
+    !allows_children(&make_default_for_kind(kind_tag))
+}
+
+/// What a kind change from `current` to `target` discards, as the
+/// confirm's clauses; empty means nothing is lost and the switch applies
+/// on the click. The child clause is computed from the TARGET kind
+/// (#1209): it used to fire on `child_count > 0` alone, warning "discards
+/// 3 child nodes" for the 23 of 24 targets that keep them — a scary
+/// confirm on a harmless switch, which trains click-through on the one
+/// that is real.
+pub(super) fn kind_change_losses(
+    current: &str,
+    is_pristine: bool,
+    child_count: usize,
+    target: &str,
+) -> Vec<String> {
+    let mut losses: Vec<String> = Vec::new();
+    if !is_pristine {
+        losses.push(format!("this node's {current} settings"));
+    }
+    if child_count > 0 && kind_strands_children(target) {
+        losses.push(format!(
+            "{child_count} child node{} ({target} cannot carry children)",
+            if child_count == 1 { "" } else { "s" }
+        ));
+    }
+    losses
+}
+
+/// Apply a kind change exactly as the confirm described it (#1209): the
+/// new default replaces the kind, and children the new kind cannot carry
+/// go NOW — into the same undo entry — rather than sitting invisibly in
+/// the record until the next sanitize flush deletes them a quarter
+/// second later with no message.
+pub(super) fn apply_kind_change(node: &mut Generator, kind_tag: &'static str) {
+    node.kind = make_default_for_kind(kind_tag);
+    if !allows_children(&node.kind) {
+        node.children.clear();
+    }
 }
 
 /// Kind tags eligible at the **root** of a room generator tree: every
@@ -372,4 +409,41 @@ pub(super) fn draw_torture(
     torture.profile_cut = Fp2(prc);
     // Hollow (bore as a fraction of the outer radius).
     fp_slider(ui, "Hollow", &mut torture.hollow, 0.0, 0.95, dirty);
+}
+
+#[cfg(test)]
+mod kind_change_tests {
+    use super::*;
+
+    /// #1209, finding 82. Sequence: switch a Cuboid with three children to
+    /// Sphere. The confirm warned it "discards 3 child nodes" — it never
+    /// did; only Water (and Unknown) refuse children, so the clause was
+    /// false for 23 of the 24 targets. A false warning on a harmless
+    /// switch trains click-through on the delete confirm that is real.
+    #[test]
+    fn the_child_clause_comes_from_the_target_kind() {
+        // Pristine Cuboid → Sphere keeps its children: nothing to confirm.
+        assert!(kind_change_losses("Cuboid", true, 3, "Sphere").is_empty());
+        // → Water strands them, and the clause says why.
+        let losses = kind_change_losses("Cuboid", true, 3, "Water");
+        assert_eq!(losses.len(), 1);
+        assert!(losses[0].contains("3 child nodes"), "{losses:?}");
+        assert!(losses[0].contains("Water"), "{losses:?}");
+        // Tuned settings are still a loss whatever the target.
+        let losses = kind_change_losses("Cuboid", false, 3, "Sphere");
+        assert_eq!(losses, vec![String::from("this node's Cuboid settings")]);
+    }
+
+    /// The one genuinely lossy switch used to strand the children in the
+    /// record until the next 0.25 s sanitize flush deleted them — outside
+    /// the undo entry, with no message. They go at apply time now.
+    #[test]
+    fn a_switch_to_a_leaf_kind_clears_the_children_it_was_said_to_discard() {
+        let mut node = Generator::default_cuboid();
+        node.children = vec![Generator::default_cuboid(); 3];
+        apply_kind_change(&mut node, "Sphere");
+        assert_eq!(node.children.len(), 3, "a container keeps its children");
+        apply_kind_change(&mut node, "Water");
+        assert!(node.children.is_empty(), "a leaf kind cannot carry them");
+    }
 }

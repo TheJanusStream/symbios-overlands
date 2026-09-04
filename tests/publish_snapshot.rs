@@ -488,23 +488,10 @@ fn a_recovery_marker_outlives_a_failed_write_and_retires_on_a_landed_one() {
 /// the guard waits for.
 #[test]
 fn a_running_reset_counts_as_a_publish_in_flight() {
-    #[derive(Resource, Default)]
-    struct Probe(bool);
-    fn probe(
-        tasks: symbios_overlands::ui::unsaved_guard::GuardPublishTasks,
-        mut out: ResMut<Probe>,
-    ) {
-        out.0 = tasks.any_in_flight();
-    }
-
-    let mut app = harness();
-    app.init_resource::<Probe>();
-    app.add_systems(Update, probe);
+    let mut app = guard_probe_harness();
     app.update();
-    assert!(
-        !app.world().resource::<Probe>().0,
-        "nothing spawned, nothing in flight"
-    );
+    let (travel, logout) = guard_probe(&app);
+    assert!(!travel && !logout, "nothing spawned, nothing in flight");
 
     let pending: bevy::tasks::Task<Result<(), String>> =
         bevy::tasks::IoTaskPool::get().spawn(std::future::pending());
@@ -517,17 +504,80 @@ fn a_running_reset_counts_as_a_publish_in_flight() {
             published: RoomRecord::default_for_did("did:plc:reset-in-flight"),
         });
     app.update();
+    let (travel, logout) = guard_probe(&app);
     assert!(
-        app.world().resource::<Probe>().0,
-        "a running reset is a write the guard must wait for"
+        travel && logout,
+        "a running reset is a room write every action must wait for"
     );
+}
+
+/// #1206 (finding 196). Sequence: accept a gift (which auto-publishes the
+/// inventory) and immediately walk into a portal with unsaved WORLD edits.
+/// The guard's probe answered "any task in flight" and promoted itself to
+/// Publishing — a spinner and "Publishing…" as if the world were being
+/// saved — then, when the inventory task drained with the room still
+/// dirty, reported "Publish failed — publish did not complete". Portal
+/// travel swaps only the room record, so only a room write can pin the
+/// wrong thing when it lands: an inventory write must not hold it. Logout
+/// discards the inventory too, so the same write DOES hold a logout.
+#[test]
+fn an_inventory_write_in_flight_does_not_hold_a_portal_travel() {
+    let mut app = guard_probe_harness();
+    let pending: bevy::tasks::Task<Result<(), String>> =
+        bevy::tasks::IoTaskPool::get().spawn(std::future::pending());
+    app.world_mut()
+        .spawn(symbios_overlands::ui::inventory::PublishInventoryTask {
+            task: pending,
+            did: "did:plc:gift-in-flight".into(),
+            spawned_at: 0.0,
+            record_bytes: Some(1),
+            published: InventoryRecord::default(),
+        });
+    app.update();
+    let (travel, logout) = guard_probe(&app);
+    assert!(
+        !travel,
+        "an inventory write is irrelevant to a portal hop and must not show it a spinner"
+    );
+    assert!(
+        logout,
+        "the same write holds a logout, which discards the stash"
+    );
+}
+
+/// Probe resource for the guard's in-flight rule: `(holds a portal travel,
+/// holds a logout)` as the real `GuardPublishTasks` SystemParam answers.
+#[derive(Resource, Default)]
+struct GuardProbe(bool, bool);
+
+fn guard_probe_harness() -> App {
+    fn probe(
+        tasks: symbios_overlands::ui::unsaved_guard::GuardPublishTasks,
+        mut out: ResMut<GuardProbe>,
+    ) {
+        use symbios_overlands::ui::unsaved_guard::GuardedAction;
+        out.0 = tasks.blocks(&GuardedAction::PortalTravel {
+            target_did: "did:plc:elsewhere".into(),
+            target_pos: None,
+        });
+        out.1 = tasks.blocks(&GuardedAction::Logout);
+    }
+    let mut app = harness();
+    app.init_resource::<GuardProbe>();
+    app.add_systems(Update, probe);
+    app
+}
+
+fn guard_probe(app: &App) -> (bool, bool) {
+    let probe = app.world().resource::<GuardProbe>();
+    (probe.0, probe.1)
 }
 
 // ---------------------------------------------------------------------------
 // A landed write answers only the session and room it was fired in (#1204)
 // ---------------------------------------------------------------------------
 
-/// #1204 (finding 194). Sequence: press Save, pick "Continue in background"
+/// #1204 (finding 194). Sequence: press Save, pick "Stay here (save continues)"
 /// on the unsaved guard, walk through a portal; the save lands in the
 /// destination. `stored` used to be pinned to the record that was
 /// published — the room just LEFT — over the destination owner's record,

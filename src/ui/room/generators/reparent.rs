@@ -81,6 +81,10 @@ pub(super) fn apply_pending(
 ) {
     match action {
         PendingAction::AddChild { parent, kind_tag } => {
+            if let Some(reason) = child_refusal(&*source, &parent, 0, 1) {
+                toasts.warn(reason, now);
+                return;
+            }
             if let Some(node) = find_node_mut(source, &parent)
                 && allows_children(&node.kind)
             {
@@ -99,6 +103,15 @@ pub(super) fn apply_pending(
             }
         }
         PendingAction::AddChildPrebuilt { parent, generator } => {
+            if let Some(reason) = child_refusal(
+                &*source,
+                &parent,
+                super::super::caps::subtree_depth(&generator),
+                super::super::caps::node_count(&generator),
+            ) {
+                toasts.warn(reason, now);
+                return;
+            }
             if let Some(node) = find_node_mut(source, &parent)
                 && allows_children(&node.kind)
             {
@@ -162,25 +175,7 @@ pub(super) fn apply_pending(
                 // Since #838 it never fires from the click itself: park it
                 // behind the shared confirm, which names the blast radius.
                 // `draw_generators_tab` performs the delete on confirm.
-                let placements = source.placement_ref_count(&id.root);
-                let body = if placements > 0 {
-                    format!(
-                        "Deletes the generator \"{}\" AND removes the {placements} \
-                         placement{} referencing it from the world. Undo (Ctrl+Z) \
-                         can restore it this session.",
-                        id.root,
-                        if placements == 1 { "" } else { "s" },
-                    )
-                } else {
-                    format!(
-                        "Deletes the generator \"{}\" and everything under it. \
-                         Undo (Ctrl+Z) can restore it this session.",
-                        id.root
-                    )
-                };
-                confirms
-                    .delete
-                    .request(format!("Delete \"{}\"?", id.root), body, "Delete", id);
+                request_root_delete(&mut confirms.delete, &*source, &id.root);
                 return;
             } else if let Some(parent_id) = id.parent_id() {
                 let last_idx = *id.path.last().expect("non-root has non-empty path");
@@ -204,6 +199,41 @@ pub(super) fn apply_pending(
             target,
             position,
         } => {
+            // A root dropped INTO another node stops being a root, and
+            // `remove_root` sweeps every placement that put it in the
+            // world — the same cascade as a root delete, which is
+            // confirmed. The drag was not (#1209): a 200-oak scatter
+            // vanished behind an undo entry that read "reparent of". It
+            // parks behind the same kind of confirm, naming the count;
+            // `draw_generators_tab` applies it on confirm.
+            // Caps first (#1210): a drop that would land the subtree past
+            // the nesting or node cap used to be amputated by the next
+            // flush, and a promotion to root at the generator cap went
+            // through `add_root`'s refusal AFTER extraction — deleting the
+            // subtree outright. Refused here, with the reason, before any
+            // mutation.
+            if let Some(reason) = reparent_refusal(&*source, &drag_source, &target) {
+                toasts.warn(reason, now);
+                return;
+            }
+            let placements = if drag_source.path.is_empty() && !target.is_virtual_root() {
+                source.placement_ref_count(&drag_source.root)
+            } else {
+                0
+            };
+            if placements > 0 {
+                confirms.reparent.request(
+                    format!("Nest \"{}\"?", drag_source.root),
+                    nest_warning(&drag_source.root, placements),
+                    "Nest anyway",
+                    PendingReparent {
+                        source: drag_source,
+                        target,
+                        position,
+                    },
+                );
+                return;
+            }
             apply_reparent(
                 source,
                 selected_generator,
@@ -217,6 +247,99 @@ pub(super) fn apply_pending(
             );
         }
     }
+}
+
+/// Why a subtree of `depth` / `nodes` cannot be added under `parent`
+/// (#1210): the sanitiser's depth and per-generator node caps, asked BEFORE
+/// the insert instead of enforced by deletion a quarter second after it.
+fn child_refusal(
+    source: &dyn GeneratorTreeSource,
+    parent: &GenNodeId,
+    depth: usize,
+    nodes: usize,
+) -> Option<String> {
+    use super::super::caps::{Cap, fits_under};
+    if !fits_under(parent.path.len(), depth) {
+        return Some(Cap::Depth.full_reason());
+    }
+    if source.node_count(&parent.root) + nodes > Cap::NodesPerGenerator.max() {
+        return Some(Cap::NodesPerGenerator.full_reason());
+    }
+    None
+}
+
+/// Why a drag from `drag_source` to `target` is refused (#1210): a
+/// promotion to root at the generator cap, or a landing that would put the
+/// moved subtree past the nesting or node cap of its new root. A move
+/// inside one root cannot change that root's node count.
+fn reparent_refusal(
+    source: &dyn GeneratorTreeSource,
+    drag_source: &GenNodeId,
+    target: &GenNodeId,
+) -> Option<String> {
+    use super::super::caps::{Cap, node_count, subtree_depth};
+    let moved = find_node(source, drag_source)?;
+    if target.is_virtual_root() {
+        return (source.allow_multiple_roots() && source.root_capacity_remaining() == 0)
+            .then(|| Cap::Generators.full_reason());
+    }
+    let nodes = if drag_source.root == target.root {
+        0
+    } else {
+        node_count(moved)
+    };
+    child_refusal(source, target, subtree_depth(moved), nodes)
+}
+
+/// A drag-and-drop move parked behind the nest confirm (#1209), replayed
+/// through [`apply_reparent`] when the owner says yes.
+#[derive(Clone, Debug)]
+pub(crate) struct PendingReparent {
+    pub(crate) source: GenNodeId,
+    pub(crate) target: GenNodeId,
+    pub(crate) position: DirPosition<GenNodeId>,
+}
+
+/// The body of the nest confirm: what nesting `root` takes with it.
+fn nest_warning(root: &str, placements: usize) -> String {
+    format!(
+        "Nesting \"{root}\" under another node removes the {placements} placement{} that put it \
+         in the world — the same as deleting it and re-adding it as a child. Undo (Ctrl+Z) can \
+         restore it this session.",
+        if placements == 1 { "" } else { "s" },
+    )
+}
+
+/// Park the cascading root delete behind the shared confirm, naming the
+/// blast radius (#838). ONE builder for every door onto the cascade
+/// (#1209): the tree's `− Delete` and the scene menu's "Delete item (and
+/// its placements)" — which used to run the identical sweep with no
+/// confirmation at all. Answered in `draw_generators_tab`.
+pub(crate) fn request_root_delete(
+    confirm: &mut crate::ui::confirm::ConfirmState<GenNodeId>,
+    source: &dyn GeneratorTreeSource,
+    root: &str,
+) {
+    let placements = source.placement_ref_count(root);
+    let body = if placements > 0 {
+        format!(
+            "Deletes the generator \"{root}\" AND removes the {placements} \
+             placement{} referencing it from the world. Undo (Ctrl+Z) \
+             can restore it this session.",
+            if placements == 1 { "" } else { "s" },
+        )
+    } else {
+        format!(
+            "Deletes the generator \"{root}\" and everything under it. \
+             Undo (Ctrl+Z) can restore it this session."
+        )
+    };
+    confirm.request(
+        format!("Delete \"{root}\"?"),
+        body,
+        "Delete",
+        GenNodeId::root(root),
+    );
 }
 
 /// Apply a single drag-and-drop reparent. Handles the four kinds of
@@ -311,6 +434,16 @@ pub(super) fn apply_reparent(
             .parent_id()
             .and_then(|p| chain_affine(&*source, &p))
     };
+
+    // Blast radius of a root → inner move, measured BEFORE the sweep so
+    // the undo entry can say what the cascade took (#1209) — "reparent of
+    // <root>" hid a 200-placement loss.
+    let swept = if drag_source.path.is_empty() && !target_is_virtual {
+        source.placement_ref_count(&drag_source.root)
+    } else {
+        0
+    };
+    let nested_root = drag_source.root.clone();
 
     // Phase 1: extract the source subtree. For root sources we pull
     // through `remove_root` (which also sweeps any implementation-specific
@@ -419,7 +552,14 @@ pub(super) fn apply_reparent(
     // openness state on the old id by simply not referencing it again.
     *selected_generator = Some(new_id.root.clone());
     *selected_prim_path = Some(new_id.path.clone());
-    label.set(format!("reparent of {}", new_id.root));
+    label.set(if swept > 0 {
+        format!(
+            "nest of {nested_root} + {swept} placement{}",
+            if swept == 1 { "" } else { "s" }
+        )
+    } else {
+        format!("reparent of {}", new_id.root)
+    });
     tree_view_state.set_one_selected(new_id);
     *dirty = true;
 }
@@ -635,6 +775,203 @@ mod tests {
 
     fn cuboid_root() -> Generator {
         Generator::default_cuboid()
+    }
+
+    /// #1209, finding 75. Sequence: drag the "oak" root onto another
+    /// node in the tree to tidy the hierarchy. `remove_root` swept every
+    /// placement referencing it — 200 scattered oaks gone with no
+    /// warning, behind an undo entry that read "reparent of host". The
+    /// same cascade reached via `− Delete` is confirmed with a count. The
+    /// drop now parks behind a confirm naming the count, applies only on
+    /// yes, and the undo entry names the cascade.
+    #[test]
+    fn nesting_a_placed_root_is_confirmed_and_its_undo_entry_names_the_cascade() {
+        let mut record = empty_record();
+        record.generators.insert("host".into(), cuboid_root());
+        record.generators.insert("oak".into(), cuboid_root());
+        record.placements.push(absolute_pointing_at("oak"));
+        record.placements.push(absolute_pointing_at("oak"));
+
+        let mut tvs = TreeViewState::default();
+        let mut sel_gen = None;
+        let mut sel_path = None;
+        let mut renaming = None;
+        let mut dirty = false;
+        let mut confirms = super::super::TreeConfirms::default();
+        let mut toasts = crate::ui::toast::Toasts::default();
+        let mut labels = crate::ui::undo::PendingUndoLabels::default();
+        apply_pending(
+            PendingAction::Reparent {
+                source: GenNodeId::root("oak"),
+                target: GenNodeId::root("host"),
+                position: DirPosition::Last,
+            },
+            &mut RoomTreeSource::new(&mut record),
+            &mut sel_gen,
+            &mut sel_path,
+            &mut tvs,
+            &mut renaming,
+            None,
+            &mut dirty,
+            &mut confirms,
+            &mut toasts,
+            0.0,
+            &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
+        );
+        assert!(!dirty, "nothing moves on the drop itself");
+        assert!(record.generators.contains_key("oak"));
+        assert_eq!(
+            record.placements.len(),
+            2,
+            "the placements survive the drop"
+        );
+        assert!(
+            confirms.reparent.is_pending(),
+            "the drop parks behind the nest confirm"
+        );
+
+        // A root with NO placements nests on the drop, as before.
+        record.placements.clear();
+        apply_pending(
+            PendingAction::Reparent {
+                source: GenNodeId::root("oak"),
+                target: GenNodeId::root("host"),
+                position: DirPosition::Last,
+            },
+            &mut RoomTreeSource::new(&mut record),
+            &mut sel_gen,
+            &mut sel_path,
+            &mut tvs,
+            &mut renaming,
+            None,
+            &mut dirty,
+            &mut confirms,
+            &mut toasts,
+            0.0,
+            &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
+        );
+        assert!(dirty);
+        assert_eq!(record.generators["host"].children.len(), 1);
+
+        // Confirmed (what `draw_generators_tab` replays): the cascade
+        // happens, and the undo entry says what it took.
+        let mut record = empty_record();
+        record.generators.insert("host".into(), cuboid_root());
+        record.generators.insert("oak".into(), cuboid_root());
+        record.placements.push(absolute_pointing_at("oak"));
+        record.placements.push(absolute_pointing_at("oak"));
+        let mut labels = crate::ui::undo::PendingUndoLabels::default();
+        apply_reparent(
+            &mut RoomTreeSource::new(&mut record),
+            &mut sel_gen,
+            &mut sel_path,
+            &mut tvs,
+            GenNodeId::root("oak"),
+            GenNodeId::root("host"),
+            DirPosition::Last,
+            &mut dirty,
+            &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
+        );
+        assert!(
+            record.placements.is_empty(),
+            "the cascade is the same as a delete"
+        );
+        assert_eq!(
+            labels.peek_room(),
+            Some("nest of oak + 2 placements"),
+            "the undo entry names the blast radius"
+        );
+    }
+
+    /// #1210, findings 83 / #411 and 410. Sequence: drop a two-level
+    /// subtree under a node at depth 15, or promote a subtree to root
+    /// with 256 generators already. The first landed and was amputated by
+    /// the next flush; the second went through `add_root` AFTER
+    /// extraction — `None` at the cap, and the comment said the data loss
+    /// was intentional. Both are refused before any mutation, with the
+    /// cap's sentence.
+    #[test]
+    fn a_drop_past_a_cap_is_refused_before_extraction() {
+        use super::super::super::caps::Cap;
+        let mut record = empty_record();
+        // A chain root: depth 0..=15.
+        let mut chain = cuboid_root();
+        let mut cursor = &mut chain;
+        for _ in 0..15 {
+            cursor.children = vec![cuboid_root()];
+            cursor = &mut cursor.children[0];
+        }
+        record.generators.insert("chain".into(), chain);
+        let mut two_deep = cuboid_root();
+        two_deep.children = vec![cuboid_root()];
+        two_deep.children[0].children = vec![cuboid_root()];
+        record.generators.insert("bush".into(), two_deep);
+
+        let deep_parent = GenNodeId::child("chain", vec![0; 15]);
+        let refusal = reparent_refusal(
+            &RoomTreeSource::new(&mut record),
+            &GenNodeId::child("bush", vec![0]),
+            &deep_parent,
+        )
+        .expect("a two-level subtree cannot hang at depth 16");
+        assert_eq!(refusal, Cap::Depth.full_reason());
+        // A leaf CAN hang there (depth 16 exists; it just keeps no children).
+        assert_eq!(
+            reparent_refusal(
+                &RoomTreeSource::new(&mut record),
+                &GenNodeId::child("bush", vec![0, 0]),
+                &deep_parent,
+            ),
+            None
+        );
+
+        // Promotion at the generator cap.
+        for i in 0..Cap::Generators.max() {
+            record
+                .generators
+                .entry(format!("filler_{i}"))
+                .or_insert_with(cuboid_root);
+        }
+        assert_eq!(
+            RoomTreeSource::new(&mut record).root_capacity_remaining(),
+            0
+        );
+        let refusal = reparent_refusal(
+            &RoomTreeSource::new(&mut record),
+            &GenNodeId::child("bush", vec![0]),
+            &GenNodeId::default(),
+        )
+        .expect("promotion refused at the cap");
+        assert_eq!(refusal, Cap::Generators.full_reason());
+        assert!(
+            RoomTreeSource::new(&mut record)
+                .add_root("more", cuboid_root())
+                .is_none(),
+            "and the one insert every add path uses refuses too"
+        );
+        assert_eq!(
+            record.generators["bush"].children.len(),
+            1,
+            "nothing extracted"
+        );
+    }
+
+    /// #1209, finding 143. The scene menu's "Delete item (and its
+    /// placements)" shares this builder with the tree's `− Delete`, so
+    /// the two doors onto the cascade cannot word it differently.
+    #[test]
+    fn the_root_delete_confirm_names_the_blast_radius_from_one_builder() {
+        let mut record = empty_record();
+        record.generators.insert("oak".into(), cuboid_root());
+        record.placements.push(absolute_pointing_at("oak"));
+        let mut confirm = crate::ui::confirm::ConfirmState::<GenNodeId>::default();
+        request_root_delete(&mut confirm, &RoomTreeSource::new(&mut record), "oak");
+        assert!(confirm.is_pending());
+        assert_eq!(
+            record.placements.len(),
+            1,
+            "nothing happens until the answer"
+        );
     }
 
     fn absolute_pointing_at(name: &str) -> Placement {

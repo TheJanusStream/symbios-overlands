@@ -265,17 +265,24 @@ pub fn item_rkey(name: &str) -> String {
 /// now that the stash is one record *per item* (#694/#696). `None` for an
 /// empty stash.
 pub fn max_item_bytes(record: &InventoryRecord) -> Option<usize> {
-    record
-        .generators
-        .iter()
-        .filter_map(|(name, generator)| {
-            super::record_size::serialized_record_bytes(&InventoryItemRecord::new(
-                name,
-                generator,
-                record.wear.get(name),
-            ))
-        })
-        .max()
+    measure_publish(record).bytes
+}
+
+/// Everything the size readout shows for the stash (#1207): the largest
+/// item record, named as `plan_item_writes` names it when refusing one,
+/// and the refusal sentence when an item cannot be serialized — a gift
+/// from a newer build decodes to `GeneratorKind::Unknown`, which is
+/// `skip_serializing`, and until this was measured the only symptom was a
+/// Save button that never lit up.
+pub fn measure_publish(record: &InventoryRecord) -> super::record_size::SizeReadout {
+    let mut readout = super::record_size::SizeReadout::default();
+    for (name, generator) in &record.generators {
+        readout.consider(
+            &InventoryItemRecord::new(name, generator, record.wear.get(name)),
+            &format!("inventory item \"{name}\""),
+        );
+    }
+    readout
 }
 
 // ---------------------------------------------------------------------------
@@ -789,6 +796,53 @@ mod tests {
             !record
                 .generators
                 .contains_key(&format!("item_{:04}", bound + 5))
+        );
+    }
+
+    /// #1207, finding 208 (the stash half). The readout names which item
+    /// holds the number, in the words the publish refusal would use, so an
+    /// over-ceiling stash says WHICH item to shrink before the click.
+    #[test]
+    fn measure_publish_names_the_largest_item() {
+        let mut record = stash(&["pebble", "cathedral"]);
+        let cathedral = record.generators.get_mut("cathedral").unwrap();
+        cathedral.children = vec![Generator::default_cuboid(); 40];
+        let readout = measure_publish(&record);
+        assert_eq!(
+            readout.largest.as_deref(),
+            Some("inventory item \"cathedral\"")
+        );
+        assert_eq!(readout.bytes, max_item_bytes(&record));
+        assert_eq!(readout.unserializable, None);
+        assert_eq!(measure_publish(&InventoryRecord::default()).bytes, None);
+    }
+
+    /// #1207, finding 122. Sequence: a gift sent from a newer build lands
+    /// in the stash and decodes to `GeneratorKind::Unknown`, which is
+    /// `skip_serializing`. With the item in both live and stored, both
+    /// sides of the dirty comparison serialized to `None`, dirty stayed
+    /// false whatever else the owner edited, and Save never lit up — with
+    /// no reason anywhere. The measurement now names the item and why.
+    #[test]
+    fn an_unreadable_item_is_reported_as_unserializable_by_name() {
+        let mut record = stash(&["pebble"]);
+        record.generators.insert(
+            String::from("gift_from_the_future"),
+            Generator {
+                kind: crate::pds::generator::GeneratorKind::Unknown,
+                ..Generator::default_cuboid()
+            },
+        );
+        let readout = measure_publish(&record);
+        let reason = readout
+            .unserializable
+            .expect("an Unknown item refuses the save");
+        assert!(reason.contains("gift_from_the_future"), "{reason}");
+        assert!(reason.contains("newer version of Overlands"), "{reason}");
+        // The readable item is still measured, so the number stays honest.
+        assert_eq!(
+            readout.largest.as_deref(),
+            Some("inventory item \"pebble\"")
         );
     }
 

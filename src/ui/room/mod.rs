@@ -29,6 +29,7 @@
 //! ternary-tree L-system preset used when adding a new generator.
 
 pub mod audio;
+pub(crate) mod caps;
 pub(crate) mod construct;
 mod contact_effects;
 mod environment;
@@ -62,7 +63,7 @@ use publish::spawn_reset_task;
 pub(crate) use publish::spawn_room_publish_task;
 pub use publish::{PublishRoomTask, ResetRoomTask, poll_publish_tasks};
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub enum EditorTab {
     #[default]
     Environment,
@@ -153,9 +154,8 @@ pub struct RoomEditorState {
     /// a GUI-originated selection (tree row click) naturally falls back
     /// to camera proximity without anyone having to clear this.
     pub preferred_pick: Option<PreferredPick>,
-    raw_text: String,
-    raw_text_initialised: bool,
-    raw_error: Option<String>,
+    /// The Raw JSON tab's text, and what it was seeded from (#1212).
+    raw: raw::RawJsonBuffer,
     /// Seconds remaining before a pending widget change is flushed into
     /// the live `RoomRecord`'s change tick. Dragging a slider resets
     /// this to `MENU_DEBOUNCE_SECS`; the downstream terrain rebuild,
@@ -188,7 +188,9 @@ pub struct RoomEditorState {
     pin_hunt: crate::ui::editable::PinHuntCache<crate::seeded_defaults::ScenePins>,
     /// Pending destructive tree-operation confirmations (#838): root
     /// delete + kind change on the Generators tab.
-    tree_confirms: generators::TreeConfirms,
+    /// Shared with the scene context menu (#1209), whose "Delete item"
+    /// parks the same cascading delete here.
+    pub(crate) tree_confirms: generators::TreeConfirms,
     /// Pending recovery-banner "Reset PDS to default" confirmation
     /// (#840): the button hard-overwrites the stored record, and a
     /// stale banner (pre-#840) could offer it against a healthy one.
@@ -267,8 +269,7 @@ impl RoomEditorState {
         // the pre-restore tree and could re-resolve to a different node;
         // drop them rather than let a stale dialog apply to the restored
         // record. Same for a half-typed rename.
-        self.tree_confirms.delete.cancel();
-        self.tree_confirms.kind.cancel();
+        self.tree_confirms.cancel_all();
         self.recovery_reset_confirm.cancel();
         self.publish_guard.cancel();
         self.renaming_generator = None;
@@ -276,10 +277,9 @@ impl RoomEditorState {
         // the restore just replaced; letting the timer drain would fire
         // a second `set_changed` and mint a phantom history entry.
         self.pending_flush_secs = 0.0;
-        // Refresh the raw-JSON mirror exactly like Load-from-PDS does.
-        self.raw_text = serde_json::to_string_pretty(record).unwrap_or_default();
-        self.raw_error = None;
-        self.raw_text_initialised = true;
+        // Refresh the raw-JSON mirror exactly like Load-from-PDS does —
+        // unless it holds unparsed edits, which are kept and flagged (#1212).
+        self.raw.sync_to(record);
         // Selection re-seed, validated against the RESTORED record —
         // whatever no longer resolves demotes to "nothing selected"
         // instead of pointing the gizmo at the wrong node.
@@ -351,6 +351,9 @@ pub struct RoomEditorExtras<'w, 's> {
     grammar_diag: Res<'w, crate::world_builder::grammar_diag::GrammarDiagnostics>,
     /// Live road-network stats for the RoadNetwork detail readout (#888).
     road_stats: Res<'w, crate::terrain::RoadPanelStats>,
+    /// The last compile abandoned part of the placement queue at the
+    /// entity budget (#1211) — the footer says so.
+    compile_truncation: Option<Res<'w, crate::world_builder::WorldCompileTruncated>>,
     /// Managed window geometry (#833) for the World Editor + audio pop-out.
     chrome: crate::ui::layout::WindowChrome<'w>,
     /// Pending Ctrl+S request for the shared save row (#836).
@@ -367,6 +370,94 @@ pub struct RoomEditorExtras<'w, 's> {
     /// Click-to-pick face selection (#961): shared with the scene click
     /// handler that resolves what the Faces panel armed.
     face_pick: ResMut<'w, crate::editor_gizmo::FacePick>,
+}
+
+/// How full the room is (#1210, finding 413): the two hard caps every add
+/// is refused at, as `N/cap`, warn-tinted from 80 % and error-tinted at
+/// the cap — the Inventory's treatment. And how much of the placement
+/// list the road layer grew (#1211, finding 394): a budget warning the
+/// owner cannot attribute to their own handful of objects is worse than
+/// none.
+fn counts_line(ui: &mut egui::Ui, record: &RoomRecord) {
+    use caps::Cap;
+    let (generators, g_tone) = Cap::Generators.readout(record.generators.len());
+    let (placements, p_tone) = Cap::Placements.readout(record.placements.len());
+    let grown = record
+        .placements
+        .iter()
+        .filter(|p| crate::terrain::is_road_grown(p))
+        .count();
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(generators)
+                .small()
+                .color(caps::tone_color(ui, g_tone)),
+        )
+        .on_hover_text(format!(
+            "Top-level generators in this world. {}",
+            Cap::Generators.full_reason()
+        ));
+        ui.label(egui::RichText::new("·").small().weak());
+        ui.label(
+            egui::RichText::new(placements)
+                .small()
+                .color(caps::tone_color(ui, p_tone)),
+        )
+        .on_hover_text(format!(
+            "Placements in this world. {}",
+            Cap::Placements.full_reason()
+        ));
+        if grown > 0 {
+            ui.label(egui::RichText::new("·").small().weak());
+            ui.label(
+                egui::RichText::new(format!("{grown} grown by the road layer"))
+                    .small()
+                    .weak(),
+            )
+            .on_hover_text(
+                "Buildings and street furniture the road network planted. They count \
+                 against the placement cap and the record size like anything else; the \
+                 Lots controls on the RoadNetwork node (Region Assets) tune how many.",
+            );
+        }
+    });
+}
+
+/// The sentence for a compile that hit the entity budget (#1211), shared by
+/// the one-shot toast and the footer line.
+pub(crate) fn compile_truncated_text(t: &crate::world_builder::WorldCompileTruncated) -> String {
+    let from = t
+        .first_skipped_index
+        .map(|i| format!(" (from placement #{i})"))
+        .unwrap_or_default();
+    format!(
+        "{} This world is too dense to build — {} placement{} skipped past the {} object \
+         limit{from}",
+        crate::ui::affordances::CROSS,
+        t.skipped_placements,
+        if t.skipped_placements == 1 { "" } else { "s" },
+        crate::world_builder::compile::MAX_ROOM_ENTITIES,
+    )
+}
+
+/// Toast the entity-budget truncation once per compile that hit it (#1211).
+/// `Update`, `InGame`. The executor cannot toast itself — `compile_room_record`
+/// sits at the parameter ceiling — so it leaves the resource and this
+/// drains it, the shape `grammar_diag` uses to cross the same boundary.
+/// Guarded-dirty: the resource is written only on the frame it announces.
+pub fn announce_compile_truncation(
+    truncated: Option<ResMut<crate::world_builder::WorldCompileTruncated>>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    time: Res<Time>,
+) {
+    let Some(mut truncated) = truncated else {
+        return;
+    };
+    if truncated.announced {
+        return;
+    }
+    truncated.announced = true;
+    toasts.warn(compile_truncated_text(&truncated), time.elapsed_secs_f64());
 }
 
 /// Live-sync gauge (#1123): what the whole-room peer broadcast weighs
@@ -450,6 +541,7 @@ pub fn room_admin_ui(
         players,
         grammar_diag,
         road_stats,
+        compile_truncation,
         mut chrome,
         mut publish_shortcut,
         mut toasts,
@@ -477,11 +569,7 @@ pub fn room_admin_ui(
         .next()
         .map(environment::PlayerPose::from_transform);
 
-    if !editor.raw_text_initialised {
-        editor.raw_text = serde_json::to_string_pretty(&record.0)
-            .unwrap_or_else(|e| format!("// serialize error: {}", e));
-        editor.raw_text_initialised = true;
-    }
+    editor.raw.ensure_seeded(&record.0);
 
     // Snapshot pre-frame selection so we can detect (a) "selection just
     // appeared" — the rising edge that clears the avatar editor's
@@ -502,8 +590,7 @@ pub fn room_admin_ui(
         selected_prim_path,
         tree_view_state,
         pending_tree_focus,
-        raw_text,
-        raw_error,
+        raw,
         pending_flush_secs,
         renaming_generator,
         audio_editor,
@@ -655,9 +742,7 @@ pub fn room_admin_ui(
                         {
                             let default_record = pds::RoomRecord::default_for_did(&room_did.0);
                             *record_mut = default_record.clone();
-                            *raw_text =
-                                serde_json::to_string_pretty(&default_record).unwrap_or_default();
-                            *raw_error = None;
+                            raw.sync_to(&default_record);
                             needs_broadcast = true;
                             undo_labels.set_room("reset PDS to default");
                             // Use the delete-then-put reset path. The vanilla
@@ -672,7 +757,9 @@ pub fn room_admin_ui(
                             // when the write is KNOWN to have landed — retiring
                             // it here left a failed reset with no banner and
                             // no way to retry.
-                            publish_feedback.status = PublishStatus::Publishing;
+                            publish_feedback.status = PublishStatus::Publishing {
+                                since_secs: time.elapsed_secs_f64(),
+                            };
                             spawn_reset_task(
                                 &mut commands,
                                 &session,
@@ -688,23 +775,30 @@ pub fn room_admin_ui(
 
                 // Tab bar
                 ui.horizontal(|ui| {
+                    // Unparsed Raw JSON edits are marked on the tab itself
+                    // (#1212), the one place they are visible from another
+                    // tab.
+                    let raw_label = if raw.is_edited() {
+                        "Raw JSON •"
+                    } else {
+                        "Raw JSON"
+                    };
                     let tabs = [
                         (EditorTab::Environment, "Environment"),
                         (EditorTab::Generators, "Region Assets"),
                         (EditorTab::Placements, "Placements"),
                         (EditorTab::Effects, "Effects"),
-                        (EditorTab::Raw, "Raw JSON"),
+                        (EditorTab::Raw, raw_label),
                     ];
                     for (tab, label) in tabs {
                         if ui.selectable_label(*selected_tab == tab, label).clicked() {
                             // Refresh the JSON text when the user arrives at
                             // the Raw tab so it reflects any edits made in
                             // the other tabs since the last time it was
-                            // viewed.
+                            // viewed — unless the buffer holds unparsed
+                            // edits, which are kept (#1212).
                             if tab == EditorTab::Raw && *selected_tab != EditorTab::Raw {
-                                *raw_text =
-                                    serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
-                                *raw_error = None;
+                                raw.sync_to(&*record_mut);
                             }
                             // Drop selections whose tab we're leaving so the
                             // 3D gizmo doesn't linger on an entity the user
@@ -850,8 +944,7 @@ pub fn room_admin_ui(
                     if let Some(seed) = effective {
                         seed_row_state.set_seed(seed);
                         *record_mut = pds::RoomRecord::default_for_seed(seed, &room_did.0);
-                        *raw_text = serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
-                        *raw_error = None;
+                        raw.sync_to(&*record_mut);
                         *selected_generator = None;
                         *selected_placement = None;
                         *selected_prim_path = None;
@@ -934,12 +1027,12 @@ pub fn room_admin_ui(
                         // the in-memory monolith. Same throttled cache as
                         // the other editors.
                         let now = time.elapsed_secs_f64();
-                        if publish_feedback.live_bytes_at.is_none_or(|at| {
-                            now - at >= crate::config::ui::editor::SIZE_READOUT_REFRESH_SECS
-                        }) {
-                            publish_feedback.live_bytes =
-                                pds::room::max_publish_record_bytes(&*record_mut);
-                            publish_feedback.live_bytes_at = Some(now);
+                        if crate::ui::editable::refresh_size_readout(
+                            &mut *publish_feedback,
+                            &*record_mut,
+                            now,
+                            pds::room::measure_publish,
+                        ) {
                             // Second measurement on the same throttle
                             // (#1123): what the live-sync broadcast puts on
                             // the wire, which is the WHOLE room in one
@@ -950,22 +1043,28 @@ pub fn room_admin_ui(
                                     .as_ref()
                                     .and_then(crate::network::chunk::wire_payload_bytes);
                         }
-                        let record_bytes = publish_feedback.live_bytes;
+                        let size = publish_feedback.live_size.clone();
                         let ctrl_s = publish_shortcut.take(crate::ui::shortcuts::EditorKind::World);
                         let mut do_publish = false;
                         match save_load_reset_row(
                             ui,
-                            dirty,
-                            true,
-                            can_reset,
-                            record_bytes,
-                            ctrl_s,
-                            matches!(publish_feedback.status, PublishStatus::Publishing),
-                            // Undo covers Revert/Reset here (#866) — no modal.
-                            None,
-                            crate::ui::editable::ResetWording::Record,
+                            crate::ui::editable::SaveRow {
+                                kind: crate::diagnostics::event::RecordKind::Room,
+                                dirty,
+                                can_publish: true,
+                                can_reset,
+                                size: &size,
+                                publish_shortcut: ctrl_s,
+                                status: &mut publish_feedback.status,
+                                // Undo covers Revert/Reset here (#866) — no modal.
+                                confirm: None,
+                                reset: crate::ui::editable::ResetWording::Record,
+                            },
                         ) {
                             RecordAction::None => {}
+                            RecordAction::Refused(reason) => {
+                                toasts.info(crate::ui::editable::ctrl_s_refused(&reason), now);
+                            }
                             RecordAction::Publish => {
                                 // Clobber protection (#1199, the room half of
                                 // #840): after an unrecoverable fetch the
@@ -984,9 +1083,7 @@ pub fn room_admin_ui(
                             RecordAction::Load => {
                                 if let Some(stored) = stored.as_ref() {
                                     *record_mut = stored.0.clone();
-                                    *raw_text = serde_json::to_string_pretty(&*record_mut)
-                                        .unwrap_or_default();
-                                    *raw_error = None;
+                                    raw.sync_to(&*record_mut);
                                     *selected_generator = None;
                                     *selected_placement = None;
                                     *selected_prim_path = None;
@@ -997,9 +1094,7 @@ pub fn room_admin_ui(
                             }
                             RecordAction::Reset => {
                                 *record_mut = default_record.clone();
-                                *raw_text =
-                                    serde_json::to_string_pretty(&*record_mut).unwrap_or_default();
-                                *raw_error = None;
+                                raw.sync_to(&*record_mut);
                                 *selected_generator = None;
                                 *selected_placement = None;
                                 *selected_prim_path = None;
@@ -1017,19 +1112,32 @@ pub fn room_admin_ui(
                             do_publish = true;
                         }
                         if do_publish {
-                            publish_feedback.status = PublishStatus::Publishing;
+                            publish_feedback.status = PublishStatus::Publishing { since_secs: now };
                             spawn_room_publish_task(
                                 &mut commands,
                                 &session,
                                 &refresh_ctx,
                                 record_mut.clone(),
                                 room_did.0.clone(),
-                                time.elapsed_secs_f64(),
+                                now,
                             );
                         }
 
                         live_sync_gauge(ui, *live_sync_bytes);
-                        publish_status_line(ui, &publish_feedback.status, time.elapsed_secs_f64());
+                        counts_line(ui, record_mut);
+                        if let Some(truncated) = compile_truncation.as_deref() {
+                            ui.label(
+                                egui::RichText::new(compile_truncated_text(truncated))
+                                    .color(crate::ui::theme::current(ui.ctx()).status.error)
+                                    .small(),
+                            )
+                            .on_hover_text(
+                                "Placements are built in list order, so it is the LATER rows \
+                                 that are missing from the world. Lower a scatter's count or \
+                                 delete placements, and the world rebuilds.",
+                            );
+                        }
+                        publish_status_line(ui, &publish_feedback.status, now, dirty);
                     });
 
                 // The tab body fills exactly what the footer left over.
@@ -1114,8 +1222,7 @@ pub fn room_admin_ui(
                                 EditorTab::Raw => {
                                     raw::draw_raw_tab(
                                         ui,
-                                        raw_text,
-                                        raw_error,
+                                        raw,
                                         record_mut,
                                         &mut widget_change,
                                         &mut undo_labels
@@ -1226,5 +1333,62 @@ pub fn room_admin_ui(
         // parse; this covers the visual-tab widgets.
         record.bypass_change_detection().0.sanitize();
         record.set_changed();
+    }
+}
+
+#[cfg(test)]
+mod truncation_tests {
+    use super::*;
+
+    /// #1211, findings 61 / 271. Sequence: set a scatter to 60 000, watch
+    /// half the buildings vanish. The executor stopped at the entity
+    /// budget, cleared the queue, logged one `warn!`, and completed as a
+    /// success. The resource it now leaves feeds one sentence — the toast
+    /// and the footer — that names the count and where the loss starts.
+    #[test]
+    fn the_truncation_sentence_names_the_count_and_the_first_missing_row() {
+        let text = compile_truncated_text(&crate::world_builder::WorldCompileTruncated {
+            skipped_placements: 37,
+            first_skipped_index: Some(211),
+            announced: false,
+        });
+        assert!(text.contains("37 placements skipped"), "{text}");
+        assert!(text.contains("from placement #211"), "{text}");
+        assert!(
+            text.contains(&crate::world_builder::compile::MAX_ROOM_ENTITIES.to_string()),
+            "{text}"
+        );
+        let one = compile_truncated_text(&crate::world_builder::WorldCompileTruncated {
+            skipped_placements: 1,
+            first_skipped_index: None,
+            announced: false,
+        });
+        assert!(one.contains("1 placement skipped"), "{one}");
+    }
+
+    /// The toast fires once per compile that truncated, never again while
+    /// the same report stands, and a compile that builds everything clears
+    /// the report (the executor removes the resource).
+    #[test]
+    fn the_truncation_toast_fires_once() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<crate::ui::toast::Toasts>();
+        app.add_systems(Update, announce_compile_truncation);
+        app.insert_resource(crate::world_builder::WorldCompileTruncated {
+            skipped_placements: 5,
+            first_skipped_index: Some(3),
+            announced: false,
+        });
+        app.update();
+        app.update();
+        let shown = app.world().resource::<crate::ui::toast::Toasts>().shown();
+        assert_eq!(shown.len(), 1, "one toast per report");
+        assert_eq!(shown[0].0, crate::ui::toast::ToastKind::Warn);
+        assert!(
+            app.world()
+                .resource::<crate::world_builder::WorldCompileTruncated>()
+                .announced
+        );
     }
 }

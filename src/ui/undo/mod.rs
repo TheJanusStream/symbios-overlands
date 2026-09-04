@@ -342,6 +342,12 @@ impl PendingUndoLabels {
         LabelSlot { labels: self, kind }
     }
 
+    /// The label parked for the next room entry, unconsumed — for tests
+    /// that assert what a mutation site named its edit.
+    pub fn peek_room(&self) -> Option<&str> {
+        self.room.as_deref()
+    }
+
     fn take_room(&mut self) -> String {
         self.room
             .take()

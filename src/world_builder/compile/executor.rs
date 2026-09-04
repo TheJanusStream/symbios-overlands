@@ -167,6 +167,11 @@ pub(crate) fn compile_room_record(
                     };
                     job.units_built += 1;
                 }
+                // What the stop cost, for the user-facing report (#1211).
+                if job.skipped_from.is_none() {
+                    job.skipped_from = job.queue.front().map(|unit| unit.index);
+                }
+                job.skipped_units += job.queue.len() as u32;
                 job.queue.clear();
             }
             if Instant::now() >= deadline {
@@ -316,8 +321,21 @@ pub(crate) fn compile_room_record(
             entity_count: job.entities_spawned,
             duration_secs: job.work.as_secs_f64(),
             digest: compile_digest,
+            skipped_placements: job.skipped_units,
         },
     );
+    // A budget stop is a user-facing fact (#1211), not a console line: the
+    // resource feeds one toast and the World Editor footer, and a later
+    // compile that builds everything clears it.
+    if job.skipped_units > 0 {
+        commands.insert_resource(super::super::WorldCompileTruncated {
+            skipped_placements: job.skipped_units,
+            first_skipped_index: job.skipped_from,
+            announced: false,
+        });
+    } else {
+        commands.remove_resource::<super::super::WorldCompileTruncated>();
+    }
 
     // Unblock the loading gate: the world this record describes exists.
     // Idempotent on later jobs; removed by `logout::cleanup_on_logout`.

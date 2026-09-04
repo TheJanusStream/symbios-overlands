@@ -244,6 +244,11 @@ pub enum EventPayload {
         /// Content digest of the compile (#1146) — placement fingerprints in
         /// index order plus `entity_count`. See [`crate::world_digest`].
         digest: u64,
+        /// Placements the entity budget stopped the compile from building
+        /// (#1211). Zero is a complete world; the timeline says otherwise
+        /// out loud, since the line used to read like a success either way.
+        #[serde(default)]
+        skipped_placements: u32,
     },
     /// The local player re-seeded their avatar in the editor (a `Reroll(seed)`),
     /// regenerating the avatar visuals. Grouped with the other in-game
@@ -757,9 +762,17 @@ impl EventPayload {
             WorldCompileCompleted {
                 entity_count,
                 duration_secs,
+                skipped_placements,
                 ..
             } => {
-                format!("world compile done ({entity_count} entities) in {duration_secs:.1}s")
+                let skipped = if *skipped_placements > 0 {
+                    format!(" — {skipped_placements} placements SKIPPED at the entity budget")
+                } else {
+                    String::new()
+                };
+                format!(
+                    "world compile done ({entity_count} entities) in {duration_secs:.1}s{skipped}"
+                )
             }
             AvatarReseeded { seed } => format!("avatar reseeded (seed {seed})"),
             RiggedBuildCompleted {

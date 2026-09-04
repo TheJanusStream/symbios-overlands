@@ -102,7 +102,42 @@ pub struct RoadPanelStats {
     pub buildings: usize,
     /// Street-furniture props planted by the #893 layer.
     pub props: usize,
+    /// What the lot layer's clamps dropped on the last inject (#1211).
+    pub clamps: LotClamps,
 }
+
+/// The four silent drops in the lot injector, counted (#1211): density
+/// thinning, the per-district building cap or the room's free placement
+/// budget, the furniture cap or that same budget, and the generator
+/// ceiling. Rendered beside the Lots controls so tuning density, extent
+/// and spacing has a feedback loop instead of a number that moves for
+/// reasons the owner cannot attribute. Zero everywhere for adopted (saved)
+/// content, which was not injected this session.
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LotClamps {
+    /// Lots the street graph enclosed.
+    pub lots_found: usize,
+    /// Lots kept after density thinning.
+    pub lots_kept: usize,
+    /// Kept lots left empty by the building cap.
+    pub buildings_dropped: usize,
+    /// The building cap that bit was the room's placement budget, not
+    /// the per-district constant.
+    pub buildings_capped_by_budget: bool,
+    /// Furniture spots left empty by the furniture cap.
+    pub props_dropped: usize,
+    pub props_capped_by_budget: bool,
+    /// Lots and spots skipped because the world is at the generator cap.
+    pub generator_cap_skips: usize,
+}
+
+/// Whether `placement` was planted by the road layer (#1211): a lot
+/// building or a street-furniture prop, by its generator-name prefix.
+pub fn is_road_grown(placement: &crate::pds::Placement) -> bool {
+    lots::is_road_grown(placement)
+}
+
+pub(crate) use lots::{MAX_FURNITURE_PROPS, MAX_LOT_BUILDINGS};
 
 impl FinishedHeightMap {
     /// Terrain height at **world** coordinates: the heightmap's own frame

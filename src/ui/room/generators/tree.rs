@@ -66,68 +66,77 @@ pub(super) fn draw_tree_panel(
         if !source.allow_multiple_roots() {
             return;
         }
-        ui.menu_button("+ New", |ui| {
-            for kind_tag in allowed_root_kinds {
-                if ui.button(*kind_tag).clicked() {
-                    let kind = make_default_for_kind(kind_tag);
-                    if let Some(name) =
-                        source.add_root(&kind_tag.to_lowercase(), Generator::from_kind(kind))
-                    {
-                        *selected_generator = Some(name.clone());
-                        *selected_prim_path = Some(Vec::new());
-                        label.set(format!("add of {name}"));
-                        tree_view_state.set_one_selected(GenNodeId::root(name));
-                        *dirty = true;
-                    }
-                    ui.close();
-                }
-            }
-        });
-
-        if let Some(inv) = inventory.as_deref()
-            && !inv.0.generators.is_empty()
-        {
-            ui.menu_button("+ From Inventory", |ui| {
-                let mut names: Vec<&String> = inv.0.generators.keys().collect();
-                names.sort();
-                let mut picked: Option<(String, Generator)> = None;
-                for inv_name in names {
-                    if ui.button(inv_name).clicked()
-                        && let Some(g) = inv.0.generators.get(inv_name)
-                    {
-                        picked = Some((inv_name.clone(), g.clone()));
+        // At the generator cap every add-root door is disabled with the
+        // reason (#1210), the #841 treatment; `add_root` refuses anyway.
+        let roots_full = source.root_capacity_remaining() == 0;
+        let full_reason = crate::ui::room::caps::Cap::Generators.full_reason();
+        let mut add_roots = ui.add_enabled_ui(!roots_full, |ui| {
+            ui.menu_button("+ New", |ui| {
+                for kind_tag in allowed_root_kinds {
+                    if ui.button(*kind_tag).clicked() {
+                        let kind = make_default_for_kind(kind_tag);
+                        if let Some(name) =
+                            source.add_root(&kind_tag.to_lowercase(), Generator::from_kind(kind))
+                        {
+                            *selected_generator = Some(name.clone());
+                            *selected_prim_path = Some(Vec::new());
+                            label.set(format!("add of {name}"));
+                            tree_view_state.set_one_selected(GenNodeId::root(name));
+                            *dirty = true;
+                        }
                         ui.close();
                     }
                 }
-                if let Some((inv_name, g)) = picked
-                    && let Some(new_name) = source.add_root(&inv_name, g)
-                {
-                    *selected_generator = Some(new_name.clone());
-                    *selected_prim_path = Some(Vec::new());
-                    label.set(format!("add of {new_name}"));
-                    tree_view_state.set_one_selected(GenNodeId::root(new_name));
-                    *dirty = true;
-                }
             });
-        }
 
-        // Catalogue submenu — the client-shipped sibling of Inventory.
-        // Same shape as "+ From Inventory": click an entry to stamp a
-        // fresh copy into the tree as a new root.
-        if !crate::catalogue::ENTRIES.is_empty() {
-            ui.menu_button("+ From Catalogue", |ui| {
-                let mut picked: Option<(String, Generator)> = None;
-                catalogue_menu(ui, "", |slug, g| picked = Some((slug, g)));
-                if let Some((slug, g)) = picked
-                    && let Some(new_name) = source.add_root(&slug, g)
-                {
-                    *selected_generator = Some(new_name.clone());
-                    *selected_prim_path = Some(Vec::new());
-                    label.set(format!("add of {new_name}"));
-                    tree_view_state.set_one_selected(GenNodeId::root(new_name));
-                    *dirty = true;
-                }
-            });
+            if let Some(inv) = inventory.as_deref()
+                && !inv.0.generators.is_empty()
+            {
+                ui.menu_button("+ From Inventory", |ui| {
+                    let mut names: Vec<&String> = inv.0.generators.keys().collect();
+                    names.sort();
+                    let mut picked: Option<(String, Generator)> = None;
+                    for inv_name in names {
+                        if ui.button(inv_name).clicked()
+                            && let Some(g) = inv.0.generators.get(inv_name)
+                        {
+                            picked = Some((inv_name.clone(), g.clone()));
+                            ui.close();
+                        }
+                    }
+                    if let Some((inv_name, g)) = picked
+                        && let Some(new_name) = source.add_root(&inv_name, g)
+                    {
+                        *selected_generator = Some(new_name.clone());
+                        *selected_prim_path = Some(Vec::new());
+                        label.set(format!("add of {new_name}"));
+                        tree_view_state.set_one_selected(GenNodeId::root(new_name));
+                        *dirty = true;
+                    }
+                });
+            }
+
+            // Catalogue submenu — the client-shipped sibling of Inventory.
+            // Same shape as "+ From Inventory": click an entry to stamp a
+            // fresh copy into the tree as a new root.
+            if !crate::catalogue::ENTRIES.is_empty() {
+                ui.menu_button("+ From Catalogue", |ui| {
+                    let mut picked: Option<(String, Generator)> = None;
+                    catalogue_menu(ui, "", |slug, g| picked = Some((slug, g)));
+                    if let Some((slug, g)) = picked
+                        && let Some(new_name) = source.add_root(&slug, g)
+                    {
+                        *selected_generator = Some(new_name.clone());
+                        *selected_prim_path = Some(Vec::new());
+                        label.set(format!("add of {new_name}"));
+                        tree_view_state.set_one_selected(GenNodeId::root(new_name));
+                        *dirty = true;
+                    }
+                });
+            }
+        });
+        if roots_full {
+            add_roots.response = add_roots.response.on_disabled_hover_text(full_reason);
         }
     });
 
@@ -180,6 +189,7 @@ pub(super) fn draw_tree_panel(
                                 allow_rename,
                                 &pending,
                                 inv_for_build,
+                                crate::ui::room::caps::node_count(node),
                             );
                         }
                     }
@@ -313,6 +323,8 @@ fn build_tree_node(
     allow_rename: bool,
     pending: &RefCell<Option<PendingAction>>,
     inventory: Option<&LiveInventoryRecord>,
+    // Nodes in this root's whole tree, for the per-generator cap (#1210).
+    root_nodes: usize,
 ) {
     let id = GenNodeId::child(root_name, path.clone());
     let label = if is_root {
@@ -324,6 +336,20 @@ fn build_tree_node(
     let menu_id = id.clone();
     let menu_root = id.root.clone();
     let menu_allows_children = allows_children(&node.kind);
+    // Why a child cannot be added under this node right now (#1210): the
+    // nesting or node cap the sanitiser would otherwise enforce a quarter
+    // second after the add by amputating the tree. `apply_pending`
+    // re-checks, since a prebuilt subtree can be deeper than one level.
+    let menu_child_refusal: Option<String> = {
+        use crate::ui::room::caps::{Cap, fits_under};
+        if !fits_under(path.len(), 0) {
+            Some(Cap::Depth.full_reason())
+        } else if Cap::NodesPerGenerator.is_full(root_nodes) {
+            Some(Cap::NodesPerGenerator.full_reason())
+        } else {
+            None
+        }
+    };
     let menu_is_root = is_root;
     let menu_allow_rename = allow_rename;
     // `Option<&T>` is `Copy`, so the move closure below copies the option
@@ -331,70 +357,75 @@ fn build_tree_node(
     // bookkeeping needed for the "+ From Inventory" submenu inside.
     let menu_inventory = inventory;
     let context_menu = move |ui: &mut egui::Ui| {
-        if menu_allows_children {
-            // Mirror the toolbar's "+ New" kind picker: a submenu listing
-            // every kind valid as a child (the source's
-            // `allowed_kinds_for_child()` set). Picking a kind stages an
-            // `AddChild` action carrying that kind's static tag —
-            // `apply_pending` calls `make_default_for_kind` to build the
-            // actual node.
-            ui.menu_button("+ Add child", |ui| {
-                for kind_tag in allowed_child_kinds {
-                    if ui.button(*kind_tag).clicked() {
-                        *pending.borrow_mut() = Some(PendingAction::AddChild {
-                            parent: menu_id.clone(),
-                            kind_tag,
-                        });
-                        ui.close();
+        let mut add_children = ui.add_enabled_ui(menu_child_refusal.is_none(), |ui| {
+            if menu_allows_children {
+                // Mirror the toolbar's "+ New" kind picker: a submenu listing
+                // every kind valid as a child (the source's
+                // `allowed_kinds_for_child()` set). Picking a kind stages an
+                // `AddChild` action carrying that kind's static tag —
+                // `apply_pending` calls `make_default_for_kind` to build the
+                // actual node.
+                ui.menu_button("+ Add child", |ui| {
+                    for kind_tag in allowed_child_kinds {
+                        if ui.button(*kind_tag).clicked() {
+                            *pending.borrow_mut() = Some(PendingAction::AddChild {
+                                parent: menu_id.clone(),
+                                kind_tag,
+                            });
+                            ui.close();
+                        }
                     }
-                }
-            });
-        }
-        if menu_allows_children
-            && let Some(inv) = menu_inventory
-            && !inv.0.generators.is_empty()
-        {
-            ui.menu_button("+ From Inventory", |ui| {
-                let mut names: Vec<&String> = inv
-                    .0
-                    .generators
-                    .iter()
-                    .filter(|(_, g)| is_drop_placeable(g))
-                    .map(|(k, _)| k)
-                    .collect();
-                names.sort();
-                if names.is_empty() {
-                    ui.label(
-                        egui::RichText::new("(no placeable inventory items)")
-                            .small()
-                            .color(crate::ui::theme::current(ui.ctx()).text_weak),
-                    );
-                    return;
-                }
-                for inv_name in names {
-                    if ui.button(inv_name).clicked()
-                        && let Some(g) = inv.0.generators.get(inv_name)
-                    {
+                });
+            }
+            if menu_allows_children
+                && let Some(inv) = menu_inventory
+                && !inv.0.generators.is_empty()
+            {
+                ui.menu_button("+ From Inventory", |ui| {
+                    let mut names: Vec<&String> = inv
+                        .0
+                        .generators
+                        .iter()
+                        .filter(|(_, g)| is_drop_placeable(g))
+                        .map(|(k, _)| k)
+                        .collect();
+                    names.sort();
+                    if names.is_empty() {
+                        ui.label(
+                            egui::RichText::new("(no placeable inventory items)")
+                                .small()
+                                .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                        );
+                        return;
+                    }
+                    for inv_name in names {
+                        if ui.button(inv_name).clicked()
+                            && let Some(g) = inv.0.generators.get(inv_name)
+                        {
+                            *pending.borrow_mut() = Some(PendingAction::AddChildPrebuilt {
+                                parent: menu_id.clone(),
+                                generator: Box::new(g.clone()),
+                            });
+                            ui.close();
+                        }
+                    }
+                });
+            }
+            // Catalogue stamps parent to the clicked node exactly like an
+            // inventory clone — same buffered insert path, fresh blueprint.
+            if menu_allows_children && !crate::catalogue::ENTRIES.is_empty() {
+                ui.menu_button("+ From Catalogue", |ui| {
+                    catalogue_menu(ui, "", |_slug, g| {
                         *pending.borrow_mut() = Some(PendingAction::AddChildPrebuilt {
                             parent: menu_id.clone(),
-                            generator: Box::new(g.clone()),
+                            generator: Box::new(g),
                         });
-                        ui.close();
-                    }
-                }
-            });
-        }
-        // Catalogue stamps parent to the clicked node exactly like an
-        // inventory clone — same buffered insert path, fresh blueprint.
-        if menu_allows_children && !crate::catalogue::ENTRIES.is_empty() {
-            ui.menu_button("+ From Catalogue", |ui| {
-                catalogue_menu(ui, "", |_slug, g| {
-                    *pending.borrow_mut() = Some(PendingAction::AddChildPrebuilt {
-                        parent: menu_id.clone(),
-                        generator: Box::new(g),
                     });
                 });
-            });
+            }
+        });
+        if let Some(reason) = &menu_child_refusal {
+            add_children.response = add_children.response.on_disabled_hover_text(reason);
         }
         // Rename rewrites the source's root key plus every Placement /
         // traits reference held alongside (room source). Inner nodes are
@@ -465,6 +496,7 @@ fn build_tree_node(
                 allow_rename,
                 pending,
                 inventory,
+                root_nodes,
             );
         }
         builder.close_dir();

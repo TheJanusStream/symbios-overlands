@@ -80,6 +80,68 @@ pub fn serialized_record_bytes<T: Serialize>(record: &T) -> Option<usize> {
     serde_json::to_vec(record).ok().map(|v| v.len())
 }
 
+/// What the size readout beside "Save to PDS" knows about one editor's
+/// next save (#1207): the largest single record it would write, *which*
+/// record that is, and whether some part of it cannot be written at all.
+///
+/// One value for all three editors, filled by each record's own
+/// `measure_publish` walking exactly the records its publish plan writes
+/// — the room's manifest and children, the stash's per-item records, the
+/// avatar's bundle. Before this the readout was a bare byte count: the
+/// Room's said "the whole record" while measuring the biggest child, the
+/// Avatar measured the reference-only record and missed the wardrobe body
+/// and every worn prop, and a record this build could not serialize showed
+/// no readout and an enabled Save that failed on the click.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SizeReadout {
+    /// Serialized size of the largest single record the save writes.
+    /// `None` when nothing was measured — an empty stash, or a record
+    /// none of whose parts serialize.
+    pub bytes: Option<usize>,
+    /// Which record holds `bytes`, in the words [`preflight`] would use to
+    /// refuse it (`room generator "oak"`), so an oversized save names the
+    /// offender before the click rather than after a refused batch.
+    pub largest: Option<String>,
+    /// Why the save cannot be written at all — the
+    /// [`unserializable_reason`] sentence for the first part that failed
+    /// to serialize. `Some` disables Save outright.
+    pub unserializable: Option<String>,
+}
+
+impl SizeReadout {
+    /// Fold one record the save would write into the readout: it becomes
+    /// `largest` if it is the biggest so far, or the refusal if it does not
+    /// serialize. `label` is the preflight label for this record.
+    pub fn consider<T: Serialize>(&mut self, record: &T, label: &str) {
+        match serde_json::to_vec(record) {
+            Ok(bytes) => {
+                if self.bytes.is_none_or(|largest| bytes.len() > largest) {
+                    self.bytes = Some(bytes.len());
+                    self.largest = Some(label.to_string());
+                }
+            }
+            Err(e) => {
+                if self.unserializable.is_none() {
+                    self.unserializable = Some(unserializable_reason(label, &e.to_string()));
+                }
+            }
+        }
+    }
+
+    /// Fold in a refusal that was decided without serializing — a body
+    /// marker the record type itself refuses to write.
+    pub fn refuse(&mut self, reason: String) {
+        if self.unserializable.is_none() {
+            self.unserializable = Some(reason);
+        }
+    }
+
+    /// Where `bytes` falls against the budgets; `None` when unmeasured.
+    pub fn class(&self) -> Option<SizeClass> {
+        self.bytes.map(classify)
+    }
+}
+
 /// Pre-flight guard every record publish path calls before any network I/O.
 /// Returns the measured size, or an error when the record is past the hard
 /// ceiling (or unserializable). `label` names the record kind in the error

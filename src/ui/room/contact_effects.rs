@@ -44,13 +44,31 @@ pub(super) fn draw_contact_effects_tab(
         .default_size(260.0)
         .min_size(180.0)
         .show(ui, |ui| {
-            // Add action ABOVE the list (#825).
-            if ui.button("+ Add recipe").clicked() {
-                let n = effects.recipes.len();
-                effects.recipes.push(new_recipe(n));
-                *selected = Some(effects.recipes.len() - 1);
-                *dirty = true;
-            }
+            // Add action ABOVE the list (#825), refused at the cap with the
+            // reason (#1210): a 65th recipe used to be pushed, and the next
+            // flush re-sorted the whole list alphabetically and dropped one
+            // — an unannounced reorder of the authored order plus a
+            // deletion. With the add refused here the sort never runs.
+            let cap = crate::ui::room::caps::Cap::Recipes;
+            let full = cap.is_full(effects.recipes.len());
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(!full, egui::Button::new("+ Add recipe"))
+                    .on_disabled_hover_text(cap.full_reason())
+                    .clicked()
+                {
+                    let n = effects.recipes.len();
+                    effects.recipes.push(new_recipe(n));
+                    *selected = Some(effects.recipes.len() - 1);
+                    *dirty = true;
+                }
+                let (count_text, tone) = cap.readout(effects.recipes.len());
+                ui.label(
+                    egui::RichText::new(count_text)
+                        .small()
+                        .color(crate::ui::room::caps::tone_color(ui, tone)),
+                );
+            });
             let mut per_frame = effects.max_particles_per_frame;
             drag_u32(ui, "Max particles / frame", &mut per_frame, 0, 4096, dirty);
             effects.max_particles_per_frame = per_frame;

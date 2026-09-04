@@ -84,6 +84,31 @@ pub enum GuardPhase {
     Publishing,
 }
 
+/// Why the dialog is asking again after a publish it waited on (#1206).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GuardNotice {
+    /// A publish this guard waited on failed; the record's own status
+    /// line said so and this is what it said.
+    PublishFailed(String),
+    /// Every publish this guard waited on drained without a failure, and
+    /// the relevant records are still dirty — an edit made while the save
+    /// was in flight, which `stored` (pinned to what was WRITTEN, #1116)
+    /// correctly does not cover. Not a failure, and not said as one.
+    StillDirty,
+}
+
+impl GuardNotice {
+    /// The dialog line.
+    pub fn text(&self) -> String {
+        match self {
+            Self::PublishFailed(error) => format!("Publish failed — {error}"),
+            Self::StillDirty => String::from(
+                "The save finished, but unsaved edits remain — publish again, or discard them.",
+            ),
+        }
+    }
+}
+
 /// Present while a guarded action is pending. Inserted by the portal
 /// contact handler and the Log out button; removed by [`unsaved_guard_ui`]
 /// when the action proceeds or the user backs out (and defensively by
@@ -92,9 +117,14 @@ pub enum GuardPhase {
 pub struct UnsavedGuard {
     pub action: GuardedAction,
     pub phase: GuardPhase,
-    /// Failure message from the most recent publish attempt, surfaced in
-    /// the dialog so the user understands why they are being re-asked.
-    pub error: Option<String>,
+    /// Why the dialog is asking again, surfaced so the user understands.
+    pub notice: Option<GuardNotice>,
+    /// When this guard entered `Publishing` — the clock a publish outcome
+    /// must postdate to be quoted as THIS attempt's (#1206). A `Failed`
+    /// status is never reset by an edit, so without this a save that
+    /// failed minutes earlier was reported as the reason this attempt
+    /// failed.
+    pub publishing_since: Option<f64>,
 }
 
 impl UnsavedGuard {
@@ -102,8 +132,41 @@ impl UnsavedGuard {
         Self {
             action,
             phase: GuardPhase::Prompt,
-            error: None,
+            notice: None,
+            publishing_since: None,
         }
+    }
+
+    fn enter_publishing(&mut self, now: f64) {
+        self.phase = GuardPhase::Publishing;
+        self.publishing_since = Some(now);
+    }
+}
+
+/// The dialog's button labels for one action, so the three actions stay
+/// in step and the Publishing phase's one non-destructive exit is named
+/// for what it does (#1206): it does not continue the action, it closes
+/// the dialog and lets the save land — it used to read "Continue in
+/// background", which sat where "Stay here" sits and read as "proceed".
+pub struct GuardLabels {
+    pub publish: &'static str,
+    pub discard: &'static str,
+    pub stay: &'static str,
+    /// `stay`, qualified for the Publishing phase.
+    pub stay_while_publishing: String,
+}
+
+pub fn guard_labels(action: &GuardedAction) -> GuardLabels {
+    let (publish, discard, stay) = match action {
+        GuardedAction::PortalTravel { .. } => ("Publish & travel", "Discard & travel", "Stay here"),
+        GuardedAction::Logout => ("Publish & log out", "Discard & log out", "Cancel"),
+        GuardedAction::Quit => ("Publish & quit", "Discard & quit", "Cancel"),
+    };
+    GuardLabels {
+        publish,
+        discard,
+        stay,
+        stay_while_publishing: format!("{stay} (save continues)"),
     }
 }
 
@@ -216,26 +279,62 @@ pub struct GuardFeedbacks<'w> {
 }
 
 impl GuardFeedbacks<'_> {
-    /// First failure message among the record types the action cares
-    /// about, for the dialog's error line.
-    fn failure_message(&self, action: &GuardedAction) -> Option<String> {
+    /// First failure among the record types the action cares about that
+    /// postdates `since`, for the dialog's notice line.
+    fn failure_message(&self, action: &GuardedAction, since: f64) -> Option<String> {
         let mut sources: Vec<(&str, &PublishStatus)> = vec![("World", &self.room.status)];
         if matches!(action, GuardedAction::Logout | GuardedAction::Quit) {
             sources.push(("Avatar", &self.avatar.status));
             sources.push(("Inventory", &self.inventory.status));
         }
-        sources
-            .into_iter()
-            .find_map(|(label, status)| match status {
-                PublishStatus::Failed { message, .. } => Some(format!("{label}: {message}")),
-                _ => None,
-            })
+        recent_failure(&sources, since)
+    }
+}
+
+/// The first `Failed` status stamped at or after `since` (#1206). A
+/// status older than the guard's own wait is about some earlier attempt
+/// — an edit never resets it — and quoting it as this attempt's reason
+/// told the owner a save had failed when nothing of theirs had.
+pub(crate) fn recent_failure(sources: &[(&str, &PublishStatus)], since: f64) -> Option<String> {
+    sources.iter().find_map(|(label, status)| match status {
+        PublishStatus::Failed { at_secs, message } if *at_secs >= since => {
+            Some(format!("{label}: {message}"))
+        }
+        _ => None,
+    })
+}
+
+/// Which PDS writes are running right now, as data, so the wait rule is
+/// a pure function beside [`DirtyRecords::blocks`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct InFlightWrites {
+    pub room: bool,
+    pub avatar: bool,
+    pub inventory: bool,
+}
+
+impl InFlightWrites {
+    /// Whether a running write should hold `action` (#1206) — the same
+    /// question [`DirtyRecords::blocks`] answers for dirt. Portal travel
+    /// swaps only the room record, so only a room write can pin the wrong
+    /// thing when it lands; an inventory write from a gift accepted a
+    /// moment ago is irrelevant to it. The guard used to wait on ANY task,
+    /// so that gift showed the traveller a spinner labelled "Publishing…",
+    /// then "Publish failed — publish did not complete" when it drained.
+    pub(crate) fn blocks(&self, action: &GuardedAction) -> bool {
+        match action {
+            GuardedAction::PortalTravel { .. } => self.room,
+            GuardedAction::Logout | GuardedAction::Quit => {
+                self.room || self.avatar || self.inventory
+            }
+        }
     }
 }
 
 /// Existence probes for the publish-task components. The guard's
-/// `Publishing` phase waits until all of them have drained (the editors'
-/// poll systems despawn each task entity when its result lands).
+/// `Publishing` phase waits until the ones its action depends on have
+/// drained (the editors' poll systems despawn each task entity when its
+/// result lands).
 ///
 /// The room's recovery reset is a write too (#1199): it lands through the
 /// same poll system and pins `stored` the same way, so a portal hop or a
@@ -250,12 +349,17 @@ pub struct GuardPublishTasks<'w, 's> {
 }
 
 impl GuardPublishTasks<'_, '_> {
-    /// Whether any PDS write the guard has to wait for is still running.
-    pub fn any_in_flight(&self) -> bool {
-        !self.room.is_empty()
-            || !self.reset.is_empty()
-            || !self.avatar.is_empty()
-            || !self.inventory.is_empty()
+    fn in_flight(&self) -> InFlightWrites {
+        InFlightWrites {
+            room: !self.room.is_empty() || !self.reset.is_empty(),
+            avatar: !self.avatar.is_empty(),
+            inventory: !self.inventory.is_empty(),
+        }
+    }
+
+    /// Whether a PDS write `action` has to wait for is still running.
+    pub fn blocks(&self, action: &GuardedAction) -> bool {
+        self.in_flight().blocks(action)
     }
 }
 
@@ -289,14 +393,18 @@ pub fn unsaved_guard_ui(
 
     // A publish the user fired from an editor moments before triggering
     // the action is morally the same as clicking "Publish & continue":
-    // wait for it rather than racing it or double-publishing.
-    if guard.phase == GuardPhase::Prompt && dirty.blocks(&guard.action) && tasks.any_in_flight() {
-        guard.phase = GuardPhase::Publishing;
+    // wait for it rather than racing it or double-publishing. Only a
+    // write the action depends on (#1206) — see `InFlightWrites::blocks`.
+    if guard.phase == GuardPhase::Prompt
+        && dirty.blocks(&guard.action)
+        && tasks.blocks(&guard.action)
+    {
+        guard.enter_publishing(now);
     }
 
     match guard.phase {
         GuardPhase::Publishing => {
-            if tasks.any_in_flight() {
+            if tasks.blocks(&guard.action) {
                 // Still waiting on at least one poll system to drain its
                 // task — render the holding state below.
             } else if !dirty.blocks(&guard.action) {
@@ -311,12 +419,14 @@ pub fn unsaved_guard_ui(
                 );
                 return;
             } else {
-                // Drained but still dirty: at least one publish failed.
-                // Fall back to the prompt with the failure surfaced.
-                guard.error = Some(
+                // Drained but still dirty: a publish failed, or an edit
+                // landed during the flight. Fall back to the prompt with
+                // the honest reason — and only a failure from THIS wait.
+                let since = guard.publishing_since.unwrap_or(now);
+                guard.notice = Some(
                     feedbacks
-                        .failure_message(&guard.action)
-                        .unwrap_or_else(|| "publish did not complete".into()),
+                        .failure_message(&guard.action, since)
+                        .map_or(GuardNotice::StillDirty, GuardNotice::PublishFailed),
                 );
                 guard.phase = GuardPhase::Prompt;
             }
@@ -342,11 +452,12 @@ pub fn unsaved_guard_ui(
         return;
     };
 
-    let (continue_publish, continue_discard, stay) = match guard.action {
-        GuardedAction::PortalTravel { .. } => ("Publish & travel", "Discard & travel", "Stay here"),
-        GuardedAction::Logout => ("Publish & log out", "Discard & log out", "Cancel"),
-        GuardedAction::Quit => ("Publish & quit", "Discard & quit", "Cancel"),
-    };
+    let GuardLabels {
+        publish: continue_publish,
+        discard: continue_discard,
+        stay,
+        stay_while_publishing,
+    } = guard_labels(&guard.action);
 
     crate::ui::confirm::note_modal_open(ctx);
     egui::Modal::new(egui::Id::new("unsaved-guard")).show(ctx, |ui| {
@@ -375,12 +486,14 @@ pub fn unsaved_guard_ui(
             GuardedAction::Quit => "Quitting will discard them.",
         });
 
-        if let Some(error) = &guard.error {
+        if let Some(notice) = &guard.notice {
             ui.add_space(4.0);
-            ui.colored_label(
-                crate::ui::theme::current(ui.ctx()).status.error,
-                format!("Publish failed — {error}"),
-            );
+            let theme = crate::ui::theme::current(ui.ctx());
+            let color = match notice {
+                GuardNotice::PublishFailed(_) => theme.status.error,
+                GuardNotice::StillDirty => theme.status.warn,
+            };
+            ui.colored_label(color, notice.text());
         }
         ui.add_space(8.0);
 
@@ -390,11 +503,13 @@ pub fn unsaved_guard_ui(
                 ui.label("Publishing…");
             });
             ui.add_space(4.0);
-            // "Continue in background" (#838), not "Stay here": backing
-            // out doesn't cancel the in-flight tasks — the editors' poll
-            // systems land them as a normal publish — so the honest label
-            // says the save keeps going.
-            if ui.button("Continue in background").clicked() {
+            // The non-destructive exit is named for what it does (#1206):
+            // it closes the dialog WITHOUT the action — backing out doesn't
+            // cancel the in-flight tasks, the editors' poll systems land
+            // them as a normal publish, so the label says the save keeps
+            // going. It used to read "Continue in background", which sat
+            // where "Stay here" sits and read as "proceed".
+            if ui.button(&stay_while_publishing).clicked() {
                 close(&guard.action, &mut commands, &time);
             }
             // Discard stays reachable while publishing (#1129). It was
@@ -451,11 +566,11 @@ pub fn unsaved_guard_ui(
                 && let (Some(session), Some(refresh_ctx)) =
                     (session.as_deref(), refresh_ctx.as_deref())
             {
-                guard.error = None;
+                guard.notice = None;
                 if dirty.room
                     && let Some(live) = records.live_room.as_deref()
                 {
-                    feedbacks.room.status = PublishStatus::Publishing;
+                    feedbacks.room.status = PublishStatus::Publishing { since_secs: now };
                     let room_did = current_room
                         .as_deref()
                         .map(|d| d.0.clone())
@@ -473,7 +588,7 @@ pub fn unsaved_guard_ui(
                     if dirty.avatar
                         && let Some(live) = records.live_avatar.as_deref()
                     {
-                        feedbacks.avatar.status = PublishStatus::Publishing;
+                        feedbacks.avatar.status = PublishStatus::Publishing { since_secs: now };
                         crate::ui::avatar::spawn_publish_avatar_task(
                             &mut commands,
                             session,
@@ -496,7 +611,7 @@ pub fn unsaved_guard_ui(
                     if dirty.inventory
                         && let Some(live) = records.live_inventory.as_deref()
                     {
-                        feedbacks.inventory.status = PublishStatus::Publishing;
+                        feedbacks.inventory.status = PublishStatus::Publishing { since_secs: now };
                         crate::ui::inventory::spawn_publish_inventory_task(
                             &mut commands,
                             session,
@@ -511,7 +626,7 @@ pub fn unsaved_guard_ui(
                         );
                     }
                 }
-                guard.phase = GuardPhase::Publishing;
+                guard.enter_publishing(now);
             }
             if ui.button(stay).clicked() {
                 close(&guard.action, &mut commands, &time);
@@ -766,6 +881,74 @@ mod tests {
                 (RecordKind::Inventory, "i")
             ]
         );
+    }
+
+    /// #1206, finding 196, the pure half. The write that holds an action
+    /// is decided the way the dirt that blocks it is: per action.
+    #[test]
+    fn a_write_holds_only_the_actions_that_would_pin_it_wrong() {
+        let inventory_only = InFlightWrites {
+            room: false,
+            avatar: false,
+            inventory: true,
+        };
+        assert!(!inventory_only.blocks(&travel()));
+        assert!(inventory_only.blocks(&GuardedAction::Logout));
+        assert!(inventory_only.blocks(&GuardedAction::Quit));
+        let room_only = InFlightWrites {
+            room: true,
+            avatar: false,
+            inventory: false,
+        };
+        assert!(room_only.blocks(&travel()));
+        assert!(!InFlightWrites::default().blocks(&GuardedAction::Logout));
+    }
+
+    /// #1206, finding 196, the stale-quote half. Sequence: a save fails at
+    /// t=10 (the status keeps `Failed`; nothing resets it), the owner edits
+    /// on, then at t=600 travels; a room write that was in flight drains
+    /// clean but an edit made during it leaves the room dirty. The guard
+    /// used to quote the t=10 failure as this attempt's reason. Only a
+    /// failure stamped since the guard began waiting counts, and with none
+    /// the notice is "still dirty", not "failed".
+    #[test]
+    fn the_guard_quotes_only_a_failure_from_its_own_wait() {
+        let old = PublishStatus::Failed {
+            at_secs: 10.0,
+            message: String::from("502 Bad Gateway"),
+        };
+        let sources = [("World", &old)];
+        assert_eq!(recent_failure(&sources, 600.0), None);
+        assert_eq!(
+            recent_failure(&sources, 5.0),
+            Some(String::from("World: 502 Bad Gateway"))
+        );
+        // The wait started the same second the failure landed: quoted.
+        assert!(recent_failure(&sources, 10.0).is_some());
+        assert_eq!(
+            GuardNotice::StillDirty.text(),
+            String::from(
+                "The save finished, but unsaved edits remain — publish again, or discard them."
+            )
+        );
+    }
+
+    /// #1206, finding 195. "Continue in background" sat where "Stay here"
+    /// sits, in the phase whose only other button is the red Discard, and
+    /// read as "proceed" — it closed the dialog and dropped the action.
+    /// The non-destructive exit now carries the action's own stay verb and
+    /// says what happens to the save.
+    #[test]
+    fn the_publishing_phase_exit_is_named_for_staying() {
+        assert_eq!(
+            guard_labels(&travel()).stay_while_publishing,
+            "Stay here (save continues)"
+        );
+        assert_eq!(
+            guard_labels(&GuardedAction::Logout).stay_while_publishing,
+            "Cancel (save continues)"
+        );
+        assert_eq!(guard_labels(&GuardedAction::Quit).discard, "Discard & quit");
     }
 
     #[test]

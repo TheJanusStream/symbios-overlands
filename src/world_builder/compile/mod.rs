@@ -15,7 +15,7 @@
 //!   fingerprint, the slice budget, and the resume cursors.
 //! * [`spawn_ctx`] — [`SpawnCtx`] (the write-context shared with every
 //!   sibling spawner module), [`GeneratorCaches`] system param,
-//!   [`MAX_ROOM_ENTITIES`](spawn_ctx::MAX_ROOM_ENTITIES) cap +
+//!   [`MAX_ROOM_ENTITIES`] cap +
 //!   [`budget_exceeded`] gate, and [`spawn_ctx::transform_from_data`].
 //! * [`water`] — [`water::room_water_level`] sea-level lookup and the
 //!   dry-land relocation walk for water-avoiding placements.
@@ -55,6 +55,7 @@ pub(super) use executor::compile_room_record;
 pub use job::{CompileJob, CompiledWorld};
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use scatter::ScatterPreview;
+pub(crate) use spawn_ctx::MAX_ROOM_ENTITIES;
 pub use spawn_ctx::{GeneratorCaches, SpawnCtx, budget_exceeded};
 /// Re-exported so the terrain splat pass reads the room's water line from
 /// the same single source the scatter sampler does — if the two ever

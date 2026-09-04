@@ -14,7 +14,8 @@
 //!   — the discoverable twin of Shift-copy-drag.
 //! * **Delete item / placement** — (#824) remove the sub-part or the
 //!   enclosing placement; a root "Delete item" sweeps its placements like
-//!   the tree's `− Delete` (confirmation treatment arrives with #838).
+//!   the tree's `− Delete`, and since #1209 parks behind the tree's own
+//!   confirm (opening the World Editor on Region Assets to show it).
 //! * **Create new…** — a submenu mirroring the tree's `+ New` /
 //!   `+ From Catalogue` / `+ From Inventory` add-root menus. Picking one
 //!   builds the region asset, appends a `Placement::Absolute` at the exact
@@ -847,21 +848,30 @@ pub(super) fn scene_context_menu_ui(
             let (Some(idx), Some(room)) = (picked_placement, room.as_mut()) else {
                 return;
             };
-            if let Some(new_idx) = duplicate_placement(&mut room.0, idx) {
-                undo_labels.set_room(format!("duplicate of placement {idx}"));
-                panels.world_editor = true;
-                editor.selected_tab = EditorTab::Placements;
-                editor.selected_generator = None;
-                editor.selected_prim_path = None;
-                editor.tree_view_state.set_selected(Vec::new());
-                editor.selected_placement = Some(new_idx);
+            match duplicate_placement(&mut room.0, idx) {
+                Ok(new_idx) => {
+                    undo_labels.set_room(format!("duplicate of placement {idx}"));
+                    panels.world_editor = true;
+                    editor.selected_tab = EditorTab::Placements;
+                    editor.selected_generator = None;
+                    editor.selected_prim_path = None;
+                    editor.tree_view_state.set_selected(Vec::new());
+                    editor.selected_placement = Some(new_idx);
+                }
+                Err(reason) => toasts.warn(reason, time.elapsed_secs_f64()),
             }
         }
         MenuChoice::DeleteItem => {
             let (Some(prim), Some(room)) = (picked_prim, room.as_mut()) else {
                 return;
             };
-            if delete_prim(&mut room.0, &prim.generator_ref, &prim.path) {
+            if delete_item(
+                &mut room.0,
+                &mut editor,
+                &mut panels,
+                &prim.generator_ref,
+                &prim.path,
+            ) {
                 undo_labels.set_room(format!("delete of {}", prim.generator_ref));
                 // Sibling indices (and, for a root, placement indices)
                 // shifted under whatever was selected — clear rather than
@@ -883,7 +893,7 @@ pub(super) fn scene_context_menu_ui(
             let Some(room) = room.as_mut() else {
                 return;
             };
-            if let Some(key) = create_at_point(
+            match create_at_point(
                 &prefix,
                 *generator,
                 world_pos,
@@ -891,7 +901,8 @@ pub(super) fn scene_context_menu_ui(
                 &mut editor,
                 &mut room.0,
             ) {
-                undo_labels.set_room(format!("create of {key}"));
+                Ok(key) => undo_labels.set_room(format!("create of {key}")),
+                Err(reason) => toasts.warn(reason, time.elapsed_secs_f64()),
             }
         }
     }
@@ -899,8 +910,9 @@ pub(super) fn scene_context_menu_ui(
 
 /// Insert `generator` under a fresh unique key, anchor an `Absolute`
 /// placement at `world_pos`, and land the editor on the new region asset
-/// (Region Assets tab). Returns the assigned key, or `None` if the source
-/// refused the insert.
+/// (Region Assets tab). Returns the assigned key, or the cap sentence when
+/// the world is full of generators or placements (#1210) — checked before
+/// either insert, so a refused create leaves nothing half-added.
 ///
 /// Reuses the tree's exact add-root path (collision-safe unique key + insert)
 /// and the same `Absolute`-placement shape as the inventory/catalogue drop, so
@@ -914,8 +926,14 @@ fn create_at_point(
     panels: &mut UiPanels,
     editor: &mut RoomEditorState,
     record: &mut RoomRecord,
-) -> Option<String> {
-    let key = RoomTreeSource::new(record).add_root(prefix, generator)?;
+) -> Result<String, String> {
+    use crate::ui::room::caps::Cap;
+    if Cap::Placements.is_full(record.placements.len()) {
+        return Err(Cap::Placements.full_reason());
+    }
+    let key = RoomTreeSource::new(record)
+        .add_root(prefix, generator)
+        .ok_or_else(|| Cap::Generators.full_reason())?;
     record.placements.push(Placement::Absolute {
         generator_ref: key.clone(),
         transform: TransformData {
@@ -938,7 +956,7 @@ fn create_at_point(
         .tree_view_state
         .set_one_selected(GenNodeId::root(key.clone()));
     editor.pending_tree_focus = true;
-    Some(key)
+    Ok(key)
 }
 
 /// In-place sibling clone of the node at `path` inside the named
@@ -957,10 +975,42 @@ fn duplicate_prim(
     Some(new_path)
 }
 
+/// Route "Delete item" (#1209). A root's delete is the cascade the tree
+/// confirms — it sweeps every placement that put the generator in the
+/// world — and this menu used to run it on the click, with no dialog, no
+/// count and no toast. It now parks the same confirm the tree uses
+/// ([`crate::ui::room::generators::request_root_delete`]) and opens the
+/// World Editor on Region Assets, where `draw_generators_tab` shows and
+/// answers it. A sub-part delete is a single node and applies now.
+/// Returns `true` when the record was mutated on this call.
+fn delete_item(
+    record: &mut RoomRecord,
+    editor: &mut RoomEditorState,
+    panels: &mut UiPanels,
+    generator_ref: &str,
+    path: &[usize],
+) -> bool {
+    if path.is_empty() {
+        if !record.generators.contains_key(generator_ref) {
+            return false;
+        }
+        panels.world_editor = true;
+        editor.selected_tab = EditorTab::Generators;
+        crate::ui::room::generators::request_root_delete(
+            &mut editor.tree_confirms.delete,
+            &RoomTreeSource::new(record),
+            generator_ref,
+        );
+        return false;
+    }
+    delete_prim(record, generator_ref, path)
+}
+
 /// Remove the node at `path` from the named generator (#824). An empty
 /// path removes the whole root through [`RoomTreeSource::remove_root`],
 /// which also sweeps every referencing placement and trait — the same
-/// cascade as the tree's `− Delete`. Returns `true` when the record was
+/// cascade as the tree's `− Delete`; the menu reaches it only through
+/// the confirm ([`delete_item`]). Returns `true` when the record was
 /// mutated.
 fn delete_prim(record: &mut RoomRecord, generator_ref: &str, path: &[usize]) -> bool {
     if path.is_empty() {
@@ -987,11 +1037,21 @@ fn delete_prim(record: &mut RoomRecord, generator_ref: &str, path: &[usize]) -> 
 }
 
 /// Clone the placement at `index` in place and append it (#824).
-/// Returns the clone's index.
-fn duplicate_placement(record: &mut RoomRecord, index: usize) -> Option<usize> {
-    let clone = record.placements.get(index)?.clone();
+/// Returns the clone's index, or the cap sentence at the placement cap
+/// (#1210) — the 1025th used to be pushed, selected, and truncated by the
+/// next flush, which read as "the button is broken".
+fn duplicate_placement(record: &mut RoomRecord, index: usize) -> Result<usize, String> {
+    use crate::ui::room::caps::Cap;
+    if Cap::Placements.is_full(record.placements.len()) {
+        return Err(Cap::Placements.full_reason());
+    }
+    let clone = record
+        .placements
+        .get(index)
+        .cloned()
+        .ok_or_else(|| String::from("That placement no longer exists"))?;
     record.placements.push(clone);
-    Some(record.placements.len() - 1)
+    Ok(record.placements.len() - 1)
 }
 
 /// Remove the placement at `index` (#824). Returns `true` when the
@@ -1031,6 +1091,54 @@ mod tests {
         }
     }
 
+    /// #1209, finding 143. Sequence: right-click a building, pick "Delete
+    /// item (and its placements)" — 50 scattered copies vanished on the
+    /// click, no dialog, no count, no toast, while the identical cascade
+    /// from the tree's `− Delete` asked first. The menu now parks the
+    /// tree's confirm and opens the editor where it is shown; a sub-part
+    /// delete (one node, no cascade) still applies on the click.
+    #[test]
+    fn a_root_delete_from_the_scene_menu_is_confirmed_not_applied() {
+        let mut record = empty_record();
+        let mut editor = RoomEditorState::default();
+        let mut panels = UiPanels::default();
+        let mut root = Generator::from_kind(make_default_for_kind("Cuboid"));
+        root.children
+            .push(Generator::from_kind(make_default_for_kind("Sphere")));
+        record.generators.insert("tower".into(), root);
+        record.placements.push(Placement::Absolute {
+            generator_ref: "tower".into(),
+            transform: TransformData::default(),
+            avoid_water: false,
+            avoid_water_clearance: Fp(0.0),
+            snap_to_terrain: false,
+        });
+
+        assert!(
+            !delete_item(&mut record, &mut editor, &mut panels, "tower", &[]),
+            "a root delete is not applied on the click"
+        );
+        assert!(record.generators.contains_key("tower"));
+        assert_eq!(record.placements.len(), 1);
+        assert!(
+            editor.tree_confirms.delete.is_pending(),
+            "the tree's confirm is parked"
+        );
+        assert!(panels.world_editor, "opened where the confirm is drawn");
+        assert_eq!(editor.selected_tab, EditorTab::Generators);
+
+        // A sub-part is one node: applied now, as before.
+        assert!(delete_item(
+            &mut record,
+            &mut editor,
+            &mut panels,
+            "tower",
+            &[0]
+        ));
+        assert!(record.generators["tower"].children.is_empty());
+        assert_eq!(record.placements.len(), 1, "no cascade for a sub-part");
+    }
+
     #[test]
     fn create_at_point_adds_asset_and_placement_at_the_hit_and_selects_it() {
         let mut record = empty_record();
@@ -1048,6 +1156,40 @@ mod tests {
             &mut record,
         )
         .expect("add_root should assign a key");
+
+        // #1210, finding 410 / 412: at either cap the create is refused
+        // with the sentence, and NOTHING is half-added — no generator
+        // without its placement, no placement the flush would truncate.
+        let mut full = empty_record();
+        for i in 0..crate::pds::sanitize::limits::MAX_PLACEMENTS {
+            full.placements.push(Placement::Absolute {
+                generator_ref: format!("g{i}"),
+                transform: TransformData::default(),
+                avoid_water: false,
+                avoid_water_clearance: Fp(0.0),
+                snap_to_terrain: false,
+            });
+        }
+        let refused = create_at_point(
+            "cuboid",
+            Generator::from_kind(make_default_for_kind("Cuboid")),
+            hit,
+            &mut panels,
+            &mut editor,
+            &mut full,
+        )
+        .expect_err("the placement cap refuses");
+        assert!(refused.contains("placements"), "{refused}");
+        assert!(full.generators.is_empty(), "nothing half-added");
+        assert!(
+            duplicate_placement(&mut full, 0)
+                .expect_err("the cap refuses a duplicate too")
+                .contains("placements")
+        );
+        assert_eq!(
+            full.placements.len(),
+            crate::pds::sanitize::limits::MAX_PLACEMENTS
+        );
 
         // Asset inserted under the returned key.
         assert!(record.generators.contains_key(&key));
@@ -1130,7 +1272,8 @@ mod tests {
             &mut panels,
             &mut editor,
             &mut record,
-        );
+        )
+        .expect("an empty record is under every cap");
         record
     }
 
@@ -1180,7 +1323,7 @@ mod tests {
         let clone_idx = duplicate_placement(&mut record, 0).expect("clone index");
         assert_eq!(clone_idx, 1);
         assert_eq!(record.placements.len(), 2);
-        assert!(duplicate_placement(&mut record, 99).is_none());
+        assert!(duplicate_placement(&mut record, 99).is_err());
 
         assert!(delete_placement(&mut record, 1));
         assert_eq!(record.placements.len(), 1);

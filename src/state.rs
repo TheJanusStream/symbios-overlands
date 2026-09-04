@@ -250,7 +250,11 @@ pub struct PendingSpawnPlacement {
 pub enum PublishStatus {
     #[default]
     Idle,
-    Publishing,
+    /// A save is in flight; `since_secs` is when it was dispatched, so the
+    /// status line can count up against the task deadline (#1206).
+    Publishing {
+        since_secs: f64,
+    },
     Success {
         at_secs: f64,
     },
@@ -270,15 +274,24 @@ pub enum PublishStatus {
 #[derive(Resource)]
 pub struct PublishFeedback<R: Send + Sync + 'static> {
     pub status: PublishStatus,
-    /// Throttled cache of the live record's serialized size, feeding the
-    /// shared row's budget readout (#694). Refreshed by each editor at
+    /// Throttled cache of what the live record's next save would write,
+    /// feeding the shared row's budget readout (#694, #1207). Refreshed by
+    /// each editor at
     /// [`crate::config::ui::editor::SIZE_READOUT_REFRESH_SECS`] cadence
     /// while its window is open — a full serialize per frame would be
-    /// wasted work. `None` until first measured (window never opened).
-    pub live_bytes: Option<usize>,
-    /// When `live_bytes` was last refreshed (`Time::elapsed_secs_f64`).
+    /// wasted work. Default (unmeasured) until the window first opens.
+    pub live_size: crate::pds::record_size::SizeReadout,
+    /// When `live_size` was last refreshed (`Time::elapsed_secs_f64`).
     pub live_bytes_at: Option<f64>,
     _record: PhantomData<fn() -> R>,
+}
+
+impl PublishStatus {
+    /// Whether a save is in flight — the one state the Save row disables
+    /// every button in.
+    pub fn is_publishing(&self) -> bool {
+        matches!(self, Self::Publishing { .. })
+    }
 }
 
 // Hand-written (not derived): `#[derive(Default)]` would wrongly demand
@@ -290,7 +303,7 @@ impl<R: Send + Sync + 'static> Default for PublishFeedback<R> {
     fn default() -> Self {
         Self {
             status: PublishStatus::Idle,
-            live_bytes: None,
+            live_size: crate::pds::record_size::SizeReadout::default(),
             live_bytes_at: None,
             _record: PhantomData,
         }
