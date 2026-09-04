@@ -9,20 +9,22 @@ use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::EventPayload;
 use crate::pds::{FetchError, RoomRecord, fetch_room_record};
 use crate::state::{
-    CurrentRoomDid, LiveRoomRecord, LocalPlayer, RemotePeer, RoomRecordRecovery, TravelingTo,
+    CurrentRoomDid, LiveRoomRecord, LocalPlayer, RemotePeer, RoomRecordRecovery, TravelPhase,
+    TravelingTo,
 };
 use crate::ui::unsaved_guard::{GuardedAction, UnsavedGuard};
 use crate::world_builder::PortalMarker;
 
 /// An in-flight destination room-record fetch.
 ///
-/// `pub(crate)` so `logout::clear_editor_state_on_logout` can sweep these
-/// entities (#1140): the task carries neither `LocalPlayer` nor
+/// `pub` (with a private field) so `logout::clear_editor_state_on_logout`
+/// can sweep these entities (#1140) and `ui::travel`'s *Cancel travel*
+/// button can despawn them (#1231 f25): the task carries neither `LocalPlayer` nor
 /// `RoomEntity`, so the logout despawn passes it by — and on wasm dropping
 /// a `Task` does not cancel the work behind it, so an abandoned fetch
 /// really does resolve inside the NEXT session.
 #[derive(Component)]
-pub(crate) struct PortalTravelTask {
+pub struct PortalTravelTask {
     pub(super) task: bevy::tasks::Task<Result<Option<RoomRecord>, FetchError>>,
     /// The DID this fetch was dispatched for. [`poll_portal_travel_tasks`]
     /// refuses a result whose target does not match the travel that is
@@ -47,7 +49,7 @@ pub struct PortalCooldown {
     pub until_secs: f64,
 }
 
-const PORTAL_COOLDOWN_SECS: f64 = 0.75;
+pub(crate) const PORTAL_COOLDOWN_SECS: f64 = 0.75;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn handle_portal_interaction(
@@ -127,7 +129,11 @@ pub(super) fn handle_portal_interaction(
             lv.0 = Vec3::ZERO;
             av.0 = Vec3::ZERO;
             commands.insert_resource(UnsavedGuard::new(GuardedAction::PortalTravel {
+                via: crate::ui::unsaved_guard::TravelVia::Portal,
                 target_did: portal.target_did.clone(),
+                // A portal in the world carries a DID and nothing else;
+                // `travel_label` resolves what it can at render time.
+                target_label: None,
                 target_pos: Some(portal.target_pos),
             }));
         }
@@ -146,6 +152,7 @@ pub(crate) fn begin_portal_travel(
     session_log: &mut SessionLog,
     now: f64,
     target_did: String,
+    target_label: Option<String>,
     target_pos: Option<Vec3>,
 ) {
     // The `[Timeline]` has rendered "portal → did" since the analyzer was
@@ -160,6 +167,8 @@ pub(crate) fn begin_portal_travel(
     commands.insert_resource(TravelingTo {
         target_did: target_did.clone(),
         target_pos,
+        target_label,
+        phase: TravelPhase::Fetching,
     });
 
     let pool = bevy::tasks::IoTaskPool::get();
@@ -193,7 +202,7 @@ pub(crate) fn begin_portal_travel(
 pub(super) fn poll_portal_travel_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut PortalTravelTask)>,
-    traveling: Option<Res<TravelingTo>>,
+    mut traveling: Option<ResMut<TravelingTo>>,
     mut room_record: Option<ResMut<LiveRoomRecord>>,
     mut stored_room: Option<ResMut<crate::state::StoredRoomRecord>>,
     mut current_did: Option<ResMut<CurrentRoomDid>>,
@@ -222,7 +231,7 @@ pub(super) fn poll_portal_travel_tasks(
         };
 
         commands.entity(entity).despawn();
-        let Some(travel_data) = traveling.as_deref() else {
+        let Some(travel_data) = traveling.as_deref_mut() else {
             continue;
         };
         // The result has to belong to the travel that is still pending
@@ -251,11 +260,28 @@ pub(super) fn poll_portal_travel_tasks(
                 commands.remove_resource::<RoomRecordRecovery>();
                 r
             }
-            // 404: the destination owner has never customised their
-            // overland. Synthesising the default is safe — and clean, so
-            // the stale-banner sweep applies here too (#840).
+            // 404: the destination owner has never published an overland.
+            // Synthesising the default is safe — and clean, so the
+            // stale-banner sweep applies here too (#840) — but it is not a
+            // silent success (#1232 f28). The visitor cannot tell
+            // "@alice's overland" from "a world we invented for a DID
+            // that may not even exist", and the second is exactly what a
+            // mistyped link produces. It is also the one piece of social
+            // information worth having here: this person has not set
+            // theirs up yet.
             Ok(None) => {
                 commands.remove_resource::<RoomRecordRecovery>();
+                toasts.info(
+                    format!(
+                        "{} hasn't built an overland yet — this one is generated from their identifier.",
+                        crate::ui::travel::travel_label(
+                            &profile_cache,
+                            &travel_data.target_did,
+                            travel_data.target_label.as_deref(),
+                        )
+                    ),
+                    elapsed,
+                );
                 RoomRecord::default_for_did(&travel_data.target_did)
             }
             // Schema-incompatible record on the PDS: not transient, so
@@ -296,9 +322,10 @@ pub(super) fn poll_portal_travel_tasks(
                 toasts.error(
                     format!(
                         "Couldn't reach {}'s world — walk into the portal again to retry.",
-                        crate::ui::travel::display_name_for_did(
+                        crate::ui::travel::travel_label(
                             &profile_cache,
                             &travel_data.target_did,
+                            travel_data.target_label.as_deref(),
                         )
                     ),
                     elapsed,
@@ -335,6 +362,12 @@ pub(super) fn poll_portal_travel_tasks(
         if let Some(did) = current_did.as_mut() {
             did.0 = travel_data.target_did.clone();
         }
+        // The browser's saved session follows the player (#1229 f2). It
+        // used to record only where they FIRST signed in, so a reload
+        // silently teleported anyone who had travelled back to their
+        // login-time room — and a visitor onboarded through a friend's
+        // landmark link was returned to that friend's world forever.
+        crate::oauth::remember_room(&travel_data.target_did);
         // A same-owner record held for the room being left (#1203) is a
         // question about a world this session is no longer in.
         commands.remove_resource::<crate::ui::other_session::OtherSessionRoom>();
@@ -415,10 +448,28 @@ pub(super) fn poll_portal_travel_tasks(
             "system",
             format!(
                 "Arrived in {}'s world — chat history starts fresh here.",
-                crate::ui::travel::display_name_for_did(&profile_cache, &travel_data.target_did)
+                crate::ui::travel::travel_label(
+                    &profile_cache,
+                    &travel_data.target_did,
+                    travel_data.target_label.as_deref(),
+                )
             ),
         );
-        commands.remove_resource::<TravelingTo>();
+        // NOT removed here (#1231 f20). The record has landed; the
+        // destination has not been built. Releasing the freeze now dropped
+        // the player at the landing pose — `y = 0` for a gateway hop, and
+        // frequently under the ground still standing where they left — to
+        // watch terrain regen and a time-sliced compile assemble the world
+        // around them with no overlay at all, in the one journey the
+        // loading screen's vocabulary already covers.
+        //
+        // `WorldCompiled` goes with it: the marker is still standing from
+        // the world being LEFT, so without dropping it the gate would see
+        // a finished compile that finished somewhere else.
+        // `check_loading_complete` reads it only in `AppState::Loading`,
+        // which this is not.
+        travel_data.phase = TravelPhase::Building;
+        commands.remove_resource::<crate::world_builder::WorldCompiled>();
         session_log.info(
             elapsed,
             EventPayload::PortalTravelCompleted {
@@ -431,5 +482,151 @@ pub(super) fn poll_portal_travel_tasks(
         commands.insert_resource(PortalCooldown {
             until_secs: elapsed + PORTAL_COOLDOWN_SECS,
         });
+    }
+}
+
+/// Release the arrival gate once the destination actually exists (#1231
+/// f20).
+///
+/// The two conditions are the ones `loading::check_loading_complete` waits
+/// on for the same stretch of work — a finished heightmap and a finished
+/// compile — because it is the same stretch of work. A travel that lands
+/// on a terrain config serialising identically to the one being left never
+/// drops `FinishedHeightMap` at all, so that arm is already satisfied and
+/// the gate closes on the compile alone.
+///
+/// Releasing also snaps the chassis onto the ground it arrived above.
+/// `lift_player_above_new_ground` covers the common case, but it fires on
+/// `FinishedHeightMap::is_added` — precisely the case an identical terrain
+/// config does not produce — and a gateway hop with a drop-pin landing
+/// arrives at a literal `y = 0.0`, so the one arrival that got no lift was
+/// the one most likely to need it.
+pub(super) fn release_travel_on_arrival(
+    mut commands: Commands,
+    traveling: Option<Res<TravelingTo>>,
+    heightmap: Option<Res<crate::terrain::FinishedHeightMap>>,
+    compiled: Option<Res<crate::world_builder::WorldCompiled>>,
+    mut players: Query<
+        (&mut Position, &mut LinearVelocity, &mut AngularVelocity),
+        With<LocalPlayer>,
+    >,
+) {
+    let Some(traveling) = traveling.as_deref() else {
+        return;
+    };
+    if traveling.phase != TravelPhase::Building {
+        return;
+    }
+    let (Some(heightmap), Some(_)) = (heightmap.as_deref(), compiled.as_deref()) else {
+        return;
+    };
+    if let Ok((mut pos, mut lin, mut ang)) = players.single_mut() {
+        super::hotswap::snap_above_ground(&heightmap.0, &mut pos, &mut lin, &mut ang);
+    }
+    commands.remove_resource::<TravelingTo>();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::terrain::FinishedHeightMap;
+    use crate::world_builder::WorldCompiled;
+    use bevy_symbios_ground::HeightMap;
+
+    /// A world holding a travel in its Building phase, a local player at
+    /// `y`, and whichever gate conditions are asked for.
+    fn arriving(y: f32, heightmap: bool, compiled: bool) -> World {
+        let mut world = World::new();
+        world.insert_resource(TravelingTo {
+            target_did: "did:plc:alice".into(),
+            target_pos: None,
+            target_label: Some("@alice.bsky.social".into()),
+            phase: TravelPhase::Building,
+        });
+        if heightmap {
+            // 3x3 grid, 2 m cells, ground flat at 10 m — well above the
+            // `y = 0.0` a gateway hop with a drop-pin landing arrives at.
+            let mut hm = HeightMap::new(3, 3, 2.0);
+            for cell in hm.data_mut() {
+                *cell = 10.0;
+            }
+            world.insert_resource(FinishedHeightMap(hm));
+        }
+        if compiled {
+            world.insert_resource(WorldCompiled);
+        }
+        world.spawn((
+            LocalPlayer,
+            Position(Vec3::new(0.0, y, 0.0)),
+            LinearVelocity(Vec3::new(0.0, -12.0, 0.0)),
+            AngularVelocity(Vec3::ZERO),
+        ));
+        world
+    }
+
+    fn run_gate(world: &mut World) {
+        world
+            .run_system_cached(release_travel_on_arrival)
+            .expect("the arrival gate runs");
+    }
+
+    /// THE SEQUENCE (#1231 f20): the player walks through a portal. The
+    /// record lands, `TravelingTo` was removed on that frame, the freeze
+    /// released and the card vanished — while terrain regen had not
+    /// started and the time-sliced compile had not run. They were dropped
+    /// at the landing pose, watched the destination assemble around them,
+    /// and for a gateway hop that pose is a literal `y = 0.0`, frequently
+    /// below the ground still standing where they left.
+    ///
+    /// The gate now waits on the two conditions `check_loading_complete`
+    /// waits on for the same work.
+    #[test]
+    fn the_arrival_gate_holds_until_the_destination_exists() {
+        for (heightmap, compiled) in [(false, false), (true, false), (false, true)] {
+            let mut world = arriving(0.0, heightmap, compiled);
+            run_gate(&mut world);
+            assert!(
+                world.contains_resource::<TravelingTo>(),
+                "released with heightmap={heightmap} compiled={compiled}: the \
+                 world the player is standing in does not exist yet"
+            );
+        }
+
+        let mut world = arriving(0.0, true, true);
+        run_gate(&mut world);
+        assert!(
+            !world.contains_resource::<TravelingTo>(),
+            "both conditions met — the freeze has to release"
+        );
+    }
+
+    /// And releasing puts the player on the ground rather than inside it.
+    /// `lift_player_above_new_ground` fires on `FinishedHeightMap::
+    /// is_added`, which a destination whose terrain config serialises
+    /// identically to the origin's never produces — so the one arrival
+    /// that never got a lift was the gateway hop that lands at `y = 0.0`.
+    #[test]
+    fn releasing_the_gate_stands_the_player_on_the_new_ground() {
+        let mut world = arriving(0.0, true, true);
+        run_gate(&mut world);
+        let mut players = world.query::<(&Position, &LinearVelocity)>();
+        let (pos, vel) = players.iter(&world).next().expect("the local player");
+        assert!(pos.y >= 10.0, "left at y={} with the ground at 10 m", pos.y);
+        assert_eq!(
+            vel.0,
+            Vec3::ZERO,
+            "the fall the arrival pose implied must not be carried into the \
+             new world"
+        );
+    }
+
+    /// The gate is for the second half only. A fetch still in flight is
+    /// the first half, and releasing it there would abandon the travel.
+    #[test]
+    fn a_fetch_still_in_flight_is_not_an_arrival() {
+        let mut world = arriving(0.0, true, true);
+        world.resource_mut::<TravelingTo>().phase = TravelPhase::Fetching;
+        run_gate(&mut world);
+        assert!(world.contains_resource::<TravelingTo>());
     }
 }

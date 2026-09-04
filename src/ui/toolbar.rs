@@ -14,6 +14,7 @@
 //! movement keys. It pops once per session on `InGame` entry and can be
 //! re-opened any time from the toolbar's "Controls" button.
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
@@ -153,38 +154,54 @@ fn badge_count(n: usize) -> String {
 /// that opens Diagnostics on the worst tab, and an account chip at the
 /// far right (identity, current room, Copy Landmark Link, Log out — the
 /// two-click home for actions that used to hide in Diagnostics→Identity).
+/// Everything the account chip reads, bundled.
+///
+/// `toolbar_ui` was at Bevy's 16-parameter `IntoSystem` ceiling exactly —
+/// an over-ceiling system fails at app build with a trait error naming
+/// none of this — and #1232 f251's "Travel to my overland" needs two more
+/// (`TravelingTo` and `UnsavedGuard`) to disable itself with a reason. So
+/// the chip's own six move into a struct first, the way `people_ui` got
+/// `RosterDeps` (#1223 f291).
+#[derive(SystemParam)]
+pub struct AccountChip<'w, 's> {
+    session: Option<Res<'w, AtprotoSession>>,
+    current_room: Option<Res<'w, CurrentRoomDid>>,
+    profile_cache: Res<'w, BskyProfileCache>,
+    local_player: Query<'w, 's, &'static Transform, With<LocalPlayer>>,
+    /// Copy Landmark Link reports through the clipboard queue (#1141),
+    /// which is also where its toast is raised.
+    clipboard: Res<'w, crate::boot_params::ClipboardQueue>,
+    /// #1214: the second door onto the re-authenticate flow, for an owner
+    /// who dismissed the modal. The account menu is where every other
+    /// session control already lives.
+    expired: Option<ResMut<'w, crate::ui::reauth::SessionExpired>>,
+    /// #1232 f251: a travel already in flight, and a guard dialog already
+    /// open, are the two states the home row must refuse to stack behind.
+    traveling: Option<Res<'w, crate::state::TravelingTo>>,
+    guard: Option<Res<'w, crate::ui::unsaved_guard::UnsavedGuard>>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn toolbar_ui(
     mut contexts: EguiContexts,
     mut panels: ResMut<UiPanels>,
     mut audio_muted: ResMut<crate::audio_mute::AudioMuted>,
-    session: Option<Res<AtprotoSession>>,
-    current_room: Option<Res<CurrentRoomDid>>,
     invariants: Res<InvariantRegistry>,
     mut chat: ResMut<ChatHistory>,
     peers: Query<&RemotePeer>,
     mut diag_tab: ResMut<crate::ui::diagnostics::DiagTab>,
     mut commands: Commands,
-    profile_cache: Res<BskyProfileCache>,
-    local_player_q: Query<&Transform, With<LocalPlayer>>,
     mut panel_free: ResMut<crate::ui::layout::PanelFreeRect>,
-    // The account chip's Copy Landmark Link reports through the clipboard
-    // queue now (#1141), which is also where its toast is raised — so the
-    // toolbar no longer needs the toast queue or the clock at all.
-    clipboard: Res<crate::boot_params::ClipboardQueue>,
     // #1213: the client's own answer to "am I connected?". Before this the
     // toolbar's "People (1)" was the closest thing to a connection surface,
     // and it said the same thing during an outage as in an empty room.
     link: Res<crate::network::LinkState>,
-    // #1214: the second door onto the re-authenticate flow, for an owner
-    // who dismissed the modal. The account menu is where every other
-    // session control already lives.
-    mut expired: Option<ResMut<crate::ui::reauth::SessionExpired>>,
+    mut chip: AccountChip,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
-    let owns_room = owns_current_room(session.as_deref(), current_room.as_deref());
+    let owns_room = owns_current_room(chip.session.as_deref(), chip.current_room.as_deref());
 
     // Guarded-dirty (#879): `&mut panels.x` through the `ResMut` marks
     // UiPanels changed EVERY frame the toolbar draws — which re-armed
@@ -208,7 +225,7 @@ pub fn toolbar_ui(
     };
     // Everyone in the room, self included — matching the People window's
     // own "In room (N)" header.
-    let people_total = peers.iter().count() + session.is_some() as usize;
+    let people_total = peers.iter().count() + chip.session.is_some() as usize;
 
     // egui 0.35 shows panels into a `Ui`, not a `Context`: a top-level
     // panel draws into a screen-sized background layer (bevy_egui 0.41's
@@ -290,14 +307,14 @@ pub fn toolbar_ui(
                 // Account chip — next in the right-to-left layout. The only
                 // 2-click route to logout and location sharing (#835);
                 // Diagnostics keeps its duplicates.
-                if let Some(sess) = session.as_deref() {
+                if let Some(sess) = chip.session.as_deref() {
                     ui.menu_button(format!("@{}", sess.handle), |ui| {
                         ui.horizontal(|ui| {
                             crate::avatar::draw_avatar_icon(
                                 ui,
                                 Some(sess.did.as_str()),
                                 Some(sess.handle.as_str()),
-                                &profile_cache,
+                                &chip.profile_cache,
                                 crate::ui::chat::AVATAR_ICON_PX,
                             );
                             ui.monospace(format!("@{}", sess.handle));
@@ -307,7 +324,7 @@ pub fn toolbar_ui(
                                 .small()
                                 .color(crate::ui::theme::current(ui.ctx()).text_weak),
                         );
-                        if let Some(room) = current_room.as_deref() {
+                        if let Some(room) = chip.current_room.as_deref() {
                             ui.separator();
                             ui.label(if owns_room {
                                 "Current overland: yours"
@@ -321,18 +338,57 @@ pub fn toolbar_ui(
                                         .color(crate::ui::theme::current(ui.ctx()).text_weak),
                                 );
                             }
-                            let player_tf = local_player_q.single().ok().copied();
+                            let player_tf = chip.local_player.single().ok().copied();
                             if crate::ui::diagnostics::landmark_link_button(
-                                ui, &room.0, player_tf, &clipboard,
+                                ui,
+                                &room.0,
+                                player_tf,
+                                &chip.clipboard,
                             ) {
                                 ui.close();
                             }
                         }
                         ui.separator();
+                        // The route home (#1232 f251). Until this existed
+                        // the only one was the gateway picker's home row,
+                        // inside a window that opens solely while standing
+                        // in the host's gate — and a landmark link can put
+                        // the arrival anywhere, with nothing pointing at
+                        // the gate. The remaining exit was Log out, which
+                        // is the action the app guards as destructive.
+                        //
+                        // Same guard flow, same `target_pos: None`, as the
+                        // gateway home row and the People *Visit* button.
+                        let home_blocked = crate::ui::travel::home_travel_blocked(
+                            owns_room,
+                            chip.traveling.is_some(),
+                            chip.guard.is_some(),
+                        );
+                        let go_home = ui
+                            .add_enabled(
+                                home_blocked.is_none(),
+                                egui::Button::new("Travel to my overland"),
+                            )
+                            .on_hover_text("Go back to your own world");
+                        let go_home = match home_blocked {
+                            Some(reason) => go_home.on_disabled_hover_text(reason),
+                            None => go_home,
+                        };
+                        if go_home.clicked() {
+                            commands.insert_resource(UnsavedGuard::new(
+                                GuardedAction::PortalTravel {
+                                    via: crate::ui::unsaved_guard::TravelVia::Menu,
+                                    target_did: sess.did.clone(),
+                                    target_label: Some(format!("@{}", sess.handle)),
+                                    target_pos: None,
+                                },
+                            ));
+                            ui.close();
+                        }
                         // Above Log out deliberately: with the session
                         // expired, logging out is the door that discards
                         // the work and this is the one that keeps it.
-                        if let Some(expired) = expired.as_deref_mut()
+                        if let Some(expired) = chip.expired.as_deref_mut()
                             && ui
                                 .button("Sign in again")
                                 .on_hover_text(

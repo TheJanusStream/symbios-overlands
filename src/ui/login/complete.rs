@@ -109,6 +109,12 @@ pub(crate) fn install_completed_session(
     // deliberate retry is still one click.
     commands.insert_resource(crate::boot_params::BootEntrySpent);
     commands.insert_resource(CurrentRoomDid(room_did.clone()));
+    // Where a reload should come back to (#1229 f2). On the resume path
+    // this is where a landmark link's in-memory `did=` override becomes
+    // the persisted destination: the link chose this world, the user
+    // accepted it, and "reload puts me back where I was" is the promise
+    // the field's own doc makes.
+    oauth::remember_room(&room_did);
     commands.insert_resource(session);
     commands.insert_resource(refresh_ctx);
 

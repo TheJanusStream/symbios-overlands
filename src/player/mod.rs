@@ -84,8 +84,9 @@ mod spawn;
 pub mod visuals;
 
 pub(crate) use hotswap::AppliedAvatar;
+pub(crate) use portal::PORTAL_COOLDOWN_SECS;
 pub use portal::PortalCooldown;
-pub(crate) use portal::PortalTravelTask;
+pub use portal::PortalTravelTask;
 pub(crate) use portal::begin_portal_travel;
 pub use preset::{
     AirplanePreset, CarPreset, HelicopterPreset, HoverBoatPreset, HumanoidPreset, VehicleChassis,
@@ -225,6 +226,12 @@ impl Plugin for PlayerPlugin {
                     gait::animate_avatar_gait,
                     portal::handle_portal_interaction,
                     portal::poll_portal_travel_tasks,
+                    // After the poll, so the frame the record lands cannot
+                    // also release the gate it just closed (#1231 f20):
+                    // `WorldCompiled` is removed by that system and the
+                    // command applies at the sync point, which is after
+                    // this one has run.
+                    portal::release_travel_on_arrival,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),

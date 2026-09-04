@@ -214,9 +214,7 @@ pub(super) fn draw_attachments_tab(
                                          back to your inventory so wearing it again looks \
                                          exactly like this",
                                     )
-                                    .on_disabled_hover_text(
-                                        "Open your inventory once to save into it.",
-                                    )
+                                    .on_disabled_hover_text("Your inventory has not loaded yet.")
                                     .clicked()
                                 {
                                     // Replacing an existing stash item asks
@@ -313,7 +311,7 @@ pub(super) fn draw_attachments_tab(
                 return;
             };
             let Some(inventory) = inventory.as_deref() else {
-                ui.small("Open your inventory once to wear items from it.");
+                ui.small("Your inventory has not loaded yet.");
                 return;
             };
             if worn_count >= MAX_AVATAR_ATTACHMENTS {
@@ -405,7 +403,20 @@ pub(crate) fn record_for_inventory_item(
 /// Ordered so the most fundamental obstacle wins: an unresolved rig has no
 /// attachment list to be full, so asking about the cap first would name
 /// the wrong reason.
-pub(crate) fn wear_blocked_reason(avatar: Option<&AvatarRecord>) -> Option<String> {
+pub(crate) fn wear_blocked_reason(
+    avatar: Option<&AvatarRecord>,
+    inventory_loaded: bool,
+) -> Option<String> {
+    // #1233 f261. Two surfaces named a wrong CAUSE and prescribed an
+    // action with no effect — "Open your inventory once to wear items from
+    // it" / "…to save into it" — when the condition is a resource the
+    // loading gate installs and `UiPanels::inventory` never touches.
+    // Folded in here rather than fixed in place so a fourth surface cannot
+    // phrase it a fourth way; the wording is the Catalogue's, which has
+    // been right about this state all along.
+    if !inventory_loaded {
+        return Some(String::from("Your inventory has not loaded yet."));
+    }
     let Some(avatar) = avatar else {
         return Some(String::from("No avatar loaded yet."));
     };
@@ -729,7 +740,7 @@ mod tests {
             ),
         ];
         for (what, record) in cases {
-            let offered = wear_blocked_reason(record.as_ref()).is_none();
+            let offered = wear_blocked_reason(record.as_ref(), true).is_none();
             let landed = record.clone().is_some_and(|mut record| {
                 record.body.rigged_mut().is_some_and(|rig| {
                     attach_record(
@@ -754,14 +765,14 @@ mod tests {
     /// state the user can do something about, and the Body tab is where.
     #[test]
     fn the_unresolved_body_is_refused_in_words_that_name_the_way_out() {
-        let reason = wear_blocked_reason(Some(&unresolved())).expect("refused");
+        let reason = wear_blocked_reason(Some(&unresolved()), true).expect("refused");
         assert!(
             reason.contains("could not be resolved"),
             "names the state: {reason}"
         );
         assert!(reason.contains("Body tab"), "names the way out: {reason}");
         // The control: the same body, resolved, is not refused at all.
-        assert!(wear_blocked_reason(Some(&wearing(0))).is_none());
+        assert!(wear_blocked_reason(Some(&wearing(0)), true).is_none());
     }
 
     /// **A rename carries the worn props' provenance with it** (#1141).
@@ -908,5 +919,73 @@ mod tests {
         let mut rig = dressed(1);
         detach_at(&mut rig, 7);
         assert_eq!(rig.attachments.len(), 1);
+    }
+
+    /// THE SEQUENCE (#1233 f261): the Attachments tab tells a new user to
+    /// "Open your inventory once to wear items from it". They open the
+    /// Inventory window and the message does not change — because the
+    /// condition is `LiveInventoryRecord`, a resource the loading gate
+    /// installs and `UiPanels::inventory` never touches. A named wrong
+    /// cause, prescribing an action with no effect, on the product's
+    /// dressing surface.
+    ///
+    /// The refuter is right that the state is unreachable in normal play —
+    /// `check_loading_complete` will not leave `AppState::Loading` without
+    /// the resource — so this was dead, wrong-cause copy rather than an
+    /// active lie. It is folded in here anyway, and the wording is the
+    /// Catalogue's, which has been right about this state all along.
+    #[test]
+    fn an_unloaded_inventory_names_the_real_condition_everywhere() {
+        let reason = wear_blocked_reason(Some(&wearing(0)), false).expect("refused");
+        assert_eq!(reason, "Your inventory has not loaded yet.");
+        assert!(
+            !reason.contains("Open your inventory"),
+            "naming a window the user can open changes nothing: {reason}"
+        );
+
+        // It outranks every other reason: a body that cannot be dressed is
+        // beside the point when there is nothing to dress it from.
+        assert_eq!(
+            wear_blocked_reason(None, false).as_deref(),
+            Some("Your inventory has not loaded yet.")
+        );
+        assert_eq!(
+            wear_blocked_reason(Some(&unresolved()), false).as_deref(),
+            Some("Your inventory has not loaded yet.")
+        );
+    }
+
+    /// And no surface may phrase it a fourth way. `wear_blocked_reason`
+    /// exists precisely so the wear surfaces state one true reason; the
+    /// two strings this issue is about were the ones that had not been
+    /// folded in.
+    #[test]
+    fn no_ui_surface_still_tells_anyone_to_open_their_inventory() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut stack = vec![root.join("src")];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("src is readable") {
+                let path = entry.expect("a readable entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|e| e != "rs") {
+                    continue;
+                }
+                // This file quotes the phrase, in the doc comments that
+                // record why it is gone.
+                if path.ends_with("avatar/attachments.rs") {
+                    continue;
+                }
+                let source = std::fs::read_to_string(&path).expect("a readable file");
+                let needle = format!("{}Open your inventory", '"');
+                assert!(
+                    !source.contains(&needle),
+                    "{}: still prescribes opening a window that changes nothing",
+                    path.display()
+                );
+            }
+        }
     }
 }

@@ -69,8 +69,8 @@ and stepping into it lists the room owner's mutual follows, so you can walk out
 of a stranger's world into their friends' worlds without ever typing a DID. A
 monument next to the gate carries the owner's profile picture, so you always
 know whose ground you are standing on. Shareable landmark links bundle a
-destination, position and heading into a URL so anyone can drop into a specific
-spot in someone else's world.
+destination, position and heading into a URL so anyone with an ATProto account
+can drop into a specific spot in someone else's world.
 
 **Contact brings it to life.** Every avatar is classified against the surface
 beneath it each frame, and the contact drives a stack of effects: water wakes,

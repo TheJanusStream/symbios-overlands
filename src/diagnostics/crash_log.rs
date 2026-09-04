@@ -194,6 +194,52 @@ fn tail_at_line_boundary(nd: &str, max: usize) -> &str {
     }
 }
 
+/// The function index.html exposes on `window` for the "couldn't start"
+/// card. Named once, and asserted against the page itself by
+/// `the_page_still_exposes_the_card_the_panic_hook_calls`, because a
+/// rename on either side fails silently: the lookup just misses and the
+/// tab goes back to showing a dead canvas.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+const SHOW_ERROR_FN: &str = "__overlandsShowError";
+
+/// Lead sentence and hint for index.html's "couldn't start" card, chosen
+/// from a panic reason (#1228 f4).
+///
+/// Pure and target-independent so the wording is testable: the card itself
+/// is DOM, which only `show_fatal_card` can reach (wasm-only, so an
+/// intra-doc link to it does not resolve on native), and the copy is
+/// the whole point of showing it. The graphics arm is separate because it
+/// is the one fatal panic an ordinary visitor can actually do something
+/// about — "reload and hope" is wrong advice for a machine that will fail
+/// the same way every time.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn fatal_card_copy(reason: &str) -> (&'static str, &'static str) {
+    /// Needles matched against the lowercased panic reason. The reason
+    /// carries `panic at <file>:<line>: <msg>`, so a panic raised *inside*
+    /// wgpu's adapter code matches on its path as well as its message —
+    /// which is the right answer either way.
+    const GRAPHICS: &[&str] = &[
+        "adapter",
+        "webgl",
+        "webgpu",
+        "unable to find a gpu",
+        "no suitable",
+    ];
+    let lower = reason.to_ascii_lowercase();
+    if GRAPHICS.iter().any(|n| lower.contains(n)) {
+        return (
+            "This browser has no usable graphics adapter.",
+            "Symbios Overlands needs WebGL 2. Try a different browser, or turn on \
+             hardware acceleration in this one's settings.",
+        );
+    }
+    (
+        "Symbios Overlands stopped unexpectedly.",
+        "Reloading fixes most cases. The technical details below are worth \
+         including if you report it.",
+    )
+}
+
 #[cfg(target_arch = "wasm32")]
 mod wasm {
     use std::cell::{Cell, RefCell};
@@ -291,13 +337,12 @@ mod wasm {
 
         let prev = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
-            write_terminal_record(
-                crate::diagnostics::event::CRASH_MARKER_SEQ,
-                crate::diagnostics::panic::format_panic_reason(
-                    crate::diagnostics::panic::panic_message(info),
-                    info.location().map(|l| (l.file(), l.line())),
-                ),
+            let reason = crate::diagnostics::panic::format_panic_reason(
+                crate::diagnostics::panic::panic_message(info),
+                info.location().map(|l| (l.file(), l.line())),
             );
+            write_terminal_record(crate::diagnostics::event::CRASH_MARKER_SEQ, reason.clone());
+            show_fatal_card(&reason);
             prev(info);
         }));
 
@@ -318,6 +363,40 @@ mod wasm {
         // Leaked deliberately: the listener must outlive every frame of the
         // page, and there is nothing to unregister it from.
         closure.forget();
+    }
+
+    /// Raise index.html's "couldn't start" card from a Rust panic (#1228 f4).
+    ///
+    /// Bevy returns from `init()` as soon as the app is spawned, so the
+    /// page's promise-rejection path has already resolved by the time a
+    /// renderer, asset or system panic kills the instance: the rAF loop
+    /// stops and the tab keeps showing the last frame — or the bare
+    /// background — with no message at all. That is what makes an
+    /// unsupported machine indistinguishable from a broken site, and why
+    /// the bug reports say "nothing happens".
+    ///
+    /// Best effort in every direction, like the rest of this hook: a page
+    /// that does not define the function (an embedder's own host page) is
+    /// simply left alone.
+    fn show_fatal_card(reason: &str) {
+        use wasm_bindgen::{JsCast, JsValue};
+
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let Ok(f) = js_sys::Reflect::get(&window, &JsValue::from_str(super::SHOW_ERROR_FN)) else {
+            return;
+        };
+        let Ok(f) = f.dyn_into::<js_sys::Function>() else {
+            return;
+        };
+        let (lead, hint) = super::fatal_card_copy(reason);
+        let _ = f.call3(
+            &JsValue::NULL,
+            &JsValue::from_str(lead),
+            &JsValue::from_str(hint),
+            &JsValue::from_str(reason),
+        );
     }
 
     /// Startup: park the last session's persisted tail under [`PREVIOUS_KEY`]
@@ -562,5 +641,100 @@ mod tests {
     fn no_newline_in_window_yields_empty() {
         let nd = "{\"one_enormous_line\":true}";
         assert_eq!(tail_at_line_boundary(nd, 5), "");
+    }
+
+    /// THE SEQUENCE (#1228 f4): a visitor arrives from the README link on a
+    /// machine with no usable GPU. `init()` has already resolved — Bevy
+    /// returns from it the moment the app is spawned — so the page's
+    /// rejection path never fires, and the adapter panic that follows used
+    /// to leave a dead canvas. The card now comes up from the panic hook,
+    /// and the one fatal panic a visitor can act on has to say so rather
+    /// than telling them to reload a machine that will fail identically
+    /// every time.
+    #[test]
+    fn a_graphics_panic_gets_the_adapter_card_and_everything_else_the_generic_one() {
+        let (lead, hint) = fatal_card_copy(
+            "panic at src/render.rs:12: Unable to find a GPU! Make sure you have \
+             installed required drivers!",
+        );
+        assert!(lead.contains("graphics adapter"), "{lead}");
+        assert!(hint.contains("WebGL 2"), "{hint}");
+
+        // Matched on the panic's location too: a panic raised inside wgpu's
+        // adapter code is a graphics failure whatever its message says.
+        let (lead, _) =
+            fatal_card_copy("panic at wgpu-hal-0.1/src/gles/adapter.rs:88: assertion failed");
+        assert!(lead.contains("graphics adapter"), "{lead}");
+
+        let (lead, hint) = fatal_card_copy(
+            "panic at src/pds/record.rs:401: called `Option::unwrap()` on a `None`",
+        );
+        assert!(lead.contains("stopped unexpectedly"), "{lead}");
+        assert!(hint.contains("Reloading"), "{hint}");
+        assert!(
+            !hint.contains("WebGL"),
+            "an ordinary panic must not blame the user's browser: {hint}"
+        );
+    }
+
+    /// The Rust half of #1228 f4 is a `Reflect::get` by name against a page
+    /// this crate does not compile, so nothing but this test connects the
+    /// two. A rename or a deleted element on either side fails silently —
+    /// the lookup misses, the call is dropped, and the tab is back to a
+    /// dead canvas with no message, which is the exact defect.
+    #[test]
+    fn the_page_still_exposes_the_card_the_panic_hook_calls() {
+        let page = include_str!("../../index.html");
+        assert!(
+            page.contains(&format!("window.{SHOW_ERROR_FN} =")),
+            "index.html no longer defines window.{SHOW_ERROR_FN}"
+        );
+        // The three arguments `show_fatal_card` passes, in the order it
+        // passes them: lead, hint, detail.
+        for id in ["load-error-lead", "load-error-hint", "load-error-detail"] {
+            assert!(page.contains(&format!("id=\"{id}\"")), "missing #{id}");
+        }
+    }
+
+    /// THE SEQUENCE (#1228 f13): hotel wifi drops mid-download. `reader
+    /// .read()` never resolves and never rejects, so the byte counter
+    /// freezes, `init()`'s promise stays pending, and the error card — the
+    /// only thing on the page with a Reload button — is never reached.
+    /// #850's progress text turned a silent wait into a visibly stuck one.
+    ///
+    /// The escape hatch lives inside `#loading`, which is
+    /// `pointer-events: none` precisely so it can never swallow a click
+    /// meant for the canvas — so the action row has to opt back in, or the
+    /// button renders and cannot be pressed.
+    #[test]
+    fn a_stalled_download_has_a_reload_button_that_can_actually_be_clicked() {
+        let page = include_str!("../../index.html");
+        assert!(
+            page.contains("id=\"loading-actions\""),
+            "no stall action row"
+        );
+        assert!(
+            page.contains("location.reload()"),
+            "the stall row's whole job is the reload"
+        );
+        let actions_css = page
+            .split("#loading-actions {")
+            .nth(1)
+            .expect("#loading-actions needs a rule of its own");
+        assert!(
+            actions_css
+                .split('}')
+                .next()
+                .expect("a closing brace")
+                .contains("pointer-events: auto"),
+            "the row must opt out of #loading's pointer-events: none"
+        );
+        // Every chunk rearms the watch; nothing else would tell a slow but
+        // healthy download apart from a dead one.
+        assert!(page.contains("armStallWatch"), "no stall watchdog");
+        assert!(
+            page.contains("disarmStallWatch"),
+            "a watch that is never disarmed accuses a finished download"
+        );
     }
 }

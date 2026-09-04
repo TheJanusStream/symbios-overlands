@@ -305,6 +305,15 @@ impl MutualsCache {
         self.by_owner.get(owner_did)
     }
 
+    /// Drop `owner_did`'s slot so the next [`request_mutuals`] dispatches
+    /// immediately (#1232 f284). The failed state's only recovery was a
+    /// 15 s TTL re-arm under a line reading "Retrying shortly…", with no
+    /// way to ask now — unlike the loading screen's rows, which have had a
+    /// *Retry now* since #1230.
+    pub fn forget(&mut self, owner_did: &str) {
+        self.by_owner.remove(owner_did);
+    }
+
     /// True when a fresh fetch should be dispatched for `owner_did`.
     fn needs_fetch(&self, owner_did: &str, now: f64) -> bool {
         match self.by_owner.get(owner_did) {
@@ -415,10 +424,20 @@ async fn walk_graph(
     client: &reqwest::Client,
     lexicon: &str,
     actor: &str,
+    deadline_secs: i64,
 ) -> Result<(Vec<ProfileView>, bool), String> {
     let mut out: Vec<ProfileView> = Vec::new();
     let mut cursor: Option<String> = None;
     for _ in 0..MAX_GRAPH_PAGES {
+        // Out of budget (#1232 f284): stop with what we have rather than
+        // let the whole-operation bound drop the walk. Twenty sequential
+        // requests under one 30 s timer meant a well-connected owner's
+        // gateway — the gateway most worth using — reliably produced
+        // nothing at all, and the flag below is exactly the "this is a
+        // lower bound" signal the picker already renders.
+        if crate::state::now_epoch_secs() >= deadline_secs {
+            return Ok((out, true));
+        }
         let url = format!("https://public.api.bsky.app/xrpc/{lexicon}");
         let mut query: Vec<(&str, String)> = vec![
             ("actor", actor.to_string()),
@@ -505,14 +524,45 @@ fn intersect_mutuals(follows: Vec<ProfileView>, followers: &[ProfileView]) -> Ve
 /// unauthenticated, so it works for any owner, not just the local user.
 async fn fetch_mutuals(owner_did: String) -> Result<MutualsList, String> {
     let client = crate::config::http::default_client();
+    let deadline = crate::state::now_epoch_secs() + MUTUALS_WALK_BUDGET_SECS;
     let (follows, follows_truncated) =
-        walk_graph(&client, "app.bsky.graph.getFollows", &owner_did).await?;
+        walk_graph(&client, "app.bsky.graph.getFollows", &owner_did, deadline).await?;
     let (followers, followers_truncated) =
-        walk_graph(&client, "app.bsky.graph.getFollowers", &owner_did).await?;
+        walk_graph(&client, "app.bsky.graph.getFollowers", &owner_did, deadline).await?;
     Ok(MutualsList {
         mutuals: intersect_mutuals(follows, &followers),
         truncated: follows_truncated || followers_truncated,
     })
+}
+
+/// Wall-clock budget for both graph walks together (#1232 f284).
+///
+/// Comfortably inside [`crate::config::http::REQUEST_TIMEOUT`], which is
+/// what `run_or` races the whole operation against on wasm — so the walk
+/// gives up first and its partial intersection escapes, instead of the
+/// future being dropped with everything in it. On native `run_or` is a
+/// pass-through and each request carries its own builder timeout, so until
+/// now twenty pages had no whole-operation bound at all; this gives it one.
+///
+/// The wall clock, not `Res<Time>`: this runs inside an `IoTaskPool` task
+/// with no `World` to read, and the virtual clock would be the wrong
+/// question anyway (#1216).
+const MUTUALS_WALK_BUDGET_SECS: i64 = 20;
+
+/// Plain language for a mutuals-fetch failure (#1232 f284).
+///
+/// The picker interpolated the raw reason, so
+/// `app.bsky.graph.getFollows => 429` reached the user — a lexicon name on
+/// a control an ordinary visitor operates. The raw string is still what the
+/// log and the session capture record; this is only what is shown.
+pub fn mutuals_error(raw: &str) -> String {
+    if raw.contains("timed out") {
+        String::from("The network directory didn't answer in time.")
+    } else if raw.contains("transport error") {
+        String::from("Couldn't reach the network directory — check your connection.")
+    } else {
+        String::from("Couldn't reach the network directory.")
+    }
 }
 
 #[cfg(test)]
@@ -685,5 +735,61 @@ mod resonance_tests {
     #[test]
     fn a_failure_without_a_recorded_backoff_does_not_spin() {
         assert!(!should_query(Some(&SocialResonance::Failed), None, 1.0e9));
+    }
+
+    /// THE SEQUENCE (#1232 f284): a visitor opens a gateway in the world of
+    /// somebody well-connected — the gateway most worth using. Twenty
+    /// sequential graph pages run under one whole-operation timer, the
+    /// timer wins, and the picker renders `app.bsky.graph.getFollows =>
+    /// 429`: a lexicon name on a control an ordinary visitor operates,
+    /// under "Retrying shortly…" that loops the same walk forever.
+    #[test]
+    fn a_failed_mutuals_walk_speaks_english_and_can_be_retried_now() {
+        for raw in [
+            "app.bsky.graph.getFollows => 429 Too Many Requests",
+            "app.bsky.graph.getFollowers transport error: dns error",
+            "mutuals fetch timed out after 30s",
+        ] {
+            let shown = mutuals_error(raw);
+            assert!(
+                !shown.contains("app.bsky") && !shown.contains("=>"),
+                "lexicon leaked: {shown}"
+            );
+            assert!(shown.starts_with(char::is_uppercase) && shown.ends_with('.'));
+        }
+        // Distinguishable failures stay distinguishable.
+        assert_ne!(
+            mutuals_error("transport error: dns"),
+            mutuals_error("mutuals fetch timed out after 30s")
+        );
+
+        // "Retry now" is `forget` plus the dispatch that already runs at
+        // the top of the picker: a slot that is gone is a slot that
+        // `needs_fetch` says yes to.
+        let mut cache = MutualsCache::default();
+        cache.by_owner.insert(
+            "did:plc:owner".into(),
+            CachedMutuals {
+                at_secs: 100.0,
+                state: MutualsState::Failed("boom".into()),
+            },
+        );
+        assert!(
+            !cache.needs_fetch("did:plc:owner", 101.0),
+            "inside the failure TTL, nothing re-dispatches on its own"
+        );
+        cache.forget("did:plc:owner");
+        assert!(cache.needs_fetch("did:plc:owner", 101.0));
+    }
+
+    /// The walk gives up on time rather than being dropped whole. The
+    /// budget has to sit inside the bound `run_or` races the operation
+    /// against on wasm, or the partial result never escapes.
+    #[test]
+    fn the_walk_budget_leaves_room_for_its_partial_result_to_escape() {
+        assert!(
+            MUTUALS_WALK_BUDGET_SECS < crate::config::http::REQUEST_TIMEOUT.as_secs() as i64,
+            "a budget at or past the whole-operation bound returns nothing"
+        );
     }
 }

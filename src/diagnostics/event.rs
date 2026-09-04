@@ -83,8 +83,16 @@ pub enum RecordKind {
 pub enum FetchStatus {
     /// Record decoded and installed.
     Ok,
-    /// PDS returned 404 → fell back to the DID-seeded default.
+    /// PDS returned 404 at the LOCAL user's own DID → the zero-configuration
+    /// homeworld. A first login, and an unambiguous success.
     NotFound,
+    /// PDS returned 404 at somebody ELSE's DID (#1232 f28): that person has
+    /// not built this yet, and what the visitor is standing in was
+    /// synthesised from their identifier. Told apart from [`Self::NotFound`]
+    /// because the same code path serves both, and reporting a stranger's
+    /// empty repo as a clean success is how a mistyped link becomes a
+    /// plausible-looking landscape nobody made.
+    NotBuiltYet,
     /// Response body failed to decode against the current lexicon.
     DecodeError,
     /// A transient error (DNS / timeout / 5xx) that will be retried.

@@ -382,7 +382,25 @@ pub(super) fn lift_player_above_new_ground(
     let Ok((mut pos, mut lin_vel, mut ang_vel)) = query.single_mut() else {
         return;
     };
-    let hm = &hm_res.0;
+    snap_above_ground(&hm_res.0, &mut pos, &mut lin_vel, &mut ang_vel);
+}
+
+/// Raise `pos` to stand on `hm` if it is currently below it, killing the
+/// momentum that a fall through the old ground would otherwise carry.
+///
+/// Split out of [`lift_player_above_new_ground`] for #1231 f20's arrival
+/// gate, which needs the same snap on a schedule that system's
+/// `is_added()` trigger cannot cover: a travel whose destination terrain
+/// config serialises identically to the origin's never produces a new
+/// `FinishedHeightMap` at all, and a gateway hop with a drop-pin landing
+/// arrives at a literal `y = 0.0` — so the one arrival most in need of a
+/// lift was the one arrival that never got one.
+pub(super) fn snap_above_ground(
+    hm: &bevy_symbios_ground::HeightMap,
+    pos: &mut Position,
+    lin_vel: &mut LinearVelocity,
+    ang_vel: &mut AngularVelocity,
+) {
     let extent = (hm.width() - 1) as f32 * hm.scale();
     let half = extent * 0.5;
     let hm_x = (pos.x + half).clamp(0.0, extent);

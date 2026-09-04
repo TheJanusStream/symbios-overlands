@@ -64,7 +64,19 @@ pub enum GuardedAction {
     /// another overland (see `player::begin_portal_travel`). `target_pos:
     /// None` arrives at the destination record's `default_landing` (#745).
     PortalTravel {
+        /// Which surface asked (#1231 f29). Three entry points shared one
+        /// variant, so the dialog warned that "Traveling through the
+        /// portal will discard them" to somebody who had clicked *Go* on a
+        /// gateway row or *Visit* in the People panel and touched no
+        /// portal at all — and `close()` then set a portal cooldown with
+        /// no portal overlap to wait out. A confirm dialog whose text does
+        /// not match the action just taken is the most reliable way to
+        /// make a safety prompt get clicked through unread, and this one
+        /// guards unpublished world edits.
+        via: TravelVia,
         target_did: String,
+        /// The name the calling surface already had, if any (#1231 f27).
+        target_label: Option<String>,
         target_pos: Option<Vec3>,
     },
     /// Transition back to `AppState::Login`; `logout::cleanup_on_logout`
@@ -74,6 +86,32 @@ pub enum GuardedAction {
     /// close button routes through this guard instead of killing the
     /// process with unsaved edits aboard. Confirming exits via `AppExit`.
     Quit,
+}
+
+/// Which surface asked for a travel (#1231 f29).
+///
+/// Only [`Portal`](TravelVia::Portal) leaves the player standing inside a
+/// collider they have to walk out of, which is the whole reason the
+/// decline path sets a cooldown — so the distinction is load-bearing, not
+/// only cosmetic.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TravelVia {
+    /// Walked into an inter-room portal's collider.
+    Portal,
+    /// Picked a row in a gateway's destination list.
+    Gateway,
+    /// *Visit* beside a peer in the People panel.
+    Visit,
+    /// Chose a destination from the account menu (#1232 f251).
+    Menu,
+}
+
+impl TravelVia {
+    /// Whether declining leaves the player inside a collider that would
+    /// re-open this dialog on the next frame.
+    pub fn needs_decline_cooldown(self) -> bool {
+        self == Self::Portal
+    }
 }
 
 /// Dialog lifecycle. `Publishing` renders a spinner and waits for every
@@ -167,6 +205,27 @@ pub fn guard_labels(action: &GuardedAction) -> GuardLabels {
         discard,
         stay,
         stay_while_publishing: format!("{stay} (save continues)"),
+    }
+}
+
+/// The dialog's second line: what proceeding costs (#1231 f29).
+///
+/// Extracted and named after the destination rather than after the
+/// mechanism, because "Traveling through the portal will discard them" was
+/// shown to three entry points and only one of them involves a portal. A
+/// sentence about *where you are going* reads correctly for all four, and
+/// naming the destination is also what makes the prompt worth reading.
+pub fn travel_discard_line(action: &GuardedAction) -> String {
+    match action {
+        GuardedAction::PortalTravel {
+            target_label: Some(name),
+            ..
+        } => format!("Travelling to {name}'s world will discard them."),
+        GuardedAction::PortalTravel { .. } => {
+            String::from("Travelling to another world will discard them.")
+        }
+        GuardedAction::Logout => String::from("Logging out will discard them."),
+        GuardedAction::Quit => String::from("Quitting will discard them."),
     }
 }
 
@@ -480,11 +539,7 @@ pub fn unsaved_guard_ui(
             "You have unpublished edits to: {}.",
             names.join(", ")
         ));
-        ui.label(match guard.action {
-            GuardedAction::PortalTravel { .. } => "Traveling through the portal will discard them.",
-            GuardedAction::Logout => "Logging out will discard them.",
-            GuardedAction::Quit => "Quitting will discard them.",
-        });
+        ui.label(travel_discard_line(&guard.action));
 
         if let Some(notice) = &guard.notice {
             ui.add_space(4.0);
@@ -670,9 +725,18 @@ fn proceed(
     match action {
         GuardedAction::PortalTravel {
             target_did,
+            target_label,
             target_pos,
+            ..
         } => {
-            begin_portal_travel(commands, session_log, now, target_did.clone(), *target_pos);
+            begin_portal_travel(
+                commands,
+                session_log,
+                now,
+                target_did.clone(),
+                target_label.clone(),
+                *target_pos,
+            );
         }
         GuardedAction::Logout => {
             next_state.set(AppState::Login);
@@ -690,7 +754,10 @@ fn proceed(
 /// is still standing inside the portal collider, so a widened cooldown
 /// keeps the overlap from re-opening the dialog before they can walk out.
 fn close(action: &GuardedAction, commands: &mut Commands, time: &Time) {
-    if matches!(action, GuardedAction::PortalTravel { .. }) {
+    // Only a walked-into portal leaves an overlap to wait out (#1231 f29).
+    // A gateway pick or a People *Visit* set a cooldown that suppressed
+    // the next portal the player DID walk into.
+    if matches!(action, GuardedAction::PortalTravel { via, .. } if via.needs_decline_cooldown()) {
         commands.insert_resource(PortalCooldown {
             until_secs: time.elapsed_secs_f64() + DECLINE_COOLDOWN_SECS,
         });
@@ -825,9 +892,62 @@ mod tests {
     }
 
     fn travel() -> GuardedAction {
+        travel_via(TravelVia::Portal, None)
+    }
+
+    fn travel_via(via: TravelVia, target_label: Option<&str>) -> GuardedAction {
         GuardedAction::PortalTravel {
+            via,
             target_did: "did:plc:example".into(),
+            target_label: target_label.map(str::to_owned),
             target_pos: Some(Vec3::ZERO),
+        }
+    }
+
+    /// THE SEQUENCE (#1231 f29): an owner with unsaved world edits clicks
+    /// *Go* on a gateway row, or *Visit* beside somebody in the People
+    /// panel, and is warned that "Traveling through the portal will
+    /// discard them" — about a portal they never touched. A confirm dialog
+    /// whose text does not match the action just taken is the most
+    /// reliable way to make a safety prompt get clicked through unread,
+    /// and this one guards unpublished work.
+    #[test]
+    fn the_dialog_names_where_you_are_going_not_how_you_asked() {
+        let named = travel_via(TravelVia::Gateway, Some("@alice.bsky.social"));
+        let line = travel_discard_line(&named);
+        assert!(line.contains("@alice.bsky.social"), "{line}");
+        assert!(!line.contains("portal"), "no portal was touched: {line}");
+
+        // The same sentence reads correctly from all four entry points,
+        // which is why the copy is about the destination.
+        for via in [
+            TravelVia::Portal,
+            TravelVia::Gateway,
+            TravelVia::Visit,
+            TravelVia::Menu,
+        ] {
+            let with_name = travel_discard_line(&travel_via(via, Some("@alice.bsky.social")));
+            assert_eq!(with_name, line, "the entry point must not change it");
+            // A classic portal carries no name; the fallback still avoids
+            // naming a mechanism the user may not have used.
+            let anonymous = travel_discard_line(&travel_via(via, None));
+            assert!(anonymous.contains("another world"), "{anonymous}");
+            assert!(!anonymous.contains("portal"), "{anonymous}");
+        }
+
+        assert!(travel_discard_line(&GuardedAction::Logout).contains("Logging out"));
+        assert!(travel_discard_line(&GuardedAction::Quit).contains("Quitting"));
+    }
+
+    /// The other half of f29: only a walked-into portal leaves an overlap
+    /// to wait out, so only it earns the decline cooldown. A gateway pick
+    /// or a *Visit* set one anyway, suppressing the next portal the player
+    /// actually did walk into.
+    #[test]
+    fn only_a_real_portal_earns_a_decline_cooldown() {
+        assert!(TravelVia::Portal.needs_decline_cooldown());
+        for via in [TravelVia::Gateway, TravelVia::Visit, TravelVia::Menu] {
+            assert!(!via.needs_decline_cooldown(), "{via:?}");
         }
     }
 

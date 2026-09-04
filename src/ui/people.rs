@@ -578,7 +578,16 @@ pub fn people_ui(
                                         commands.insert_resource(
                                             crate::ui::unsaved_guard::UnsavedGuard::new(
                                                 crate::ui::unsaved_guard::GuardedAction::PortalTravel {
+                                                    via: crate::ui::unsaved_guard::TravelVia::Visit,
                                                     target_did: did.to_owned(),
+                                                    // The row's own name,
+                                                    // carried (#1231 f27):
+                                                    // the overlay used to
+                                                    // fall back to a DID
+                                                    // head one click after
+                                                    // this row said
+                                                    // "@alice".
+                                                    target_label: Some(label.addressed()),
                                                     target_pos: None,
                                                 },
                                             ),

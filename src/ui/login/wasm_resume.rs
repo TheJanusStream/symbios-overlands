@@ -73,6 +73,34 @@ pub fn check_wasm_callback(
 #[derive(Component)]
 pub struct ResumeAuthTask(bevy::tasks::Task<Result<CompletedSession, String>>);
 
+/// Whether the persisted-session resume has already had its one shot this
+/// page load (#1228 f6).
+///
+/// A `Resource` rather than the `Local<bool>` it used to be, because the
+/// Retry button on a resume failure has to be able to re-arm it. The
+/// alternative — the only exit the screen had — was "Not you? Sign in
+/// differently", which throws the saved session away, and a relay outage
+/// is not a reason to forget who somebody is.
+///
+/// Deliberately not part of [`super::LoginUiLatch`]: that latch is reset on
+/// `OnEnter(AppState::Login)` so a re-entry behaves like a fresh page load,
+/// and re-running the resume on every return to the form would spawn a
+/// second auth task behind the one the user just escaped. This one is
+/// page-load scoped, like the callback check beside it.
+#[derive(Resource, Default)]
+pub struct ResumeLatch {
+    spent: bool,
+}
+
+impl ResumeLatch {
+    /// Re-arm the one-shot so [`check_wasm_resume`] runs again next frame.
+    /// The persisted blob is untouched — that is the whole difference
+    /// between this and the "Not you?" hatch.
+    pub fn rearm(&mut self) {
+        self.spent = false;
+    }
+}
+
 /// One-shot system that fires on the first frame in `AppState::Login` and
 /// kicks off a [`ResumeAuthTask`] if a valid persisted session is on disk.
 /// A bad blob (deserialise failure) is silently dropped by `load_persisted`,
@@ -85,16 +113,16 @@ pub fn check_wasm_resume(
     existing_resume: Query<&ResumeAuthTask>,
     existing_session: Option<Res<AtprotoSession>>,
     boot: Option<Res<BootParams>>,
-    mut ran: Local<bool>,
+    mut latch: ResMut<ResumeLatch>,
 ) {
-    if *ran
+    if latch.spent
         || existing_session.is_some()
         || !existing_complete.is_empty()
         || !existing_resume.is_empty()
     {
         return;
     }
-    *ran = true;
+    latch.spent = true;
     // See `check_wasm_callback` — the boot handoff marker is spent once
     // this one-shot has decided, and the `ResumeAuthTask` spawned below
     // takes over as the attract backdrop's "not idle" signal.
@@ -104,9 +132,11 @@ pub fn check_wasm_resume(
     };
     // URL/CLI boot params win over the persisted blob: a shared landmark
     // link should drop the recipient at the linked overland even though
-    // their local browser remembers them at "home". The blob itself is
-    // not rewritten — the override is applied in-memory only, so the
-    // next reload (without the URL params) restores the persisted view.
+    // their local browser remembers them at "home". The override is
+    // applied in-memory here; `install_completed_session` writes it back
+    // once the resume actually lands somebody in that world (#1229 f2), so
+    // the blob records where the user IS rather than where they first
+    // signed in.
     let (boot_did, boot_pos, boot_yaw) = boot
         .as_deref()
         .map(|b| (b.target_did.clone(), b.target_pos, b.target_yaw_deg))
@@ -115,6 +145,13 @@ pub fn check_wasm_resume(
         blob.target_did = did;
     }
     info!("Resuming persisted session for {}", blob.handle);
+    // Who this is and where it lands (#1229 f10). The card asked "Not
+    // you?" while this very system logged the answer one line up.
+    commands.insert_resource(super::entry::ResumeIdentity {
+        handle: blob.handle.clone(),
+        did: blob.did.clone(),
+        target_did: blob.target_did.clone(),
+    });
     commands.insert_resource(RelayHost(blob.relay_host.clone()));
     spawn_resume_task(
         &mut commands,
@@ -141,49 +178,63 @@ fn spawn_resume_task(
 
     let pool = bevy::tasks::IoTaskPool::get();
     let task = pool.spawn(async move {
-        let dpop_key =
-            dpop_key_from_jwk(&blob.dpop_jwk).map_err(|e| format!("dpop_key_from_jwk: {e}"))?;
-        let oauth_session = Arc::new(OAuthSession::new(
-            blob.token_set.clone(),
-            dpop_key,
-            client.dpop_nonces().clone(),
-        ));
-        let refresh_ctx = crate::oauth::OauthRefreshCtx {
-            client: client.clone(),
-            server_metadata: blob.server_metadata.clone(),
+        let fut = async move {
+            let dpop_key =
+                dpop_key_from_jwk(&blob.dpop_jwk).map_err(|e| format!("dpop_key_from_jwk: {e}"))?;
+            let oauth_session = Arc::new(OAuthSession::new(
+                blob.token_set.clone(),
+                dpop_key,
+                client.dpop_nonces().clone(),
+            ));
+            let refresh_ctx = crate::oauth::OauthRefreshCtx {
+                client: client.clone(),
+                server_metadata: blob.server_metadata.clone(),
+            };
+            // If the persisted access token has expired, rotate it before any
+            // downstream call. A failure here is terminal — the refresh token
+            // has been invalidated server-side and the user must re-auth — so
+            // drop the persisted blob and surface the error to the login UI.
+            if oauth_session.is_expired_jittered()
+                && let Err(e) = crate::oauth::refresh_session(&oauth_session, &refresh_ctx).await
+            {
+                oauth::wasm::clear_persisted();
+                return Err(format!("resume refresh: {e}"));
+            }
+            let session = AtprotoSession {
+                did: blob.did.clone(),
+                handle: blob.handle.clone(),
+                pds_url: blob.pds_url.clone(),
+                session: oauth_session,
+            };
+            let service_token = crate::oauth::get_relay_service_auth(&session, &blob.relay_host)
+                .await
+                .map_err(|e| format!("resume get_relay_service_auth: {e}"))?;
+            let room_did = if blob.target_did.is_empty() {
+                session.did.clone()
+            } else {
+                blob.target_did.clone()
+            };
+            Ok::<_, String>(CompletedSession {
+                session,
+                refresh_ctx,
+                service_token,
+                room_did,
+                spawn_pos,
+                spawn_yaw_deg,
+            })
         };
-        // If the persisted access token has expired, rotate it before any
-        // downstream call. A failure here is terminal — the refresh token
-        // has been invalidated server-side and the user must re-auth — so
-        // drop the persisted blob and surface the error to the login UI.
-        if oauth_session.is_expired_jittered()
-            && let Err(e) = crate::oauth::refresh_session(&oauth_session, &refresh_ctx).await
-        {
-            oauth::wasm::clear_persisted();
-            return Err(format!("resume refresh: {e}"));
-        }
-        let session = AtprotoSession {
-            did: blob.did.clone(),
-            handle: blob.handle.clone(),
-            pds_url: blob.pds_url.clone(),
-            session: oauth_session,
-        };
-        let service_token = crate::oauth::get_relay_service_auth(&session, &blob.relay_host)
+        // The bound #1129 introduced, which this one path never got
+        // (#1228 f3). The wasm reqwest client routes through the browser's
+        // fetch API and has no idle-body timeout, so an expired token on a
+        // flaky network left `refresh_session` pending forever — and this
+        // is the most common return path of the deployed target, sitting
+        // behind a spinner whose only escape hatch forgets the user.
+        //
+        // The timeout arm KEEPS the persisted blob: nothing was proven
+        // wrong with the saved session, only with the network, so the
+        // Retry button below can re-run exactly this task.
+        crate::config::http::run_or(fut, Err(crate::config::http::timed_out("session resume")))
             .await
-            .map_err(|e| format!("resume get_relay_service_auth: {e}"))?;
-        let room_did = if blob.target_did.is_empty() {
-            session.did.clone()
-        } else {
-            blob.target_did.clone()
-        };
-        Ok::<_, String>(CompletedSession {
-            session,
-            refresh_ctx,
-            service_token,
-            room_did,
-            spawn_pos,
-            spawn_yaw_deg,
-        })
     });
     commands.spawn(ResumeAuthTask(task));
 }
@@ -197,6 +248,7 @@ pub fn poll_resume_task(
     mut next_state: ResMut<NextState<AppState>>,
     mut login_error: ResMut<LoginError>,
     relay_host: Option<Res<RelayHost>>,
+    mut ui_latch: ResMut<super::LoginUiLatch>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
@@ -220,6 +272,16 @@ pub fn poll_resume_task(
             }
             Err(msg) => {
                 warn!("Resume failed: {msg}");
+                // Keep the `has_persisted` cache honest (#1228 f6). The
+                // refresh arm above clears the stored blob on its way out,
+                // and the login card answers "does this machine have a
+                // saved session?" once per visit — a stale yes would both
+                // hide the Retry button and send `entry_plan` down its
+                // Idle arm, so a landmark link would stop naming its
+                // destination the moment a resume failed.
+                if !super::resume_keeps_session(&msg) {
+                    ui_latch.persisted = Some(false);
+                }
                 login_error.0 = Some(format!("Session resume failed: {msg}"));
             }
         }

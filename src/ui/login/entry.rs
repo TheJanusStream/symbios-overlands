@@ -89,6 +89,79 @@ impl DestinationLabel {
     }
 }
 
+/// Who the browser's saved session belongs to, and where it lands (#1229
+/// f10).
+///
+/// Inserted by `check_wasm_resume` beside the task it spawns, and torn
+/// down with the rest of the session on logout. WASM-only in practice —
+/// native has no persisted session — but declared without a `cfg` so
+/// [`resolve_boot_destination`] and the login card can read it plainly.
+///
+/// The resume row asked "Not you? Sign in differently" while holding the
+/// handle it was resuming, and even logging it. "Not you?" is an identity
+/// question; answering it needs the identity, and on a shared laptop the
+/// only other way to find out is from inside somebody else's world.
+#[derive(Resource, Clone, Debug, Default)]
+pub struct ResumeIdentity {
+    /// The saved session's handle, as the blob recorded it.
+    pub handle: String,
+    /// The saved session's own DID, so "home" can be told from a visit.
+    pub did: String,
+    /// The overland the resume will land in; empty means "home".
+    pub target_did: String,
+}
+
+/// The destination a resume lands in, or `None` for "your own world".
+///
+/// Pure because the blob spells "home" two ways — an empty `target_did`
+/// (the login default) and, since #1229 f2 started writing arrivals back,
+/// the user's own DID — and a card announcing "heading to did:plc:you…'s
+/// overland" to somebody standing at home would be worse than the silence
+/// it replaced.
+pub fn resume_destination(own_did: &str, target_did: &str) -> Option<String> {
+    if target_did.is_empty() || target_did == own_did {
+        return None;
+    }
+    Some(target_did.to_owned())
+}
+
+/// The line shown while a saved session is being restored (#1229 f10).
+///
+/// Through [`PeerLabel`] like every other name on this screen, and it
+/// degrades rather than inventing: a blob with no handle says what the
+/// screen used to say for everybody.
+pub fn resuming_line(handle: &str) -> String {
+    match resume_name(handle) {
+        Some(name) => format!("Resuming as {name}…"),
+        None => String::from("Resuming your previous session…"),
+    }
+}
+
+/// The label of the escape hatch beside it.
+///
+/// Named when the name fits. The button is the widest thing in the card's
+/// busy state, and a long handle would either wrap it or push the card
+/// about — so past [`MAX_NAMED_HATCH_CHARS`] the identity stays on the
+/// line above, where [`resuming_line`] has already said it, and the button
+/// falls back to the short form.
+pub fn not_you_label(handle: &str) -> String {
+    match resume_name(handle).filter(|n| n.chars().count() <= MAX_NAMED_HATCH_CHARS) {
+        Some(name) => format!("Not {name}? Sign in differently"),
+        None => String::from("Not you? Sign in differently"),
+    }
+}
+
+/// Handle characters (including the `@`) the escape hatch will spell out.
+/// Comfortably fits `@alice.bsky.social`, the shape nearly every handle
+/// takes, while a 40-character vanity domain does not widen the card.
+const MAX_NAMED_HATCH_CHARS: usize = 24;
+
+/// The saved session's name through the app's one ladder, or `None` when
+/// the blob has no handle to spell.
+fn resume_name(handle: &str) -> Option<String> {
+    (!handle.trim().is_empty()).then(|| PeerLabel::new(Some(handle.trim()), None).addressed())
+}
+
 /// In-flight DID → handle lookup for the boot destination.
 #[derive(Component)]
 pub struct ResolveDestinationTask {
@@ -109,6 +182,7 @@ pub struct ResolveDestinationTask {
 pub fn resolve_boot_destination(
     mut commands: Commands,
     boot: Option<Res<crate::boot_params::BootParams>>,
+    resume: Option<Res<ResumeIdentity>>,
     mut label: ResMut<DestinationLabel>,
     mut tasks: Query<(Entity, &mut ResolveDestinationTask)>,
 ) {
@@ -130,7 +204,15 @@ pub fn resolve_boot_destination(
         };
     }
 
-    let Some(did) = boot.as_deref().and_then(|b| b.target_did.clone()) else {
+    // A resume in flight owns the destination (#1229 f10): its blob has
+    // already had the link's `did=` override applied, so it IS the
+    // effective destination, and the card that names it is the same card
+    // the link visitor reads. One lookup, one label, either way.
+    let resume_did = resume
+        .as_deref()
+        .and_then(|r| resume_destination(&r.did, &r.target_did));
+    let Some(did) = resume_did.or_else(|| boot.as_deref().and_then(|b| b.target_did.clone()))
+    else {
         return;
     };
     if !did.starts_with("did:") || label.did == did {
@@ -328,6 +410,55 @@ mod tests {
         assert!(
             !label.is_resolving(did),
             "an unverifiable DID settles rather than spinning forever"
+        );
+    }
+
+    /// THE SEQUENCE (#1229 f10): a shared laptop. The page opens on
+    /// "Resuming your previous session…" with "Not you? Sign in
+    /// differently" beside it, and no name anywhere — while the blob's
+    /// handle sits in the very system that spawned the resume, which logs
+    /// it. "Not you?" is an identity question and the screen withheld the
+    /// identity, so the answer arrived from inside somebody else's world.
+    #[test]
+    fn the_resume_says_whose_session_it_is_restoring() {
+        assert_eq!(
+            resuming_line("alice.bsky.social"),
+            "Resuming as @alice.bsky.social…"
+        );
+        assert_eq!(
+            not_you_label("alice.bsky.social"),
+            "Not @alice.bsky.social? Sign in differently"
+        );
+
+        // A blob with no handle says exactly what the screen used to say
+        // for everybody, rather than inventing a name or printing "@".
+        for blank in ["", "   "] {
+            assert_eq!(resuming_line(blank), "Resuming your previous session…");
+            assert_eq!(not_you_label(blank), "Not you? Sign in differently");
+        }
+
+        // A handle too long to spell keeps the button its old width; the
+        // line above has already said who it is.
+        let long = "an-extremely-long-vanity-domain.example.com";
+        assert!(
+            resuming_line(long).contains(long),
+            "the line still names them"
+        );
+        assert_eq!(not_you_label(long), "Not you? Sign in differently");
+    }
+
+    /// The blob spells "home" two ways — an empty `target_did` from the
+    /// login default, and (since #1229 f2 writes arrivals back) the user's
+    /// own DID. Neither may produce "you're heading to did:plc:you…'s
+    /// overland" for somebody standing at home.
+    #[test]
+    fn a_resume_that_lands_at_home_names_no_destination() {
+        let me = "did:plc:me";
+        assert_eq!(resume_destination(me, ""), None);
+        assert_eq!(resume_destination(me, me), None);
+        assert_eq!(
+            resume_destination(me, "did:plc:friend"),
+            Some("did:plc:friend".to_owned())
         );
     }
 

@@ -83,6 +83,13 @@ enum RowStatus {
     /// counts as [`RowStatus::Done`]. Carries the note naming which of
     /// them happened (#1230 f22).
     Fallback(&'static str),
+    /// The fetch succeeded and there is something to say about WHAT it
+    /// found (#1232 f28): a 404 at somebody else's DID means they have not
+    /// built this yet, and the visitor is standing in a world synthesised
+    /// from their identifier. A green tick, because nothing went wrong —
+    /// with the note beside it, because "@alice's overland" and "a world
+    /// we invented for a DID" are not the same place.
+    DoneWithNote(&'static str),
     /// Work is in flight (fetching / generating / baking). Carries the
     /// `(attempt, max)` pair while a retry attempt is in flight, so the
     /// counter stays visible through the marker-despawn gap between a
@@ -135,10 +142,13 @@ fn record_row<R: LoadedRecord>(
     now: f64,
 ) -> RowStatus {
     if resource_present {
-        return match outcome.filter(|status| is_failure_fallback(*status)) {
-            Some(status) => RowStatus::Fallback(fallback_note(status)),
-            None => RowStatus::Done,
-        };
+        if let Some(status) = outcome.filter(|status| is_failure_fallback(*status)) {
+            return RowStatus::Fallback(fallback_note(status));
+        }
+        if outcome == Some(FetchStatus::NotBuiltYet) {
+            return RowStatus::DoneWithNote(fallback_note(FetchStatus::NotBuiltYet));
+        }
+        return RowStatus::Done;
     }
     if let Some(marker) = retry {
         return RowStatus::Retrying {
@@ -170,6 +180,12 @@ fn draw_row(ui: &mut egui::Ui, label: &str, status: RowStatus) -> RowAction {
                     crate::ui::affordances::CHECK,
                 );
                 ui.label(label);
+            }
+            RowStatus::DoneWithNote(note) => {
+                let theme = crate::ui::theme::current(ui.ctx());
+                ui.colored_label(theme.status.ok, crate::ui::affordances::CHECK);
+                ui.label(label);
+                ui.colored_label(theme.text_weak, note);
             }
             RowStatus::Fallback(note) => {
                 let amber = crate::ui::theme::current(ui.ctx()).status.warn;
@@ -537,5 +553,46 @@ mod tests {
             gate_elapsed_style(GATE_STALL_SECS, &th).1,
             " — much longer than usual"
         );
+    }
+
+    /// THE SEQUENCE (#1232 f28): a visitor follows a link to somebody's
+    /// world. That DID has published nothing — perhaps it is not even an
+    /// account they use — so the DID-seeded default is synthesised and the
+    /// loading row renders a green tick with no note at all. They arrive in
+    /// a plausible-looking landscape and have no way to know nobody made
+    /// it. The owner's OWN 404 is the zero-configuration homeworld and must
+    /// stay exactly as wordless as it was.
+    #[test]
+    fn a_strangers_empty_repo_is_not_reported_as_a_finished_world() {
+        let visited = record_row::<crate::pds::RoomRecord>(
+            true,
+            Some(FetchStatus::NotBuiltYet),
+            None,
+            None,
+            0.0,
+        );
+        match visited {
+            RowStatus::DoneWithNote(note) => {
+                assert!(note.contains("haven't built"), "{note}");
+            }
+            _ => panic!("expected a noted success"),
+        }
+
+        // The owner's own first login: unchanged, and silent.
+        assert!(matches!(
+            record_row::<crate::pds::RoomRecord>(
+                true,
+                Some(FetchStatus::NotFound),
+                None,
+                None,
+                0.0
+            ),
+            RowStatus::Done
+        ));
+        assert!(fallback_note(FetchStatus::NotFound).is_empty());
+
+        // And it is not a FAILURE: nothing is amber, and nothing offers to
+        // reset a repo whose only problem is being empty.
+        assert!(!is_failure_fallback(FetchStatus::NotBuiltYet));
     }
 }

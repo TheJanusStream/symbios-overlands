@@ -54,7 +54,9 @@ pub enum PeerLabel {
     /// The only tier that is a *name*; the peer-supplied handle on the wire
     /// never reaches here (see the `Identity` arm in [`super::inbound`]).
     Handle(String),
-    /// No handle yet, but the relay authenticated a DID: its head, elided.
+    /// No handle yet, but the relay authenticated a DID: its head, already
+    /// elided by [`elide_did`] — ellipsis included, and included only when
+    /// characters were really dropped.
     DidHead(String),
     /// Neither — a peer that connected and never identified.
     Anonymous,
@@ -65,13 +67,32 @@ pub enum PeerLabel {
 /// to tell two strangers apart in a chat log without pretending to be a name.
 const DID_HEAD_CHARS: usize = 16;
 
+/// The DID standing in for a name: its first [`DID_HEAD_CHARS`]
+/// characters, with an ellipsis **only when characters were really
+/// dropped**.
+///
+/// The unconditional `format!("{head}…")` this replaces was harmless for
+/// every real `did:plc:` (32 characters) but wrong for anything shorter,
+/// and an ellipsis that elides nothing invites the reader to go looking
+/// for the rest of an identifier they already have in full. Folded in here
+/// (#1231 f27) as `ui::travel`'s fifth copy of the ladder was retired onto
+/// this one.
+fn elide_did(did: &str) -> String {
+    let head: String = did.chars().take(DID_HEAD_CHARS).collect();
+    if head.chars().count() == did.chars().count() {
+        head
+    } else {
+        format!("{head}…")
+    }
+}
+
 impl PeerLabel {
     /// The ladder. `handle` is the profile-verified handle, `did` the
     /// relay-authenticated DID; both `None` is a peer that never identified.
     pub fn new(handle: Option<&str>, did: Option<&str>) -> Self {
         match (handle, did) {
             (Some(handle), _) => Self::Handle(handle.to_owned()),
-            (None, Some(did)) => Self::DidHead(did.chars().take(DID_HEAD_CHARS).collect()),
+            (None, Some(did)) => Self::DidHead(elide_did(did)),
             (None, None) => Self::Anonymous,
         }
     }
@@ -86,7 +107,7 @@ impl PeerLabel {
     pub fn addressed(&self) -> String {
         match self {
             Self::Handle(handle) => format!("@{handle}"),
-            Self::DidHead(head) => format!("{head}…"),
+            Self::DidHead(head) => head.clone(),
             Self::Anonymous => String::from("A traveler"),
         }
     }
@@ -96,7 +117,7 @@ impl PeerLabel {
     pub fn name(&self) -> String {
         match self {
             Self::Handle(handle) => handle.clone(),
-            Self::DidHead(head) => format!("{head}…"),
+            Self::DidHead(head) => head.clone(),
             Self::Anonymous => String::from("a traveler"),
         }
     }
@@ -1036,6 +1057,12 @@ mod tests {
         let identified = PeerLabel::new(None, Some("did:plc:abcdefgh12345678"));
         assert_eq!(identified.addressed(), "did:plc:abcdefgh…");
         assert!(!identified.is_named());
+
+        // An identifier short enough to print whole gets no ellipsis:
+        // eliding nothing sends the reader looking for the rest.
+        let whole = PeerLabel::new(None, Some("did:web:x"));
+        assert_eq!(whole.addressed(), "did:web:x");
+        assert_eq!(whole.name(), "did:web:x");
 
         let stranger = PeerLabel::new(None, None);
         assert_eq!(stranger.addressed(), "A traveler");

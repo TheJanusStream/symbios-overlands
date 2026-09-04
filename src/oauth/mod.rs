@@ -80,6 +80,28 @@ pub use service_token::{
 };
 pub use util::CallbackParams;
 
+/// Remember which overland the browser should come back to on the next
+/// reload (#1229 f2).
+///
+/// Target-neutral so the two sites that decide where the player *is* —
+/// `ui::login::complete::install_completed_session` at sign-in and
+/// `player::portal::poll_portal_travel_tasks` on arrival — can call it
+/// without a `cfg` of their own. Native has no persisted session, so this
+/// is a no-op there.
+///
+/// Best effort: a `localStorage` write that fails (private browsing, a
+/// full origin quota) costs the reload its destination and nothing else,
+/// and the session in memory is unaffected — the same posture
+/// [`refresh_session`] takes for the rotated token set.
+pub fn remember_room(room_did: &str) {
+    #[cfg(target_arch = "wasm32")]
+    if let Err(e) = wasm::update_persisted_target_did(room_did) {
+        warn!("update_persisted_target_did: {e}");
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = room_did;
+}
+
 /// In-flight OAuth authorization state persisted between the `authorize()`
 /// call and the callback. On WASM this is serialized into
 /// `sessionStorage`; on native it lives in a Mutex inside
@@ -193,3 +215,81 @@ pub struct NativePendingAuthRes(pub std::sync::Mutex<Option<PendingAuth>>);
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Resource)]
 pub struct NativeAuthUrl(pub String);
+
+#[cfg(test)]
+mod tests {
+    /// THE SEQUENCE (#1229 f2): a visitor is onboarded through a friend's
+    /// landmark link, walks home through a gateway, and reloads the page —
+    /// and lands back in the friend's world. The persisted blob's
+    /// `target_did` was written once at login completion and never again,
+    /// so every later visit resumed into whichever room the session first
+    /// entered, forever. Its own doc says the opposite ("we want the
+    /// reload to land the user back in the room they were viewing").
+    ///
+    /// [`remember_room`] is the fix, and the property that keeps it fixed
+    /// is that it is called wherever the current room CHANGES. Source
+    /// scanning, the idiom `oauth::service_token` uses, because the write
+    /// itself is `localStorage` — invisible on native, where the tests run
+    /// — while "did somebody add a third way to change rooms" is a
+    /// question about the code.
+    #[test]
+    fn every_site_that_changes_the_current_room_remembers_it() {
+        /// The two files allowed to install or reassign `CurrentRoomDid`
+        /// — the portal-arrival poll and the login installer — sorted, as
+        /// the walk collects them. Both must call `remember_room`; a third
+        /// file appearing here is a new travel path that owes the saved
+        /// session the same answer.
+        const ROOM_WRITERS: &[&str] = &["src/player/portal.rs", "src/ui/login/complete.rs"];
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut found: Vec<String> = Vec::new();
+        let mut stack = vec![root.join("src")];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("src is readable") {
+                let path = entry.expect("a readable entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|e| e != "rs") {
+                    continue;
+                }
+                // This file quotes both needles to look for them.
+                if path.ends_with("oauth/mod.rs") {
+                    continue;
+                }
+                let source = std::fs::read_to_string(&path).expect("a readable file");
+                // The definition, the teardown and the test fixtures do not
+                // move anybody: only an install of a fresh value and a
+                // mutable borrow can.
+                let writes = source.contains("commands.insert_resource(CurrentRoomDid(")
+                    || source.contains("ResMut<CurrentRoomDid>");
+                if !writes {
+                    continue;
+                }
+                let rel = path
+                    .strip_prefix(root)
+                    .expect("under the manifest dir")
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                assert!(
+                    source.contains("remember_room"),
+                    "{rel} changes the current room without calling \
+                     oauth::remember_room — a reload will send the user back \
+                     to wherever they last were told to be (#1229 f2)"
+                );
+                found.push(rel);
+            }
+        }
+        found.sort();
+        assert_eq!(
+            found,
+            ROOM_WRITERS
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>(),
+            "the set of room writers moved; each one owes the saved session \
+             an update"
+        );
+    }
+}

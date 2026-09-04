@@ -177,3 +177,30 @@ pub fn update_persisted_token_set(new_token_set: &TokenSet) -> Result<(), String
     blob.token_set = new_token_set.clone();
     save_persisted(&blob)
 }
+
+/// Rotate the `target_did` portion of the persisted blob in place (#1229
+/// f2), so a reload lands where the user actually is.
+///
+/// The field's own doc has always said "we want the reload to land the
+/// user back in the room they were viewing", and nothing kept it: it was
+/// written once at login completion and never again, so a visitor
+/// onboarded through a friend's landmark link was resumed into that
+/// friend's world on every later visit, and anybody who walked through a
+/// portal was silently teleported back to their login-time room. Called
+/// from [`crate::oauth::remember_room`] at the one site that replaces
+/// `CurrentRoomDid`.
+///
+/// Same no-op-without-a-blob contract as
+/// [`update_persisted_token_set`], and a no-op when the value has not
+/// changed — this runs on every arrival, and a `localStorage` write per
+/// travel is worth skipping when there is nothing to write.
+pub fn update_persisted_target_did(target_did: &str) -> Result<(), String> {
+    let Some(mut blob) = load_persisted() else {
+        return Ok(());
+    };
+    if blob.target_did == target_did {
+        return Ok(());
+    }
+    blob.target_did = target_did.to_owned();
+    save_persisted(&blob)
+}

@@ -43,23 +43,32 @@ mod errors;
 // whose token refresh came back `invalid_grant` used to render the raw
 // Rust error chain as its primary feedback.
 pub use errors::friendly_login_error;
+// #1228 f6: the retry gate and the "did this failure keep the saved
+// session" question. Re-exported (rather than left crate-private) because
+// both are pure, both are tested here, and only the wasm build calls them.
+pub use errors::{ErrorField, error_field, resume_keeps_session, resume_retry_offered};
 #[cfg(not(target_arch = "wasm32"))]
 mod native_callback;
 mod posts;
-mod validation;
+// `pub`: #1232 f24's gateway destination row reuses `validate_destination`
+// so the two surfaces that accept "where do you want to go" agree on what
+// an answer looks like.
+pub mod validation;
 #[cfg(target_arch = "wasm32")]
 mod wasm_resume;
 
 pub use begin::poll_begin_auth_task;
 pub use complete::poll_complete_auth_task;
-pub use entry::{DestinationLabel, resolve_boot_destination};
+pub use entry::{DestinationLabel, ResumeIdentity, resolve_boot_destination};
 #[cfg(not(target_arch = "wasm32"))]
 pub use native_callback::poll_native_callback;
 pub use posts::{
     LoginPostFeed, open_url_in_browser, poll_login_feed_fetch, start_login_feed_fetch,
 };
 #[cfg(target_arch = "wasm32")]
-pub use wasm_resume::{ResumeAuthTask, check_wasm_callback, check_wasm_resume, poll_resume_task};
+pub use wasm_resume::{
+    ResumeAuthTask, ResumeLatch, check_wasm_callback, check_wasm_resume, poll_resume_task,
+};
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -181,6 +190,17 @@ pub struct LoginUiLatch {
     /// without a mouse. One-shot so later frames don't steal focus back
     /// from wherever the user tabbed to.
     pub focused: bool,
+    /// The field the newest error is about (#1234 f14), armed the frame
+    /// [`LoginError`] changes and consumed by whichever field renders it.
+    ///
+    /// Enter-to-submit fires on `lost_focus()`, so validation runs with the
+    /// caret already gone and `focused` already spent — every error left a
+    /// keyboard-first user with no focused widget at all. For a PDS or
+    /// relay error the fold naming the field is shut as well, which is the
+    /// case #1229 f1 cares about: the account server IS a login input, and
+    /// a non-Bluesky identity's only route to a working sign-in is through
+    /// it.
+    pub error_focus: Option<ErrorField>,
 }
 
 /// Reset the [`LoginUiLatch`] when the app (re)enters
@@ -230,6 +250,11 @@ pub struct NativeWaitState<'w> {
 #[derive(SystemParam)]
 pub struct WasmResumeState<'w, 's> {
     resume_tasks: Query<'w, 's, Entity, With<wasm_resume::ResumeAuthTask>>,
+    /// The resume one-shot, so the Retry button on a recoverable failure
+    /// can re-arm it without touching the saved session (#1228 f6).
+    latch: ResMut<'w, wasm_resume::ResumeLatch>,
+    /// Whose session is being resumed, and where it lands (#1229 f10).
+    identity: Option<Res<'w, entry::ResumeIdentity>>,
 }
 
 /// The two things the login card needs that are neither form state nor a
@@ -284,7 +309,7 @@ pub fn login_ui(
     terrain_mesh: Query<(), With<crate::terrain::TerrainMesh>>,
     card: LoginCardDeps,
     #[cfg(not(target_arch = "wasm32"))] mut native: NativeWaitState,
-    #[cfg(target_arch = "wasm32")] wasm: WasmResumeState,
+    #[cfg(target_arch = "wasm32")] mut wasm: WasmResumeState,
 ) {
     // First-frame pre-fill from URL/CLI boot params. Done as a one-shot
     // (`latch.prefilled`) so a subsequent re-render does not stomp on
@@ -314,6 +339,18 @@ pub fn login_ui(
             }
         }
         latch.prefilled = true;
+    }
+    // Arm the error's field the frame the error lands (#1234 f14), not
+    // every frame it is shown — a caret that keeps snapping back would be
+    // worse than one that never moves. Read from the sentence the user is
+    // SHOWN, which is where the pipeline stages acquire "(under
+    // Advanced)"; the raw chain names no field.
+    if login_error.is_changed() {
+        latch.error_focus = login_error
+            .0
+            .as_deref()
+            .map(|raw| errors::error_field(&errors::friendly_login_error(raw).0))
+            .filter(|field| *field != ErrorField::None);
     }
     // egui `Context` is Arc-backed, so cloning it is cheap and lets us
     // paint the hero and both cards from this one system without holding
@@ -406,9 +443,28 @@ pub fn login_ui(
         .show(&ctx, |ui| {
             card_frame(&theme.0).show(ui, |ui| {
                 ui.set_width(login_w);
+                // The account server is a login INPUT, not decoration
+                // (#1229 f1): `begin_authorization` discovers the
+                // authorization server from the typed PDS rather than from
+                // the user's identity, so an account that does not live on
+                // bsky.social is sent to bsky.social's login page, which
+                // cannot sign it in. The only visible copy said "Bluesky",
+                // and the one field that fixes it sat inside a collapsed
+                // fold labelled with protocol jargon. Both halves are named
+                // here, and a `discover_server:` failure now opens that fold
+                // itself (#1234 f14).
                 ui.label(
-                    egui::RichText::new("Sign in with your Bluesky (ATProto) account.")
-                        .color(theme.0.text_weak),
+                    egui::RichText::new(
+                        "Sign in with your ATProto account — Bluesky, or your own server.",
+                    )
+                    .color(theme.0.text_weak),
+                );
+                ui.label(
+                    egui::RichText::new(
+                        "Not on bsky.social? Set your account server under Advanced.",
+                    )
+                    .small()
+                    .color(theme.0.text_weak),
                 );
                 ui.add_space(10.0);
 
@@ -465,7 +521,7 @@ pub fn login_ui(
                             );
                             ui.label(
                                 egui::RichText::new(
-                                    "A link chose this destination. Clear the field below                                      to go to your own world instead.",
+                                    "A link chose this destination. Clear the field below to go to your own world instead.",
                                 )
                                 .small()
                                 .color(theme.0.text_weak),
@@ -506,6 +562,10 @@ pub fn login_ui(
                     dest_resp.request_focus();
                     latch.focused = true;
                 }
+                if latch.error_focus == Some(ErrorField::Destination) {
+                    dest_resp.request_focus();
+                    latch.error_focus = None;
+                }
 
                 // The PDS / relay endpoints are operator plumbing nobody
                 // should touch on a first login — folded away so the first
@@ -514,16 +574,41 @@ pub fn login_ui(
                 // override with them (#1227 f294) — `default_open`, not
                 // `open`, so the user can still fold it away once they have
                 // read it. Nothing about a plain login changes.
+                //
+                // Forced open for the one frame after an error about a
+                // field inside it (#1234 f14): `.open(Some(true))` only
+                // while `error_focus` names one, so egui's remembered state
+                // takes over from the next frame and the fold stays
+                // collapsible.
+                let force_advanced = latch.error_focus.is_some_and(ErrorField::is_advanced);
                 egui::CollapsingHeader::new("Advanced")
                     .default_open(overrides.is_some())
+                    .open(force_advanced.then_some(true))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label("ATProto PDS:");
-                            track_enter(&ui.text_edit_singleline(&mut form.pds));
+                            // "Account server", not "ATProto PDS" (#1229
+                            // f1): the label is the only thing telling a
+                            // non-Bluesky user that this row is what their
+                            // sign-in depends on, and a protocol acronym
+                            // told them nothing.
+                            ui.label("Account server:");
+                            let pds = ui.text_edit_singleline(&mut form.pds).on_hover_text(
+                                "Where your ATProto account lives — bsky.social for a Bluesky account, or your own host.",
+                            );
+                            if latch.error_focus == Some(ErrorField::Pds) {
+                                pds.request_focus();
+                                latch.error_focus = None;
+                            }
+                            track_enter(&pds);
                         });
                         ui.horizontal(|ui| {
                             ui.label("P2P Relay Host:");
-                            track_enter(&ui.text_edit_singleline(&mut form.relay_host));
+                            let relay = ui.text_edit_singleline(&mut form.relay_host);
+                            if latch.error_focus == Some(ErrorField::Relay) {
+                                relay.request_focus();
+                                latch.error_focus = None;
+                            }
+                            track_enter(&relay);
                         });
                     });
 
@@ -610,6 +695,19 @@ pub fn login_ui(
                             ui.spinner();
                             ui.label("Complete the login in your browser…");
                         });
+                        // The other half of #1234 f7. Cancel-then-Enter
+                        // leaves an older consent tab open, and approving
+                        // it is refused — correctly — by a listener bound
+                        // to a newer `state`. The browser now says so; this
+                        // is the same fact on the surface that is still
+                        // spinning, so the two agree.
+                        ui.label(
+                            egui::RichText::new(
+                                "More than one login tab open? Finish in the newest one.",
+                            )
+                            .small()
+                            .color(theme.0.text_weak),
+                        );
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             if ui.button("Cancel").clicked() {
@@ -653,12 +751,36 @@ pub fn login_ui(
                     }
                     #[cfg(target_arch = "wasm32")]
                     {
+                        // Say who, and where (#1229 f10). The blob's handle
+                        // was in hand — this very path logs it — while the
+                        // card asked an identity question without the
+                        // identity, which on a shared laptop is answerable
+                        // only from inside somebody else's world.
+                        let handle = wasm
+                            .identity
+                            .as_deref()
+                            .map(|i| i.handle.clone())
+                            .unwrap_or_default();
                         ui.horizontal(|ui| {
                             ui.spinner();
-                            ui.label("Resuming your previous session…");
+                            ui.label(entry::resuming_line(&handle));
                         });
+                        if let Some(target) = wasm
+                            .identity
+                            .as_deref()
+                            .and_then(|i| entry::resume_destination(&i.did, &i.target_did))
+                        {
+                            ui.label(
+                                egui::RichText::new(entry::destination_line(
+                                    &card.label.name(&target),
+                                    card.label.is_resolving(&target),
+                                ))
+                                .small()
+                                .color(theme.0.text_weak),
+                            );
+                        }
                         ui.add_space(4.0);
-                        if ui.button("Not you? Sign in differently").clicked() {
+                        if ui.button(entry::not_you_label(&handle)).clicked() {
                             // Cancel the in-flight resume (dropping the task
                             // aborts it), forget the persisted session, and
                             // fall back to the idle form. Latch autosubmit
@@ -670,6 +792,10 @@ pub fn login_ui(
                             }
                             latch.autosubmitted = true;
                             latch.persisted = Some(false);
+                            // The saved session is gone, so its destination
+                            // must stop out-ranking the boot params in
+                            // `resolve_boot_destination` (#1229 f10).
+                            commands.remove_resource::<entry::ResumeIdentity>();
                             commands.insert_resource(LoginError(None));
                         }
                     }
@@ -751,6 +877,26 @@ pub fn login_ui(
                         ui.collapsing("Details", |ui| {
                             ui.small(raw);
                         });
+                    }
+                    // The cheap retry the copy has always promised (#1228
+                    // f6). A relay outage is the likeliest transient failure
+                    // on this screen, and until now "try again" meant the
+                    // whole OAuth dance — consent page, wasm bundle reload —
+                    // to reach the same call. With the saved session still in
+                    // hand, re-arming the one-shot re-runs just the resume.
+                    #[cfg(target_arch = "wasm32")]
+                    if errors::resume_retry_offered(err, has_persisted) {
+                        ui.add_space(4.0);
+                        if ui
+                            .button("Retry")
+                            .on_hover_text(
+                                "Try your saved session again — no need to sign in from scratch",
+                            )
+                            .clicked()
+                        {
+                            wasm.latch.rearm();
+                            commands.insert_resource(LoginError(None));
+                        }
                     }
                 }
 
@@ -892,6 +1038,130 @@ fn card_frame(theme: &crate::ui::theme::Theme) -> egui::Frame {
         })
 }
 
+/// Source-scanning guards for the two WASM-only login paths (#1228).
+///
+/// `wasm_resume` is not compiled on native, so nothing else in the test
+/// suite can see it at all — and the defects here are both *absences*: a
+/// missing timeout wrapper and a `Local<bool>` that cannot be re-armed.
+/// Reading the source is the idiom `oauth::service_token` already uses for
+/// a property that is about the code rather than a value it produces.
+#[cfg(test)]
+mod wasm_path_guards {
+    /// The body of a top-level `fn` whose signature starts with `head`.
+    fn body_of<'a>(source: &'a str, head: &str) -> &'a str {
+        source
+            .split_once(head)
+            .unwrap_or_else(|| panic!("no `{head}` in this file any more"))
+            .1
+            .split_once("\n}\n")
+            .expect("a brace-balanced body")
+            .0
+    }
+
+    /// THE SEQUENCE (#1228 f3): an owner returns after a few hours on a
+    /// flaky network. The persisted access token has expired, so the resume
+    /// awaits `refresh_session` — and the wasm reqwest client routes through
+    /// the browser's fetch API, which exposes no timeout controls and has no
+    /// idle-body limit. The screen sits on "Resuming your previous session…"
+    /// forever, with a button that forgets the saved session as its only
+    /// exit.
+    ///
+    /// These are the two spawn sites this module's doc says never drift, and
+    /// the bound #1129 introduced is exactly what they drifted on: the fresh
+    /// login got it, the resume — the common path of the deployed target —
+    /// did not.
+    #[test]
+    fn both_login_spawn_sites_bound_their_futures() {
+        for (file, source, head) in [
+            (
+                "complete.rs",
+                include_str!("complete.rs"),
+                "pub(super) fn spawn_complete_task(",
+            ),
+            (
+                "wasm_resume.rs",
+                include_str!("wasm_resume.rs"),
+                "fn spawn_resume_task(",
+            ),
+        ] {
+            assert!(
+                body_of(source, head).contains("http::run_or"),
+                "{file}: every fetch site is bounded on both targets (#1129)"
+            );
+        }
+    }
+
+    /// THE SEQUENCE (#1228 f6): the relay is down. The resume fails with
+    /// copy promising a retry, but the one-shot that drives it was a
+    /// `Local<bool>` — spent for the rest of the page load — so the only
+    /// affordance left re-ran the entire OAuth redirect, consent page and
+    /// wasm bundle reload included, to reach the same failing call.
+    #[test]
+    fn the_resume_one_shot_can_be_rearmed_without_forgetting_the_session() {
+        let source = include_str!("wasm_resume.rs");
+        let body = body_of(source, "pub fn check_wasm_resume(");
+        assert!(
+            body.contains("ResMut<ResumeLatch>"),
+            "the resume latch must be a Resource a Retry click can reach"
+        );
+        assert!(
+            !body.contains("Local<bool>"),
+            "a Local is spent for the whole page load — that was the defect"
+        );
+        // And the button that re-arms it must not be the one that clears
+        // the blob: those are the two different exits.
+        let card = include_str!("mod.rs");
+        assert!(card.contains("wasm.latch.rearm()"), "no Retry wiring");
+        let retry_block = card
+            .split_once("errors::resume_retry_offered(")
+            .expect("the retry gate is read in the card")
+            .1
+            .split_once("wasm.latch.rearm()")
+            .expect("just asserted")
+            .0;
+        assert!(
+            !retry_block.contains("clear_persisted"),
+            "Retry must keep the saved session — forgetting it is the OTHER \
+             button, and having only that one was the defect"
+        );
+    }
+}
+
+#[cfg(test)]
+mod readme_promise_tests {
+    /// THE SEQUENCE (#1233 f267): a friend hands somebody a landmark link
+    /// and quotes the README at them — "anyone can drop into a specific
+    /// spot in someone else's world". They click it and are asked to
+    /// authorise an app against a Bluesky account they do not have.
+    ///
+    /// There is no unauthenticated path and this issue does not add one:
+    /// `AppState::Loading` is entered solely from
+    /// `install_completed_session`, and every gate task fetches against an
+    /// authenticated session. The README's own login section says as much
+    /// three paragraphs earlier, so the two claims disagreed with each
+    /// other — and the recipient is by definition the person least
+    /// invested in the product, which is the worst order to learn a
+    /// requirement in.
+    ///
+    /// Guarded here rather than left as prose because prose is what drifted.
+    #[test]
+    fn the_readme_does_not_promise_a_guest_path_the_app_has_no_door_for() {
+        let readme = include_str!("../../../README.md");
+        let sentence = readme
+            .split("Shareable landmark links")
+            .nth(1)
+            .expect("the landmark-link sentence is still in the README")
+            .split('.')
+            .next()
+            .expect("its first sentence");
+        assert!(
+            sentence.contains("ATProto account"),
+            "the link requires an account and the sentence has to say so: \
+             {sentence}"
+        );
+    }
+}
+
 #[cfg(test)]
 mod entry_latch_tests {
     use super::*;
@@ -904,6 +1174,7 @@ mod entry_latch_tests {
             autosubmitted: true,
             persisted: Some(true),
             focused: true,
+            error_focus: Some(ErrorField::Pds),
         });
         if spent {
             world.insert_resource(BootEntrySpent);
@@ -935,6 +1206,10 @@ mod entry_latch_tests {
         assert!(!after.prefilled);
         assert!(!after.focused);
         assert!(after.persisted.is_none());
+        assert!(
+            after.error_focus.is_none(),
+            "a fresh visit is not still pointing at the last visit's error"
+        );
     }
 
     /// A cold start has spent nothing, so a `--did` typed at the shell is

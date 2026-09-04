@@ -495,6 +495,11 @@ pub(super) fn scene_context_menu_ui(
             if ui
                 .add_enabled(inventory.is_some(), egui::Button::new(save_label))
                 .on_hover_text("Write it back — geometry, socket and offset — so wearing it again looks like this")
+                // A disabled control with no reason (#1233 f261's third
+                // citation, which the refuter correctly separates from the
+                // two mis-worded strings): same state, same sentence as
+                // `wear_blocked_reason` and the Catalogue.
+                .on_disabled_hover_text("Your inventory has not loaded yet.")
                 .clicked()
             {
                 *chosen.borrow_mut() = Some(MenuChoice::SaveWornToInventory);
@@ -755,7 +760,9 @@ pub(super) fn scene_context_menu_ui(
             // source the Inventory row and the catalogue also read
             // (#1141) — so an unresolved body now says so here too
             // instead of returning silently from `rigged_mut`.
-            if let Some(reason) = crate::ui::avatar::wear_blocked_reason(Some(&live.0)) {
+            // `inv` was already unwrapped above to find the item, so the
+            // inventory is loaded by construction here (#1233 f261).
+            if let Some(reason) = crate::ui::avatar::wear_blocked_reason(Some(&live.0), true) {
                 toasts.warn(reason, now);
                 return;
             }

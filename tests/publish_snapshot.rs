@@ -557,7 +557,9 @@ fn guard_probe_harness() -> App {
     ) {
         use symbios_overlands::ui::unsaved_guard::GuardedAction;
         out.0 = tasks.blocks(&GuardedAction::PortalTravel {
+            via: symbios_overlands::ui::unsaved_guard::TravelVia::Portal,
             target_did: "did:plc:elsewhere".into(),
+            target_label: None,
             target_pos: None,
         });
         out.1 = tasks.blocks(&GuardedAction::Logout);

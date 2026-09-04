@@ -797,8 +797,12 @@ fn inventory_row(
         // Reads through `as_ref` for the same reason the inventory count
         // above does: deref_mut here would dirty the avatar record every
         // frame the catalogue is open.
+        // The inventory is `Some` for this whole arm — the row returned
+        // early with the Catalogue's own "not loaded yet" line above, which
+        // is the wording `wear_blocked_reason` adopted (#1233 f261).
         let reason = crate::ui::avatar::wear_blocked_reason(
             live_avatar.as_ref().map(|live| &live.as_ref().0),
+            true,
         );
         if let Some(reason) = reason {
             ui.add_enabled(false, egui::Button::new("Copy to inventory & wear"));

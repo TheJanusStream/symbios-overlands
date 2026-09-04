@@ -290,6 +290,47 @@ async fn fetch_posts() -> Result<Vec<DisplayPost>, String> {
         .collect())
 }
 
+/// Plain language for a feed-fetch failure, with the raw chain kept for a
+/// "Details" fold (#1234 f16).
+///
+/// The panel used to interpolate the chain straight into red text, so
+/// being offline read as `Couldn't fetch posts: transport: error sending
+/// request for url (https://public.api.bsky.app/xrpc/…)` — an app error
+/// naming a host the reader has no relationship with, and the only red
+/// text on the first screen. The login card two inches to the left has
+/// split friendly copy from a Details disclosure since #848; this is the
+/// same split, and the same shape of return value, for the other card.
+///
+/// The four needles are the four `map_err` prefixes [`fetch_posts`]
+/// builds, plus the bound `run_or` reports.
+pub fn friendly_feed_error(raw: &str) -> (String, Option<String>) {
+    const FEED_STAGES: &[(&str, &str)] = &[
+        (
+            "transport:",
+            "Couldn't reach Bluesky — check your internet connection.",
+        ),
+        (
+            "timed out",
+            "Bluesky didn't answer in time — it may be busy.",
+        ),
+        (
+            "HTTP ",
+            "Bluesky answered with an error. This usually clears on its own.",
+        ),
+        ("decode:", "Bluesky sent a reply we couldn't read."),
+        ("url:", "Couldn't build the request for Bluesky."),
+    ];
+    for (needle, friendly) in FEED_STAGES {
+        if raw.contains(needle) {
+            return ((*friendly).to_string(), Some(raw.to_string()));
+        }
+    }
+    (
+        String::from("Couldn't load the dev updates."),
+        Some(raw.to_string()),
+    )
+}
+
 /// Extract the rkey (last path segment) from an `at://did/coll/rkey` URI.
 /// Returns `None` if the URI is empty or has no slashes.
 fn rkey_from_uri(uri: &str) -> Option<String> {
@@ -322,10 +363,13 @@ pub fn render_login_feed_panel(ui: &mut egui::Ui, feed: &LoginPostFeed) -> Login
             });
         }
         FetchStatus::Error(msg) => {
-            ui.colored_label(
-                crate::ui::theme::current(ui.ctx()).status.error,
-                format!("Couldn't fetch posts: {msg}"),
-            );
+            let (friendly, details) = friendly_feed_error(msg);
+            ui.colored_label(crate::ui::theme::current(ui.ctx()).status.error, friendly);
+            if let Some(raw) = details {
+                ui.collapsing("Details", |ui| {
+                    ui.small(raw);
+                });
+            }
             if ui.button("Retry").clicked() {
                 action = LoginFeedAction::Retry;
             }
@@ -418,6 +462,53 @@ pub fn retry_fetch(commands: &mut Commands, feed: &mut LoginPostFeed) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// THE SEQUENCE (#1234 f16): a new user opens the app offline. The
+    /// only red text on the first screen reads "Couldn't fetch posts:
+    /// transport: error sending request for url
+    /// (https://public.api.bsky.app/xrpc/…)" — which is an app error
+    /// naming a server they have never heard of, not "you are offline".
+    /// The login card beside it has split friendly copy from a Details
+    /// fold since #848.
+    #[test]
+    fn the_feed_says_you_are_offline_rather_than_naming_an_endpoint() {
+        let raw = "transport: error sending request for url \
+                   (https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed)";
+        let (friendly, details) = friendly_feed_error(raw);
+        assert!(friendly.contains("internet connection"), "{friendly}");
+        assert!(
+            !friendly.contains("https://"),
+            "no endpoint in the primary feedback: {friendly}"
+        );
+        assert!(
+            details
+                .expect("the chain is kept")
+                .contains("public.api.bsky.app"),
+            "the raw chain still reaches the Details fold"
+        );
+    }
+
+    /// Every prefix `fetch_posts` can build, plus the bound `run_or`
+    /// reports, gets a sentence — and an unrecognised one still does,
+    /// because a raw chain must never be the primary feedback.
+    #[test]
+    fn every_feed_failure_shape_has_a_sentence() {
+        for raw in [
+            "HTTP 429 Too Many Requests",
+            "decode: expected value at line 1",
+            "url: relative URL without a base",
+            "posts fetch timed out after 30s",
+            "something nobody has seen before",
+        ] {
+            let (friendly, details) = friendly_feed_error(raw);
+            assert!(
+                friendly.ends_with('.') && friendly.starts_with(char::is_uppercase),
+                "not a sentence: {friendly}"
+            );
+            assert_ne!(friendly, raw, "the chain must not be the sentence");
+            assert_eq!(details.as_deref(), Some(raw), "and it is still available");
+        }
+    }
 
     #[test]
     fn rkey_extracts_last_path_segment() {

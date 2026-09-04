@@ -128,6 +128,13 @@ session_scoped_resources! {
     // armed for the next session.
     crate::ui::gateway::GatewayPicker,
     crate::ui::gateway::GatewayDismissed,
+    // Who the browser's saved session belonged to (#1229 f10). Inserted by
+    // `check_wasm_resume`, not by `install_completed_session`, so the drift
+    // test cannot see it — and a stale one is not merely cosmetic: the
+    // destination resolver PREFERS the resume's target over the boot
+    // params, so the previous user's world would out-rank the landmark
+    // link the next visitor arrived on.
+    crate::ui::login::entry::ResumeIdentity,
     // The world this session compiled is despawned in `cleanup_on_logout`,
     // so the next login's loading gate must wait for a fresh compile pass —
     // and the per-unit fingerprints must not short-circuit it into skipping
@@ -256,6 +263,7 @@ pub(crate) fn cleanup_on_logout(
         mut prim_mesh,
         mut prim_material,
         mut egui_textures,
+        mut portal_names,
     ): (
         ResMut<crate::diagnostics::SessionLog>,
         ResMut<crate::diagnostics::MetricsRegistry>,
@@ -269,6 +277,9 @@ pub(crate) fn cleanup_on_logout(
         // Rides in the tuple for the arity reason above; needed to release
         // egui's strong handles on the profile images (#1125).
         ResMut<bevy_egui::EguiUserTextures>,
+        // Likewise (#1231 f27) — this system is at the 16-parameter
+        // ceiling, and the portal-name map is one more thing to forget.
+        ResMut<crate::ui::travel::PortalNames>,
     ),
     mut avatar_cache: ResMut<PeerAvatarCache>,
     mut bsky_cache: ResMut<BskyProfileCache>,
@@ -433,6 +444,11 @@ pub(crate) fn cleanup_on_logout(
     for evicted in bsky_cache.clear() {
         egui_textures.remove_image(&evicted.image);
     }
+    // Same argument for the portal-name map (#1231 f27): DID-keyed answers
+    // this account's session went and asked for, on rooms the next account
+    // may never see. Cleared rather than removed — it is `init_resource`d,
+    // so the systems that read it run with it present from app build.
+    portal_names.clear();
     // The shared blob image cache holds `Handle<Image>` keyed by source
     // (URL / atproto blob / DID-pfp) across compile passes for both Sign
     // generators and Portal top-face pfps; same DID-collision argument
@@ -752,6 +768,8 @@ mod tests {
         world.insert_resource(crate::state::TravelingTo {
             target_did: "did:plc:bob".into(),
             target_pos: None,
+            target_label: None,
+            phase: crate::state::TravelPhase::Fetching,
         });
         world.insert_resource(crate::player::PortalCooldown { until_secs: 12.0 });
 

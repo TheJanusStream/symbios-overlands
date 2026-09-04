@@ -162,6 +162,12 @@ pub(crate) fn fallback_note(status: FetchStatus) -> &'static str {
         FetchStatus::Exhausted | FetchStatus::BestEffortFallback => {
             "— using default (stored copy unavailable)"
         }
+        // Not a failure and not silent (#1232 f28). The owner's own first
+        // login is `NotFound` and stays wordless — the zero-configuration
+        // homeworld is the product working — but a visitor cannot tell
+        // "@alice's overland" from "a world we invented for a DID" without
+        // being told, and a mistyped link produces exactly the second.
+        FetchStatus::NotBuiltYet => "— they haven't built one yet; showing a default",
         FetchStatus::Ok | FetchStatus::NotFound | FetchStatus::TransientError => "",
     }
 }
@@ -375,6 +381,9 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
     time: Res<Time>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
     mut outcomes: ResMut<RecordFetchOutcomes>,
+    // #1232 f28: a 404 means "not built yet", and whose it is decides
+    // whether that is a first login or a stranger's empty repo.
+    session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
@@ -396,7 +405,12 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                 r
             }
             Ok(None) => {
-                fetch_status = Some(FetchStatus::NotFound);
+                let own = session.as_deref().is_some_and(|s| s.did == did);
+                fetch_status = Some(if own {
+                    FetchStatus::NotFound
+                } else {
+                    FetchStatus::NotBuiltYet
+                });
                 info!("No {} record on PDS — using DID-seeded default", R::LABEL);
                 R::default_for(&did)
             }

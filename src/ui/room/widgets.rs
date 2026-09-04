@@ -166,6 +166,15 @@ pub(super) fn grammar_status_line(
     }
 }
 
+/// Returns the widget's [`egui::Response`] so a caller can hang an
+/// `on_hover_text` on it (#1233 f264).
+///
+/// A return value rather than a `hover: &str` parameter: this and the two
+/// below have 178 call sites between them, and threading an argument
+/// through every one of them to explain nine sliders in the terrain forge
+/// would be a worse trade than letting the callers that have something to
+/// say say it. `egui::Response` is not `#[must_use]`, so the sites that do
+/// not care are unchanged.
 pub(super) fn fp_slider(
     ui: &mut egui::Ui,
     label: &str,
@@ -173,17 +182,19 @@ pub(super) fn fp_slider(
     lo: f32,
     hi: f32,
     dirty: &mut bool,
-) {
+) -> egui::Response {
     let mut v = value.0;
-    if ui
-        .add(egui::Slider::new(&mut v, lo..=hi).text(label))
-        .changed()
-    {
+    let response = ui.add(egui::Slider::new(&mut v, lo..=hi).text(label));
+    if response.changed() {
         *value = Fp(v);
         *dirty = true;
     }
+    response
 }
 
+/// The drag's own response, for the same reason [`fp_slider`] returns one
+/// — not the row's, so a tooltip lands on the control rather than the
+/// whole line.
 pub(super) fn drag_u32(
     ui: &mut egui::Ui,
     label: &str,
@@ -191,13 +202,16 @@ pub(super) fn drag_u32(
     lo: u32,
     hi: u32,
     dirty: &mut bool,
-) {
+) -> egui::Response {
     ui.horizontal(|ui| {
         ui.label(label);
-        if ui.add(egui::DragValue::new(value).range(lo..=hi)).changed() {
+        let response = ui.add(egui::DragValue::new(value).range(lo..=hi));
+        if response.changed() {
             *dirty = true;
         }
-    });
+        response
+    })
+    .inner
 }
 
 pub(super) fn drag_u64(ui: &mut egui::Ui, label: &str, value: &mut u64, dirty: &mut bool) {

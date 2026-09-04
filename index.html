@@ -81,7 +81,8 @@
             text-align: center;
         }
 
-        #load-error button {
+        #load-error button,
+        #loading-actions button {
             font: inherit;
             font-weight: 600;
             padding: 6px 24px;
@@ -93,8 +94,21 @@
             border-radius: 4px;
         }
 
-        #load-error button:hover {
+        #load-error button:hover,
+        #loading-actions button:hover {
             background: #48c7d0;
+        }
+
+        /* #loading is pointer-events:none so it can never swallow a click
+           meant for the canvas underneath. The stall escape hatch (#1228
+           f13) is the one thing inside it a user must be able to press, so
+           it opts back in. */
+        #loading-actions {
+            pointer-events: auto;
+        }
+
+        #loading-status.stalled {
+            color: #e8b45a;
         }
 
         #load-error details {
@@ -145,12 +159,15 @@
         <div class="spinner"></div>
         <div id="loading-status">Loading…</div>
         <div id="loading-progress"></div>
+        <div id="loading-actions" hidden>
+            <button onclick="location.reload()">Reload</button>
+        </div>
     </div>
     <div id="load-error" hidden>
         <div class="wordmark">SYMBIOS&nbsp;OVERLANDS</div>
-        <p>Symbios Overlands couldn't start.</p>
-        <p style="font-size: 14px; color: #aaa;">This is usually a download hiccup or a stale
-            cached version — reloading fixes most cases.</p>
+        <p id="load-error-lead">Symbios Overlands couldn't start.</p>
+        <p id="load-error-hint" style="font-size: 14px; color: #aaa;">This is usually a download
+            hiccup or a stale cached version — reloading fixes most cases.</p>
         <button onclick="location.reload()">Reload</button>
         <details>
             <summary>Technical details</summary>
@@ -164,7 +181,51 @@
         document.addEventListener('contextmenu', event => event.preventDefault());
 
         const progressEl = document.getElementById('loading-progress');
+        const statusEl = document.getElementById('loading-status');
+        const actionsEl = document.getElementById('loading-actions');
         const mb = bytes => (bytes / (1024 * 1024)).toFixed(1);
+
+        // The bundle download is the longest and least reliable step of the
+        // browser journey, and a stalled TCP stream does not reject — it
+        // simply stops yielding chunks, so #850's byte counter turned a
+        // silent wait into a visibly stuck one with no way out (#1228 f13).
+        // Every chunk rearms this; if none arrives for STALL_MS the status
+        // line says so and the Reload button appears.
+        const STALL_MS = 20000;
+        let stallTimer = null;
+        function armStallWatch() {
+            clearTimeout(stallTimer);
+            // Bytes after a stall mean the connection came back: retract the
+            // accusation rather than leaving an amber line over a counter
+            // that is visibly climbing again.
+            if (statusEl.classList.contains('stalled')) {
+                statusEl.classList.remove('stalled');
+                statusEl.textContent = 'Loading…';
+                actionsEl.hidden = true;
+            }
+            stallTimer = setTimeout(() => {
+                statusEl.textContent = 'Download stalled — check your connection';
+                statusEl.classList.add('stalled');
+                actionsEl.hidden = false;
+            }, STALL_MS);
+        }
+        function disarmStallWatch() {
+            clearTimeout(stallTimer);
+            stallTimer = null;
+        }
+
+        // One card for every way this page can fail to become an app, so the
+        // Rust side can use it too (#1228 f4). A panic after init() returns
+        // leaves a dead canvas that no JS promise ever hears about, and the
+        // panic hook in diagnostics::crash_log calls this by name.
+        window.__overlandsShowError = function (lead, hint, detail) {
+            disarmStallWatch();
+            document.getElementById('loading').style.display = 'none';
+            if (lead) document.getElementById('load-error-lead').textContent = lead;
+            if (hint) document.getElementById('load-error-hint').textContent = hint;
+            document.getElementById('load-error-detail').textContent = detail || '';
+            document.getElementById('load-error').hidden = false;
+        };
 
         // Fetch the .wasm ourselves so the multi-MB download shows live
         // byte progress instead of a static "Loading..." (#850). The
@@ -172,12 +233,17 @@
         // needs the application/wasm content-type) while the tee'd stream
         // counts decoded bytes.
         async function fetchWasmWithProgress(url) {
+            armStallWatch();
             const resp = await fetch(url);
             if (!resp.ok) {
                 throw new Error('wasm download failed: HTTP ' + resp.status + ' for ' + url);
             }
             if (!resp.body || typeof ReadableStream === 'undefined') {
-                return resp; // ancient browser: no progress, still correct
+                // Ancient browser: no progress, still correct — and nothing
+                // to rearm the watch, so a slow-but-healthy download must
+                // not be accused of stalling.
+                disarmStallWatch();
+                return resp;
             }
             // Probe Response-from-stream support BEFORE consuming the body —
             // once getReader() runs the original response can't be reused,
@@ -185,6 +251,7 @@
             try {
                 new Response(new ReadableStream());
             } catch {
+                disarmStallWatch();
                 return resp;
             }
             // Content-Length is the *encoded* (gzip/brotli) size while the
@@ -200,18 +267,20 @@
                 async pull(controller) {
                     const { done, value } = await reader.read();
                     if (done) {
+                        disarmStallWatch();
                         progressEl.textContent = 'Starting…';
                         controller.close();
                         return;
                     }
                     received += value.byteLength;
+                    armStallWatch();
                     progressEl.textContent = total
                         ? mb(received) + ' MB of ' + mb(total) + ' MB ('
                             + Math.floor(100 * received / total) + '%)'
                         : mb(received) + ' MB downloaded';
                     controller.enqueue(value);
                 },
-                cancel(reason) { return reader.cancel(reason); }
+                cancel(reason) { disarmStallWatch(); return reader.cancel(reason); }
             });
             return new Response(counted, {
                 status: resp.status,
@@ -222,11 +291,7 @@
 
         function showError(e) {
             console.error('Failed to initialize:', e);
-            document.getElementById('loading').style.display = 'none';
-            const errorEl = document.getElementById('load-error');
-            errorEl.hidden = false;
-            document.getElementById('load-error-detail').textContent =
-                (e && (e.stack || e.message)) || String(e);
+            window.__overlandsShowError(null, null, (e && (e.stack || e.message)) || String(e));
         }
 
         async function run() {
@@ -243,6 +308,7 @@
                         throw e;
                     }
                 }
+                disarmStallWatch();
                 document.getElementById('loading').style.display = 'none';
             } catch (e) {
                 showError(e);

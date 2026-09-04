@@ -85,7 +85,11 @@ fn validate_relay(relay: &str) -> Result<String, String> {
 /// Blank ⇒ home. `did:…` ⇒ shape-checked DID. Anything with a dot ⇒ an
 /// `@handle` to resolve later. Everything else is a typo we can reject
 /// now instead of burning the post-login record-fetch retry budget on it.
-fn validate_destination(dest: &str) -> Result<Destination, String> {
+///
+/// `pub` since #1232 f24: the gateway picker's destination row asks the
+/// same question of the same kind of input, and a second spelling of
+/// "is this a place I can go" would drift from this one within a release.
+pub fn validate_destination(dest: &str) -> Result<Destination, String> {
     let dest = dest.trim().trim_start_matches('@');
     if dest.is_empty() {
         return Ok(Destination::Home);

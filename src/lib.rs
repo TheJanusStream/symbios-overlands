@@ -216,6 +216,14 @@ pub fn run() {
     // stays false (F5 / Ctrl+R must keep working).
     #[cfg(target_arch = "wasm32")]
     app.add_systems(Startup, ui::shortcuts::install_ctrl_s_blocker);
+    // The persisted-session resume's one-shot (#1228 f6) — a Resource
+    // rather than the `Local<bool>` it was, so the Retry button on a
+    // recoverable resume failure can re-arm it without throwing the saved
+    // session away. Page-load scoped on purpose: nothing resets it on
+    // `OnEnter(Login)`, because re-running the resume every time somebody
+    // returns to the form is what the escape hatches exist to avoid.
+    #[cfg(target_arch = "wasm32")]
+    app.init_resource::<ui::login::ResumeLatch>();
     // Exit guards (#839): closing the tab / native window used to bypass
     // the unsaved-edits guard entirely. Both run in every AppState —
     // without record resources the dirty set is empty and closing is
@@ -582,6 +590,24 @@ pub fn run() {
             )
                 .chain()
                 .run_if(in_state(AppState::InGame)),
+        )
+        // The approach prompt's name lookup (#1231 f27), out of the render
+        // path: a UI system that spawns network tasks is how a render path
+        // acquires a fetch storm. One verified lookup per portal DID per
+        // session, started only once the player is inside the prompt
+        // radius.
+        .init_resource::<ui::travel::PortalNames>()
+        // The gateway's free-text destination lookup (#1232 f24). Not
+        // gated on `GatewayPicker` existing: the task has to be drained
+        // (and despawned) even when the player walked out of the zone
+        // under it, and the poll declines to act on a picker that is gone.
+        .add_systems(
+            Update,
+            ui::gateway::poll_gateway_destination.run_if(in_state(AppState::InGame)),
+        )
+        .add_systems(
+            Update,
+            ui::travel::resolve_portal_names.run_if(in_state(AppState::InGame)),
         )
         .add_systems(
             EguiPrimaryContextPass,

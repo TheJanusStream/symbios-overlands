@@ -287,7 +287,11 @@ fn wear_buttons(
         }
         return;
     }
-    if let Some(reason) = crate::ui::avatar::wear_blocked_reason(live_avatar.map(|live| &live.0)) {
+    // This row is drawn FROM the inventory, so it is loaded by
+    // construction (#1233 f261).
+    if let Some(reason) =
+        crate::ui::avatar::wear_blocked_reason(live_avatar.map(|live| &live.0), true)
+    {
         ui.add_enabled(false, egui::Button::new("Wear").small())
             .on_disabled_hover_text(reason);
         return;
@@ -327,7 +331,7 @@ fn apply_wear_action(
             // arm should be unreachable — but "should be unreachable" is
             // exactly the assumption that let the catalogue toast a
             // success over a wear that never happened.
-            if let Some(reason) = crate::ui::avatar::wear_blocked_reason(Some(&live.0)) {
+            if let Some(reason) = crate::ui::avatar::wear_blocked_reason(Some(&live.0), true) {
                 toasts.warn(format!("Could not wear \"{name}\" — {reason}"), now);
                 return;
             }

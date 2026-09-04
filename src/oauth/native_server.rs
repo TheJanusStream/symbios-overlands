@@ -120,45 +120,45 @@ pub fn start_native_callback_server(
             let params = parse_callback_query(&url);
 
             let state_matches = params.state.as_deref().is_some_and(|s| s == expected_state);
-            let is_authorized_code = path_ok && state_matches && params.code.is_some();
-            // The AS's error redirect (RFC 6749 §4.1.2.1) — the user
-            // clicked *Deny*, the request expired, etc. It carries the
-            // same `state` echo as a success, so the match above still
-            // protects against a forged cancel from another tab.
-            let is_authorized_error =
-                path_ok && state_matches && !is_authorized_code && params.error.is_some();
+            let answer = classify_callback(
+                path_ok,
+                state_matches,
+                params.code.is_some(),
+                params.error.is_some(),
+            );
 
-            let response = if is_authorized_code {
-                html_response(&styled_page(
+            let response = match answer {
+                CallbackAnswer::Code => html_response(&styled_page(
                     "Login successful.",
                     "You can close this tab and return to Symbios Overlands.",
-                ))
-            } else if is_authorized_error {
-                html_response(&styled_page(
+                )),
+                CallbackAnswer::Denied => html_response(&styled_page(
                     "Login was cancelled.",
                     "You can close this tab and return to Symbios Overlands to try again.",
-                ))
-            } else {
-                // Reject everything else with a 404. Crucially we do NOT
-                // break the listener loop here — a forged request from
-                // another browser tab must not be able to take the
-                // server down before the real authorization-server
-                // redirect arrives.
-                tiny_http::Response::from_string("Not found")
+                )),
+                CallbackAnswer::Stale => html_response(&stale_page()).with_status_code(404),
+                // Not our path at all — a scan, a favicon probe, a forged
+                // request from another tab. Terse on purpose, and again we
+                // do NOT break the listener loop: a stranger must not be
+                // able to take the server down before the real
+                // authorization-server redirect arrives.
+                CallbackAnswer::NotFound => tiny_http::Response::from_string("Not found")
                     .with_status_code(404)
                     .with_header(
                         "Content-Type: text/plain; charset=utf-8"
                             .parse::<tiny_http::Header>()
                             .unwrap(),
-                    )
+                    ),
             };
             let _ = req.respond(response);
 
-            if is_authorized_code && let Some(code) = params.code {
+            if answer == CallbackAnswer::Code
+                && let Some(code) = params.code
+            {
                 let _ = tx.send(NativeCallbackOutcome::Code(code));
                 break;
             }
-            if is_authorized_error {
+            if answer == CallbackAnswer::Denied {
                 let msg = params
                     .error_message()
                     .unwrap_or_else(|| "Login failed at the authorization server.".to_string());
@@ -175,6 +175,64 @@ pub fn start_native_callback_server(
             thread: Some(thread),
         },
     ))
+}
+
+/// What the loopback listener does with one request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CallbackAnswer {
+    /// The authorization code this attempt was waiting for. Terminal.
+    Code,
+    /// This attempt's own error redirect (RFC 6749 §4.1.2.1) — the user
+    /// clicked *Deny*, the request expired. Terminal.
+    Denied,
+    /// A well-formed `/callback` carrying somebody else's `state` (#1234
+    /// f7). Refused, and the loop keeps listening.
+    Stale,
+    /// Not ours at all. Refused tersely, and the loop keeps listening.
+    NotFound,
+}
+
+/// Classify one request. Pure, because the branch that matters is the one
+/// nobody can see from inside the app: *Cancel* followed by *Enter* binds
+/// a fresh listener with a new `expected_state`, so every consent tab
+/// still open from an earlier attempt arrives here — and it is a real
+/// callback from the real authorization server, not an attack.
+///
+/// The `state` check is still what protects the listener: an unmatched
+/// state is never acted on, whatever the browser is told about it. All
+/// this splits out is what the browser is told.
+pub(crate) fn classify_callback(
+    path_ok: bool,
+    state_matches: bool,
+    has_code: bool,
+    has_error: bool,
+) -> CallbackAnswer {
+    if !path_ok {
+        return CallbackAnswer::NotFound;
+    }
+    if !state_matches {
+        return CallbackAnswer::Stale;
+    }
+    match (has_code, has_error) {
+        (true, _) => CallbackAnswer::Code,
+        (false, true) => CallbackAnswer::Denied,
+        // Our path, our state, and neither half of a callback: nothing to
+        // act on, and nothing to explain either.
+        (false, false) => CallbackAnswer::NotFound,
+    }
+}
+
+/// The page a superseded consent tab gets (#1234 f7).
+///
+/// It used to be an unbranded plain-text "Not found" while the app went on
+/// saying "Complete the login in your browser…" — two surfaces each
+/// looking broken, with the one remedy (use the newest tab, or Cancel and
+/// retry) stated in neither. Still a 404; only the prose changed.
+fn stale_page() -> String {
+    styled_page(
+        "This login link is out of date.",
+        "Return to Symbios Overlands and use the newest login tab, or press Cancel there and try again.",
+    )
 }
 
 /// Build the branded page shell for the terminal listener answers
@@ -220,4 +278,69 @@ pub fn parse_callback_query(url: &str) -> CallbackParams {
         return CallbackParams::default();
     };
     parse_query_params(&url[q_start + 1..])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// THE SEQUENCE (#1234 f7): the user presses Cancel and then Enter, so
+    /// two consent tabs are open. They approve the OLDER one. Its `state`
+    /// belongs to the attempt that was cancelled, so the listener refuses
+    /// it — correctly — and used to answer an unbranded plain-text "Not
+    /// found" while the app went on saying "Complete the login in your
+    /// browser…". Two surfaces each looking broken, and the remedy stated
+    /// in neither.
+    #[test]
+    fn a_superseded_consent_tab_is_told_what_to_do_instead() {
+        assert_eq!(
+            classify_callback(true, false, true, false),
+            CallbackAnswer::Stale,
+            "a real callback for an earlier attempt"
+        );
+        let page = stale_page();
+        assert!(
+            page.contains("SYMBIOS"),
+            "the tab must read as this product"
+        );
+        assert!(page.contains("out of date"), "{page}");
+        assert!(
+            page.contains("newest login tab") && page.contains("Cancel"),
+            "the page has to name the remedy: {page}"
+        );
+    }
+
+    /// And the split changes only what the browser is TOLD. The state
+    /// check is what protects the listener, and every outcome it produced
+    /// before still lands on the same arm.
+    #[test]
+    fn only_this_attempts_own_callback_is_ever_acted_on() {
+        assert_eq!(
+            classify_callback(true, true, true, false),
+            CallbackAnswer::Code
+        );
+        assert_eq!(
+            classify_callback(true, true, false, true),
+            CallbackAnswer::Denied
+        );
+        // A code echoing the wrong state is refused, not exchanged — the
+        // forged-cancel-from-another-tab case the state match exists for.
+        assert_eq!(
+            classify_callback(true, false, false, true),
+            CallbackAnswer::Stale
+        );
+        // Our path and our state, but neither half of a callback: nothing
+        // to act on and nothing to explain.
+        assert_eq!(
+            classify_callback(true, true, false, false),
+            CallbackAnswer::NotFound
+        );
+        // Anything off `/callback` never even reaches the question.
+        for state_matches in [true, false] {
+            assert_eq!(
+                classify_callback(false, state_matches, true, false),
+                CallbackAnswer::NotFound
+            );
+        }
+    }
 }

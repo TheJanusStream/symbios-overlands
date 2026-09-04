@@ -290,9 +290,37 @@ pub struct RelayHost(pub String);
 #[derive(Resource, Clone)]
 pub struct CurrentRoomDid(pub String);
 
+/// Which half of a journey is running (#1231 f20).
+///
+/// The two halves look nothing alike from the player's seat and had to be
+/// told apart: the first is a network wait that can be given up on, the
+/// second is a local build that cannot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TravelPhase {
+    /// Fetching the destination's room record. Cancellable — nothing has
+    /// been swapped yet, and the fetch can outlast a minute on a bad
+    /// network (#1231 f25).
+    Fetching,
+    /// The record has landed and been installed; the terrain is
+    /// regenerating and the world is compiling a time-slice at a time.
+    /// Nothing to cancel — the world being left no longer exists.
+    Building,
+}
+
 /// Inserted when the player touches an inter-room portal. Freezes local
 /// movement and triggers an async fetch of the target room record while
 /// keeping the player in AppState::InGame.
+///
+/// It stays through the [`Building`](TravelPhase::Building) half too
+/// (#1231 f20). It used to be removed the frame the *record* landed, which
+/// is several seconds before the destination exists: the freeze released
+/// and the card vanished while terrain regen had not started and the
+/// time-sliced compile had not run, so the player was dropped at the
+/// landing pose — `y = 0` for a gateway hop, frequently below the ground
+/// still under their feet — to watch the world assemble around them with
+/// no overlay, spinner or line. Every suppressor in the app already keys
+/// off `TravelingTo.is_some()`, so carrying a phase on it rather than
+/// adding a second marker is what makes it impossible to miss one.
 #[derive(Resource, Clone)]
 pub struct TravelingTo {
     pub target_did: String,
@@ -301,6 +329,15 @@ pub struct TravelingTo {
     /// `default_landing` — resolved when the fetched record lands, falling
     /// back to the legacy origin scatter when the destination has none.
     pub target_pos: Option<Vec3>,
+    /// The name the surface that started this travel already had for the
+    /// destination (#1231 f27), or `None` when it had none.
+    ///
+    /// `BskyProfileCache` is filled by peer-driven fetches only, so a
+    /// gateway row that just rendered "@alice" does NOT put her in it —
+    /// and the overlay one click later fell back to `did:plc:abcdefgh…`
+    /// for the same person. The row had the handle; it just threw it away.
+    pub target_label: Option<String>,
+    pub phase: TravelPhase,
 }
 
 /// Spawn-pose handoff from the login pipeline (fresh login or resume) into
