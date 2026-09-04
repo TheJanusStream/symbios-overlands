@@ -385,7 +385,19 @@ pub fn run() {
                 #[cfg(not(target_arch = "wasm32"))]
                 ui::login::poll_native_callback,
             )
-                .run_if(in_state(AppState::Login)),
+                // Not `in_state(Login)` alone (#1214): an expired session
+                // re-runs this same pipeline from IN GAME, and gating it on
+                // the login screen is why there was no in-place recovery at
+                // all. The condition closes again the moment the swap
+                // lands.
+                .run_if(ui::reauth::login_flow_is_running),
+        )
+        // The expired-session door (#1214). Detection is derived from the
+        // three publish statuses so the fact is about the session, not
+        // about whichever editor happened to try the save.
+        .add_systems(
+            Update,
+            ui::reauth::detect_expired_session.run_if(in_state(AppState::InGame)),
         )
         // Keep the relay service-auth token fresh for the whole logged-in
         // session so every WebRTC (re)connect — portal hop, dead-socket
@@ -508,6 +520,15 @@ pub fn run() {
             ui::unsaved_guard::unsaved_guard_ui
                 .run_if(in_state(AppState::InGame))
                 .run_if(resource_exists::<ui::unsaved_guard::UnsavedGuard>),
+        )
+        // The third door out of an expired session (#1214): the other two
+        // were a Save that can never succeed and a logout that discards an
+        // hour of work.
+        .add_systems(
+            EguiPrimaryContextPass,
+            ui::reauth::reauth_modal
+                .run_if(in_state(AppState::InGame))
+                .run_if(resource_exists::<ui::reauth::SessionExpired>),
         )
         // The owner's other session changed the world under unpublished
         // edits (#1203): ask which copy to keep instead of clobbering.

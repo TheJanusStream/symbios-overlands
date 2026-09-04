@@ -226,6 +226,15 @@ pub const NET_SIGNAL_AWAITING_PEERS: &str = "net.signal.awaiting_peers";
 /// handshake this leaves no peer_list/offer/answer trail; the
 /// `RelayConnectionRejected` invariant fires off it.
 pub const NET_SIGNAL_AUTH_REJECTIONS: &str = "net.signal.auth_rejections";
+/// Consecutive failures of the relay **service-auth** token refresh (#1215).
+///
+/// The credential every reconnect presents. Its failure arm used to be a lone
+/// `warn!`, so a client that could never mint a token — and therefore could
+/// never rejoin after any hiccup — looked identical from every gauge to a
+/// healthy one, and `NET_SIGNAL_AUTH_REJECTIONS` (which only counts what the
+/// relay *refuses*) had nothing upstream to correlate with. Reset to 0 by the
+/// first success, so a sustained value is a client that is stuck.
+pub const NET_RELAY_TOKEN_REFRESH_FAILURES: &str = "net.relay.token_refresh_failures";
 /// Serialized size (bytes) of the most recent reliable broadcast that went
 /// through the chunking path (room/avatar state). The outbound analogue of the
 /// `record.size.*` publish gauges — reveals how close a live edit is to the
@@ -342,6 +351,7 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (NET_SIGNAL_ANSWERS_RECEIVED, MetricKind::Gauge),
     (NET_SIGNAL_AWAITING_PEERS, MetricKind::Gauge),
     (NET_SIGNAL_AUTH_REJECTIONS, MetricKind::Gauge),
+    (NET_RELAY_TOKEN_REFRESH_FAILURES, MetricKind::Gauge),
     (NET_BROADCAST_PAYLOAD_BYTES, MetricKind::Gauge),
     (NET_BROADCAST_OVERSIZE_DROPPED_COUNT, MetricKind::Counter),
     // loading

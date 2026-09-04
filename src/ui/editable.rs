@@ -55,16 +55,29 @@ pub enum RecordAction {
 /// disabled hover and the Ctrl+S refusal toast both read it, so the click
 /// and the chord can never explain the same gate two ways. `None` means
 /// the button is enabled. Order is by immediacy: a save in flight is the
-/// fact of the moment; a record that cannot be written is the fact of the
-/// session; the size ceiling and "nothing to save" come after.
+/// fact of the moment; a session that cannot write at all is the fact of
+/// the session; the size ceiling and "nothing to save" come after.
+///
+/// The expired-session arm (#1214) is what turns the retry loop into a
+/// dead stop. Every other refusal here describes something the owner can
+/// change; this one describes something they cannot, so it says what they
+/// have to do instead. Its input is the record's own last outcome —
+/// `report_publish_failure` marks a failure terminal when the OAuth
+/// refresh token is gone (see [`crate::oauth::refresh_is_terminal`]) — so
+/// the row cannot claim the session expired on a save that never failed.
 fn save_refusal(
     dirty: bool,
     can_publish: bool,
     size: &SizeReadout,
     publishing: bool,
+    status: &PublishStatus,
 ) -> Option<String> {
     if publishing {
         Some(String::from("a save is already in flight"))
+    } else if matches!(status, PublishStatus::Failed { terminal: true, .. }) {
+        Some(String::from(
+            "your session has expired — sign in again before saving",
+        ))
     } else if let Some(reason) = &size.unserializable {
         Some(reason.clone())
     } else if size.class() == Some(SizeClass::OverHardCeiling) {
@@ -259,6 +272,9 @@ pub fn save_load_reset_row(ui: &mut egui::Ui, row: SaveRow<'_>) -> RecordAction 
         reset,
     } = row;
     let publishing = status.is_publishing();
+    // Resolved before the closure borrows `status` mutably; the row reads
+    // the record's last outcome to know whether a retry can work at all.
+    let refusal = save_refusal(dirty, can_publish, size, publishing, status);
     let mut action = RecordAction::None;
     ui.horizontal(|ui| {
         // While a publish is in flight the button reads "Saving…" and is
@@ -276,7 +292,6 @@ pub fn save_load_reset_row(ui: &mut egui::Ui, row: SaveRow<'_>) -> RecordAction 
                 crate::ui::theme::current(ui.ctx()).text_weak
             },
         ));
-        let refusal = save_refusal(dirty, can_publish, size, publishing);
         let enabled = refusal.is_none();
         if ui
             .add_enabled(enabled, publish)
@@ -537,6 +552,9 @@ pub fn report_publish_failure<R: 'static + Send + Sync>(
         WriteOp::Reset => "reset",
     };
     bevy::log::warn!("Failed to {verb} {noun} record: {error}");
+    // The raw chain goes in the durable record regardless — the friendly
+    // sentence below is for the human, and a post-mortem needs the shape
+    // the PDS actually returned.
     session_log.error(
         now,
         EventPayload::RecordWriteFailed {
@@ -545,6 +563,28 @@ pub fn report_publish_failure<R: 'static + Send + Sync>(
             reason: error.clone(),
         },
     );
+    // Terminal means retrying cannot work (#1214): the OAuth refresh token
+    // is expired or revoked, so this exact failure follows every click. The
+    // classification is derived here rather than passed in, so no caller can
+    // forget it and no two doors can disagree.
+    let terminal = crate::oauth::refresh_is_terminal(&error);
+    if terminal {
+        // `friendly_login_error` already owns the sentence for this state —
+        // it was simply unreachable from in-game, which is why the owner got
+        // a raw `refresh: …` Rust error chain as their primary feedback.
+        let (friendly, _raw) = crate::ui::login::friendly_login_error(&error);
+        toasts.error(format!("Couldn't {verb} your {noun}. {friendly}"), now);
+        // NOT re-opened. The window's only offered action is the Save that
+        // cannot succeed, and forcing it back into view on every attempt is
+        // what turned a failure into a loop — the auto-open is good for a
+        // 5xx or a timeout and actively worse here.
+        feedback.status = PublishStatus::Failed {
+            at_secs: now,
+            message: friendly,
+            terminal: true,
+        };
+        return;
+    }
     toasts.error(format!("Couldn't {verb} your {noun} — {error}"), now);
     // The window is where the status line and the Save button that retries
     // live, so the toast has somewhere to point.
@@ -556,6 +596,7 @@ pub fn report_publish_failure<R: 'static + Send + Sync>(
     feedback.status = PublishStatus::Failed {
         at_secs: now,
         message: error,
+        terminal: false,
     };
 }
 
@@ -724,7 +765,9 @@ pub fn status_line_text(
                 ago(*at_secs)
             ),
         )),
-        PublishStatus::Failed { at_secs, message } => Some((
+        PublishStatus::Failed {
+            at_secs, message, ..
+        } => Some((
             StatusTone::Error,
             format!(
                 "{} Save failed ({:.0}s ago): {message}",
@@ -1175,19 +1218,27 @@ mod tests {
             largest: Some(String::from("room generator \"oak_grove\"")),
             unserializable: None,
         };
-        assert_eq!(save_refusal(true, true, &fine, false), None);
-        let too_big = save_refusal(true, true, &over, false).expect("over the ceiling refuses");
+        assert_eq!(
+            save_refusal(true, true, &fine, false, &PublishStatus::Idle),
+            None
+        );
+        let too_big = save_refusal(true, true, &over, false, &PublishStatus::Idle)
+            .expect("over the ceiling refuses");
         assert!(too_big.contains("past the"));
         assert!(
             too_big.contains("oak_grove"),
             "the refusal names the offender (#1207): {too_big}"
         );
-        let busy = save_refusal(true, true, &fine, true).expect("in flight refuses");
+        let busy =
+            save_refusal(true, true, &fine, true, &PublishStatus::Idle).expect("in flight refuses");
         assert!(busy.contains("already"));
         // Priority: an in-flight save is the more immediate fact.
-        assert_eq!(save_refusal(true, true, &over, true), Some(busy));
+        assert_eq!(
+            save_refusal(true, true, &over, true, &PublishStatus::Idle),
+            Some(busy)
+        );
         assert!(
-            save_refusal(false, true, &fine, false)
+            save_refusal(false, true, &fine, false, &PublishStatus::Idle)
                 .expect("clean refuses")
                 .contains("nothing to save")
         );
@@ -1215,7 +1266,8 @@ mod tests {
         ));
         // Clean AND cannot serialize: the refusal is the session fact, not
         // "nothing to save".
-        let reason = save_refusal(false, true, &size, false).expect("refused");
+        let reason =
+            save_refusal(false, true, &size, false, &PublishStatus::Idle).expect("refused");
         assert!(reason.contains("newer version of Overlands"), "{reason}");
         assert!(reason.contains("inventory item \"gift\""), "{reason}");
     }
@@ -1340,6 +1392,127 @@ mod tests {
         assert_eq!(shown[0].0, ToastKind::Error);
         assert_eq!(shown[0].1, "Couldn't save your avatar — 502 Bad Gateway");
         assert!(matches!(feedback.status, PublishStatus::Failed { .. },));
+    }
+
+    /// THE SEQUENCE (#1214 f407): the refresh token dies mid-session, the
+    /// owner presses Ctrl+S, and the world editor pops back open with a red
+    /// "Save failed" line and a Save button — so they press it again, and
+    /// again. Every failure looked retryable, because the only shape the UI
+    /// had to branch on was the raw string `refresh: …`. A terminal failure
+    /// must not re-open the window onto the button that cannot work, and
+    /// must name the one action that can.
+    #[test]
+    fn an_expired_session_does_not_point_the_owner_back_at_the_retry() {
+        let mut log = SessionLog::default();
+        let mut feedback = PublishFeedback::<RoomRecord>::default();
+        let mut toasts = Toasts::default();
+        let mut panels = UiPanels::default();
+
+        report_publish_failure(
+            RecordKind::Room,
+            WriteOp::Save,
+            String::from("did:plc:alice"),
+            // The exact shape `oauth_post_with_refresh` propagates when the
+            // PDS rejects the refresh token itself.
+            String::from("refresh: OAuth server error: invalid_grant - refresh token revoked"),
+            12.0,
+            FailureSinks {
+                session_log: &mut log,
+                feedback: &mut feedback,
+                toasts: &mut toasts,
+                panels: &mut panels,
+            },
+        );
+
+        assert!(
+            !panels.world_editor,
+            "the auto-open is good for a 5xx and worse than useless here — \
+             its only offered action is the save that cannot succeed"
+        );
+        let shown = toasts.shown();
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].0, ToastKind::Error);
+        assert!(
+            shown[0].1.contains("sign in again"),
+            "the toast has to name the only thing that works: {}",
+            shown[0].1
+        );
+        assert!(
+            !shown[0].1.contains("invalid_grant"),
+            "the owner read a raw Rust error chain as their primary feedback: {}",
+            shown[0].1
+        );
+        // The raw chain still reaches the durable record — the analyzer and
+        // a bug report both need the shape the PDS actually returned.
+        assert!(
+            log.iter().any(|e| matches!(
+                &e.payload,
+                EventPayload::RecordWriteFailed { reason, .. } if reason.contains("invalid_grant")
+            )),
+            "the session log keeps the raw chain"
+        );
+
+        let PublishStatus::Failed {
+            terminal, message, ..
+        } = &feedback.status
+        else {
+            panic!("a failure is recorded");
+        };
+        assert!(*terminal);
+        assert!(message.contains("sign in again"), "{message}");
+
+        // …and the Save button the owner would press next is refused, with
+        // the same fact in the same words the toast used.
+        let refusal = save_refusal(true, true, &SizeReadout::default(), false, &feedback.status)
+            .expect("an expired session refuses the save");
+        assert!(refusal.contains("sign in again"), "{refusal}");
+    }
+
+    /// The other direction, and the one that matters more: a transient
+    /// failure MUST stay retryable. Calling a timeout or a 5xx terminal
+    /// would disable Save on an owner whose very next click would have
+    /// worked — a worse bug than the one being fixed.
+    #[test]
+    fn a_transient_failure_stays_retryable() {
+        for error in [
+            "refresh: fetch error: operation timed out",
+            "502 Bad Gateway",
+            "applyWrites failed: 500 Internal Server Error",
+        ] {
+            let mut log = SessionLog::default();
+            let mut feedback = PublishFeedback::<RoomRecord>::default();
+            let mut toasts = Toasts::default();
+            let mut panels = UiPanels::default();
+            report_publish_failure(
+                RecordKind::Room,
+                WriteOp::Save,
+                String::from("did:plc:alice"),
+                String::from(error),
+                1.0,
+                FailureSinks {
+                    session_log: &mut log,
+                    feedback: &mut feedback,
+                    toasts: &mut toasts,
+                    panels: &mut panels,
+                },
+            );
+            assert!(panels.world_editor, "{error} must still offer the retry");
+            assert!(
+                matches!(
+                    feedback.status,
+                    PublishStatus::Failed {
+                        terminal: false,
+                        ..
+                    }
+                ),
+                "{error} is not a dead session"
+            );
+            assert_eq!(
+                save_refusal(true, true, &SizeReadout::default(), false, &feedback.status),
+                None,
+                "{error} must leave Save enabled"
+            );
+        }
     }
 
     /// The room's Reset-to-default is a delete-then-put, and a failure

@@ -48,6 +48,9 @@
 //!   peer-avatar fetch task and its drainer.
 //! * [`lifecycle`] — peer connect/disconnect, stale-offer-dialog evictor,
 //!   mute-visibility sync.
+//! * [`link`] — [`link::LinkState`], the one place the client knows whether
+//!   it is connected, and the ghost-peer sweep + narration on its edges
+//!   (#1213).
 //! * [`inbound`] — [`inbound::handle_incoming_messages`] dispatcher.
 //! * [`broadcast`] — outbound `Transform` / `Identity` /
 //!   `AvatarStateUpdate` / `RoomStateUpdate` writers.
@@ -59,9 +62,11 @@ mod broadcast;
 pub mod chunk;
 mod inbound;
 mod lifecycle;
+pub mod link;
 mod peer_cache;
 mod smoother;
 
+pub use link::{ChatDelivery, LinkPhase, LinkState};
 pub use peer_cache::PeerAvatarCache;
 
 use bevy::prelude::*;
@@ -149,10 +154,22 @@ impl Plugin for NetworkPlugin {
             .init_resource::<chunk::ChunkReassembly>()
             .init_resource::<chunk::OutboundChunkSeq>()
             .init_resource::<chunk::OversizeNotices>()
+            // #1213: the connection fact every UI surface reads, plus the
+            // narration edge that must be cleared with it on logout.
+            .init_resource::<link::LinkState>()
+            .init_resource::<link::LinkNarration>()
             .insert_resource(SmootherConfigRes::from_fixed_timestep(fixed_timestep_secs))
             .add_systems(
                 Update,
                 (
+                    // Ordered first, and `.chain()`ed: `narrate_link_state`
+                    // sweeps the ghost peers a local teardown leaves behind,
+                    // and `handle_peer_connections` must see the swept world
+                    // so a queued `Disconnected` for one of them cannot print
+                    // a "left the room." line for a peer we already know we
+                    // lost ourselves (#1213 f398 + f402).
+                    link::track_link_state,
+                    link::narrate_link_state,
                     lifecycle::handle_peer_connections,
                     inbound::handle_incoming_messages,
                     peer_cache::poll_peer_avatar_fetches,
@@ -168,6 +185,10 @@ impl Plugin for NetworkPlugin {
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             )
+            // A session that ends must not carry its link state — or the
+            // narration edge — into the next one, or the first frame of the
+            // next login (no socket yet) reads as an outage (#1213).
+            .add_systems(OnExit(AppState::InGame), link::reset_link_state)
             // Network broadcast is tied to a fixed tick so the outbound rate
             // is independent of rendering FPS — otherwise a 144 Hz monitor
             // would blast peers with 2.4× the intended packet rate and a

@@ -17,6 +17,7 @@ use std::marker::PhantomData;
 use bevy::prelude::*;
 
 use crate::config;
+use crate::network::ChatDelivery;
 use crate::pds::{AvatarRecord, Generator, InventoryRecord, RoomRecord};
 
 /// Application state machine. `Loading` waits on all six loading tasks —
@@ -143,6 +144,13 @@ pub struct ChatEntry {
     /// across peers and sessions. Raw epoch here; the HUD renders local
     /// HH:MM via [`clock_hhmm`].
     pub at_epoch_secs: i64,
+    /// What became of this line if WE sent it (#1213). Inbound chat,
+    /// presence lines and system notices carry
+    /// [`ChatDelivery::NotApplicable`] and render no annotation; a local
+    /// send that reached nobody renders a weak suffix, because pushing it
+    /// into the HUD byte-identically to a delivered one made the sender's
+    /// own window the lie.
+    pub delivery: ChatDelivery,
 }
 
 /// Current wall-clock time as Unix seconds. `chrono`'s clock is backed
@@ -150,6 +158,30 @@ pub struct ChatEntry {
 /// `std::time::SystemTime` panics on wasm32 (known gotcha).
 pub fn now_epoch_secs() -> i64 {
     chrono::Utc::now().timestamp()
+}
+
+/// Real seconds elapsed since a wall-clock stamp taken by
+/// [`now_epoch_secs`] (#1216).
+///
+/// The clock every deadline the OTHER end is also counting has to run on.
+/// Bevy's `Res<Time>` is the virtual clock, which clamps each frame's delta
+/// to `DEFAULT_MAX_DELTA` (250 ms): a suspended laptop or a backgrounded tab
+/// advances `elapsed` by a quarter second, not by the wall-clock gap. Two
+/// machines that were asleep for different lengths therefore accumulate
+/// different amounts of "time", and a gift offer can expire on the sender
+/// while the recipient still has a live dialog — the sender toasted that
+/// nobody answered while the recipient was accepting.
+///
+/// Clamped at zero: a wall clock can step backwards (NTP, a timezone-naive
+/// user setting the date), and a negative age would read as a deadline that
+/// has receded. Erring toward "just arrived" delays an expiry rather than
+/// firing one early, which is the safe direction for a countdown a person
+/// is watching.
+///
+/// Keep `Res<Time>` for anything that should pause with the game; a
+/// deadline shared with a peer is not one of those.
+pub fn real_secs_since(epoch_secs: i64) -> f64 {
+    (now_epoch_secs() - epoch_secs).max(0) as f64
 }
 
 /// Render an epoch stamp as the viewer's local `HH:MM` (#846).
@@ -192,11 +224,39 @@ impl ChatHistory {
         author: impl Into<String>,
         text: impl Into<String>,
     ) {
+        self.push_with(did, author, text, ChatDelivery::NotApplicable);
+    }
+
+    /// Append a line the LOCAL user just sent, stamped with what actually
+    /// became of it (#1213). Only `chat_ui` calls this — every other writer
+    /// is reporting something that already arrived, and uses [`push`].
+    ///
+    /// [`push`]: ChatHistory::push
+    pub fn push_sent(
+        &mut self,
+        did: Option<String>,
+        author: impl Into<String>,
+        text: impl Into<String>,
+        delivery: ChatDelivery,
+    ) {
+        self.push_with(did, author, text, delivery);
+    }
+
+    /// The single funnel both public writers route through, so the rolling
+    /// cap and the wall-clock stamp cannot be bypassed by either.
+    fn push_with(
+        &mut self,
+        did: Option<String>,
+        author: impl Into<String>,
+        text: impl Into<String>,
+        delivery: ChatDelivery,
+    ) {
         self.messages.push(ChatEntry {
             did,
             author: author.into(),
             text: text.into(),
             at_epoch_secs: now_epoch_secs(),
+            delivery,
         });
         let cap = crate::config::ui::chat::MAX_HISTORY_ENTRIES;
         if self.messages.len() > cap {
@@ -261,6 +321,12 @@ pub enum PublishStatus {
     Failed {
         at_secs: f64,
         message: String,
+        /// Retrying this save cannot work (#1214): the OAuth refresh token
+        /// is expired or revoked, so the identical failure follows every
+        /// click. The Save row reads it as a refusal, and
+        /// `report_publish_failure` skips the panel force-open that would
+        /// otherwise point the owner back at the button that cannot succeed.
+        terminal: bool,
     },
 }
 
@@ -502,9 +568,14 @@ pub struct IncomingOfferDialog {
     /// The item's wear metadata (#1108) when the sender gifted a wearable,
     /// already sanitised at the wire seam; `None` lands the gift as decor.
     pub wear: Option<crate::pds::inventory::WearMeta>,
-    /// Session-relative seconds the offer arrived; diagnostics entries and
-    /// any future timeout logic key off this.
+    /// Session-relative seconds the offer arrived. Kept for the session
+    /// log, whose other stamps are all on this clock.
     pub arrived_at_secs: f64,
+    /// Wall-clock seconds the offer arrived (#1216). The TTL and the
+    /// on-screen countdown both run on THIS one — see [`real_secs_since`]
+    /// for why a deadline the sender is also counting cannot use the
+    /// suspend-clamped virtual clock.
+    pub arrived_at_epoch: i64,
 }
 
 /// DIDs the local user has muted, persisted across sessions via the
@@ -558,6 +629,10 @@ pub struct PendingOutgoingOffer {
     pub target_handle: String,
     pub item_name: String,
     pub sent_at_secs: f64,
+    /// Wall-clock seconds the offer was sent (#1216). The 180 s sweep runs
+    /// on this, so a sender who slept and a recipient who did not cannot
+    /// settle on opposite outcomes for one `offer_id`.
+    pub sent_at_epoch: i64,
 }
 
 impl PendingOutgoingOffers {
@@ -593,6 +668,10 @@ impl PendingOutgoingOffers {
                 target_handle,
                 item_name,
                 sent_at_secs,
+                // Stamped here rather than passed in: every caller would
+                // otherwise have to remember to read the same clock, and
+                // the deadline is this type's own business.
+                sent_at_epoch: now_epoch_secs(),
             },
         );
     }
@@ -677,6 +756,64 @@ mod peer_compatibility_tests {
             theirs.compatibility(100.0),
             PeerCompatibility::Mismatched(crate::protocol::PROTOCOL_VERSION + 7),
             "a declared disagreement needs no grace — it is already the answer"
+        );
+    }
+}
+
+#[cfg(test)]
+mod wall_clock_tests {
+    use super::*;
+
+    /// THE SEQUENCE (#1216): a peer offers a gift and shuts the laptop lid.
+    /// Both ends are counting the same TTL, and the virtual clock stops on
+    /// whichever machine slept — so the two disagreed about whether the
+    /// offer was still alive, and the sender was told the recipient never
+    /// answered while the recipient was accepting.
+    #[test]
+    fn a_stamp_ages_in_real_seconds() {
+        let now = now_epoch_secs();
+        assert!(real_secs_since(now) < 2.0, "a fresh stamp is ~0s old");
+        assert!(
+            (real_secs_since(now - 200) - 200.0).abs() < 2.0,
+            "a stamp from 200 real seconds ago is 200s old, however many \
+             frames were rendered in between"
+        );
+        // Past both offer TTLs, which is the decision the sweep makes.
+        assert!(real_secs_since(now - 200) > crate::config::network::PENDING_OFFER_TIMEOUT_SECS);
+        assert!(real_secs_since(now - 100) > crate::config::network::OFFER_DIALOG_TIMEOUT_SECS);
+        assert!(real_secs_since(now - 60) < crate::config::network::OFFER_DIALOG_TIMEOUT_SECS);
+    }
+
+    /// A wall clock can step backwards (NTP, a user setting the date). A
+    /// negative age would read as a deadline that has receded; clamping to
+    /// zero delays an expiry rather than firing one early, which is the
+    /// safe direction for a countdown a person is watching and a decision
+    /// a peer is mirroring.
+    #[test]
+    fn a_clock_that_steps_backwards_never_ages_a_stamp_negatively() {
+        let future = now_epoch_secs() + 10_000;
+        assert_eq!(real_secs_since(future), 0.0);
+    }
+
+    /// The offer's wall-clock stamp is taken by `register` itself, not
+    /// passed in — every caller reading its own clock is how the two
+    /// stamps would drift apart.
+    #[test]
+    fn registering_an_offer_stamps_the_wall_clock_itself() {
+        let mut pending = PendingOutgoingOffers::default();
+        let id = pending.peek_next_id();
+        pending.register(
+            id,
+            String::from("did:plc:bob"),
+            String::from("bob"),
+            String::from("Lamp"),
+            12.0,
+        );
+        let entry = &pending.by_id[&id];
+        assert_eq!(entry.sent_at_secs, 12.0, "the virtual stamp is untouched");
+        assert!(
+            real_secs_since(entry.sent_at_epoch) < 2.0,
+            "and the deadline's own clock was read at registration"
         );
     }
 }

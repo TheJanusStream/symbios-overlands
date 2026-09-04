@@ -40,6 +40,7 @@ pub fn chat_ui(
     peers: Query<(&RemotePeer, Option<&SocialResonance>)>,
     local: Query<Entity, With<crate::state::LocalPlayer>>,
     mut emotes: MessageWriter<crate::player::emote::EmoteRequest>,
+    link: Res<crate::network::LinkState>,
 ) {
     use crate::config::ui::chat as cfg;
 
@@ -65,6 +66,16 @@ pub fn chat_ui(
         .filter(|(_, r)| matches!(r, Some(SocialResonance::Mutual)))
         .filter_map(|(p, _)| p.did.as_deref())
         .collect();
+
+    // What would become of a message sent right now (#1213). Upstream's
+    // `transmit_messages` drains the broadcast reader and returns without
+    // sending when `connected_peers()` is empty, and the whole transmit
+    // chain is `run_if(resource_exists::<MatchboxSocket>)` — so with no
+    // peers, or no socket, a send is dropped and nothing feeds that back.
+    // Both facts are decided in ONE place so the note above the input and
+    // the suffix on the pushed line cannot tell different stories.
+    let peer_count = peers.iter().count();
+    let delivery = link.delivery(peer_count);
 
     // The half-typed line lives on `ChatHistory` (#1140), not in a
     // `Local<String>`: a Local is unreachable from every teardown path, so
@@ -144,11 +155,27 @@ pub fn chat_ui(
                                 tag.on_hover_text("You and this peer follow each other");
                             }
                             ui.label(&entry.text);
+                            // A line of ours that reached nobody says so,
+                            // in weak text so a normal conversation is not
+                            // visually noisy (#1213).
+                            if let Some(suffix) = entry.delivery.suffix() {
+                                ui.colored_label(
+                                    crate::ui::theme::current(ui.ctx()).text_weak,
+                                    suffix,
+                                );
+                            }
                         });
                     }
                 });
 
             ui.separator();
+
+            // The persistent "this is going nowhere" note (#1213). Above
+            // the input, not a toast: it is a standing condition, and the
+            // moment it matters is the moment before the user types.
+            if let Some(note) = link.composer_note(peer_count) {
+                ui.colored_label(crate::ui::theme::current(ui.ctx()).status.warn, note);
+            }
 
             // Right-to-left layout: Send first (pinned to the right edge),
             // then the TextEdit whose `desired_width` is set to whatever
@@ -209,7 +236,11 @@ pub fn chat_ui(
                         // Capped + wall-clock-stamped (#846): local sends
                         // used to push uncapped with a session-relative
                         // stamp.
-                        chat.push(did, author, text.clone());
+                        // Stamped with the delivery outcome resolved above
+                        // (#1213) — the sender's HUD used to render a
+                        // message that reached nobody exactly like one that
+                        // was delivered.
+                        chat.push_sent(did, author, text.clone(), delivery);
 
                         // Chat-keyword emotes (#1068): my own body plays what
                         // I just said, exactly as every peer's does. Without

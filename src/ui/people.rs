@@ -69,6 +69,7 @@ pub fn people_ui(
     current_room: Option<Res<crate::state::CurrentRoomDid>>,
     traveling: Option<Res<crate::state::TravelingTo>>,
     guard: Option<Res<crate::ui::unsaved_guard::UnsavedGuard>>,
+    link: Res<crate::network::LinkState>,
 ) {
     let now = time.elapsed_secs_f64();
 
@@ -100,7 +101,19 @@ pub fn people_ui(
         .show(ctx, |ui| {
             let peer_count = peers.iter().count();
             let total = peer_count + session.is_some() as usize;
-            ui.label(format!("In room ({})", total));
+            // "In room (N)" is a claim about the ROOM, and a client whose
+            // link is down is in no position to make one (#1213 f395) —
+            // that copy is exactly what made an outage read as an empty
+            // product. The wording lives on `LinkPhase` so this window, the
+            // toolbar chip and the chat note cannot drift.
+            let phase = link.phase();
+            let header = phase.roster_header(total);
+            if phase.is_up() {
+                ui.label(header);
+            } else {
+                ui.colored_label(crate::ui::theme::current(ui.ctx()).status.warn, header)
+                    .on_hover_text(phase.sentence());
+            }
             ui.separator();
 
             egui::ScrollArea::vertical()
@@ -155,7 +168,14 @@ pub fn people_ui(
                         // without a resolved DID cannot receive offers
                         // (the recipient authenticates by DID), so their
                         // row stays inert for the drag.
-                        let can_receive_gift = drag_active && !peer.muted && peer.did.is_some();
+                        // A drop onto a peer we cannot reach spends an
+                        // inventory item on an offer that can never be
+                        // answered, and then blames the recipient three
+                        // minutes later (#1213 f404) — so the row is inert
+                        // whenever the link is not up, alongside the mute
+                        // and DID-resolution gates it already had.
+                        let can_receive_gift =
+                            drag_active && !peer.muted && peer.did.is_some() && link.is_up();
                         let row = ui.horizontal(|ui| {
                             crate::ui::affordances::status_dot(ui, dot_color);
                             draw_avatar_icon(
@@ -341,7 +361,13 @@ pub fn people_ui(
                     if peer_count == 0 && session.is_none() {
                         ui.colored_label(crate::ui::theme::current(ui.ctx()).text_weak, "(empty)");
                     } else if peer_count == 0 {
-                        ui.colored_label(crate::ui::theme::current(ui.ctx()).text_weak, "(no other peers)");
+                        // "(no other peers)" is the same unearned claim as
+                        // the header; `roster_empty_note` says who is
+                        // speaking instead (#1213 f395).
+                        ui.colored_label(
+                            crate::ui::theme::current(ui.ctx()).text_weak,
+                            phase.roster_empty_note(),
+                        );
                     }
                 });
         });
@@ -483,10 +509,14 @@ pub fn incoming_offer_ui(
         // The lifecycle sweep auto-declines the dialog after the TTL
         // (`config::network::OFFER_DIALOG_TIMEOUT_SECS`) — surface that
         // instead of letting the offer vanish invisibly mid-decision.
+        // Read off the same wall clock the sweep uses (#1216). On the
+        // virtual clock this number was not seconds: "declines in 40s" did
+        // not advance at all while the window was backgrounded, so it
+        // disagreed with both the sweep and the sender.
         let remaining = (crate::config::network::OFFER_DIALOG_TIMEOUT_SECS
-            - (time.elapsed_secs_f64() - dialog.arrived_at_secs))
-            .max(0.0)
-            .ceil() as u64;
+            - crate::state::real_secs_since(dialog.arrived_at_epoch))
+        .max(0.0)
+        .ceil() as u64;
         ui.small(format!(
             "Declines automatically in {remaining}s — Esc to decline now."
         ));

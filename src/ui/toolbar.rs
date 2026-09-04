@@ -101,6 +101,10 @@ const PEOPLE_TOGGLE_WIDTH: f32 = 100.0;
 /// Reserved slot width of the anomaly dot, occupied even while healthy
 /// so the dot appearing/vanishing stops shifting the Controls button.
 const ANOMALY_DOT_WIDTH: f32 = 14.0;
+/// Reserved width of the connection chip (#1213), sized for its widest
+/// label ("Connecting…") plus the state dot — same contract as the badges
+/// above, so a link that flaps never shifts the account chip beside it.
+const LINK_CHIP_WIDTH: f32 = 96.0;
 
 /// Counts above this render as "99+" — the badge is a "look here"
 /// signal, not a metric, and capping it keeps the reserved width honest.
@@ -168,6 +172,14 @@ pub fn toolbar_ui(
     // queue now (#1141), which is also where its toast is raised — so the
     // toolbar no longer needs the toast queue or the clock at all.
     clipboard: Res<crate::boot_params::ClipboardQueue>,
+    // #1213: the client's own answer to "am I connected?". Before this the
+    // toolbar's "People (1)" was the closest thing to a connection surface,
+    // and it said the same thing during an outage as in an empty room.
+    link: Res<crate::network::LinkState>,
+    // #1214: the second door onto the re-authenticate flow, for an owner
+    // who dismissed the modal. The account menu is where every other
+    // session control already lives.
+    mut expired: Option<ResMut<crate::ui::reauth::SessionExpired>>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -268,10 +280,16 @@ pub fn toolbar_ui(
                     );
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Account chip — first in the right-to-left layout, so it
-                // owns the far-right corner. The only 2-click route to
-                // logout and location sharing (#835); Diagnostics keeps
-                // its duplicates.
+                // Connection chip (#1213). Drawn FIRST in the right-to-left
+                // layout so it owns the far-right corner, ahead of the
+                // account chip: whether the client is connected outranks
+                // who it is connected as. Dot AND word — the state has to
+                // survive a greyscale viewer — in a reserved-width slot so
+                // "Connecting…" cannot shove the row about.
+                link_chip(ui, link.phase());
+                // Account chip — next in the right-to-left layout. The only
+                // 2-click route to logout and location sharing (#835);
+                // Diagnostics keeps its duplicates.
                 if let Some(sess) = session.as_deref() {
                     ui.menu_button(format!("@{}", sess.handle), |ui| {
                         ui.horizontal(|ui| {
@@ -310,6 +328,21 @@ pub fn toolbar_ui(
                             }
                         }
                         ui.separator();
+                        // Above Log out deliberately: with the session
+                        // expired, logging out is the door that discards
+                        // the work and this is the one that keeps it.
+                        if let Some(expired) = expired.as_deref_mut()
+                            && ui
+                                .button("Sign in again")
+                                .on_hover_text(
+                                    "Your session has expired — sign in again to \
+                                     save. Your unsaved edits stay as they are.",
+                                )
+                                .clicked()
+                        {
+                            expired.dismissed = false;
+                            ui.close();
+                        }
                         if ui.button("Log out").clicked() {
                             // Route through the unsaved-edits guard instead
                             // of flipping the state directly: it transitions
@@ -386,6 +419,39 @@ pub fn toolbar_ui(
     if panels_dirty {
         panels.set_changed();
     }
+}
+
+/// The connection chip: a state dot and the phase's own word, in a
+/// reserved-width slot (#1213).
+///
+/// The app had no connection surface at all before this — a dead socket
+/// looked exactly like an empty world, which is the same thing a product
+/// with no users looks like. The dot is a painted circle rather than a "●"
+/// glyph for the reason the anomaly dot gives (U+25CF is tofu in the
+/// proportional family, #861), and the word is always drawn beside it so
+/// the state is never carried by hue alone.
+fn link_chip(ui: &mut egui::Ui, phase: crate::network::LinkPhase) {
+    let th = crate::ui::theme::current(ui.ctx());
+    let (colour, text_colour) = match phase {
+        crate::network::LinkPhase::Connected => (th.status.ok, th.text_weak),
+        crate::network::LinkPhase::Connecting => (th.status.warn, th.status.warn),
+        crate::network::LinkPhase::Down => (th.status.error, th.status.error),
+    };
+    let slot = egui::vec2(LINK_CHIP_WIDTH, ui.spacing().interact_size.y);
+    let (rect, response) = ui.allocate_exact_size(slot, egui::Sense::hover());
+    let painter = ui.painter();
+    // Right-to-left layout: the slot's own contents read left-to-right, so
+    // the dot sits at the slot's left edge and the label follows it.
+    let dot_x = rect.left() + 7.0;
+    painter.circle_filled(egui::pos2(dot_x, rect.center().y), 4.5, colour);
+    painter.text(
+        egui::pos2(dot_x + 8.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        phase.chip_label(),
+        egui::TextStyle::Body.resolve(ui.style()),
+        text_colour,
+    );
+    response.on_hover_text(phase.sentence());
 }
 
 /// The chassis the local player is currently piloting, resolved from the

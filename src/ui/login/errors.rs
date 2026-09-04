@@ -15,6 +15,15 @@ const STAGE_MAP: &[(&str, &str)] = &[
         "resume refresh:",
         "Your saved session has expired. Please sign in again.",
     ),
+    // The same fact reached from IN GAME (#1214): a write whose token
+    // refresh came back `invalid_grant` mid-session. Only the terminal
+    // branch of `report_publish_failure` routes a string through here — a
+    // transient `refresh: timeout` must stay retryable and keeps its own
+    // wording — so this needle is safe below the resume one it shadows.
+    (
+        "refresh: ",
+        "Your session has expired. Please sign in again to save.",
+    ),
     (
         "get_relay_service_auth",
         "Signed in, but couldn't reach the world relay server — it may be down. \
@@ -100,6 +109,28 @@ mod tests {
             friendly_login_error("Session resume failed: resume refresh: HTTP 400 invalid_grant");
         assert!(msg.contains("expired"), "{msg}");
         assert!(details.unwrap().contains("invalid_grant"));
+    }
+
+    /// THE SEQUENCE (#1214): a save whose token refresh came back
+    /// `invalid_grant`, reported from IN GAME. The sentence existed but was
+    /// reachable only from the login screen, so the owner's primary feedback
+    /// on a dead session was the raw `refresh: …` chain. The resume needle
+    /// above shadows this one and must keep winning — the two states differ
+    /// in what the user has already lost.
+    #[test]
+    fn an_in_game_refresh_failure_gets_the_sign_in_again_sentence() {
+        let (msg, details) =
+            friendly_login_error("refresh: OAuth server error: invalid_grant - revoked");
+        assert!(msg.contains("expired"), "{msg}");
+        assert!(msg.contains("sign in again"), "{msg}");
+        assert!(details.unwrap().contains("invalid_grant"));
+
+        // The wasm resume path's wrapped error still takes its own arm.
+        let (resume, _) = friendly_login_error("Session resume failed: resume refresh: HTTP 400");
+        assert_eq!(
+            resume,
+            "Your saved session has expired. Please sign in again."
+        );
     }
 
     #[test]

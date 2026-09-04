@@ -962,6 +962,9 @@ pub(super) fn handle_incoming_messages(
                     generator,
                     wear,
                     arrived_at_secs: now,
+                    // The TTL and the countdown run on wall clock (#1216);
+                    // the virtual stamp above stays for the session log.
+                    arrived_at_epoch: crate::state::now_epoch_secs(),
                 });
                 // Slam the gate shut for the rest of this frame so any
                 // further offers in the same drain auto-decline instead of

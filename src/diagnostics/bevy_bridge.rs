@@ -343,26 +343,70 @@ fn scrape_visible_entities(
     reg.observe_gauge(names::RUNTIME_VISIBLE_ENTITY_COUNT, visible as f64);
 }
 
+/// Does the `awaiting_peers` glare flag hold this tick?
+///
+/// Pure so the table can be pinned; `MatchboxSocket` wraps a live
+/// `WebRtcSocket` and cannot be built in a test, and this is the part with
+/// the interesting cases.
+///
+/// Every term is a guard against claiming glare from evidence that does not
+/// support it (#1215 f399):
+/// * `socket_present` — an outage is not a glare. With no socket there is no
+///   handshake to stall, and the signaller's counters are cumulative, so
+///   without this the flag would raise itself over a dead link.
+/// * `peer_list_valid` — the last `peer_list` describes the room a socket saw.
+///   Once that socket is gone, so is the claim.
+/// * `connected == 0` — the definition: nobody reached a data channel. Before
+///   the #1213 sweep this is what a leftover ghost `RemotePeer` pinned false,
+///   silencing the rule for the rest of the session.
+/// * `!connected_since` — a peer that connected and then left is a room that
+///   worked, not a stalled handshake.
+fn awaiting_peers(
+    socket_present: bool,
+    peer_list_valid: bool,
+    peer_list_len: u64,
+    connected: usize,
+    connected_since_peer_list: bool,
+) -> bool {
+    socket_present
+        && peer_list_valid
+        && peer_list_len >= 1
+        && connected == 0
+        && !connected_since_peer_list
+}
+
 /// Mirror the multiuser signaller's `SignalDiagnostics` counters into the
 /// registry (1 Hz, chained with the other scrapes), derive the `awaiting_peers`
 /// stall flag from live [`RemotePeer`](crate::state::RemotePeer) presence, and
-/// emit a `SocketPeerListReceived` event the first time each new non-empty
-/// `peer_list` is observed.
+/// emit a `SocketPeerListReceived` event every time a new `peer_list` is
+/// observed — including an empty one (#1215 f408).
 ///
 /// This is the app's only window into the WebRTC *signalling* layer: matchbox
 /// surfaces just `Connected`/`Disconnected` to the plugin, so without this a
 /// glared or ICE-failed handshake (relay reported peers, no data channel ever
 /// opens) is indistinguishable from being genuinely alone. See the
 /// `net.signal_glare_suspected` invariant, which fires off `awaiting_peers`.
+///
+/// Two things the socket's own presence decides here (#1215 f399). The
+/// signaller's `SignalDiagnostics` counters are cumulative and survive a
+/// socket teardown, so after one the last `peer_list` is evidence about a
+/// socket that no longer exists: `peer_list_valid` retires it, and
+/// `awaiting_peers` is held at 0 while no socket exists at all. Without that,
+/// an outage — where nothing is glaring because nothing is connected — would
+/// raise the glare flag off a stale list, and the "somebody connected since
+/// the welcome" latch would carry a dead socket's answer into the next one.
 #[allow(clippy::too_many_arguments)]
 fn scrape_signal_diagnostics(
     diag: Option<Res<bevy_symbios_multiuser::prelude::SignalDiagnosticsRes>>,
+    socket: Option<Res<bevy_symbios_multiuser::prelude::MatchboxSocket>>,
     remote_peers: Query<(), With<crate::state::RemotePeer>>,
     mut reg: ResMut<MetricsRegistry>,
     mut log: ResMut<crate::diagnostics::SessionLog>,
     time: Res<Time>,
     mut last_peer_lists_seen: Local<u64>,
     mut connected_since_peer_list: Local<bool>,
+    mut peer_list_valid: Local<bool>,
+    mut had_socket: Local<bool>,
     mut last_auth_rejections: Local<u64>,
 ) {
     use std::sync::atomic::Ordering::Relaxed;
@@ -413,31 +457,56 @@ fn scrape_signal_diagnostics(
 
     let connected = remote_peers.iter().count();
 
-    // A newly-received peer_list resets the "connected since?" latch and (when
-    // non-empty) logs a one-shot event so a post-mortem can separate "joined a
-    // populated room" from "alone". `peer_lists_received` is cumulative and
-    // monotonic, so a strict increase is the rising edge of a fresh handshake.
+    // The socket's falling edge retires everything the last handshake told
+    // us: its peer_list describes a room this client can no longer see, and
+    // the "somebody connected since the welcome" answer belonged to it.
+    let socket_present = socket.is_some();
+    if *had_socket && !socket_present {
+        *peer_list_valid = false;
+        *connected_since_peer_list = false;
+    }
+    *had_socket = socket_present;
+
+    // A newly-received peer_list resets the "connected since?" latch and logs
+    // a one-shot event so a post-mortem can separate "joined a populated
+    // room" from "alone". `peer_lists_received` is cumulative and monotonic,
+    // so a strict increase is the rising edge of a fresh handshake.
+    //
+    // Logged at EVERY count, zero included (#1215 f408). Under the old
+    // `>= 1` guard the comment's own promise was unkeepable: "welcomed into
+    // an empty room" and "never handshook at all" both produced no event and
+    // were indistinguishable in the log — which is the first question anyone
+    // asks when a user reports an empty world, and the on-screen surfaces
+    // could not answer it either. `GlareSuspected`'s replay arm already
+    // filters on `count >= 1`, so its behaviour is unchanged.
     if peer_lists_received > *last_peer_lists_seen {
         *last_peer_lists_seen = peer_lists_received;
         *connected_since_peer_list = false;
-        if peer_list_len >= 1 {
-            log.info(
-                time.elapsed_secs_f64(),
-                crate::diagnostics::event::EventPayload::SocketPeerListReceived {
-                    count: peer_list_len,
-                },
-            );
-        }
+        *peer_list_valid = true;
+        log.info(
+            time.elapsed_secs_f64(),
+            crate::diagnostics::event::EventPayload::SocketPeerListReceived {
+                count: peer_list_len,
+            },
+        );
     }
     if connected >= 1 {
         *connected_since_peer_list = true;
     }
 
-    // `awaiting_peers`: the relay reported peers at join, none have connected,
-    // and none have connected since that peer_list — so a peer that connected
-    // then later left does not re-raise the flag. The `GlareSuspected`
-    // invariant fires when this stays `1` over a sustained window.
-    let awaiting = peer_list_len >= 1 && connected == 0 && !*connected_since_peer_list;
+    // `awaiting_peers`: a LIVE socket, whose relay welcome reported peers,
+    // none of which have connected — and none of which have connected since
+    // that peer_list, so a peer that connected then later left does not
+    // re-raise the flag. The `GlareSuspected` invariant fires when this stays
+    // `1` over a sustained window; an outage must not raise it, because
+    // nothing is glaring when nothing is connected at all.
+    let awaiting = awaiting_peers(
+        socket_present,
+        *peer_list_valid,
+        peer_list_len,
+        connected,
+        *connected_since_peer_list,
+    );
     reg.observe_gauge(
         names::NET_SIGNAL_AWAITING_PEERS,
         if awaiting { 1.0 } else { 0.0 },
@@ -518,6 +587,98 @@ fn scrape_alloc_track(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// THE SEQUENCE: a room with peers, our link drops, the ghosts are swept.
+    /// `awaiting_peers` used to be `peer_list_len >= 1 && connected == 0 &&
+    /// !connected_since`, and the socket did not appear in it at all — so the
+    /// one rule that can ever say anything about the local link raised itself
+    /// off a `peer_list` belonging to a socket that no longer existed, and
+    /// reported an outage as a glared handshake (#1215 f399).
+    #[test]
+    fn an_outage_is_not_a_glare() {
+        // The glare case itself, unchanged: a live socket, the relay said
+        // there were peers, nobody ever connected.
+        assert!(awaiting_peers(true, true, 3, 0, false));
+
+        // No socket: nothing is handshaking, so nothing is stalled.
+        assert!(!awaiting_peers(false, true, 3, 0, false));
+        // Socket back, but the peer_list belonged to the dead one.
+        assert!(!awaiting_peers(true, false, 3, 0, false));
+    }
+
+    /// THE SEQUENCE: a peer connects, then leaves, then the room stalls. The
+    /// two suppressors that must keep working — a peer on a data channel
+    /// right now, and one that reached one earlier — because a room that
+    /// worked is not a glared handshake. This is the term a leftover ghost
+    /// `RemotePeer` used to pin, silencing the rule for the whole session.
+    #[test]
+    fn a_room_that_ever_worked_is_not_glaring() {
+        assert!(!awaiting_peers(true, true, 3, 1, false));
+        assert!(!awaiting_peers(true, true, 3, 0, true));
+        // An empty room is not a stall either — there was nobody to reach.
+        assert!(!awaiting_peers(true, true, 0, 0, false));
+    }
+
+    /// THE SEQUENCE: a user reports "the world was empty". The log has to say
+    /// whether the relay welcomed us into an empty room or whether we never
+    /// handshook at all — the distinction the event's own comment promises.
+    /// Under the old `peer_list_len >= 1` guard both produced no event and
+    /// were indistinguishable (#1215 f408).
+    #[test]
+    fn a_welcome_into_an_empty_room_is_logged_as_such() {
+        use bevy_symbios_multiuser::prelude::SignalDiagnosticsRes;
+        use std::sync::atomic::Ordering::Relaxed;
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<MetricsRegistry>();
+        app.init_resource::<crate::diagnostics::SessionLog>();
+        let diag = SignalDiagnosticsRes::default();
+        // One welcome handshake, naming an empty room.
+        diag.0.peer_lists_received.store(1, Relaxed);
+        diag.0.last_peer_list_len.store(0, Relaxed);
+        app.insert_resource(diag);
+        app.add_systems(Update, scrape_signal_diagnostics);
+        app.update();
+
+        let logged: Vec<u64> = app
+            .world()
+            .resource::<crate::diagnostics::SessionLog>()
+            .iter()
+            .filter_map(|e| match e.payload {
+                crate::diagnostics::event::EventPayload::SocketPeerListReceived { count } => {
+                    Some(count)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            logged,
+            vec![0],
+            "an empty-room welcome must be on the record, with its true count"
+        );
+
+        // And a session that never handshakes logs nothing, so the two are
+        // distinguishable — which is the whole point.
+        let mut quiet = App::new();
+        quiet.add_plugins(MinimalPlugins);
+        quiet.init_resource::<MetricsRegistry>();
+        quiet.init_resource::<crate::diagnostics::SessionLog>();
+        quiet.insert_resource(SignalDiagnosticsRes::default());
+        quiet.add_systems(Update, scrape_signal_diagnostics);
+        quiet.update();
+        assert!(
+            !quiet
+                .world()
+                .resource::<crate::diagnostics::SessionLog>()
+                .iter()
+                .any(|e| matches!(
+                    e.payload,
+                    crate::diagnostics::event::EventPayload::SocketPeerListReceived { .. }
+                )),
+            "no welcome, no event"
+        );
+    }
 
     #[test]
     fn metrics_plugin_builds_and_preseeds_catalogue() {

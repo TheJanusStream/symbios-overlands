@@ -108,6 +108,39 @@ pub async fn refresh_session(
     Ok(())
 }
 
+/// Does this failure mean the OAuth session is gone for good (#1214)?
+///
+/// The one definition of "terminal" in the app. Everything between
+/// [`refresh_session`] and the UI is a `Result<_, String>` — the publish
+/// tasks, the poll systems, the toast — so the classification has to read
+/// the string that channel carries. It is deliberately concentrated here,
+/// beside the code that writes the `refresh: ` prefix, rather than sniffed
+/// at each surface: a Save button, a status line and a toast that disagreed
+/// about whether retrying can work would be worse than any of them being
+/// wrong.
+///
+/// Terminal is a narrow claim, and only two shapes make it:
+///
+/// * `invalid_grant` — RFC 6749 §5.2's exact wording for a grant that is
+///   "invalid, expired, revoked": the refresh token itself is dead. This is
+///   the shape pinned by
+///   `a_failed_refresh_propagates_and_the_post_is_not_replayed`, which
+///   scripts a `400 invalid_grant` from the token endpoint.
+/// * `No refresh token` — proto-blue-oauth's `RefreshFailed` when the token
+///   set carries none at all (client.rs:688). Nothing can rotate it.
+///
+/// Everything else that can fail a refresh — a timeout, a 5xx, DNS, a DPoP
+/// nonce dance gone wrong — is transient and MUST stay retryable: calling
+/// one of those terminal would disable Save on a user whose next click
+/// would have worked.
+///
+/// The `refresh: ` prefix is required, so an `invalid_grant` arriving from
+/// some other exchange is not mistaken for this one.
+pub fn refresh_is_terminal(error: &str) -> bool {
+    error.contains("refresh: ")
+        && (error.contains("invalid_grant") || error.contains("No refresh token"))
+}
+
 /// Authenticated POST that proactively refreshes an expired access token
 /// and reactively retries once on `invalid_token`.
 ///
@@ -628,5 +661,39 @@ mod tests {
         assert_eq!(did, "did:plc:tester");
         assert_eq!(handle, "tester.example");
         assert_eq!(script.hits(GET_RESOURCE), 2, "sent once, replayed once");
+    }
+    /// THE SEQUENCE (#1214): the refresh token dies mid-session and every
+    /// subsequent save fails identically. The one definition of "terminal"
+    /// has to catch that — and, more importantly, has to catch nothing else:
+    /// a timeout or a 5xx called terminal would disable Save on a session
+    /// whose next attempt would have worked.
+    #[test]
+    fn only_a_dead_refresh_token_is_terminal() {
+        // The pinned shape: `400 invalid_grant` from the token endpoint,
+        // the same one `a_failed_refresh_propagates_and_the_post_is_not_replayed`
+        // scripts.
+        assert!(refresh_is_terminal(
+            "refresh: OAuth server error: invalid_grant - refresh token revoked"
+        ));
+        // proto-blue-oauth's `RefreshFailed` when the token set has none.
+        assert!(refresh_is_terminal(
+            "refresh: Token refresh failed: No refresh token"
+        ));
+
+        // Everything else that can fail a refresh stays retryable.
+        for transient in [
+            "refresh: fetch error: operation timed out",
+            "refresh: fetch error: dns error",
+            "refresh: OAuth server error: server_error - try later",
+            "refresh: DPoP nonce required: use-dpop-nonce",
+        ] {
+            assert!(!refresh_is_terminal(transient), "{transient}");
+        }
+        // And a failure that is not a refresh at all is never terminal,
+        // however it is worded — the prefix is what scopes the claim.
+        assert!(!refresh_is_terminal("502 Bad Gateway"));
+        assert!(!refresh_is_terminal(
+            "callback: OAuth server error: invalid_grant - code already used"
+        ));
     }
 }

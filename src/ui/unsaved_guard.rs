@@ -297,9 +297,9 @@ impl GuardFeedbacks<'_> {
 /// told the owner a save had failed when nothing of theirs had.
 pub(crate) fn recent_failure(sources: &[(&str, &PublishStatus)], since: f64) -> Option<String> {
     sources.iter().find_map(|(label, status)| match status {
-        PublishStatus::Failed { at_secs, message } if *at_secs >= since => {
-            Some(format!("{label}: {message}"))
-        }
+        PublishStatus::Failed {
+            at_secs, message, ..
+        } if *at_secs >= since => Some(format!("{label}: {message}")),
         _ => None,
     })
 }
@@ -916,6 +916,7 @@ mod tests {
         let old = PublishStatus::Failed {
             at_secs: 10.0,
             message: String::from("502 Bad Gateway"),
+            terminal: false,
         };
         let sources = [("World", &old)];
         assert_eq!(recent_failure(&sources, 600.0), None);

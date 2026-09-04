@@ -30,6 +30,7 @@ pub(super) fn handle_peer_connections(
     mut chat: ResMut<crate::state::ChatHistory>,
     mut notices: ResMut<super::chunk::OversizeNotices>,
     mut toasts: ResMut<crate::ui::toast::Toasts>,
+    link: Res<super::LinkState>,
 ) {
     let elapsed = time.elapsed_secs_f64();
     for event in peer_events.drain() {
@@ -168,7 +169,18 @@ pub(super) fn handle_peer_connections(
                             }
                             (None, None) => "A traveler".to_owned(),
                         };
-                        chat.push(None, "system", format!("{name} left the room."));
+                        // A departure observed while OUR link is down is
+                        // not attributable to the peer (#1213 f402): the
+                        // one narrative the user ever got about a
+                        // connectivity event was "everybody left", which is
+                        // a social conclusion about the wrong actor. The
+                        // single "Connection lost — rejoining…" line
+                        // `link::narrate_link_state` pushes on the teardown
+                        // edge replaces the whole run of them. The session
+                        // log entry and the despawn happen either way.
+                        if link.is_up() {
+                            chat.push(None, "system", format!("{name} left the room."));
+                        }
                         commands.entity(entity).despawn();
                     }
                 }
@@ -199,7 +211,13 @@ pub(super) fn evict_stale_offer_dialog(
         return;
     };
     let now = time.elapsed_secs_f64();
-    if now - dialog.arrived_at_secs < config::network::OFFER_DIALOG_TIMEOUT_SECS {
+    // Wall clock, not `Res<Time>` (#1216): the sender is counting the same
+    // 90 seconds on their own machine, and the virtual clock stops while
+    // this one is asleep or backgrounded. `now` above is still the session
+    // log's clock, which every other stamp in this module shares.
+    if crate::state::real_secs_since(dialog.arrived_at_epoch)
+        < config::network::OFFER_DIALOG_TIMEOUT_SECS
+    {
         return;
     }
     // Targeted reply: the original sender's PeerId is on the dialog
@@ -253,6 +271,7 @@ pub(super) fn sweep_stale_pending_offers(
     mut pending: ResMut<PendingOutgoingOffers>,
     mut session_log: ResMut<SessionLog>,
     mut toasts: ResMut<crate::ui::toast::Toasts>,
+    link: Res<super::LinkState>,
 ) {
     let now = time.elapsed_secs_f64();
     let ttl = config::network::PENDING_OFFER_TIMEOUT_SECS;
@@ -260,25 +279,36 @@ pub(super) fn sweep_stale_pending_offers(
     if before == 0 {
         return;
     }
-    // Handle + item ride along for the sender's expiry toast (#843).
-    let mut expired: Vec<(u64, String, String)> = Vec::new();
+    // Handle + item ride along for the sender's expiry toast (#843), and
+    // `sent_at_secs` for the link check the wording now turns on (#1213).
+    let mut expired: Vec<(u64, String, String, f64)> = Vec::new();
     pending.by_id.retain(|&id, entry| {
-        let alive = now - entry.sent_at_secs < ttl;
+        // Wall clock (#1216) — the recipient's dialog is counting down on
+        // theirs, and two machines that slept for different lengths must
+        // not settle on opposite outcomes for one offer_id.
+        let alive = crate::state::real_secs_since(entry.sent_at_epoch) < ttl;
         if !alive {
-            expired.push((id, entry.target_handle.clone(), entry.item_name.clone()));
+            expired.push((
+                id,
+                entry.target_handle.clone(),
+                entry.item_name.clone(),
+                entry.sent_at_secs,
+            ));
         }
         alive
     });
-    for (offer_id, handle, item) in expired {
+    for (offer_id, handle, item, sent_at) in expired {
         // Info, not Warn: a peer not answering a gift offer within the TTL is a
         // benign, expected social outcome (AFK / implicit decline / brief hiccup)
         // — it mirrors the incoming-side `ItemOfferDialogAutoDeclinedTimeout`
         // above and must not inflate the offline analyzer's warning verdict.
         session_log.info(now, EventPayload::PendingOfferTimedOut { offer_id });
-        toasts.info(
-            format!("Offer of \"{item}\" to @{handle} expired without an answer."),
-            now,
-        );
+        // The old wording asserted a fact about the RECIPIENT on a sweep
+        // that checked nothing about connectivity (#1213 f404). "They
+        // didn't answer" is a social signal the user acts on; when our own
+        // link was down for any part of the offer's life the offer never
+        // left this machine. `LinkState` owns both sentences.
+        toasts.info(link.offer_expiry_line(sent_at, &item, &handle), now);
     }
 }
 

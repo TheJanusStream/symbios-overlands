@@ -73,7 +73,7 @@ pub use native_server::{
 };
 pub use refresh::{
     fetch_session_identity, oauth_get_with_nonce_retry, oauth_post_with_nonce_retry,
-    oauth_post_with_refresh, refresh_session,
+    oauth_post_with_refresh, refresh_is_terminal, refresh_session,
 };
 pub use service_token::{
     get_relay_service_auth, poll_service_token_refresh, schedule_service_token_refresh,

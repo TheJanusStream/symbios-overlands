@@ -21,13 +21,26 @@ use super::{CompleteAuthTask, CompletedSession, LoginError};
 /// Drain finished [`CompleteAuthTask`]s. On success installs the session
 /// resources and transitions to `Loading`; on failure surfaces the error
 /// into [`LoginError`] so the user can retry.
+///
+/// An in-game re-authentication (#1214) takes the other branch: with
+/// [`SessionExpired`](crate::ui::reauth::SessionExpired) present this is
+/// not a login, it is a credential swap under a world that is still
+/// standing, so it must not touch `AppState` or the socket config. See
+/// [`crate::ui::reauth::install_reauthenticated_session`].
 pub fn poll_complete_auth_task(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut CompleteAuthTask)>,
     mut next_state: ResMut<NextState<AppState>>,
     mut login_error: ResMut<LoginError>,
     relay_host: Option<Res<RelayHost>>,
+    mut expired: Option<ResMut<crate::ui::reauth::SessionExpired>>,
+    reauth_sinks: crate::ui::reauth::ReauthSinks,
 ) {
+    // `ReauthSinks` borrows the three publish-status resources for the whole
+    // system, so the re-auth branch consumes it once — hence the `Option`
+    // dance rather than a call inside the loop. In practice at most one
+    // completion task exists at a time.
+    let mut sinks = Some(reauth_sinks);
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
             futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.0))
@@ -36,12 +49,28 @@ pub fn poll_complete_auth_task(
         };
         commands.entity(entity).despawn();
         match result {
-            Ok(completed) => install_completed_session(
-                &mut commands,
-                &mut next_state,
-                completed,
-                relay_host.as_deref(),
-            ),
+            Ok(completed) => match (expired.as_deref_mut(), sinks.take()) {
+                (Some(expired), Some(sinks)) => {
+                    // A refusal (the account did not match) leaves the
+                    // expired state up with the reason on it, so the modal
+                    // can say which account is required.
+                    expired.notice = crate::ui::reauth::install_reauthenticated_session(
+                        &mut commands,
+                        expired,
+                        completed,
+                        sinks,
+                    );
+                    if expired.notice.is_some() {
+                        expired.dismissed = false;
+                    }
+                }
+                _ => install_completed_session(
+                    &mut commands,
+                    &mut next_state,
+                    completed,
+                    relay_host.as_deref(),
+                ),
+            },
             Err(msg) => {
                 warn!("Login failed: {msg}");
                 login_error.0 = Some(msg);

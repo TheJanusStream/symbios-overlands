@@ -279,6 +279,20 @@ pub enum EventPayload {
     },
 
     // ---- Network / multiuser ----------------------------------------------
+    /// The client's relay link dropped (#1213): we were welcomed, and then
+    /// the socket resource went away — the only trace a dead message loop
+    /// leaves, since upstream's `poll_peers` emits nothing on that path. The
+    /// ghost peers were swept and the user was told once; before this event
+    /// existed a local outage left no entry in the session log at all.
+    ///
+    /// Not emitted for a teardown we asked for (a portal hop re-pointing the
+    /// socket at a new room URL).
+    LinkLost,
+    /// The relay welcomed us again after a [`EventPayload::LinkLost`].
+    /// `down_secs` is how long the link was not up, on the monotonic clock.
+    LinkRestored {
+        down_secs: f64,
+    },
     /// The relay's `peer_list` welcome named `count` peers already present in
     /// the room when we joined. Emitted once per (re)connect that finds a
     /// non-empty room, BEFORE any WebRTC data channel opens — so a session log
@@ -288,6 +302,15 @@ pub enum EventPayload {
     /// `PeerJoined` on a *completed* connection, which glare never reaches).
     SocketPeerListReceived {
         count: u64,
+    },
+    /// The periodic re-mint of the relay **service-auth** token failed
+    /// (#1215). `consecutive` counts failures since the last success, so a
+    /// reader can tell one transient PDS hiccup from a client that can no
+    /// longer mint the credential every reconnect presents — the upstream
+    /// cause of the [`EventPayload::RelayAuthRejected`]s that follow.
+    ServiceTokenRefreshFailed {
+        reason: String,
+        consecutive: u64,
     },
     /// The relay refused our WebSocket handshake and the signaller gave up: an
     /// HTTP 4xx (`status`, chiefly `401` from an expired/invalid service-auth
@@ -547,7 +570,10 @@ impl EventPayload {
             | LoadingGateWarning { .. }
             | AmbientSettleCompleted { .. } => Subsystem::Loading,
 
-            SocketPeerListReceived { .. }
+            LinkLost
+            | LinkRestored { .. }
+            | ServiceTokenRefreshFailed { .. }
+            | SocketPeerListReceived { .. }
             | RelayAuthRejected { .. }
             | PeerJoined { .. }
             | PeerLeft { .. }
@@ -632,7 +658,10 @@ impl EventPayload {
             | AvatarStateDecodeFailed { .. }
             | PeerMuteToggled { .. } => Category::Peer,
 
-            RoomStateRejected { .. }
+            LinkLost
+            | LinkRestored { .. }
+            | ServiceTokenRefreshFailed { .. }
+            | RoomStateRejected { .. }
             | RoomStateDecodeFailed { .. }
             | RoomStateApplied { .. }
             | PeerWorldDigestMismatch { .. }
@@ -801,6 +830,14 @@ impl EventPayload {
                     format!("HTTP {status}")
                 };
                 format!("relay rejected connection ({code}); {total} this session")
+            }
+            LinkLost => "relay link lost — rejoining".to_owned(),
+            ServiceTokenRefreshFailed {
+                reason,
+                consecutive,
+            } => format!("relay token refresh failed ({consecutive} in a row): {reason}"),
+            LinkRestored { down_secs } => {
+                format!("relay link restored after {down_secs:.1}s")
             }
             PeerJoined { peer } => format!("peer joined: {peer}"),
             PeerLeft { peer, label } => format!("peer left: {label} ({peer})"),

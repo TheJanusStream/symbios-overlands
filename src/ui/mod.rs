@@ -79,6 +79,7 @@ pub mod loading;
 pub mod login;
 pub mod other_session;
 pub mod people;
+pub mod reauth;
 pub mod room;
 pub mod settings;
 pub mod shortcuts;

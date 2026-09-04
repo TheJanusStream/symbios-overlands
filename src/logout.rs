@@ -116,6 +116,9 @@ session_scoped_resources! {
     // A held same-owner room record awaiting the keep-or-take answer
     // (#1203) is a claim about this session's world.
     crate::ui::other_session::OtherSessionRoom,
+    // The expired-session door (#1214) names a DID and the unsaved work
+    // that belonged to it; a fresh login must not open under it.
+    crate::ui::reauth::SessionExpired,
     // The gateway picker pair (#748): logging out while standing in a
     // gateway zone must not leave the picker (or its dismissal latch)
     // armed for the next session.

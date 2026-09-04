@@ -34,6 +34,10 @@ mod begin;
 // declares, and the drift test guarding that pair runs it directly (#1140).
 pub(crate) mod complete;
 mod errors;
+// #1214: the expired-session sentence is needed in-game too — a publish
+// whose token refresh came back `invalid_grant` used to render the raw
+// Rust error chain as its primary feedback.
+pub use errors::friendly_login_error;
 #[cfg(not(target_arch = "wasm32"))]
 mod native_callback;
 mod posts;
@@ -86,6 +90,38 @@ pub struct BeginAuthTask(bevy::tasks::Task<BeginOutcome>);
 /// after the OAuth callback delivers an authorization code.
 #[derive(Component)]
 pub struct CompleteAuthTask(bevy::tasks::Task<CompleteOutcome>);
+
+/// Spawn the `authorize()` round-trip for an already-known destination.
+///
+/// The login form's own path (in [`login_ui`]) validates a typed PDS,
+/// relay and destination first and carries the boot-param spawn pose; this
+/// one starts from values the app already holds, which is the in-game
+/// re-authentication case (#1214) — same client, same PDS, same relay, same
+/// room. Both hand the resulting [`BeginAuthTask`] to
+/// [`poll_begin_auth_task`], so the browser-launch and pending-blob
+/// handling stay in one place.
+pub fn spawn_begin_auth_task(
+    commands: &mut Commands,
+    client: std::sync::Arc<proto_blue_oauth::OAuthClient>,
+    pds_url: String,
+    relay_host: String,
+    target_did: String,
+) {
+    let pool = bevy::tasks::IoTaskPool::get();
+    let task = pool.spawn(async move {
+        let fut = async move {
+            let (auth_url, pending) =
+                oauth::begin_authorization(&client, &pds_url, &relay_host, &target_did).await?;
+            Ok::<_, String>((auth_url, pending))
+        };
+        crate::config::http::run_or(
+            fut,
+            Err(crate::config::http::timed_out("authorization request")),
+        )
+        .await
+    });
+    commands.spawn(BeginAuthTask(task));
+}
 
 /// Latest login-pipeline failure, shown underneath the login form.
 ///

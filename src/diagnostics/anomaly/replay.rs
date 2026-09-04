@@ -326,6 +326,7 @@ mod tests {
                 "net.peer_churn_spike",
                 "net.peer_protocol_mismatch",
                 "net.relay_connection_rejected",
+                "net.relay_token_refresh_failing",
                 "net.signal_glare_suspected",
                 "net.silent_decode_failure",
                 "net.wardrobe_unresolved",

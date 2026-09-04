@@ -27,6 +27,7 @@ pub fn register_builtins(reg: &mut InvariantRegistry) {
     reg.register(SilentDecodeFailure);
     reg.register(GlareSuspected);
     reg.register(RelayConnectionRejected);
+    reg.register(RelayTokenRefreshFailing);
     reg.register(WardrobeUnresolved);
     // D-3 ECS-state (live-only) rules.
     super::rules_ecs::register_ecs_rules(reg);
@@ -651,6 +652,67 @@ impl Rule for RelayConnectionRejected {
     }
 }
 
+// --- RelayTokenRefreshFailing -----------------------------------------------
+struct RelayTokenRefreshFailing;
+const RELAY_TOKEN_REFRESH_FAILING: RuleHeader = RuleHeader {
+    id: "net.relay_token_refresh_failing",
+    subsystem: Subsystem::Network,
+    severity: Severity::Error,
+    debounce: DebouncePolicy::OncePerCondition,
+    description: "the relay service-auth token could not be re-minted several times running — \
+                  every reconnect from here presents a stale credential",
+    when_state: None,
+};
+impl Rule for RelayTokenRefreshFailing {
+    fn header(&self) -> &RuleHeader {
+        &RELAY_TOKEN_REFRESH_FAILING
+    }
+    fn is_replayable(&self) -> bool {
+        true
+    }
+    /// Live: the consecutive-failure gauge has reached the alarm threshold.
+    /// The counterpart of [`RelayConnectionRejected`] on the other side of
+    /// the handshake — that one fires when the relay refuses the credential
+    /// we present, this one when we cannot mint one to present. A client in
+    /// this state looks healthy on every other gauge.
+    fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
+        let n = cx
+            .metrics
+            .gauge(names::NET_RELAY_TOKEN_REFRESH_FAILURES)?
+            .last();
+        Some(
+            if n >= crate::config::network::SERVICE_TOKEN_FAILURES_BEFORE_ALARM as f64 {
+                Verdict::violated(format!(
+                    "{n:.0} consecutive relay service-auth token refresh failures — \
+                     reconnects will present a stale credential"
+                ))
+            } else {
+                Verdict::Clear
+            },
+        )
+    }
+    /// Replay: one verdict per logged failure that reached the threshold, so
+    /// a post-mortem sees the streak rather than every retry in it.
+    fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
+        events
+            .iter()
+            .filter_map(|e| match &e.payload {
+                EventPayload::ServiceTokenRefreshFailed {
+                    reason,
+                    consecutive,
+                } if *consecutive
+                    >= crate::config::network::SERVICE_TOKEN_FAILURES_BEFORE_ALARM =>
+                {
+                    Some(Verdict::violated(format!(
+                        "relay service-auth token refresh failed {consecutive}x: {reason}"
+                    )))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -960,5 +1022,72 @@ mod tests {
                 .unwrap()
                 .is_violated()
         );
+    }
+
+    /// THE SEQUENCE: the PDS refuses `getServiceAuth` several ticks running.
+    /// `RelayConnectionRejected` cannot see this — it counts what the relay
+    /// REFUSES, and a client that never mints a token never presents one, so
+    /// it looked healthy on every gauge (#1215 f403). One transient failure
+    /// must stay quiet; a streak past the threshold must not.
+    #[test]
+    fn relay_token_refresh_failing_fires_live_and_replay() {
+        use crate::diagnostics::MetricsRegistry;
+
+        fn ctx(metrics: &MetricsRegistry) -> LiveCtx<'_> {
+            LiveCtx {
+                now_secs: 1.0,
+                state: AppState::InGame,
+                metrics,
+                loading_elapsed_secs: None,
+                ingame_elapsed_secs: Some(60.0),
+                player_y: None,
+                ground_y: None,
+                nan_body_count: 0,
+                orphan_avatar_count: 0,
+                respawns_recent: 0,
+                colliders_seen_ingame: false,
+                oldest_pending_job: None,
+            }
+        }
+        let alarm = crate::config::network::SERVICE_TOKEN_FAILURES_BEFORE_ALARM;
+        let mut metrics = MetricsRegistry::default();
+        metrics.observe_gauge(names::NET_RELAY_TOKEN_REFRESH_FAILURES, 1.0);
+        assert_eq!(
+            RelayTokenRefreshFailing.eval(&ctx(&metrics)),
+            Some(Verdict::Clear),
+            "one hiccup is not a broken credential"
+        );
+        metrics.observe_gauge(names::NET_RELAY_TOKEN_REFRESH_FAILURES, alarm as f64);
+        assert!(
+            RelayTokenRefreshFailing
+                .eval(&ctx(&metrics))
+                .unwrap()
+                .is_violated()
+        );
+        // A recovery clears it, so the session's verdict tracks the client's
+        // actual state rather than latching on the worst moment.
+        metrics.observe_gauge(names::NET_RELAY_TOKEN_REFRESH_FAILURES, 0.0);
+        assert_eq!(
+            RelayTokenRefreshFailing.eval(&ctx(&metrics)),
+            Some(Verdict::Clear)
+        );
+
+        let events: Vec<SessionEvent> = (1..=alarm)
+            .map(|n| {
+                ev(
+                    n as f64,
+                    EventPayload::ServiceTokenRefreshFailed {
+                        reason: "HTTP 400".into(),
+                        consecutive: n,
+                    },
+                )
+            })
+            .collect();
+        assert_eq!(
+            RelayTokenRefreshFailing.replay(&events).len(),
+            1,
+            "the streak reports once at the threshold, not once per retry"
+        );
+        assert!(RelayTokenRefreshFailing.replay(&[]).is_empty());
     }
 }

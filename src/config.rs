@@ -881,6 +881,16 @@ pub(crate) mod network {
     /// reads at reconnect time is always valid regardless of the exact PDS TTL.
     pub const SERVICE_TOKEN_REFRESH_SECS: f64 = 45.0;
 
+    /// Consecutive relay service-auth refresh failures after which the client
+    /// stops treating the outage as a hiccup and says so (#1215).
+    ///
+    /// At [`SERVICE_TOKEN_REFRESH_SECS`] apart, three in a row is a bit over
+    /// two minutes of a credential that cannot be renewed — comfortably past
+    /// any single transient PDS error, and still inside the window where the
+    /// user's own remedy (sign in again) is worth offering before they have
+    /// spent an hour building in a world they can no longer rejoin.
+    pub const SERVICE_TOKEN_FAILURES_BEFORE_ALARM: u64 = 3;
+
     // --- WebRTC ICE (NAT traversal) -----------------------------------------
     /// Public STUN servers used for WebRTC ICE server-reflexive candidate
     /// discovery. Without at least one STUN server the client gathers only
