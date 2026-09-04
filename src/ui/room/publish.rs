@@ -145,6 +145,10 @@ pub fn poll_publish_tasks(
     // the auto-open are what make it visible when the editor is closed.
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     mut toasts: ResMut<crate::ui::toast::Toasts>,
+    // The room this session is in now (#1204): a result for another room
+    // — a save let run in the background across a portal hop, or a task
+    // that outlived its session — must not pin `stored`.
+    current_room: Option<Res<crate::state::CurrentRoomDid>>,
 ) {
     for (entity, mut task) in publish_tasks.iter_mut() {
         let spawned_at = task.spawned_at;
@@ -158,6 +162,13 @@ pub fn poll_publish_tasks(
         };
 
         commands.entity(entity).despawn();
+        if stale_result(
+            "room publish",
+            &task.did,
+            current_room.as_deref().map(|r| r.0.as_str()),
+        ) {
+            continue;
+        }
         let now = time.elapsed_secs_f64();
         let did = task.did.clone();
         let duration_secs = now - task.spawned_at;
@@ -174,6 +185,10 @@ pub fn poll_publish_tasks(
                 if let Some(stored) = stored.as_mut() {
                     stored.0 = task.published.clone();
                 }
+                // The PDS now holds what `stored` says it holds, so the
+                // recovery marker — "the stored copy was never read" — is
+                // retired HERE, where success is known (#1199).
+                commands.remove_resource::<crate::state::RoomRecordRecovery>();
                 publish_feedback.status = PublishStatus::Success { at_secs: now };
                 session_log.info(
                     now,
@@ -211,6 +226,13 @@ pub fn poll_publish_tasks(
         };
 
         commands.entity(entity).despawn();
+        if stale_result(
+            "room reset",
+            &task.did,
+            current_room.as_deref().map(|r| r.0.as_str()),
+        ) {
+            continue;
+        }
         let now = time.elapsed_secs_f64();
         let did = task.did.clone();
         let duration_secs = now - task.spawned_at;
@@ -227,6 +249,10 @@ pub fn poll_publish_tasks(
                 if let Some(stored) = stored.as_mut() {
                     stored.0 = task.published.clone();
                 }
+                // See the publish arm: retired on the landed write, not on
+                // the click that asked for it (#1199). A failed reset keeps
+                // its banner and its button.
+                commands.remove_resource::<crate::state::RoomRecordRecovery>();
                 publish_feedback.status = PublishStatus::Success { at_secs: now };
                 session_log.info(
                     now,
@@ -251,5 +277,43 @@ pub fn poll_publish_tasks(
                 },
             ),
         }
+    }
+}
+
+/// Whether a landed write belongs to a session or room this client is no
+/// longer in (#1204). `expected` is the DID the poll answers for now —
+/// the current room for a room write, the signed-in session for an avatar
+/// or inventory write; `None` (no such resource, i.e. not in a session)
+/// lets the result through so the harnesses that drive the polls without
+/// a session keep working, and is unreachable in the app because the
+/// polls run only `InGame`.
+///
+/// A stale result is dropped whole: `stored` is a claim about what the PDS
+/// holds for THIS identity and room, and the status line describes THIS
+/// editor. Logout sweeps the task entities; this covers a task that
+/// outlived a portal hop under "Continue in background", and the wasm case
+/// where a dropped task's fetch keeps running.
+pub(crate) fn stale_result(label: &str, task_did: &str, expected: Option<&str>) -> bool {
+    match expected {
+        Some(expected) if expected != task_did => {
+            warn!(
+                "{label} for {task_did} landed after this client moved on to {expected}; \
+                 ignoring the result"
+            );
+            true
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_result_is_stale_only_when_the_expected_did_differs() {
+        assert!(!stale_result("t", "did:plc:a", None));
+        assert!(!stale_result("t", "did:plc:a", Some("did:plc:a")));
+        assert!(stale_result("t", "did:plc:a", Some("did:plc:b")));
     }
 }

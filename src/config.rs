@@ -978,9 +978,11 @@ pub mod state {
     pub const MAX_INVENTORY_LIST_PAGES: usize = 2;
 
     /// Maximum characters in an inventory item's display name. Items whose
-    /// fetched name exceeds this are dropped by `InventoryRecord::sanitize`
+    /// fetched name exceeds this are cut to it by `InventoryRecord::sanitize`
     /// (deterministically, before the count cap) so a hostile PDS cannot
-    /// smuggle megabyte strings through 50 item names.
+    /// smuggle megabyte strings through 50 item names. Cut, not dropped
+    /// (#1205): the rename dialog enforces the same bound, and an item the
+    /// owner watched save must not vanish at the next login.
     pub const MAX_INVENTORY_NAME_CHARS: usize = 256;
 
     /// Maximum `com.atproto.repo.listRecords` pages (100 records each) the
@@ -1404,6 +1406,13 @@ pub(crate) mod ui {
 
         /// Max text width before wrapping.
         pub const MAX_WIDTH: f32 = 320.0;
+
+        /// Text length (chars) past which `Toasts::push` elides with an
+        /// ellipsis (#1205). Toasts quote user-authored names and peer
+        /// records; at `MAX_WIDTH` this is a handful of lines, so no
+        /// string anyone wrote can cover the screen from the
+        /// Foreground layer.
+        pub const MAX_TEXT_CHARS: usize = 240;
 
         /// Anchor offset from the screen's top-right corner: clear of
         /// the window edge and below the toolbar strip.

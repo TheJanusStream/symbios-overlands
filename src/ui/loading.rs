@@ -195,11 +195,8 @@ fn draw_row(ui: &mut egui::Ui, label: &str, status: RowStatus) -> RowAction {
     // Surface the failure under the row so "retrying" isn't a mystery;
     // truncated hard (on a char boundary) because FetchError debug
     // strings can carry full URLs.
-    if let Some(mut reason) = retry_reason {
-        if reason.chars().count() > 90 {
-            reason = reason.chars().take(90).collect();
-            reason.push('…');
-        }
+    if let Some(reason) = retry_reason {
+        let reason = crate::ui::toast::elide(&reason, 90);
         ui.horizontal(|ui| {
             ui.add_space(22.0);
             ui.weak(egui::RichText::new(reason).small());

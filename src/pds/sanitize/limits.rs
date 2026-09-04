@@ -64,6 +64,16 @@ pub const MAX_TEXTURE_GRASS_BLADES: u32 = 24;
 pub const MAX_TEXTURE_LITTER_LAYERS: u32 = 4;
 /// Scatter placement count.
 pub const MAX_SCATTER_COUNT: u32 = 100_000;
+/// Generator-name length (chars) shared by the room recipe and the
+/// inventory stash — one number because an item dropped from the stash
+/// into the room carries its name across (#1205). Over-long keys are
+/// cut on load ([`super::names::sanitize_keys`]), never dropped, and the
+/// rename dialog refuses them at the point of typing. Aliases
+/// [`crate::config::state::MAX_INVENTORY_NAME_CHARS`] so the two cannot
+/// drift.
+pub const MAX_GENERATOR_NAME_CHARS: usize = crate::config::state::MAX_INVENTORY_NAME_CHARS;
+/// Road lot theme label length in bytes (#892); cut on a char boundary.
+pub const MAX_LOT_THEME_OVERRIDE_BYTES: usize = 64;
 /// L-system derivation iterations. 12 is already enough to blow out most
 /// lexical grammars — anything beyond this is almost certainly an attack.
 pub const MAX_LSYSTEM_ITERATIONS: u32 = 12;

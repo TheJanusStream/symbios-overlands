@@ -43,6 +43,10 @@ pub(super) struct AttachmentsTabOutcome {
 pub(super) struct AttachmentsTabState {
     /// The inventory item name picked in the wear row.
     pick_item: Option<String>,
+    /// Pending "Save to inventory" over an item that already exists
+    /// (#1200): the stash has no undo, so a replacement asks first.
+    /// Carries the worn index.
+    replace_confirm: crate::ui::confirm::ConfirmState<usize>,
 }
 
 /// Draw the tab. `inventory` is mutable for the one write this tab makes to
@@ -215,7 +219,27 @@ pub(super) fn draw_attachments_tab(
                                     )
                                     .clicked()
                                 {
-                                    save_back = Some(index);
+                                    // Replacing an existing stash item asks
+                                    // first (#1200): the worn copy and the
+                                    // stash copy diverge the moment either
+                                    // is edited, and the stash has no undo.
+                                    let existing =
+                                        attachment.record.source.as_deref().filter(|source| {
+                                            inventory.as_deref().is_some_and(|inv| {
+                                                inv.0.generators.contains_key(*source)
+                                            })
+                                        });
+                                    match existing {
+                                        Some(source) => state.replace_confirm.request(
+                                            format!("Replace \"{source}\" in your inventory?"),
+                                            "The stash copy is replaced by this worn one — its \
+                                             geometry, socket, fit and offset. Inventory changes \
+                                             cannot be undone.",
+                                            "Replace",
+                                            index,
+                                        ),
+                                        None => save_back = Some(index),
+                                    }
                                 }
                             });
                         });
@@ -233,6 +257,9 @@ pub(super) fn draw_attachments_tab(
                 .resolved
                 .as_ref()
                 .map_or(0, |resolved| resolved.attachments.len());
+            if let Some(index) = state.replace_confirm.show(ui.ctx(), "attachment-replace") {
+                save_back = Some(index);
+            }
             if let Some(index) = save_back
                 && let Some(inv) = inventory.as_deref_mut()
                 && let Some(worn) = rig
@@ -240,7 +267,18 @@ pub(super) fn draw_attachments_tab(
                     .as_ref()
                     .and_then(|resolved| resolved.attachments.get(index))
             {
+                let replaced = worn
+                    .record
+                    .source
+                    .as_deref()
+                    .is_some_and(|source| inv.0.generators.contains_key(source));
                 match save_worn_to_inventory(&worn.record, &mut inv.0) {
+                    // The two outcomes read differently (#1200): a replace
+                    // is not a save.
+                    Ok(name) if replaced => toasts.success(
+                        format!("Replaced \"{name}\" in your inventory with this worn copy."),
+                        now,
+                    ),
                     Ok(name) => toasts.success(
                         format!("Saved as \"{name}\" — wear it again from your inventory."),
                         now,

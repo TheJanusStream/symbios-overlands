@@ -8,7 +8,7 @@
 
 use symbios_overlands::pds::PrimCommon;
 use symbios_overlands::pds::{
-    DefaultLanding, Fp, Fp2, Fp3, Generator, GeneratorKind, InventoryRecord, RoomRecord,
+    DefaultLanding, Fp, Fp2, Fp3, Generator, GeneratorKind, InventoryRecord, Placement, RoomRecord,
     TortureParams, limits, sanitize_generator,
 };
 
@@ -1087,4 +1087,164 @@ fn texture_loop_counts_are_clamped() {
         SovereignTextureConfig::Twig(t) => assert!(t.leaf_pairs <= leaves),
         other => panic!("Twig mutated: {other:?}"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// String handling on the wire (#1205)
+// ---------------------------------------------------------------------------
+
+/// A CJK string whose `cap`-th byte falls mid-character: every char is
+/// 3 bytes, so a cap that is not a multiple of 3 splits one.
+fn straddling_cjk(cap: usize) -> String {
+    let s = "あ".repeat(cap / 3 + 2);
+    assert!(!s.is_char_boundary(cap), "fixture must straddle the cap");
+    s
+}
+
+/// Regression for finding 356 (#1205): a road `theme_override` whose 64th
+/// byte lands inside a kanji used to hit `String::truncate`'s boundary
+/// panic on every peer that received the room. Sequence: owner names a
+/// lot theme in CJK → peer receives `RoomStateUpdate` → `sanitize`.
+#[test]
+fn road_theme_override_straddling_the_cap_does_not_panic() {
+    use symbios_overlands::pds::generator::RoadConfig;
+    let cap = limits::MAX_LOT_THEME_OVERRIDE_BYTES;
+    let mut road = RoadConfig::default();
+    road.lots.theme_override = straddling_cjk(cap);
+    let mut generator = Generator {
+        kind: GeneratorKind::RoadNetwork(road),
+        ..Default::default()
+    };
+    sanitize_generator(&mut generator);
+    let GeneratorKind::RoadNetwork(road) = &generator.kind else {
+        panic!("variant changed");
+    };
+    assert!(road.lots.theme_override.len() <= cap);
+    assert!(
+        road.lots
+            .theme_override
+            .is_char_boundary(road.lots.theme_override.len())
+    );
+    assert!(
+        road.lots.theme_override.starts_with('あ'),
+        "the prefix must survive the cut"
+    );
+}
+
+/// Regression for finding 356 (#1205), audio half: an instrument id and
+/// an event's `instrument_id` sitting mid-character on the byte cap. Both
+/// run on every inbound node via `node.audio.sanitize()`.
+#[test]
+fn audio_ids_straddling_the_cap_do_not_panic() {
+    use symbios_overlands::pds::audio::{
+        SovereignAudioConfig, SovereignEvent, SovereignInstrument, SovereignSequenceRecipe,
+        SovereignTrack,
+    };
+    let cap = symbios_overlands::pds::sanitize::MAX_INSTRUMENT_ID_BYTES;
+    let id = straddling_cjk(cap);
+    let recipe = SovereignSequenceRecipe {
+        instruments: vec![SovereignInstrument {
+            id: id.clone(),
+            ..Default::default()
+        }],
+        tracks: vec![SovereignTrack {
+            events: vec![SovereignEvent {
+                instrument_id: id,
+                ..Default::default()
+            }],
+        }],
+        ..Default::default()
+    };
+    let mut generator = Generator {
+        audio: SovereignAudioConfig::Sequence { recipe },
+        ..Default::default()
+    };
+    sanitize_generator(&mut generator);
+    let SovereignAudioConfig::Sequence { recipe } = &generator.audio else {
+        panic!("variant changed");
+    };
+    for s in [
+        &recipe.instruments[0].id,
+        &recipe.tracks[0].events[0].instrument_id,
+    ] {
+        assert!(s.len() <= cap);
+        assert!(s.is_char_boundary(s.len()));
+        assert!(s.starts_with('あ'));
+    }
+}
+
+/// Regression for finding 367 (#1205): a generator key past the shared
+/// name cap is cut on a char boundary — never dropped — and every
+/// placement and trait entry that named it follows the rename.
+#[test]
+fn room_generator_keys_are_cut_and_placements_follow() {
+    let cap = limits::MAX_GENERATOR_NAME_CHARS;
+    let long = "あ".repeat(cap + 5);
+    let cut = "あ".repeat(cap);
+    let mut r = RoomRecord::default_for_did(TEST_DID);
+    r.generators.insert(long.clone(), Generator::default());
+    r.placements.push(Placement::Absolute {
+        generator_ref: long.clone(),
+        transform: Default::default(),
+        snap_to_terrain: true,
+        avoid_water: false,
+        avoid_water_clearance: Fp(0.0),
+    });
+    r.traits.insert(long.clone(), vec!["sensor".to_owned()]);
+    r.sanitize();
+    assert!(
+        r.generators.contains_key(&cut),
+        "key must be cut, not dropped"
+    );
+    assert!(!r.generators.contains_key(&long));
+    assert!(
+        r.placements.iter().any(|p| matches!(
+            p,
+            Placement::Absolute { generator_ref, .. } if generator_ref == &cut
+        )),
+        "the placement must follow its generator's new name"
+    );
+    assert_eq!(r.traits.get(&cut).map(Vec::len), Some(1));
+    assert!(!r.traits.contains_key(&long));
+}
+
+/// Regression for finding 366 (#1205): invisible characters are stripped
+/// from a record's generator keys on load, so two rows can no longer paint
+/// as twins; the lexicographically first claimant of a collided name
+/// survives on every peer.
+#[test]
+fn room_generator_keys_lose_invisible_characters_deterministically() {
+    let mut r = RoomRecord::default_for_did(TEST_DID);
+    r.generators.insert("Tree".to_owned(), Generator::default());
+    r.generators
+        .insert("Tree\u{200B}".to_owned(), Generator::default());
+    r.generators
+        .insert("Rock\u{202E}".to_owned(), Generator::default());
+    r.generators
+        .insert("\u{200B}".to_owned(), Generator::default());
+    r.placements.push(Placement::Scatter {
+        generator_ref: "Rock\u{202E}".to_owned(),
+        bounds: Default::default(),
+        count: 1,
+        local_seed: 0,
+        biome_filter: Default::default(),
+        snap_to_terrain: true,
+        random_yaw: true,
+        avoid_urban: false,
+        float_on_water: false,
+        naturalness: Default::default(),
+    });
+    r.sanitize();
+    assert!(r.generators.contains_key("Tree"));
+    assert!(r.generators.contains_key("Rock"));
+    assert!(
+        !r.generators
+            .keys()
+            .any(|k| k.chars().any(|c| c == '\u{200B}' || c == '\u{202E}'))
+    );
+    assert!(!r.generators.contains_key(""));
+    assert!(r.placements.iter().any(|p| matches!(
+        p,
+        Placement::Scatter { generator_ref, .. } if generator_ref == "Rock"
+    )));
 }

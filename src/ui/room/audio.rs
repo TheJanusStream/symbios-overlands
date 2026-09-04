@@ -40,39 +40,60 @@ const AUDITION_PATCH_SECS: f32 = 4.0;
 ///
 /// The window edits only its native *working copy*; it never holds a
 /// reference to the sovereign record. On a committed edit it stashes the
-/// converted [`SovereignAudioConfig`] in [`Self::committed`], keyed by
-/// the bound [`Self::salt`]. The matching bridge call site — which *does*
-/// own the live `&mut SovereignAudioConfig` for its slot — pulls that
-/// value the next time it runs. This "commit buffer" keeps the window
-/// slot-agnostic, so the same editor serves both the room-ambient slot
-/// and any per-construct slot symmetrically.
+/// converted [`SovereignAudioConfig`] in [`Self::pending`] under the
+/// bound [`Self::salt`]. The matching bridge call site — which *does*
+/// own the live `&mut SovereignAudioConfig` for its slot — takes that
+/// value the next time it runs. This keeps the window slot-agnostic, so
+/// the same editor serves both the room-ambient slot and any
+/// per-construct slot symmetrically.
+///
+/// The pending value is **delivery**, not a draft awaiting approval
+/// (#1202): the crate's editors commit on every drag end, and nothing in
+/// this window can decline a commit. It therefore survives the window
+/// closing, the Esc ladder, and the bound slot leaving the screen — the
+/// World Editor closing, a tab change, the tree selection moving — and
+/// lands the next time that slot's bridge draws. It used to be a single
+/// `committed` slot wiped by `close()`, and the bridge only ran while the
+/// slot was on screen, so twenty minutes of node-graph work vanished on
+/// the ordinary gesture of closing the window after the selection had
+/// moved — while the audition kept playing the doomed working copy.
 #[derive(Default)]
 pub struct AudioEditorState {
     /// Whether the pop-out editor window is open.
     pub open: bool,
     /// Which slot the open editor is bound to (the bridge `salt`).
     salt: String,
+    /// What the bound slot is, in the owner's words, for the title
+    /// (#1202): the salt is an egui id string nobody sees elsewhere.
+    label: String,
     /// Native working copy + canvas view-state for a `Patch` slot.
     patch: Option<(bevy_symbios_audio::AudioPatch, PatchEditorState)>,
     /// Native working copy + timeline view-state for a `Sequence` slot.
     sequence: Option<(bevy_symbios_audio::SequenceRecipe, SequenceEditorState)>,
-    /// A committed edit awaiting pickup by the bound slot's bridge. Keyed
-    /// implicitly by [`Self::salt`] — the bridge only takes it when its
-    /// own salt matches.
-    committed: Option<SovereignAudioConfig>,
+    /// Committed edits awaiting pickup, keyed by slot salt. One per slot:
+    /// a later commit for the same slot replaces the earlier one.
+    pending: std::collections::HashMap<String, SovereignAudioConfig>,
+    /// The egui frame on which the bound slot's bridge last drew, so the
+    /// window can say when its edits have nowhere to land yet.
+    bound_seen_frame: Option<u64>,
 }
 
 impl AudioEditorState {
-    /// Seed the working copy from the sovereign value and open the
-    /// window. Exactly one of `patch` / `sequence` is populated to match
-    /// the variant; the other is cleared so a stale copy from a previous
-    /// slot can't leak in.
-    fn open_for(&mut self, audio: &SovereignAudioConfig, salt: &str) {
+    /// Seed the working copy and open the window. Exactly one of `patch`
+    /// / `sequence` is populated to match the variant; the other is
+    /// cleared so a stale copy from a previous slot can't leak in.
+    ///
+    /// Seeds from a pending commit for this slot when one is stranded
+    /// there, not from `audio`: the record is behind the owner's last
+    /// edit until the bridge lands it, and reseeding from the record
+    /// would silently roll that edit back.
+    fn open_for(&mut self, audio: &SovereignAudioConfig, salt: &str, label: &str) {
         self.salt = salt.to_string();
+        self.label = label.to_string();
         self.patch = None;
         self.sequence = None;
-        self.committed = None;
-        match audio {
+        let seed = self.pending.get(salt).unwrap_or(audio);
+        match seed {
             SovereignAudioConfig::Patch { patch } => {
                 self.patch = Some((patch.to_native(), PatchEditorState::default()));
             }
@@ -86,12 +107,33 @@ impl AudioEditorState {
         self.open = true;
     }
 
-    /// Drop the working copy and close the window.
+    /// Stage a committed edit for the bound slot.
+    fn commit(&mut self, audio: SovereignAudioConfig) {
+        self.pending.insert(self.salt.clone(), audio);
+    }
+
+    /// The bridge for `salt` takes its pending commit, if any.
+    pub(crate) fn take_pending(&mut self, salt: &str) -> Option<SovereignAudioConfig> {
+        self.pending.remove(salt)
+    }
+
+    /// Forget a pending commit for `salt` — the slot changed variant
+    /// under it, so the edit is for a value that no longer exists.
+    fn discard(&mut self, salt: &str) {
+        self.pending.remove(salt);
+    }
+
+    /// Whether an edit is staged for `salt` and has not landed yet.
+    pub(crate) fn has_pending(&self, salt: &str) -> bool {
+        self.pending.contains_key(salt)
+    }
+
+    /// Drop the working copy and close the window. Pending commits stay:
+    /// closing the window is not a way to un-commit an edit (#1202).
     pub(crate) fn close(&mut self) {
         self.open = false;
         self.patch = None;
         self.sequence = None;
-        self.committed = None;
     }
 }
 
@@ -105,18 +147,21 @@ pub(super) fn draw_audio_bridge(
     ui: &mut egui::Ui,
     audio: &mut SovereignAudioConfig,
     salt: &str,
+    label: &str,
     dirty: &mut bool,
     editor: &mut AudioEditorState,
 ) {
     // Pick up any committed edit the pop-out editor staged for this slot
     // (it edits a native working copy and writes back here, keyed by
     // salt, so the window itself stays slot-agnostic — see
-    // [`AudioEditorState`]).
-    if editor.salt == salt
-        && let Some(committed) = editor.committed.take()
-    {
+    // [`AudioEditorState`]). Whether or not the window is still open or
+    // still bound here: a commit is delivered, never dropped (#1202).
+    if let Some(committed) = editor.take_pending(salt) {
         *audio = committed;
         *dirty = true;
+    }
+    if editor.salt == salt {
+        editor.bound_seen_frame = Some(ui.ctx().cumulative_frame_nr());
     }
 
     let prev_variant = std::mem::discriminant(&*audio);
@@ -158,9 +203,12 @@ pub(super) fn draw_audio_bridge(
 
     // A variant switch invalidates any open editor bound to this slot —
     // its working copy is for the old variant. Close it so the next
-    // "Edit audio…" reseeds cleanly.
-    if std::mem::discriminant(&*audio) != prev_variant && editor.salt == salt {
-        editor.close();
+    // "Edit audio…" reseeds cleanly, and drop anything it had staged.
+    if std::mem::discriminant(&*audio) != prev_variant {
+        editor.discard(salt);
+        if editor.salt == salt {
+            editor.close();
+        }
     }
 
     match audio {
@@ -170,11 +218,11 @@ pub(super) fn draw_audio_bridge(
         }
         SovereignAudioConfig::Patch { patch } => {
             draw_patch_summary(ui, patch);
-            edit_button(ui, audio, salt, editor);
+            edit_button(ui, audio, salt, label, editor);
         }
         SovereignAudioConfig::Sequence { recipe } => {
             draw_sequence_summary(ui, recipe);
-            edit_button(ui, audio, salt, editor);
+            edit_button(ui, audio, salt, label, editor);
         }
     }
 }
@@ -184,20 +232,21 @@ fn edit_button(
     ui: &mut egui::Ui,
     audio: &SovereignAudioConfig,
     salt: &str,
+    label: &str,
     editor: &mut AudioEditorState,
 ) {
     let is_open = editor.open && editor.salt == salt;
-    let label = if is_open {
+    let button_text = if is_open {
         "Editing… (window open)"
     } else {
         "\u{270E} Edit audio\u{2026}"
     };
     if ui
-        .add_enabled(!is_open, egui::Button::new(label))
+        .add_enabled(!is_open, egui::Button::new(button_text))
         .on_hover_text("Open the structured node-graph / sequence editor")
         .clicked()
     {
-        editor.open_for(audio, salt);
+        editor.open_for(audio, salt, label);
     }
 }
 
@@ -260,7 +309,13 @@ pub(crate) fn draw_audio_editor_window(
     // One shared layout slot for every audio slot's pop-out: the window
     // id is salted per slot, but geometry-wise they are the same tool.
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::AudioEditor, ctx);
-    let response = egui::Window::new(format!("Audio Editor — {}", editor.salt))
+    // The bridge for the bound slot draws BEFORE this window in the same
+    // system, so "seen this frame" means the slot is on screen and every
+    // commit lands at once; anything else means the edits are stranded
+    // until it is shown again — say so (#1202).
+    let slot_on_screen = editor.bound_seen_frame == Some(ctx.cumulative_frame_nr());
+    let stranded = editor.has_pending(&editor.salt);
+    let response = egui::Window::new(format!("Audio Editor — {}", editor.label))
         .id(id.with("window"))
         .open(&mut keep_open)
         .resizable(true)
@@ -268,6 +323,19 @@ pub(crate) fn draw_audio_editor_window(
         .default_pos(pos)
         .constrain_to(chrome.available_rect(ctx))
         .show(ctx, |ui| {
+            if !slot_on_screen {
+                ui.colored_label(
+                    crate::ui::theme::current(ui.ctx()).status.warn,
+                    if stranded {
+                        "Edits are kept but not applied yet — the slot this window edits \
+                         is not on screen. Reselect it in its editor to apply them."
+                    } else {
+                        "The slot this window edits is not on screen. Edits are kept and \
+                         apply when it is shown again."
+                    },
+                );
+                ui.add_space(4.0);
+            }
             // The crate's editors return EditorResponse { changed,
             // rebake }; we treat `rebake` (a committed edit — drag ended
             // or a non-drag widget changed) as the write-back trigger.
@@ -275,22 +343,28 @@ pub(crate) fn draw_audio_editor_window(
             // mid-drag `changed` needs no extra handling here.
             if let Some((patch, state)) = editor.patch.as_mut() {
                 let res = audio_patch_canvas(ui, patch, state, id.with("patch"));
-                if res.rebake {
-                    editor.committed = Some(SovereignAudioConfig::from_patch(patch));
-                }
+                let committed = res.rebake.then(|| SovereignAudioConfig::from_patch(patch));
                 ui.separator();
                 audition_row(ui, monitor, requests, || MonitorRequest::PlayPatch {
                     patch: patch.clone(),
                     sample_rate: AUDITION_SAMPLE_RATE,
                     duration_secs: AUDITION_PATCH_SECS,
                 });
+                if let Some(committed) = committed {
+                    editor.commit(committed);
+                }
             } else if let Some((recipe, state)) = editor.sequence.as_mut() {
                 let res = sequence_recipe_editor(ui, recipe, state, id.with("seq"));
                 ui.separator();
                 let canvas = active_instrument_canvas(ui, recipe, state, id.with("seq_canvas"));
-                if res.rebake || canvas.rebake {
-                    editor.committed = Some(SovereignAudioConfig::from_sequence(recipe));
+                let committed = (res.rebake || canvas.rebake)
+                    .then(|| SovereignAudioConfig::from_sequence(recipe));
+                if let Some(committed) = committed {
+                    editor.commit(committed);
                 }
+                let Some((recipe, _)) = editor.sequence.as_mut() else {
+                    return;
+                };
                 ui.separator();
                 audition_row(ui, monitor, requests, || MonitorRequest::PlaySequence {
                     recipe: recipe.clone(),
@@ -307,7 +381,7 @@ pub(crate) fn draw_audio_editor_window(
     }
 
     // Honour the window's [x] close button, and drop the working copy
-    // (a fresh "Edit audio…" reseeds from the committed sovereign value).
+    // (a fresh "Edit audio…" reseeds from the pending or committed value).
     if !keep_open {
         // Stop any audition that was looping for this slot.
         requests.write(MonitorRequest::Stop);
@@ -351,5 +425,87 @@ fn audition_row(
 
     if !monitor.last_samples.is_empty() {
         waveform(ui, &monitor.last_samples);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pds::audio::SovereignAudioPatch;
+
+    fn patch_slot() -> SovereignAudioConfig {
+        SovereignAudioConfig::Patch {
+            patch: SovereignAudioPatch::default(),
+        }
+    }
+
+    /// #1202 (finding 76). Sequence: open "Edit audio…" on a construct,
+    /// commit an edit (drag end), click another tree row so the bound
+    /// slot's bridge stops drawing, close the pop-out, reselect the row.
+    /// The commit used to live in one slot that `close()` wiped, so the
+    /// edit was gone before the bridge could ever take it. It must survive
+    /// the close and land when the slot's bridge next runs.
+    #[test]
+    fn a_commit_survives_closing_the_window_and_lands_when_its_slot_is_next_drawn() {
+        let mut editor = AudioEditorState::default();
+        editor.open_for(&patch_slot(), "gen_oak_1", "oak / Cylinder");
+        let edited = SovereignAudioPatch {
+            seed: 77,
+            ..Default::default()
+        };
+        editor.commit(SovereignAudioConfig::Patch { patch: edited });
+
+        // The selection moves: another slot's bridge draws and takes nothing.
+        assert!(editor.take_pending("gen_birch_0").is_none());
+        // The window closes.
+        editor.close();
+        assert!(!editor.open);
+        assert!(
+            editor.has_pending("gen_oak_1"),
+            "closing is not un-committing"
+        );
+        // The row is reselected: the bridge lands the edit.
+        let landed = editor.take_pending("gen_oak_1").expect("the edit lands");
+        assert!(matches!(landed, SovereignAudioConfig::Patch { patch } if patch.seed == 77));
+        assert!(!editor.has_pending("gen_oak_1"));
+    }
+
+    /// Reopening the window for a slot whose commit is still stranded
+    /// seeds from that commit, not from the record — the record is behind
+    /// the owner's last edit until the bridge lands it.
+    #[test]
+    fn reopening_a_slot_with_a_stranded_commit_seeds_from_the_commit() {
+        let mut editor = AudioEditorState::default();
+        editor.open_for(&patch_slot(), "environment", "Room ambient");
+        let edited = SovereignAudioPatch {
+            seed: 5,
+            ..Default::default()
+        };
+        editor.commit(SovereignAudioConfig::Patch { patch: edited });
+        editor.close();
+        editor.open_for(&patch_slot(), "environment", "Room ambient");
+        let (working, _) = editor.patch.as_ref().expect("a patch working copy");
+        assert_eq!(
+            working.seed, 5,
+            "the working copy carries the stranded edit"
+        );
+        assert_eq!(editor.label, "Room ambient");
+    }
+
+    /// A variant switch on the slot is the one thing that discards a
+    /// pending commit: the edit is for a value that no longer exists.
+    #[test]
+    fn a_variant_switch_discards_the_pending_commit_for_that_slot_only() {
+        let mut editor = AudioEditorState::default();
+        editor.open_for(&patch_slot(), "a", "A");
+        editor.commit(patch_slot());
+        editor.open_for(&patch_slot(), "b", "B");
+        editor.commit(patch_slot());
+        editor.discard("a");
+        assert!(!editor.has_pending("a"));
+        assert!(
+            editor.has_pending("b"),
+            "another slot's commit is untouched"
+        );
     }
 }

@@ -1021,16 +1021,41 @@ pub fn engine_default_for_seed(seed: u64) -> EngineAvatarRecord {
 /// spawn pipeline see the body immediately — nothing exists on the PDS
 /// until the next save publishes the bundle.
 ///
+/// The outfit survives the switch (#1201). A rigged record's attachment
+/// **reference list** is what the next save's delete set is derived from
+/// (`stored` refs − `live` refs, [`attachment_deletes`]), so replacing the
+/// record wholesale — as this did — made the next Save delete every
+/// attachment record the owner was wearing. That button is offered on the
+/// recovery path (a wardrobe fetch that failed), where the references are
+/// exactly what was NOT lost: only `resolved` came up short. The references
+/// carry, and so do any resolved props and the gait a rigged body already
+/// had; a generator body's gait does not (a skinned body's motion is the
+/// engine's, see [`super::AvatarRecord::wearing`]).
+///
 /// Humanoid locomotion tuning survives the switch; any other preset is
 /// replaced by the humanoid default, because a rigged body walks.
 pub fn wear_new_engine_body(record: &mut super::AvatarRecord, did: &str) {
     let rkey = crate::pds::tid::tid_now(crate::seeded_defaults::fnv1a_64(did));
     let mut fresh = super::AvatarRecord::wearing(rkey);
+    let outfit = record.body.rigged_ref().map(|rig| {
+        (
+            rig.attachments.clone(),
+            rig.resolved
+                .as_ref()
+                .map(|resolved| resolved.attachments.clone())
+                .unwrap_or_default(),
+        )
+    });
     if let Some(rig) = fresh.body.rigged_mut() {
+        let (references, worn) = outfit.unwrap_or_default();
+        rig.attachments = references;
         rig.resolved = Some(ResolvedRig {
             body: engine_default_for_did(did),
-            attachments: Vec::new(),
+            attachments: worn,
         });
+    }
+    if record.body.rigged_ref().is_some() {
+        fresh.gait = record.gait.clone();
     }
     if matches!(record.locomotion, super::LocomotionConfig::Humanoid(_)) {
         fresh.locomotion = record.locomotion.clone();
@@ -1322,6 +1347,39 @@ mod tests {
             "a rigged body walks"
         );
         let _ = walked;
+    }
+
+    /// #1201 (finding 97). Sequence: the wardrobe fetch fails on a network
+    /// blip, so the rig is unresolved while its reference list still names
+    /// the two props the owner wears; they click "Wear a fresh body
+    /// instead", then Save. The swap used to replace the record wholesale
+    /// with an empty reference list, and the save's derived delete set —
+    /// stored refs minus live refs — then deleted both attachment records
+    /// from the repo. The references must carry across, and the delete
+    /// set must be empty.
+    #[test]
+    fn a_fresh_body_keeps_the_outfit_an_unresolved_rig_still_references() {
+        let mut record = super::super::AvatarRecord::wearing("3jzfcijpj2z2a");
+        let rig = record.body.rigged_mut().expect("rigged");
+        rig.attachments = vec![String::from("3jzfcijpj2z2b"), String::from("3jzfcijpj2z2c")];
+        rig.resolved = None;
+        record.gait = Some(crate::pds::GaitParams::for_seed(4));
+        let stored_refs = attachment_rkeys(&record);
+
+        wear_new_engine_body(&mut record, "did:plc:fresh-body");
+
+        let rig = record.body.rigged_ref().expect("still rigged");
+        assert_ne!(rig.avatar, "3jzfcijpj2z2a", "a fresh wardrobe entry");
+        assert_eq!(
+            rig.attachments, stored_refs,
+            "the outfit's references carry"
+        );
+        assert!(rig.resolved.is_some(), "the fresh body resolves locally");
+        assert!(
+            attachment_deletes(&record, &stored_refs).is_empty(),
+            "the next save must not retire a prop the owner never took off"
+        );
+        assert!(record.gait.is_some(), "a rigged record's gait carries too");
     }
 
     #[test]

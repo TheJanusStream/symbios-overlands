@@ -209,6 +209,10 @@ pub(super) fn poll_portal_travel_tasks(
     mut toasts: ResMut<crate::ui::toast::Toasts>,
     profile_cache: Res<crate::avatar::BskyProfileCache>,
     mut undo_signals: ResMut<crate::ui::undo::RoomWriteSignals>,
+    // Cleared when the swap lands (#1204): the cache's own contract is
+    // "cleared on room transitions" so a self-updating `DidPfp` source is
+    // re-fetched in the next world, and logout was its only clear site.
+    mut blob_image_cache: ResMut<crate::world_builder::image_cache::BlobImageCache>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) = bevy::tasks::futures_lite::future::block_on(
@@ -331,6 +335,10 @@ pub(super) fn poll_portal_travel_tasks(
         if let Some(did) = current_did.as_mut() {
             did.0 = travel_data.target_did.clone();
         }
+        // A same-owner record held for the room being left (#1203) is a
+        // question about a world this session is no longer in.
+        commands.remove_resource::<crate::ui::other_session::OtherSessionRoom>();
+        blob_image_cache.clear();
 
         // 3. Hot-swap the WebRTC Socket
         commands.remove_resource::<bevy_symbios_multiuser::prelude::SymbiosMultiuserConfig<

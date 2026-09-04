@@ -256,6 +256,7 @@ pub(super) fn draw_environment_tab(
                 ui,
                 &mut env.ambient_audio,
                 "environment",
+                "Room ambient",
                 dirty,
                 audio_editor,
             );

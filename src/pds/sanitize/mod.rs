@@ -23,10 +23,12 @@
 //! hang the trait off.
 
 mod audio;
+pub use audio::MAX_INSTRUMENT_ID_BYTES;
 mod common;
 mod contact_effects;
 pub mod limits;
 mod material;
+pub mod names;
 mod particles;
 mod primitive;
 mod sign;
@@ -272,7 +274,10 @@ fn sanitize_road(c: &mut crate::pds::generator::RoadConfig) {
     if c.lots.scale_min.0 > c.lots.scale_max.0 {
         std::mem::swap(&mut c.lots.scale_min, &mut c.lots.scale_max);
     }
-    c.lots.theme_override.truncate(64);
+    truncate_on_char_boundary(
+        &mut c.lots.theme_override,
+        limits::MAX_LOT_THEME_OVERRIDE_BYTES,
+    );
     // Furniture (#893): spacing floor keeps a hostile record from planting
     // a prop every half-metre down every street.
     c.furniture.spacing.0 = clamp_finite(c.furniture.spacing.0, 8.0, 200.0, 30.0);

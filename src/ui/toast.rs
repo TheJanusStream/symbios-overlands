@@ -77,6 +77,19 @@ pub struct Toasts {
     next_id: u64,
 }
 
+/// Cut `text` to at most `max_chars` characters plus an ellipsis — on a
+/// char boundary by construction, since it counts scalars, never bytes.
+/// Shared by the toast queue and the loading rows (#1205): both quote
+/// strings someone else wrote, and neither may grow without bound.
+pub(crate) fn elide(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_owned();
+    }
+    let mut out: String = text.chars().take(max_chars).collect();
+    out.push('…');
+    out
+}
+
 impl Toasts {
     /// Queue a toast. `now` is `Time::elapsed_secs_f64` — passed in
     /// rather than read here so the queue logic stays unit-testable.
@@ -85,7 +98,7 @@ impl Toasts {
         self.next_id = self.next_id.wrapping_add(1);
         self.queue.push(Toast {
             kind,
-            text: text.into(),
+            text: elide(&text.into(), cfg::MAX_TEXT_CHARS),
             expires_at: now + cfg::DURATION_SECS,
             id,
         });
@@ -189,6 +202,22 @@ pub fn toast_ui(mut contexts: EguiContexts, mut toasts: ResMut<Toasts>, time: Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1205: a toast quoting a record-supplied name is bounded at push,
+    /// so nothing written into a record can cover the screen from the
+    /// Foreground layer. The cut is in chars, so a CJK name is safe.
+    #[test]
+    fn push_elides_unbounded_text_on_a_char_boundary() {
+        let mut t = Toasts::default();
+        let long = "あ".repeat(cfg::MAX_TEXT_CHARS + 100);
+        t.info(long, 0.0);
+        let shown = t.shown();
+        let text = shown[0].1;
+        assert_eq!(text.chars().count(), cfg::MAX_TEXT_CHARS + 1);
+        assert!(text.ends_with('…'));
+        t.info("short", 0.0);
+        assert_eq!(t.shown()[1].1, "short");
+    }
 
     #[test]
     fn push_assigns_ttl_and_keeps_arrival_order() {

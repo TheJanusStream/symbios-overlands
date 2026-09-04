@@ -200,10 +200,12 @@ pub struct BlobImageKey {
     pub filter: SamplerFilter,
 }
 
-/// Source-keyed coalescing cache for image fetches. Cleared on room
-/// transitions so a new room can re-fetch sources that may have
-/// updated upstream — most relevant for `DidPfp`, which is
-/// intentionally self-updating.
+/// Source-keyed coalescing cache for image fetches. Cleared at logout and
+/// when portal travel lands in a new room (`player::portal`, #1204) so a
+/// new room can re-fetch sources that may have updated upstream — most
+/// relevant for `DidPfp`, which is intentionally self-updating. The
+/// room's own recompile does NOT clear it: a recompile within one world
+/// is meant to hit.
 ///
 /// Bounded on two axes: [`MAX_CACHE_ENTRIES`] keys and [`MAX_CACHE_BYTES`] of
 /// decoded pixels. Insert order is tracked in a secondary `VecDeque`; when a

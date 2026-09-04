@@ -45,6 +45,58 @@ pub enum RecordAction {
     Reset,
 }
 
+/// What "Reset to default" does to this editor's record, for the button's
+/// hover and the confirm copy (#1200). The room and avatar have a DID-seeded
+/// default the reset rebuilds; the inventory has none — its "default" is an
+/// empty stash, and the shared wording ("replaces the whole record with its
+/// generated default") never said that every item goes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ResetWording {
+    /// A generated default replaces the record.
+    Record,
+    /// The stash is emptied; `items` is how many go.
+    EmptyStash { items: usize },
+}
+
+impl ResetWording {
+    fn hover(self) -> String {
+        match self {
+            Self::Record => String::from(
+                "Replace the whole record with its generated default. The copy on \
+                 your PDS is untouched until you save.",
+            ),
+            Self::EmptyStash { items } => format!(
+                "Empty your inventory — deletes all {items} item{}. The inventory has \
+                 no undo; your PDS copy is untouched until you save.",
+                if items == 1 { "" } else { "s" }
+            ),
+        }
+    }
+
+    fn confirm(self) -> (&'static str, String, &'static str) {
+        match self {
+            Self::Record => (
+                "Reset to default?",
+                String::from(
+                    "Replaces the whole record with its generated default. Unsaved \
+                     edits are lost immediately; the copy on your PDS is untouched \
+                     until you save.",
+                ),
+                "Reset",
+            ),
+            Self::EmptyStash { items } => (
+                "Empty your inventory?",
+                format!(
+                    "Deletes all {items} item{} from your stash. The inventory has no \
+                     undo. Your PDS copy is untouched until you save.",
+                    if items == 1 { "" } else { "s" }
+                ),
+                "Empty inventory",
+            ),
+        }
+    }
+}
+
 /// Render the uniform Publish / Load / Reset row.
 ///
 /// Enable rules, identical for all three records:
@@ -80,6 +132,7 @@ pub fn save_load_reset_row(
     // and Avatar pass `None`: both replacements are one Ctrl+Z away,
     // so the guard would only double-charge a now-recoverable click.
     mut confirm: Option<&mut crate::ui::confirm::ConfirmState<RecordAction>>,
+    reset: ResetWording,
 ) -> RecordAction {
     let size_class = record_bytes.map(record_size::classify);
     let over_hard = size_class == Some(SizeClass::OverHardCeiling);
@@ -142,18 +195,15 @@ pub fn save_load_reset_row(
         }
         if ui
             .add_enabled(can_reset, egui::Button::new("Reset to default"))
+            .on_hover_text(reset.hover())
             .clicked()
         {
             match confirm.as_deref_mut() {
                 None => action = RecordAction::Reset,
-                Some(confirm) => confirm.request(
-                    "Reset to default?",
-                    "Replaces the whole record with its generated default. Unsaved \
-                     edits are lost immediately; the copy on your PDS is untouched \
-                     until you save.",
-                    "Reset",
-                    RecordAction::Reset,
-                ),
+                Some(confirm) => {
+                    let (title, body, button) = reset.confirm();
+                    confirm.request(title, body, button, RecordAction::Reset);
+                }
             }
         }
         if let (Some(bytes), Some(class)) = (record_bytes, size_class) {
@@ -335,6 +385,107 @@ pub fn report_publish_failure<R: 'static + Send + Sync>(
         at_secs: now,
         message: error,
     };
+}
+
+/// The three record-recovery markers, read together (#1199).
+///
+/// A marker means the loader installed a synthesised default as BOTH live
+/// and stored while the owner's real record still sits on the PDS, so
+/// "dirty" reads clean and any publish of that record overwrites a copy
+/// this client never read. The markers used to be consulted by the three
+/// editors' own Save rows only; the unsaved guard's "Publish & …" and the
+/// gift auto-publish walked straight past them. Every door onto a publish
+/// now asks this one type, so the doors cannot drift apart again.
+///
+/// A marker retires where success is known — in the poll systems, on the
+/// `Ok` arm — never at the click that asked for the overwrite. Retiring on
+/// the click left a failed recovery with no banner and no retry.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct RecoveryMarkers<'w> {
+    room: Option<bevy::prelude::Res<'w, crate::state::RoomRecordRecovery>>,
+    avatar: Option<bevy::prelude::Res<'w, crate::state::AvatarRecordRecovery>>,
+    inventory: Option<bevy::prelude::Res<'w, crate::state::InventoryRecordRecovery>>,
+}
+
+impl RecoveryMarkers<'_> {
+    /// Why publishing `record` right now would overwrite an unread stored
+    /// copy, or `None` when its fetch landed cleanly.
+    pub fn reason(&self, record: RecordKind) -> Option<&str> {
+        match record {
+            RecordKind::Room => self.room.as_deref().map(|r| r.reason.as_str()),
+            RecordKind::Avatar => self.avatar.as_deref().map(|r| r.reason.as_str()),
+            RecordKind::Inventory => self.inventory.as_deref().map(|r| r.reason.as_str()),
+        }
+    }
+
+    /// The reasons in `[room, avatar, inventory]` order, for the pure
+    /// decision functions that must stay testable without an ECS.
+    pub fn reasons(&self) -> [Option<&str>; 3] {
+        [
+            self.reason(RecordKind::Room),
+            self.reason(RecordKind::Avatar),
+            self.reason(RecordKind::Inventory),
+        ]
+    }
+}
+
+/// The user-facing noun for a record kind in recovery copy.
+fn recovery_noun(record: RecordKind) -> &'static str {
+    match record {
+        RecordKind::Room => "world",
+        RecordKind::Avatar => "avatar",
+        RecordKind::Inventory => "inventory",
+    }
+}
+
+/// The sentence every recovery-gated publish shows before it proceeds:
+/// what loaded instead, why, and what saving now does to the stored copy.
+pub fn overwrite_warning(record: RecordKind, reason: &str) -> String {
+    let loaded_as = match record {
+        RecordKind::Inventory => "an empty default",
+        RecordKind::Room | RecordKind::Avatar => "the default",
+    };
+    format!(
+        "Your {} loaded as {loaded_as} because the stored copy could not be read ({reason}). \
+         Saving now replaces whatever is stored on your PDS with what you see here.",
+        recovery_noun(record)
+    )
+}
+
+/// Ask before a recovery-gated publish, in the words every editor uses.
+/// The caller publishes when the confirm's `show` yields `Some` — and
+/// leaves the marker alone: the poll system retires it on success.
+pub fn request_overwrite_confirm(
+    confirm: &mut crate::ui::confirm::ConfirmState<()>,
+    record: RecordKind,
+    reason: &str,
+) {
+    confirm.request(
+        format!("Overwrite your stored {}?", recovery_noun(record)),
+        overwrite_warning(record, reason),
+        "Save anyway",
+        (),
+    );
+}
+
+/// Hover text for a publish control that is disabled because it would
+/// write over unread stored copies — one line per blocked record, then
+/// where the confirmed overwrite lives.
+pub fn publish_blocked_hover(blocked: &[(RecordKind, &str)]) -> String {
+    let mut lines: Vec<String> = blocked
+        .iter()
+        .map(|(record, reason)| {
+            format!(
+                "Your {} could not be loaded ({reason}); saving it from here would overwrite \
+                 the stored copy unread.",
+                recovery_noun(*record)
+            )
+        })
+        .collect();
+    lines.push(String::from(
+        "Open its editor to save deliberately — that Save asks first.",
+    ));
+    lines.join("\n")
 }
 
 /// Render the uniform publish status line. `Idle` draws nothing; every
@@ -730,6 +881,43 @@ mod tests {
     use crate::state::PublishFeedback;
     use crate::ui::toast::{ToastKind, Toasts};
     use crate::ui::toolbar::UiPanels;
+
+    /// #1200 (finding 128): "Reset to default" on the inventory empties the
+    /// stash, and the shared copy talked about "the whole record" and "its
+    /// generated default" — words written for the room. The inventory's
+    /// wording must say what goes, and how many.
+    #[test]
+    fn the_inventory_reset_says_it_empties_the_stash() {
+        let (title, body, button) = ResetWording::EmptyStash { items: 40 }.confirm();
+        assert_eq!(title, "Empty your inventory?");
+        assert!(body.contains("all 40 items"));
+        assert!(body.contains("no undo"));
+        assert_eq!(button, "Empty inventory");
+        assert!(
+            ResetWording::EmptyStash { items: 1 }
+                .hover()
+                .contains("all 1 item.")
+        );
+        let (title, body, _) = ResetWording::Record.confirm();
+        assert_eq!(title, "Reset to default?");
+        assert!(body.contains("generated default"));
+    }
+
+    /// #1199: the three editors used to word the same warning three ways,
+    /// and the room had none. One sentence, naming the record, the reason
+    /// and the consequence.
+    #[test]
+    fn the_overwrite_warning_names_record_reason_and_consequence() {
+        let text = overwrite_warning(RecordKind::Room, "decode error");
+        assert!(text.contains("world"));
+        assert!(text.contains("decode error"));
+        assert!(text.contains("replaces whatever is stored"));
+        assert!(overwrite_warning(RecordKind::Inventory, "x").contains("empty default"));
+        let hover = publish_blocked_hover(&[(RecordKind::Avatar, "timed out")]);
+        assert!(hover.contains("avatar"));
+        assert!(hover.contains("timed out"));
+        assert!(hover.contains("asks first"));
+    }
 
     /// #1137. Sequence: press Ctrl+S in the Avatar editor, then Esc to
     /// close the window — the request TTL lets the save proceed with the

@@ -197,18 +197,27 @@ pub fn login_ui(
     // edits the user made after landing on the form. `pds` / `relay`
     // fall back to the form defaults when not provided so an empty boot
     // input behaves identically to the prior release.
-    if !latch.prefilled
-        && let Some(boot) = boot.as_deref()
-        && boot.is_any()
-    {
-        if let Some(did) = &boot.target_did {
-            form.target_did = did.clone();
-        }
-        if let Some(pds) = &boot.pds {
-            form.pds = pds.clone();
-        }
-        if let Some(relay) = &boot.relay {
-            form.relay_host = relay.clone();
+    //
+    // The form is a `Local` and lives for the process, so a re-entry after
+    // logout starts by clearing the destination (#1204): the hint says
+    // "blank for your own world", and the previous session's typed
+    // friend — or the previous USER's, on a shared machine — must not be
+    // a routing decision nobody made this time. The PDS / relay fields
+    // are operator config and keep their values.
+    if !latch.prefilled {
+        form.target_did = crate::config::login::DEFAULT_TARGET_DID.into();
+        if let Some(boot) = boot.as_deref()
+            && boot.is_any()
+        {
+            if let Some(did) = &boot.target_did {
+                form.target_did = did.clone();
+            }
+            if let Some(pds) = &boot.pds {
+                form.pds = pds.clone();
+            }
+            if let Some(relay) = &boot.relay {
+                form.relay_host = relay.clone();
+            }
         }
         latch.prefilled = true;
     }

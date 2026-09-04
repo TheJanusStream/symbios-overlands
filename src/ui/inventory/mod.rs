@@ -52,6 +52,10 @@ pub struct InventoryEditorState {
     pub renaming_generator: Option<(String, String)>,
     /// Pending Revert/Reset confirmation for the shared save row (#838).
     pub row_confirm: crate::ui::confirm::ConfirmState<RecordAction>,
+    /// Pending row-delete confirmation (#1200): the stash has no undo by
+    /// owner decision, and the red minus sits beside Rename. Carries the
+    /// item name; the body says whether it is worn.
+    pub delete_confirm: crate::ui::confirm::ConfirmState<String>,
     /// Pending publish-after-degraded-fetch confirmation (#840): while
     /// [`crate::state::InventoryRecordRecovery`] is present the stash
     /// shows the empty default and saving would wipe the stored one —
@@ -578,8 +582,62 @@ pub fn inventory_ui(
                             time.elapsed_secs_f64(),
                         );
                     }
+                    // Delete asks first (#1200): this is the one surface with
+                    // no undo, and the click sits beside Rename. A worn item
+                    // is named as such — deleting takes it off too, so the
+                    // prop cannot linger on the body with the only row that
+                    // offered "Take off" gone (finding 131).
                     if let Some(name) = to_remove {
-                        live.0.remove_item(&name);
+                        let worn = live_avatar
+                            .as_deref()
+                            .and_then(|avatar| avatar.0.body.rigged_ref())
+                            .is_some_and(|rig| crate::ui::avatar::is_worn_from(rig, &name));
+                        let body = if worn {
+                            format!(
+                                "You are wearing \"{name}\" — deleting it also takes it off. \
+                                 The inventory has no undo; the item stays on your PDS until \
+                                 you save."
+                            )
+                        } else {
+                            String::from(
+                                "The inventory has no undo; the item stays on your PDS until \
+                                 you save.",
+                            )
+                        };
+                        state.delete_confirm.request(
+                            format!("Delete \"{name}\"?"),
+                            body,
+                            "Delete",
+                            name,
+                        );
+                    }
+                    if let Some(name) = state.delete_confirm.show(ui.ctx(), "inventory-delete") {
+                        let worn = live_avatar
+                            .as_deref()
+                            .and_then(|avatar| avatar.0.body.rigged_ref())
+                            .is_some_and(|rig| crate::ui::avatar::is_worn_from(rig, &name));
+                        if worn {
+                            apply_wear_action(
+                                WearAction::TakeOff(name.clone()),
+                                &live.0,
+                                live_avatar.as_deref_mut(),
+                                avatar_editor.as_mut(),
+                                &session.did,
+                                undo_labels.as_mut(),
+                                toasts.as_mut(),
+                                time.elapsed_secs_f64(),
+                            );
+                        }
+                        if live.0.remove_item(&name).is_some() {
+                            toasts.info(
+                                if worn {
+                                    format!("Deleted \"{name}\" and took it off.")
+                                } else {
+                                    format!("Deleted \"{name}\".")
+                                },
+                                time.elapsed_secs_f64(),
+                            );
+                        }
                     }
                 });
 
@@ -652,27 +710,22 @@ pub fn inventory_ui(
                 matches!(feedback.status, PublishStatus::Publishing),
                 // Inventory has no undo stack (#866) — keep the modal.
                 Some(&mut state.row_confirm),
+                crate::ui::editable::ResetWording::EmptyStash {
+                    items: live.0.generators.len(),
+                },
             ) {
                 RecordAction::None => {}
                 RecordAction::Publish => {
                     // Clobber protection (#840): while the session is
                     // degraded, saving this (empty-default) stash would
                     // wipe whatever is actually stored — ask first.
-                    if let Some(rec) = recovery.as_deref() {
-                        state.publish_guard.request(
-                            "Overwrite your stored stash?",
-                            format!(
-                                "Your inventory loaded as an empty default because \
-                                 the stored copy could not be fetched ({}). Saving \
-                                 now replaces whatever is stored on your PDS with \
-                                 what you see here.",
-                                rec.reason
-                            ),
-                            "Save anyway",
-                            (),
-                        );
-                    } else {
-                        do_publish = true;
+                    match recovery.as_deref() {
+                        Some(rec) => crate::ui::editable::request_overwrite_confirm(
+                            &mut state.publish_guard,
+                            RecordKind::Inventory,
+                            &rec.reason,
+                        ),
+                        None => do_publish = true,
                     }
                 }
                 RecordAction::Load => {
@@ -690,7 +743,8 @@ pub fn inventory_ui(
                 .show(ui.ctx(), "inventory-recovery-publish")
                 .is_some()
             {
-                commands.remove_resource::<crate::state::InventoryRecordRecovery>();
+                // Acknowledged. The marker retires when the poll system
+                // sees the write land (#1199), not here.
                 do_publish = true;
             }
             if do_publish {
@@ -781,6 +835,8 @@ pub fn poll_publish_inventory_tasks(
     time: Res<Time>,
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     mut toasts: ResMut<crate::ui::toast::Toasts>,
+    // A result for another identity must not pin `stored` (#1204).
+    session: Option<Res<AtprotoSession>>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let spawned_at = task.spawned_at;
@@ -793,6 +849,13 @@ pub fn poll_publish_inventory_tasks(
             continue;
         };
         commands.entity(entity).despawn();
+        if crate::ui::room::stale_result(
+            "inventory publish",
+            &task.did,
+            session.as_deref().map(|s| s.did.as_str()),
+        ) {
+            continue;
+        }
 
         let now = time.elapsed_secs_f64();
         let did = task.did.clone();
@@ -812,6 +875,9 @@ pub fn poll_publish_inventory_tasks(
                 if let Some(stored) = stored.as_mut() {
                     stored.0 = task.published.clone();
                 }
+                // The stored copy is now exactly what was written, so the
+                // recovery marker retires where success is known (#1199).
+                commands.remove_resource::<crate::state::InventoryRecordRecovery>();
                 feedback.status = PublishStatus::Success { at_secs: now };
                 session_log.info(
                     now,
@@ -866,16 +932,52 @@ pub fn choose_inventory_gift_key(
     existing: &HashMap<String, Generator>,
     incoming_name: &str,
 ) -> String {
-    if !existing.contains_key(incoming_name) {
+    choose_gift_key(|name| existing.contains_key(name), incoming_name)
+}
+
+/// [`choose_inventory_gift_key`] over any taken-set. The accept path asks
+/// with BOTH the live and the stored stash (#1200): a key free in `live`
+/// only because the owner deleted that item locally would, published
+/// from `stored`, overwrite the stored item with the gift.
+fn choose_gift_key(is_taken: impl Fn(&str) -> bool, incoming_name: &str) -> String {
+    if !is_taken(incoming_name) {
         return incoming_name.to_string();
     }
     for i in 2u32..u32::MAX {
         let candidate = format!("{incoming_name}_{i}");
-        if !existing.contains_key(&candidate) {
+        if !is_taken(&candidate) {
             return candidate;
         }
     }
     incoming_name.to_string()
+}
+
+/// Accept a gift (#1200): land it in `live` and return the record the
+/// auto-publish writes, which is `stored` plus the gift — never `live`.
+///
+/// The publish on accept exists so the gift survives a session that ends
+/// before the owner presses Save. Publishing the whole live stash for it
+/// committed every OTHER unsaved edit at a moment a remote peer chose:
+/// `plan_item_writes` turns each name present in `stored` and missing
+/// from `live` into a delete, so a mis-click delete the owner meant to
+/// "Revert to saved" became permanent on Accept, and the revert itself
+/// stopped working because the poll pinned `stored` to the published
+/// snapshot. The gift's key is free in both stashes for the same reason.
+pub fn accept_gift(
+    live: &mut InventoryRecord,
+    stored: &InventoryRecord,
+    incoming_name: &str,
+    generator: Generator,
+    wear: Option<crate::pds::inventory::WearMeta>,
+) -> (String, InventoryRecord) {
+    let key = choose_gift_key(
+        |name| live.generators.contains_key(name) || stored.generators.contains_key(name),
+        incoming_name,
+    );
+    live.put_item(key.clone(), generator.clone(), wear.clone());
+    let mut payload = stored.clone();
+    payload.put_item(key.clone(), generator, wear);
+    (key, payload)
 }
 
 /// Land an accepted gift in the stash (#1108): under
@@ -899,6 +1001,53 @@ pub fn store_accepted_gift(
 mod gift_tests {
     use super::*;
     use crate::pds::inventory::WearMeta;
+
+    /// #1200 (finding 117). Sequence: the owner deletes "lantern" and
+    /// "bench" by mis-click, meaning to "Revert to saved"; a gift named
+    /// "lantern" arrives and they press Accept. The old accept published
+    /// the whole live stash, so both deletes went to the PDS forever. The
+    /// publish payload must be the stored stash plus the gift and nothing
+    /// else — and the gift must not land on the stored "lantern" either.
+    #[test]
+    fn accepting_a_gift_publishes_the_gift_and_nothing_else() {
+        let mut stored = InventoryRecord::default();
+        stored.put_item(String::from("lantern"), Generator::default(), None);
+        stored.put_item(String::from("bench"), Generator::default(), None);
+        let mut live = stored.clone();
+        live.remove_item("lantern");
+        live.remove_item("bench");
+        live.put_item(String::from("unsaved_new"), Generator::default(), None);
+
+        let (key, payload) = accept_gift(
+            &mut live,
+            &stored,
+            "lantern",
+            Generator::default_cuboid(),
+            None,
+        );
+        assert_eq!(
+            key, "lantern_2",
+            "a name the owner deleted locally is still taken on the PDS"
+        );
+        assert!(live.generators.contains_key("lantern_2"));
+        assert!(
+            !live.generators.contains_key("lantern"),
+            "live keeps its edits"
+        );
+        // The payload is exactly stored + gift.
+        assert!(payload.generators.contains_key("lantern"));
+        assert!(payload.generators.contains_key("bench"));
+        assert!(payload.generators.contains_key("lantern_2"));
+        assert!(
+            !payload.generators.contains_key("unsaved_new"),
+            "an unsaved local addition must not ride along"
+        );
+        assert_eq!(payload.generators.len(), 3);
+        // And the owner's escape hatch survives: live still differs from
+        // what will be pinned as stored, so Revert to saved has something
+        // to revert to.
+        assert!(crate::state::records_differ(&live, &payload));
+    }
 
     /// #1108: before this, a gift went straight into `generators` and the
     /// wear side table never heard of it — every gifted wearable arrived as

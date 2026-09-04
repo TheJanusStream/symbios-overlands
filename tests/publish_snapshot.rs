@@ -312,3 +312,267 @@ fn the_reset_path_pins_the_same_way() {
     assert!(!records_differ(&stored.0, &published));
     assert!(records_differ(&stored.0, &edited));
 }
+
+// ---------------------------------------------------------------------------
+// Recovery markers retire on the landed write, not the click (#1199)
+// ---------------------------------------------------------------------------
+
+/// A `Task` that resolved to a failure: the PDS said no, or the deadline
+/// passed.
+fn landed_err() -> bevy::tasks::Task<Result<(), String>> {
+    bevy::tasks::IoTaskPool::get().spawn(async { Err(String::from("502 Bad Gateway")) })
+}
+
+/// #1199 (finding 198). Sequence: the room fetch fell back to the default
+/// with `RoomRecordRecovery` raised; the owner clicks "Reset PDS to
+/// default", confirms, and the write fails. The marker used to be removed
+/// on the confirm click, so the banner — the only surface carrying the
+/// retry — was gone while the PDS still held the record that would not
+/// load. The marker must outlive a failed write and retire only on a
+/// landed one. Same contract for the ordinary publish, the avatar and the
+/// inventory.
+#[test]
+fn a_recovery_marker_outlives_a_failed_write_and_retires_on_a_landed_one() {
+    use symbios_overlands::state::{
+        AvatarRecordRecovery, InventoryRecordRecovery, RoomRecordRecovery,
+    };
+
+    // Room: reset task, failed then landed.
+    for (fails, retired) in [(true, false), (false, true)] {
+        let mut app = harness();
+        // After `harness()`: the task pool the fixture spawns on is the
+        // plugin's.
+        let task = if fails { landed_err() } else { landed_ok() };
+        app.add_systems(Update, symbios_overlands::ui::room::poll_publish_tasks);
+        app.init_resource::<PublishFeedback<RoomRecord>>();
+        app.insert_resource(RoomRecordRecovery {
+            reason: "decode error".into(),
+        });
+        let published = RoomRecord::default_for_did("did:plc:recovery-room");
+        app.insert_resource(LiveRoomRecord(published.clone()));
+        app.insert_resource(StoredRoomRecord(published.clone()));
+        app.world_mut()
+            .spawn(symbios_overlands::ui::room::ResetRoomTask {
+                task,
+                did: "did:plc:recovery-room".into(),
+                spawned_at: 0.0,
+                record_bytes: Some(1),
+                published,
+            });
+        run_until_landed(&mut app, |app| {
+            app.world()
+                .iter_entities()
+                .any(|e| e.contains::<symbios_overlands::ui::room::ResetRoomTask>())
+        });
+        assert_eq!(
+            app.world().get_resource::<RoomRecordRecovery>().is_none(),
+            retired,
+            "room reset: marker retired={retired} expected"
+        );
+    }
+
+    // Room: ordinary publish (the Ctrl+S door), failed then landed.
+    for (fails, retired) in [(true, false), (false, true)] {
+        let mut app = harness();
+        // After `harness()`: the task pool the fixture spawns on is the
+        // plugin's.
+        let task = if fails { landed_err() } else { landed_ok() };
+        app.add_systems(Update, symbios_overlands::ui::room::poll_publish_tasks);
+        app.init_resource::<PublishFeedback<RoomRecord>>();
+        app.insert_resource(RoomRecordRecovery {
+            reason: "decode error".into(),
+        });
+        let published = RoomRecord::default_for_did("did:plc:recovery-room");
+        app.insert_resource(StoredRoomRecord(published.clone()));
+        app.world_mut()
+            .spawn(symbios_overlands::ui::room::PublishRoomTask {
+                task,
+                did: "did:plc:recovery-room".into(),
+                spawned_at: 0.0,
+                record_bytes: Some(1),
+                published,
+            });
+        run_until_landed(&mut app, |app| {
+            app.world()
+                .iter_entities()
+                .any(|e| e.contains::<symbios_overlands::ui::room::PublishRoomTask>())
+        });
+        assert_eq!(
+            app.world().get_resource::<RoomRecordRecovery>().is_none(),
+            retired,
+            "room publish: marker retired={retired} expected"
+        );
+    }
+
+    // Avatar.
+    for (fails, retired) in [(true, false), (false, true)] {
+        let mut app = harness();
+        // After `harness()`: the task pool the fixture spawns on is the
+        // plugin's.
+        let task = if fails { landed_err() } else { landed_ok() };
+        app.add_systems(
+            Update,
+            symbios_overlands::ui::avatar::poll_publish_avatar_tasks,
+        );
+        app.init_resource::<PublishFeedback<AvatarRecord>>();
+        app.insert_resource(AvatarRecordRecovery {
+            reason: "timed out".into(),
+        });
+        let published = AvatarRecord::default_for_did("did:plc:recovery-avatar");
+        app.insert_resource(StoredAvatarRecord(published.clone()));
+        app.world_mut()
+            .spawn(symbios_overlands::ui::avatar::PublishAvatarTask {
+                task,
+                did: "did:plc:recovery-avatar".into(),
+                spawned_at: 0.0,
+                record_bytes: Some(1),
+                published,
+            });
+        run_until_landed(&mut app, |app| {
+            app.world()
+                .iter_entities()
+                .any(|e| e.contains::<symbios_overlands::ui::avatar::PublishAvatarTask>())
+        });
+        assert_eq!(
+            app.world().get_resource::<AvatarRecordRecovery>().is_none(),
+            retired,
+            "avatar: marker retired={retired} expected"
+        );
+    }
+
+    // Inventory.
+    for (fails, retired) in [(true, false), (false, true)] {
+        let mut app = harness();
+        // After `harness()`: the task pool the fixture spawns on is the
+        // plugin's.
+        let task = if fails { landed_err() } else { landed_ok() };
+        app.add_systems(
+            Update,
+            symbios_overlands::ui::inventory::poll_publish_inventory_tasks,
+        );
+        app.init_resource::<PublishFeedback<InventoryRecord>>();
+        app.insert_resource(InventoryRecordRecovery {
+            reason: "timed out".into(),
+        });
+        let published = InventoryRecord::default();
+        app.insert_resource(StoredInventoryRecord(published.clone()));
+        app.world_mut()
+            .spawn(symbios_overlands::ui::inventory::PublishInventoryTask {
+                task,
+                did: "did:plc:recovery-inventory".into(),
+                spawned_at: 0.0,
+                record_bytes: Some(1),
+                published,
+            });
+        run_until_landed(&mut app, |app| {
+            app.world()
+                .iter_entities()
+                .any(|e| e.contains::<symbios_overlands::ui::inventory::PublishInventoryTask>())
+        });
+        assert_eq!(
+            app.world()
+                .get_resource::<InventoryRecordRecovery>()
+                .is_none(),
+            retired,
+            "inventory: marker retired={retired} expected"
+        );
+    }
+}
+
+/// #1199 (finding 197). Sequence: click "Reset PDS to default" on the
+/// recovery banner, confirm, then walk into a portal while the 30 s write
+/// is still out. The guard's in-flight probe queried the three publish
+/// tasks and not the reset, so it read "nothing in flight", travel swapped
+/// `StoredRoomRecord` for the destination's, and the landing reset then
+/// pinned the LOCAL default over it. A running reset must count as a write
+/// the guard waits for.
+#[test]
+fn a_running_reset_counts_as_a_publish_in_flight() {
+    #[derive(Resource, Default)]
+    struct Probe(bool);
+    fn probe(
+        tasks: symbios_overlands::ui::unsaved_guard::GuardPublishTasks,
+        mut out: ResMut<Probe>,
+    ) {
+        out.0 = tasks.any_in_flight();
+    }
+
+    let mut app = harness();
+    app.init_resource::<Probe>();
+    app.add_systems(Update, probe);
+    app.update();
+    assert!(
+        !app.world().resource::<Probe>().0,
+        "nothing spawned, nothing in flight"
+    );
+
+    let pending: bevy::tasks::Task<Result<(), String>> =
+        bevy::tasks::IoTaskPool::get().spawn(std::future::pending());
+    app.world_mut()
+        .spawn(symbios_overlands::ui::room::ResetRoomTask {
+            task: pending,
+            did: "did:plc:reset-in-flight".into(),
+            spawned_at: 0.0,
+            record_bytes: Some(1),
+            published: RoomRecord::default_for_did("did:plc:reset-in-flight"),
+        });
+    app.update();
+    assert!(
+        app.world().resource::<Probe>().0,
+        "a running reset is a write the guard must wait for"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// A landed write answers only the session and room it was fired in (#1204)
+// ---------------------------------------------------------------------------
+
+/// #1204 (finding 194). Sequence: press Save, pick "Continue in background"
+/// on the unsaved guard, walk through a portal; the save lands in the
+/// destination. `stored` used to be pinned to the record that was
+/// published — the room just LEFT — over the destination owner's record,
+/// so the editor read dirty against a foreign baseline and "Revert to
+/// saved" would have installed the previous world. The same shape via
+/// logout on wasm, where a dropped task's fetch keeps running. A result
+/// whose DID is not the current room's is dropped whole.
+#[test]
+fn a_save_that_lands_after_the_room_changed_does_not_pin_stored() {
+    use symbios_overlands::state::{CurrentRoomDid, PublishStatus};
+
+    let mut app = harness();
+    app.add_systems(Update, symbios_overlands::ui::room::poll_publish_tasks);
+    app.init_resource::<PublishFeedback<RoomRecord>>();
+
+    let previous_room = RoomRecord::default_for_did("did:plc:previous-room");
+    let destination = RoomRecord::default_for_did("did:plc:destination");
+    app.insert_resource(CurrentRoomDid("did:plc:destination".into()));
+    app.insert_resource(StoredRoomRecord(destination.clone()));
+
+    app.world_mut()
+        .spawn(symbios_overlands::ui::room::PublishRoomTask {
+            task: landed_ok(),
+            did: "did:plc:previous-room".into(),
+            spawned_at: 0.0,
+            record_bytes: Some(1),
+            published: previous_room.clone(),
+        });
+
+    run_until_landed(&mut app, |app| {
+        app.world()
+            .iter_entities()
+            .any(|e| e.contains::<symbios_overlands::ui::room::PublishRoomTask>())
+    });
+
+    let stored = app.world().resource::<StoredRoomRecord>();
+    assert!(
+        !records_differ(&stored.0, &destination),
+        "the destination's stored mirror must survive a save for the room we left"
+    );
+    assert!(
+        matches!(
+            app.world().resource::<PublishFeedback<RoomRecord>>().status,
+            PublishStatus::Idle
+        ),
+        "a stale result must not paint this room's status line"
+    );
+}

@@ -77,6 +77,7 @@ pub mod inventory;
 pub mod layout;
 pub mod loading;
 pub mod login;
+pub mod other_session;
 pub mod people;
 pub mod room;
 pub mod settings;

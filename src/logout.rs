@@ -113,6 +113,9 @@ session_scoped_resources! {
     // but if anything else ever drives the InGame->Login edge while a
     // dialog is open, a stale guard must not greet the next login.
     crate::ui::unsaved_guard::UnsavedGuard,
+    // A held same-owner room record awaiting the keep-or-take answer
+    // (#1203) is a claim about this session's world.
+    crate::ui::other_session::OtherSessionRoom,
     // The gateway picker pair (#748): logging out while standing in a
     // gateway zone must not leave the picker (or its dismissal latch)
     // armed for the next session.
@@ -160,6 +163,7 @@ fn clear_editor_state_on_logout(
     travel_tasks: Query<Entity, With<crate::player::PortalTravelTask>>,
     mut avatar_editor: ResMut<crate::ui::avatar::AvatarEditorState>,
     mut room_editor: ResMut<crate::ui::room::RoomEditorState>,
+    in_flight: SessionTasks,
 ) {
     *avatar_editor = crate::ui::avatar::AvatarEditorState::default();
     *room_editor = crate::ui::room::RoomEditorState::default();
@@ -170,6 +174,45 @@ fn clear_editor_state_on_logout(
     // result whose target does not match the pending travel.
     for entity in &travel_tasks {
         commands.entity(entity).try_despawn();
+    }
+    in_flight.despawn_all(&mut commands);
+}
+
+/// Every bare task entity a session can leave in flight (#1204): the four
+/// PDS writes, the mutuals walk and the two blob fetches. None carries
+/// `LocalPlayer` or `RoomEntity`, so the entity sweep in
+/// [`cleanup_on_logout`] never reached them, and the publish polls run only
+/// `InGame` — so a save fired just before logout sat un-polled and landed in
+/// the NEXT session, pinning the previous session's record as that
+/// session's stored mirror (the dirty baseline, the Revert target, and the
+/// attachment delete set). The poll systems also refuse a result whose DID
+/// is not the current session's, for the wasm case where a dropped task's
+/// fetch keeps running.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct SessionTasks<'w, 's> {
+    room_publish: Query<'w, 's, Entity, With<crate::ui::room::PublishRoomTask>>,
+    room_reset: Query<'w, 's, Entity, With<crate::ui::room::ResetRoomTask>>,
+    avatar_publish: Query<'w, 's, Entity, With<crate::ui::avatar::PublishAvatarTask>>,
+    inventory_publish: Query<'w, 's, Entity, With<crate::ui::inventory::PublishInventoryTask>>,
+    mutuals: Query<'w, 's, Entity, With<crate::social::MutualsFetchTask>>,
+    blob_audio: Query<'w, 's, Entity, With<crate::world_builder::audio_resolver::BlobAudioTask>>,
+    blob_image: Query<'w, 's, Entity, With<crate::world_builder::image_cache::BlobImageTask>>,
+}
+
+impl SessionTasks<'_, '_> {
+    fn despawn_all(&self, commands: &mut Commands) {
+        let all = self
+            .room_publish
+            .iter()
+            .chain(self.room_reset.iter())
+            .chain(self.avatar_publish.iter())
+            .chain(self.inventory_publish.iter())
+            .chain(self.mutuals.iter())
+            .chain(self.blob_audio.iter())
+            .chain(self.blob_image.iter());
+        for entity in all {
+            commands.entity(entity).try_despawn();
+        }
     }
 }
 
@@ -324,6 +367,18 @@ pub(crate) fn cleanup_on_logout(
     // Grammar compile statuses (#829) describe the OLD session's world;
     // the next login's arrival compile rewrites its own set.
     commands.insert_resource(crate::world_builder::grammar_diag::GrammarDiagnostics::default());
+    // The gateway picker's mutuals cache (#1204): a public follow graph
+    // keyed by room owner, so nothing identity-scoped crosses the boundary
+    // — but its slots age against `Time::elapsed`, which does not reset,
+    // so a `Failed` slot from the old session suppressed the new user's
+    // first retry and a `Ready` one showed a list no fetch had run for.
+    commands.insert_resource(crate::social::MutualsCache::default());
+    // The blob-audio cache (#1204): content-keyed like the baked-audio
+    // cache cleared below, and for the same reason — its retained
+    // `AudioSource` buffers are memory the next session would inherit.
+    // Re-inserted rather than cleared because this system is at Bevy's
+    // parameter ceiling.
+    commands.insert_resource(crate::world_builder::audio_resolver::BlobAudioCache::default());
 
     // Drop the persisted session blob so the next page load lands back
     // on the login screen instead of silently restoring the stale
@@ -528,6 +583,85 @@ mod tests {
                  `session_scoped_resources!` or explain in that list why it outlives a session"
             );
         }
+    }
+
+    /// #1204 (finding 194). Sequence: press Save, then log out while the
+    /// spinner is up ("Discard & log out" or "Continue in background").
+    /// The publish task entity was on no sweep list and its poll runs only
+    /// `InGame`, so it sat until the next login and then wrote
+    /// `stored = published` into the NEW session — a stranger's record as
+    /// the dirty baseline, the Revert target and the attachment delete
+    /// set. Every in-flight task a session can leave behind is swept.
+    #[test]
+    fn logging_out_mid_save_leaves_no_task_behind() {
+        let mut world = World::new();
+        world.insert_resource(crate::ui::avatar::AvatarEditorState::default());
+        world.insert_resource(crate::ui::room::RoomEditorState::default());
+        let pool = bevy::tasks::IoTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+        let pending = || pool.spawn(std::future::pending::<Result<(), String>>());
+        world.spawn(crate::ui::room::PublishRoomTask {
+            task: pending(),
+            did: "did:plc:alice".into(),
+            spawned_at: 0.0,
+            record_bytes: None,
+            published: RoomRecord::default_for_did("did:plc:alice"),
+        });
+        world.spawn(crate::ui::room::ResetRoomTask {
+            task: pending(),
+            did: "did:plc:alice".into(),
+            spawned_at: 0.0,
+            record_bytes: None,
+            published: RoomRecord::default_for_did("did:plc:alice"),
+        });
+        world.spawn(crate::ui::avatar::PublishAvatarTask {
+            task: pending(),
+            did: "did:plc:alice".into(),
+            spawned_at: 0.0,
+            record_bytes: None,
+            published: AvatarRecord::default_for_did("did:plc:alice"),
+        });
+        world.spawn(crate::ui::inventory::PublishInventoryTask {
+            task: pending(),
+            did: "did:plc:alice".into(),
+            spawned_at: 0.0,
+            record_bytes: None,
+            published: InventoryRecord::default(),
+        });
+        world.spawn(crate::world_builder::audio_resolver::BlobAudioTask {
+            key: crate::world_builder::audio_resolver::AudioReferenceKey::Url(
+                "https://example.invalid/a.ogg".into(),
+            ),
+            task: pool.spawn(std::future::pending::<Option<Vec<u8>>>()),
+        });
+        // Only the task entities — `World::new()` seeds bookkeeping
+        // entities of its own.
+        fn in_flight(world: &mut World) -> usize {
+            world
+                .query_filtered::<Entity, Or<(
+                    With<crate::ui::room::PublishRoomTask>,
+                    With<crate::ui::room::ResetRoomTask>,
+                    With<crate::ui::avatar::PublishAvatarTask>,
+                    With<crate::ui::inventory::PublishInventoryTask>,
+                    With<crate::world_builder::audio_resolver::BlobAudioTask>,
+                )>>()
+                .iter(world)
+                .count()
+        }
+        assert_eq!(
+            in_flight(&mut world),
+            5,
+            "precondition: five in-flight tasks"
+        );
+
+        world
+            .run_system_once(clear_editor_state_on_logout)
+            .expect("teardown system");
+
+        assert_eq!(
+            in_flight(&mut world),
+            0,
+            "an in-flight write or fetch must not outlive the session that started it"
+        );
     }
 
     /// The travel half of #1140. Sequence: walk into a portal, let the

@@ -509,6 +509,14 @@ pub fn run() {
                 .run_if(in_state(AppState::InGame))
                 .run_if(resource_exists::<ui::unsaved_guard::UnsavedGuard>),
         )
+        // The owner's other session changed the world under unpublished
+        // edits (#1203): ask which copy to keep instead of clobbering.
+        .add_systems(
+            EguiPrimaryContextPass,
+            ui::other_session::other_session_room_ui
+                .run_if(in_state(AppState::InGame))
+                .run_if(resource_exists::<ui::other_session::OtherSessionRoom>),
+        )
         // Global keyboard shortcuts (#836): Esc back-out ladder,
         // Enter-to-chat, Ctrl+S publish, Ctrl+Z/Ctrl+Shift+Z undo (#864).
         // Update (not the egui pass) so the ladder's state checks land

@@ -83,8 +83,18 @@ struct Incoming {
 /// Grouped into one [`SystemParam`] so [`handle_incoming_messages`] stays
 /// within Bevy's 16-parameter-per-system ceiling.
 #[derive(SystemParam)]
-pub(super) struct InboundBuffers<'w> {
+pub(super) struct InboundBuffers<'w, 's> {
     smoother_cfg: Res<'w, SmootherConfigRes>,
+    /// The stored mirror, for the same-owner split (#1203): whether this
+    /// session has unpublished edits decides whether another session of
+    /// the owner may replace the live record or must ask first.
+    stored_room: Option<Res<'w, crate::state::StoredRoomRecord>>,
+    /// A held same-owner record already awaiting the owner's answer; a
+    /// newer one replaces it without a second toast.
+    held_room: Option<Res<'w, crate::ui::other_session::OtherSessionRoom>>,
+    /// When the "updated from another session" toast last fired, so a
+    /// session editing continuously does not toast every broadcast.
+    other_session_toast_at: Local<'s, Option<f64>>,
     reassembly: ResMut<'w, super::chunk::ChunkReassembly>,
     /// Read-only peek at which panels are open: a chat message landing
     /// while the Chat window is closed bumps the unread badge (#835).
@@ -557,6 +567,14 @@ pub(super) fn handle_incoming_messages(
                     (Some(did), Some(rd)) => did == &rd.0,
                     _ => false,
                 };
+                // The owner's OTHER session (#1203): same DID as this
+                // session, so the gate below passes it like any owner
+                // broadcast — but the local record may hold edits the
+                // other session has never seen.
+                let same_owner = match (&sender_did, session.as_deref()) {
+                    (Some(did), Some(session)) => did == &session.did,
+                    _ => false,
+                };
 
                 if !is_owner {
                     // Dropped correctly, but silently until #1144 — and this
@@ -604,6 +622,57 @@ pub(super) fn handle_incoming_messages(
                 // observes the resource change and rebuilds every compiled
                 // entity (water, sun colour, scattered shapes) in one pass.
                 if let Some(record) = room_record.as_mut() {
+                    if same_owner {
+                        use crate::ui::other_session::{
+                            OtherSessionRoom, SameOwnerUpdate, classify_same_owner_update,
+                        };
+                        let equals = !crate::state::records_differ(&record.0, &new_record);
+                        let dirty = bufs.stored_room.as_deref().is_some_and(|stored| {
+                            crate::state::records_differ(&record.0, &stored.0)
+                        });
+                        match classify_same_owner_update(dirty, equals) {
+                            // The echo of our own broadcast (both sessions
+                            // rebroadcast on `is_changed`): applying it
+                            // would reset the undo ring and bounce the
+                            // same bytes straight back.
+                            SameOwnerUpdate::Ignore => continue,
+                            SameOwnerUpdate::Hold => {
+                                session_log.warn(
+                                    now,
+                                    EventPayload::RoomStateRejected {
+                                        sender_did: sender_did.clone().unwrap_or_default(),
+                                        reason: String::from(
+                                            "held: the owner's other session changed the world \
+                                             while this session has unpublished edits — asking \
+                                             which copy to keep",
+                                        ),
+                                    },
+                                );
+                                if bufs.held_room.is_none() {
+                                    bufs.toasts.warn(
+                                        "Your world changed in another session while you have \
+                                         unpublished edits here — choose which copy to keep.",
+                                        now,
+                                    );
+                                }
+                                commands.insert_resource(OtherSessionRoom { record: new_record });
+                                continue;
+                            }
+                            SameOwnerUpdate::Apply => {
+                                let due = bufs
+                                    .other_session_toast_at
+                                    .is_none_or(|at| now - at >= 30.0);
+                                if due {
+                                    bufs.toasts.info(
+                                        "Your world was updated from another session signed \
+                                         in as you.",
+                                        now,
+                                    );
+                                    *bufs.other_session_toast_at = Some(now);
+                                }
+                            }
+                        }
+                    }
                     // The one inbound outcome the diagnostics suite never
                     // recorded (#1146): `RoomStateApplied` has been declared
                     // since the suite was built and emitted nowhere, so a

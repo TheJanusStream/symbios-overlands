@@ -37,6 +37,7 @@ mod lsystem;
 mod material;
 mod placements;
 mod publish;
+pub(crate) use publish::stale_result;
 mod raw;
 mod shape;
 mod terrain;
@@ -192,6 +193,12 @@ pub struct RoomEditorState {
     /// (#840): the button hard-overwrites the stored record, and a
     /// stale banner (pre-#840) could offer it against a healthy one.
     recovery_reset_confirm: crate::ui::confirm::ConfirmState<()>,
+    /// Pending publish-after-unrecoverable-fetch confirmation (#1199):
+    /// while [`RoomRecordRecovery`] is present the editor holds the
+    /// default and Save (or Ctrl+S) would overwrite the real stored
+    /// record — the Avatar editor asked first since #840; the room did
+    /// not.
+    publish_guard: crate::ui::confirm::ConfirmState<()>,
     /// Cached seeded-default record, keyed by the DID it was built for (#637).
     /// `RoomRecord::default_for_did` runs the whole procedural pipeline (9
     /// derivers, catalogue builds, a mini-settlement, an ambient-audio recipe),
@@ -263,6 +270,7 @@ impl RoomEditorState {
         self.tree_confirms.delete.cancel();
         self.tree_confirms.kind.cancel();
         self.recovery_reset_confirm.cancel();
+        self.publish_guard.cancel();
         self.renaming_generator = None;
         // A widget burst still in the debounce was aimed at record state
         // the restore just replaced; letting the timer drain would fire
@@ -504,6 +512,7 @@ pub fn room_admin_ui(
         pin_hunt,
         tree_confirms,
         recovery_reset_confirm,
+        publish_guard,
         default_cache,
         stored_baseline,
         live_sync_bytes,
@@ -623,7 +632,9 @@ pub fn room_admin_ui(
                         ui.label(
                             "You are currently editing the default homeworld. Click below \
                              to overwrite the stored record on your PDS with this default \
-                             so the next login loads cleanly.",
+                             so the next login loads cleanly. Saving will overwrite the \
+                             stored copy too (you'll be asked first). Logging out and back \
+                             in retries the load.",
                         );
                         // Confirmed reset (#840): this button hard-deletes
                         // and replaces the stored record — never on the
@@ -653,6 +664,15 @@ pub fn room_admin_ui(
                             // putRecord upsert can return 500 when the stored
                             // record is incompatible with the current lexicon;
                             // hard-deleting first sidesteps that failure mode.
+                            //
+                            // A save in flight like any other (#1199): the
+                            // status line shows it, the Save button reads
+                            // "Saving…", and the unsaved guard waits for it.
+                            // The marker itself retires in `poll_publish_tasks`
+                            // when the write is KNOWN to have landed — retiring
+                            // it here left a failed reset with no banner and
+                            // no way to retry.
+                            publish_feedback.status = PublishStatus::Publishing;
                             spawn_reset_task(
                                 &mut commands,
                                 &session,
@@ -661,7 +681,6 @@ pub fn room_admin_ui(
                                 room_did.0.clone(),
                                 time.elapsed_secs_f64(),
                             );
-                            commands.remove_resource::<RoomRecordRecovery>();
                         }
                     });
                     ui.add_space(6.0);
@@ -933,6 +952,7 @@ pub fn room_admin_ui(
                         }
                         let record_bytes = publish_feedback.live_bytes;
                         let ctrl_s = publish_shortcut.take(crate::ui::shortcuts::EditorKind::World);
+                        let mut do_publish = false;
                         match save_load_reset_row(
                             ui,
                             dirty,
@@ -943,18 +963,23 @@ pub fn room_admin_ui(
                             matches!(publish_feedback.status, PublishStatus::Publishing),
                             // Undo covers Revert/Reset here (#866) — no modal.
                             None,
+                            crate::ui::editable::ResetWording::Record,
                         ) {
                             RecordAction::None => {}
                             RecordAction::Publish => {
-                                publish_feedback.status = PublishStatus::Publishing;
-                                spawn_room_publish_task(
-                                    &mut commands,
-                                    &session,
-                                    &refresh_ctx,
-                                    record_mut.clone(),
-                                    room_did.0.clone(),
-                                    time.elapsed_secs_f64(),
-                                );
+                                // Clobber protection (#1199, the room half of
+                                // #840): after an unrecoverable fetch the
+                                // editor holds the default while the real
+                                // record may still sit on the PDS — the
+                                // first publish asks. Ctrl+S lands here too.
+                                match recovery.as_deref() {
+                                    Some(rec) => crate::ui::editable::request_overwrite_confirm(
+                                        publish_guard,
+                                        crate::diagnostics::event::RecordKind::Room,
+                                        &rec.reason,
+                                    ),
+                                    None => do_publish = true,
+                                }
                             }
                             RecordAction::Load => {
                                 if let Some(stored) = stored.as_ref() {
@@ -982,6 +1007,25 @@ pub fn room_admin_ui(
                                 needs_broadcast = true;
                                 undo_labels.set_room("reset to default");
                             }
+                        }
+                        if publish_guard
+                            .show(ui.ctx(), "room-recovery-publish")
+                            .is_some()
+                        {
+                            // Acknowledged. The marker stays until the poll
+                            // system sees the write land (#1199).
+                            do_publish = true;
+                        }
+                        if do_publish {
+                            publish_feedback.status = PublishStatus::Publishing;
+                            spawn_room_publish_task(
+                                &mut commands,
+                                &session,
+                                &refresh_ctx,
+                                record_mut.clone(),
+                                room_did.0.clone(),
+                                time.elapsed_secs_f64(),
+                            );
                         }
 
                         live_sync_gauge(ui, *live_sync_bytes);

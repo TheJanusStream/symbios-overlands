@@ -425,6 +425,33 @@ impl RoomRecord {
                 0.0
             };
         }
+        // Clean generator names before anything keyed by them is read:
+        // cut to the shared length cap and stripped of invisible
+        // characters (#1205), with placements and traits following each
+        // rename so the world compiler can still resolve them. Unknown
+        // placements stay untouched — their generator_ref is invisible
+        // to this build.
+        let renames = crate::pds::sanitize::names::sanitize_keys(
+            &mut self.generators,
+            limits::MAX_GENERATOR_NAME_CHARS,
+        );
+        for (old, new) in &renames {
+            for p in self.placements.iter_mut() {
+                match p {
+                    Placement::Absolute { generator_ref, .. }
+                    | Placement::Scatter { generator_ref, .. }
+                    | Placement::Grid { generator_ref, .. } => {
+                        if generator_ref == old {
+                            *generator_ref = new.clone();
+                        }
+                    }
+                    Placement::Unknown => {}
+                }
+            }
+            if let Some(traits) = self.traits.remove(old) {
+                self.traits.entry(new.clone()).or_insert(traits);
+            }
+        }
         // Bound the total number of generators before touching any of them.
         // Drop entries in lexicographic key order so the survivor set is
         // deterministic across peers — otherwise a record with 1000

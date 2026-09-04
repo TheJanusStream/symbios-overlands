@@ -40,6 +40,29 @@ pub(super) struct BodyTabOutcome {
     pub label: Option<String>,
     /// The wardrobe "Refresh" button was clicked.
     pub wants_wardrobe_refresh: bool,
+    /// A success to toast, for actions whose only other visible result is
+    /// a highlight moving (#1201). The caller owns the toast stack.
+    pub toast: Option<String>,
+}
+
+/// The name a branched wardrobe entry gets (#1201): the parent's name with
+/// " copy", numbered past the first, and never one the wardrobe already
+/// lists — a wardrobe of identically-named rows is unusable, and an empty
+/// name would publish as the "Wanderer" fallback beside its parent.
+pub(super) fn copy_name(parent: &str, is_taken: impl Fn(&str) -> bool) -> String {
+    let base = parent.trim();
+    let base = if base.is_empty() { "Wanderer" } else { base };
+    let first = format!("{base} copy");
+    if !is_taken(&first) {
+        return first;
+    }
+    for n in 2..1000 {
+        let candidate = format!("{base} copy {n}");
+        if !is_taken(&candidate) {
+            return candidate;
+        }
+    }
+    first
 }
 
 /// The fetched wardrobe listing, cached across frames on the editor state.
@@ -163,13 +186,28 @@ pub(super) fn draw_body_tab(
             "This avatar wears a rigged body whose wardrobe record could not \
              be resolved — it may have been deleted, or the fetch failed.",
         );
-        if let Some(did) = did
-            && ui.button("Wear a fresh body instead").clicked()
-        {
-            let did = did.to_string();
-            wear_new_engine_body(record, &did);
-            outcome.changed = true;
-            outcome.label = Some(String::from("wear rigged body"));
+        if let Some(did) = did {
+            let worn = rig.attachments.len();
+            if ui.button("Wear a fresh body instead").clicked() {
+                let did = did.to_string();
+                wear_new_engine_body(record, &did);
+                outcome.changed = true;
+                outcome.label = Some(String::from("wear rigged body"));
+            }
+            // Says what the swap keeps (#1201): the button used to read as
+            // "start over", and it once did — dropping the reference list
+            // and, at the next Save, every worn prop's record.
+            ui.small(match worn {
+                0 => String::from("A fresh DID-seeded body. Nothing is worn, so nothing is lost."),
+                1 => String::from(
+                    "A fresh DID-seeded body under your outfit — the 1 prop you wear \
+                     stays referenced and returns when its record loads.",
+                ),
+                n => format!(
+                    "A fresh DID-seeded body under your outfit — the {n} props you wear \
+                     stay referenced and return when their records load."
+                ),
+            });
         }
         return outcome;
     }
@@ -240,11 +278,38 @@ pub(super) fn draw_body_tab(
                     // record stays untouched for whatever else wears it.
                     if ui
                         .button("Save as copy")
-                        .on_hover_text("keep editing under a new wardrobe entry")
+                        .on_hover_text(
+                            "keep editing under a new wardrobe entry, named after this one",
+                        )
                         .clicked()
                     {
                         let fresh = crate::pds::tid::tid_now(crate::seeded_defaults::fnv1a_64(did));
                         rig.avatar = fresh;
+                        // A copy gets its own name and says so (#1201): the
+                        // only visible result used to be the worn row's
+                        // highlight going out, and the copy published under
+                        // its parent's name.
+                        let taken: Vec<String> = listing
+                            .entries
+                            .as_deref()
+                            .map(|entries| {
+                                entries.iter().map(|(_, body)| body.name.clone()).collect()
+                            })
+                            .unwrap_or_default();
+                        let name = rig
+                            .resolved
+                            .as_mut()
+                            .map(|resolved| {
+                                let name = copy_name(&resolved.body.name, |candidate| {
+                                    taken.iter().any(|t| t == candidate)
+                                });
+                                resolved.body.name = name.clone();
+                                name
+                            })
+                            .unwrap_or_default();
+                        outcome.toast = Some(format!(
+                            "Branched to a new wardrobe entry \"{name}\" — Save to publish it."
+                        ));
                         outcome.changed = true;
                         outcome.label = Some(String::from("save body as copy"));
                     }
@@ -413,5 +478,18 @@ mod tests {
             empty.status().message().as_deref(),
             Some("No bodies in the wardrobe yet — saving publishes this one.")
         );
+    }
+
+    /// #1201 (finding 113): "Save as copy" published the branch under its
+    /// parent's name (or "Wanderer" for an empty one), so the wardrobe
+    /// filled with identically-named rows. A copy is named after its parent
+    /// and never collides with a listed entry.
+    #[test]
+    fn a_wardrobe_copy_is_named_after_its_parent_and_never_collides() {
+        let listed = ["Alder", "Alder copy", "Alder copy 2"];
+        let taken = |name: &str| listed.contains(&name);
+        assert_eq!(copy_name("Alder", taken), "Alder copy 3");
+        assert_eq!(copy_name("Birch", taken), "Birch copy");
+        assert_eq!(copy_name("   ", taken), "Wanderer copy");
     }
 }

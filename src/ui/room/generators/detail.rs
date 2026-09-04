@@ -196,10 +196,19 @@ pub(super) fn draw_detail_panel(
                         .strong()
                         .color(crate::ui::theme::current(ui.ctx()).text_strong),
                 );
+                // The pop-out's title is this label (#1202): the same
+                // root / kind / path vocabulary the header above uses,
+                // not the egui id salt.
+                let label = if is_root {
+                    format!("{} ({kind_tag})", id.root)
+                } else {
+                    format!("{} / {kind_tag} (/{})", id.root, path_string(&id.path))
+                };
                 super::super::audio::draw_audio_bridge(
                     ui,
                     &mut node.audio,
                     &salt,
+                    &label,
                     dirty,
                     audio_editor,
                 );

@@ -129,11 +129,20 @@ impl Default for InventoryRecord {
 
 impl InventoryRecord {
     /// Clamp every stored generator to the same bounds the room record
-    /// enforces, drop items with oversized names, and bound the overall
-    /// stash size so a hostile PDS can't force the owner's client into a
-    /// multi-megabyte allocation on login. Both the name filter and the
-    /// count bound run in lexicographic key order so the survivor set is
-    /// deterministic (HashMap iteration is SipHash-randomised).
+    /// enforces, clean item names, and bound the overall stash size so a
+    /// hostile PDS can't force the owner's client into a multi-megabyte
+    /// allocation on login. Both the name pass and the count bound run
+    /// in lexicographic key order so the survivor set is deterministic
+    /// (HashMap iteration is SipHash-randomised).
+    ///
+    /// Names go through [`names::sanitize_keys`]: an over-long name is
+    /// cut to [`MAX_INVENTORY_NAME_CHARS`] and invisible characters are
+    /// stripped, with the wear entry following its item. Sanitize used
+    /// to *drop* an over-long item (#1205) — silent deletion at the next
+    /// login of something the owner had watched save.
+    ///
+    /// [`names::sanitize_keys`]: crate::pds::sanitize::names::sanitize_keys
+    /// [`MAX_INVENTORY_NAME_CHARS`]: crate::config::state::MAX_INVENTORY_NAME_CHARS
     ///
     /// The count bound is [`MAX_INVENTORY_SANITIZE_ITEMS`] — the DoS
     /// backstop — NOT the 50-item gameplay cap (#841): sanitize used to
@@ -144,9 +153,15 @@ impl InventoryRecord {
     ///
     /// [`MAX_INVENTORY_SANITIZE_ITEMS`]: crate::config::state::MAX_INVENTORY_SANITIZE_ITEMS
     pub fn sanitize(&mut self) {
-        self.generators.retain(|name, _| {
-            name.chars().count() <= crate::config::state::MAX_INVENTORY_NAME_CHARS
-        });
+        let renames = crate::pds::sanitize::names::sanitize_keys(
+            &mut self.generators,
+            crate::config::state::MAX_INVENTORY_NAME_CHARS,
+        );
+        for (old, new) in renames {
+            if let Some(meta) = self.wear.remove(&old) {
+                self.wear.insert(new, meta);
+            }
+        }
         let bound = crate::config::state::MAX_INVENTORY_SANITIZE_ITEMS;
         if self.generators.len() > bound {
             let mut keys: Vec<String> = self.generators.keys().cloned().collect();
@@ -711,13 +726,46 @@ mod tests {
         );
     }
 
+    /// #1205: an over-long name used to delete the item at the next
+    /// login. Sequence: rename an item past the cap → publish (success
+    /// toast) → log out → fetch → sanitize. The item must survive under
+    /// the cut name, and its wear entry must follow it.
     #[test]
-    fn sanitize_drops_oversized_names_deterministically() {
-        let long = "x".repeat(crate::config::state::MAX_INVENTORY_NAME_CHARS + 1);
+    fn sanitize_cuts_oversized_names_instead_of_dropping_the_item() {
+        let cap = crate::config::state::MAX_INVENTORY_NAME_CHARS;
+        let long = "x".repeat(cap + 1);
         let mut record = stash(&["ok", &long]);
+        record.wear.insert(
+            long.clone(),
+            WearMeta {
+                socket: "head".to_owned(),
+                fit_band_mm: 170,
+                offset: TransformData::default(),
+            },
+        );
+        record.sanitize();
+        assert_eq!(record.generators.len(), 2);
+        assert!(record.generators.contains_key("ok"));
+        let cut = "x".repeat(cap);
+        assert!(
+            record.generators.contains_key(&cut),
+            "item must be cut, not dropped"
+        );
+        assert!(
+            record.wear.contains_key(&cut),
+            "wear must follow the renamed item"
+        );
+        assert!(!record.wear.contains_key(&long));
+    }
+
+    /// #1205: an invisible character in a stash name is stripped on load,
+    /// and a name made only of invisibles is the one case that is dropped.
+    #[test]
+    fn sanitize_strips_invisible_characters_from_names() {
+        let mut record = stash(&["Tree\u{200B}", "\u{200B}"]);
         record.sanitize();
         assert_eq!(record.generators.len(), 1);
-        assert!(record.generators.contains_key("ok"));
+        assert!(record.generators.contains_key("Tree"));
     }
 
     #[test]

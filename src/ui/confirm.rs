@@ -193,8 +193,13 @@ pub enum RenameOutcome {
 
 /// Validate a draft key against a taken-set — the shared rule for both
 /// rename dialogs. Renaming to the unchanged old name is a valid no-op
-/// (treated as apply so Enter always dismisses); an empty or taken name
-/// explains itself. Pure, unit-tested below.
+/// (treated as apply so Enter always dismisses); an empty, invisible,
+/// over-long or taken name explains itself. Pure, unit-tested below.
+///
+/// The length and invisible-character rules (#1205) are the typing-time
+/// half of `pds::sanitize::names`: whatever this refuses, the record
+/// sanitiser would otherwise have to repair on the next load — and a
+/// repaired name is a name the owner did not choose.
 pub fn validate_new_key(
     draft: &str,
     old: &str,
@@ -203,6 +208,15 @@ pub fn validate_new_key(
     let trimmed = draft.trim();
     if trimmed.is_empty() {
         return Err("Name cannot be empty.".to_owned());
+    }
+    if crate::pds::sanitize::names::has_invisible(trimmed) {
+        return Err("Name contains invisible characters — please retype it.".to_owned());
+    }
+    let max = crate::pds::limits::MAX_GENERATOR_NAME_CHARS;
+    if trimmed.chars().count() > max {
+        return Err(format!(
+            "Name is too long — keep it under {max} characters."
+        ));
     }
     if trimmed != old && is_taken(trimmed) {
         return Err(format!("\"{trimmed}\" is already taken."));
@@ -303,6 +317,35 @@ mod tests {
         );
         // Trimming applies before the taken check.
         assert!(validate_new_key("  existing  ", "old", taken).is_err());
+    }
+
+    /// #1205: a name the record sanitiser would cut or strip is refused
+    /// at the point of typing, so the owner never publishes a name that
+    /// comes back different at the next login.
+    #[test]
+    fn validate_new_key_refuses_over_long_and_invisible_names() {
+        let taken = |_: &str| false;
+        let max = crate::pds::limits::MAX_GENERATOR_NAME_CHARS;
+        assert!(validate_new_key(&"あ".repeat(max), "old", taken).is_ok());
+        assert!(
+            validate_new_key(&"あ".repeat(max + 1), "old", taken)
+                .unwrap_err()
+                .contains("too long")
+        );
+        assert!(
+            validate_new_key("Tree\u{200B}", "old", taken)
+                .unwrap_err()
+                .contains("invisible")
+        );
+        // A zero-width-only draft is invisible, not "empty": the field
+        // is visibly non-blank and the message must say why it fails.
+        assert!(
+            validate_new_key("\u{200B}", "old", taken)
+                .unwrap_err()
+                .contains("invisible")
+        );
+        // Joined emoji are visible and allowed.
+        assert!(validate_new_key("👨\u{200D}👩\u{200D}👧", "old", taken).is_ok());
     }
 
     /// Headless egui frame: the confirm modal renders without panicking

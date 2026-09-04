@@ -374,6 +374,9 @@ pub fn incoming_offer_ui(
     mut writer: MessageWriter<Broadcast<OverlandsMessage>>,
     mut session_log: ResMut<SessionLog>,
     mut inventory_feedback: ResMut<PublishFeedback<InventoryRecord>>,
+    // The auto-publish must not write over a stash that was never read
+    // (#1199); see the accept arm.
+    inventory_recovery: Option<Res<crate::state::InventoryRecordRecovery>>,
     // Bundled to stay under Bevy's 16-parameter ceiling (#843/#844).
     (time, mut metrics, mut busy_declines, mut toasts, mut offer_size, mut muted_dids): (
         Res<Time>,
@@ -541,8 +544,16 @@ pub fn incoming_offer_ui(
 
     if accepted {
         if let Some(live) = live_inventory.as_mut() {
-            crate::ui::inventory::store_accepted_gift(
+            // The gift lands in `live`; what gets PUBLISHED is `stored` plus
+            // the gift (#1200) — the owner's other unsaved edits are theirs
+            // to save or revert, not this dialog's to commit.
+            let stored = stored_inventory
+                .as_deref()
+                .map(|s| s.0.clone())
+                .unwrap_or_default();
+            let (_, payload) = crate::ui::inventory::accept_gift(
                 &mut live.0,
+                &stored,
                 &dialog.item_name,
                 dialog.generator.clone(),
                 dialog.wear.clone(),
@@ -563,17 +574,30 @@ pub fn incoming_offer_ui(
             // Update schedule) drains the task and flips
             // `StoredInventoryRecord` + `PublishFeedback<InventoryRecord>`
             // on completion, so we only kick off the I/O here.
-            if let (Some(sess), Some(refresh)) = (session.as_deref(), refresh_ctx.as_deref()) {
+            //
+            // Unless the stash never loaded (#1199): then `stored` is the
+            // empty default, the diff would delete a legacy monolith the
+            // owner still has, and the banner in the Inventory window
+            // promised they would be asked first. The gift lands locally
+            // and stays dirty; the editor's own guarded Save publishes it.
+            if inventory_recovery.is_some() {
+                toasts.info(
+                    format!(
+                        "Saved \"{}\" locally — your stash could not be loaded, so open \
+                         Inventory to save it deliberately.",
+                        dialog.item_name
+                    ),
+                    now,
+                );
+            } else if let (Some(sess), Some(refresh)) = (session.as_deref(), refresh_ctx.as_deref())
+            {
                 inventory_feedback.status = PublishStatus::Publishing;
                 crate::ui::inventory::spawn_publish_inventory_task(
                     &mut commands,
                     sess,
                     refresh,
-                    live.0.clone(),
-                    stored_inventory
-                        .as_deref()
-                        .map(|s| s.0.clone())
-                        .unwrap_or_default(),
+                    payload,
+                    stored,
                     time.elapsed_secs_f64(),
                 );
             }

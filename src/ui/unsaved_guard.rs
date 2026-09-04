@@ -35,6 +35,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
+use crate::diagnostics::event::RecordKind;
 use crate::oauth::OauthRefreshCtx;
 use crate::pds::avatar::avatar_is_dirty;
 use crate::pds::{AvatarRecord, InventoryRecord, RoomRecord};
@@ -45,8 +46,9 @@ use crate::state::{
     records_differ,
 };
 use crate::ui::avatar::PublishAvatarTask;
+use crate::ui::editable::RecoveryMarkers;
 use crate::ui::inventory::PublishInventoryTask;
-use crate::ui::room::PublishRoomTask;
+use crate::ui::room::{PublishRoomTask, ResetRoomTask};
 
 /// How long portal interaction stays suppressed after the player chooses
 /// *Stay*. Longer than the post-teleport [`PortalCooldown`] default: the
@@ -127,6 +129,41 @@ impl DirtyRecords {
             }
         }
     }
+
+    /// The records "Publish & continue" would write for `action` — the
+    /// dirty ones the action discards — that carry a recovery marker
+    /// (#1199), with the marker's reason. `reasons` is
+    /// `[room, avatar, inventory]` as [`RecoveryMarkers::reasons`] hands
+    /// it over. Non-empty means the guard must not offer the publish: it
+    /// would write a synthesised default over a stored copy this client
+    /// never read, and for an avatar retire every attachment record the
+    /// default does not reference.
+    pub(crate) fn recovery_blocked<'a>(
+        &self,
+        action: &GuardedAction,
+        reasons: [Option<&'a str>; 3],
+    ) -> Vec<(RecordKind, &'a str)> {
+        let [room, avatar, inventory] = reasons;
+        let mut blocked = Vec::new();
+        if self.room
+            && let Some(reason) = room
+        {
+            blocked.push((RecordKind::Room, reason));
+        }
+        if matches!(action, GuardedAction::Logout | GuardedAction::Quit) {
+            if self.avatar
+                && let Some(reason) = avatar
+            {
+                blocked.push((RecordKind::Avatar, reason));
+            }
+            if self.inventory
+                && let Some(reason) = inventory
+            {
+                blocked.push((RecordKind::Inventory, reason));
+            }
+        }
+        blocked
+    }
 }
 
 /// The six live/stored record resources the dirty computation diffs.
@@ -196,19 +233,29 @@ impl GuardFeedbacks<'_> {
     }
 }
 
-/// Existence probes for the three publish-task components. The guard's
+/// Existence probes for the publish-task components. The guard's
 /// `Publishing` phase waits until all of them have drained (the editors'
 /// poll systems despawn each task entity when its result lands).
+///
+/// The room's recovery reset is a write too (#1199): it lands through the
+/// same poll system and pins `stored` the same way, so a portal hop or a
+/// logout on top of it would pin the local default over the destination's
+/// record exactly as the module docs say the wait exists to prevent.
 #[derive(SystemParam)]
 pub struct GuardPublishTasks<'w, 's> {
     room: Query<'w, 's, (), With<PublishRoomTask>>,
+    reset: Query<'w, 's, (), With<ResetRoomTask>>,
     avatar: Query<'w, 's, (), With<PublishAvatarTask>>,
     inventory: Query<'w, 's, (), With<PublishInventoryTask>>,
 }
 
 impl GuardPublishTasks<'_, '_> {
-    fn any_in_flight(&self) -> bool {
-        !self.room.is_empty() || !self.avatar.is_empty() || !self.inventory.is_empty()
+    /// Whether any PDS write the guard has to wait for is still running.
+    pub fn any_in_flight(&self) -> bool {
+        !self.room.is_empty()
+            || !self.reset.is_empty()
+            || !self.avatar.is_empty()
+            || !self.inventory.is_empty()
     }
 }
 
@@ -223,6 +270,7 @@ pub fn unsaved_guard_ui(
     records: GuardRecords,
     mut feedbacks: GuardFeedbacks,
     tasks: GuardPublishTasks,
+    recoveries: RecoveryMarkers,
     session: Option<Res<AtprotoSession>>,
     refresh_ctx: Option<Res<OauthRefreshCtx>>,
     current_room: Option<Res<CurrentRoomDid>>,
@@ -379,11 +427,26 @@ pub fn unsaved_guard_ui(
         }
 
         // Publishing needs an authenticated session; without one (which
-        // should not happen in-game) only discard/stay are offered.
-        let can_publish = session.is_some() && refresh_ctx.is_some();
+        // should not happen in-game) only discard/stay are offered. And it
+        // must not write a record whose fetch fell back to a default
+        // (#1199): that publish is the editor's, behind its confirm.
+        let blocked = dirty.recovery_blocked(&guard.action, recoveries.reasons());
+        let can_publish = session.is_some() && refresh_ctx.is_some() && blocked.is_empty();
+        if !blocked.is_empty() {
+            ui.colored_label(
+                crate::ui::theme::current(ui.ctx()).status.warn,
+                crate::ui::editable::publish_blocked_hover(&blocked),
+            );
+            ui.add_space(4.0);
+        }
         ui.horizontal(|ui| {
             if ui
                 .add_enabled(can_publish, egui::Button::new(continue_publish))
+                .on_disabled_hover_text(if blocked.is_empty() {
+                    String::from("Publishing needs a signed-in session.")
+                } else {
+                    crate::ui::editable::publish_blocked_hover(&blocked)
+                })
                 .clicked()
                 && let (Some(session), Some(refresh_ctx)) =
                     (session.as_deref(), refresh_ctx.as_deref())
@@ -659,6 +722,50 @@ mod tests {
         // Avatar and inventory survive a portal hop — they must not gate it.
         assert!(!dirty(false, true, true).blocks(&travel()));
         assert!(!dirty(false, false, false).blocks(&travel()));
+    }
+
+    /// #1199. Sequence: the avatar fetch fell back to the default (marker
+    /// raised, live == stored == default), the owner nudges one axis, then
+    /// logs out and picks "Publish & log out". That publish wrote the
+    /// default over the stored avatar AND retired every attachment record
+    /// the default does not reference. The guard must refuse the publish
+    /// for exactly the dirty records that carry a marker — and only those.
+    #[test]
+    fn publish_and_continue_is_refused_for_a_dirty_record_in_recovery() {
+        let avatar_reason = [None, Some("timed out"), None];
+        let blocked =
+            dirty(false, true, false).recovery_blocked(&GuardedAction::Logout, avatar_reason);
+        assert_eq!(blocked, vec![(RecordKind::Avatar, "timed out")]);
+        // A marker on a CLEAN record blocks nothing: the guard would not
+        // publish it, so there is nothing to clobber.
+        assert!(
+            dirty(true, false, false)
+                .recovery_blocked(&GuardedAction::Logout, avatar_reason)
+                .is_empty()
+        );
+        // Portal travel publishes the room only, so avatar/inventory
+        // markers are irrelevant to it …
+        assert!(
+            dirty(true, true, true)
+                .recovery_blocked(&travel(), avatar_reason)
+                .is_empty()
+        );
+        // … while a room marker on a dirty room blocks it.
+        let room_reason = [Some("decode error"), None, None];
+        assert_eq!(
+            dirty(true, false, false).recovery_blocked(&travel(), room_reason),
+            vec![(RecordKind::Room, "decode error")]
+        );
+        // Every marker on every dirty record is named, in record order.
+        let all = [Some("r"), Some("a"), Some("i")];
+        assert_eq!(
+            dirty(true, true, true).recovery_blocked(&GuardedAction::Quit, all),
+            vec![
+                (RecordKind::Room, "r"),
+                (RecordKind::Avatar, "a"),
+                (RecordKind::Inventory, "i")
+            ]
+        );
     }
 
     #[test]

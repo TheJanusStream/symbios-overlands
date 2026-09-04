@@ -937,6 +937,7 @@ pub fn avatar_ui(
                             matches!(feedback.status, PublishStatus::Publishing),
                             // Undo covers Revert/Reset here (#866).
                             None,
+                            crate::ui::editable::ResetWording::Record,
                         ) {
                             RecordAction::None => {}
                             RecordAction::Publish => {
@@ -944,21 +945,13 @@ pub fn avatar_ui(
                                 // unrecoverable fetch the editor holds the
                                 // default while the real record may still
                                 // sit on the PDS — the first publish asks.
-                                if let Some(rec) = recovery.as_deref() {
-                                    publish_guard.request(
-                                        "Overwrite your stored avatar?",
-                                        format!(
-                                            "Your avatar loaded as the default because \
-                                             the stored copy could not be read ({}). \
-                                             Saving now replaces whatever is stored on \
-                                             your PDS with what you see here.",
-                                            rec.reason
-                                        ),
-                                        "Save anyway",
-                                        (),
-                                    );
-                                } else {
-                                    do_publish = true;
+                                match recovery.as_deref() {
+                                    Some(rec) => crate::ui::editable::request_overwrite_confirm(
+                                        publish_guard,
+                                        RecordKind::Avatar,
+                                        &rec.reason,
+                                    ),
+                                    None => do_publish = true,
                                 }
                             }
                             RecordAction::Load => {
@@ -978,9 +971,9 @@ pub fn avatar_ui(
                             .show(ui.ctx(), "avatar-recovery-publish")
                             .is_some()
                         {
-                            // Acknowledged: the overwrite is deliberate now,
-                            // so the marker (and its banner) retires.
-                            commands.remove_resource::<crate::state::AvatarRecordRecovery>();
+                            // Acknowledged. The marker stays until the poll
+                            // system sees the write land (#1199) — retiring
+                            // it here left a failed overwrite with no banner.
                             do_publish = true;
                         }
                         if do_publish
@@ -1018,6 +1011,9 @@ pub fn avatar_ui(
                             widget_changed |= outcome.changed;
                             if let Some(label) = outcome.label {
                                 undo_labels.set_avatar(label);
+                            }
+                            if let Some(text) = outcome.toast {
+                                toasts.success(text, time.elapsed_secs_f64());
                             }
                             if outcome.wants_wardrobe_refresh
                                 && let Some(s) = session.as_ref()
@@ -1472,6 +1468,8 @@ pub fn poll_publish_avatar_tasks(
     mut toasts: ResMut<crate::ui::toast::Toasts>,
     // The post-publish nudge (#1122).
     mut network: bevy_symbios_multiuser::prelude::SendMessage<crate::protocol::OverlandsMessage>,
+    // A result for another identity must not pin `stored` (#1204).
+    session: Option<Res<AtprotoSession>>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
         let spawned_at = task.spawned_at;
@@ -1484,6 +1482,13 @@ pub fn poll_publish_avatar_tasks(
             continue;
         };
         commands.entity(entity).despawn();
+        if crate::ui::room::stale_result(
+            "avatar publish",
+            &task.did,
+            session.as_deref().map(|s| s.did.as_str()),
+        ) {
+            continue;
+        }
         let now = time.elapsed_secs_f64();
         let did = task.did.clone();
         let duration_secs = now - task.spawned_at;
@@ -1500,6 +1505,9 @@ pub fn poll_publish_avatar_tasks(
                 if let Some(stored) = stored.as_mut() {
                     stored.0 = task.published.clone();
                 }
+                // The stored copy is now exactly what was written, so the
+                // recovery marker retires where success is known (#1199).
+                commands.remove_resource::<crate::state::AvatarRecordRecovery>();
                 // Tell the room (#1122). A rigged body's payload is in the
                 // wardrobe + attachment records this write just changed, and
                 // they sit at the SAME rkeys the live-preview broadcast

@@ -12,7 +12,7 @@ use crate::pds::audio::{
     SovereignAudioConfig, SovereignAudioPatch, SovereignConnection, SovereignEvent,
     SovereignNodeGraph, SovereignNodeKind, SovereignSequenceRecipe, SovereignTrack,
 };
-use crate::pds::types::Fp;
+use crate::pds::types::{Fp, truncate_on_char_boundary};
 
 /// Soft cap on the total number of nodes a single
 /// [`SovereignNodeGraph`] may carry. A graph this size already bakes
@@ -218,9 +218,7 @@ impl Sanitize for SovereignSequenceRecipe {
             self.instruments.truncate(MAX_SEQUENCE_INSTRUMENTS);
         }
         for instr in &mut self.instruments {
-            if instr.id.len() > MAX_INSTRUMENT_ID_BYTES {
-                instr.id.truncate(MAX_INSTRUMENT_ID_BYTES);
-            }
+            truncate_on_char_boundary(&mut instr.id, MAX_INSTRUMENT_ID_BYTES);
             instr.patch.sanitize();
         }
         if self.tracks.len() > MAX_SEQUENCE_TRACKS {
@@ -246,9 +244,7 @@ impl Sanitize for SovereignTrack {
 impl Sanitize for SovereignEvent {
     fn sanitize(&mut self) {
         self.time_beats = Fp(clamp_finite(self.time_beats.0, 0.0, 100_000.0, 0.0));
-        if self.instrument_id.len() > MAX_INSTRUMENT_ID_BYTES {
-            self.instrument_id.truncate(MAX_INSTRUMENT_ID_BYTES);
-        }
+        truncate_on_char_boundary(&mut self.instrument_id, MAX_INSTRUMENT_ID_BYTES);
         // Pitch multiplier is continuous (see audio crate's sequence
         // module docstring) — not clamped to semitones. Bound below
         // away from zero so playback speed doesn't degenerate.
