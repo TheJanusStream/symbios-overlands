@@ -419,6 +419,18 @@ pub enum EventPayload {
     ChatDroppedMuted {
         sender_did: String,
     },
+    /// One peer is over the per-sender chat budget (#1222 f296), with how
+    /// many of their messages have been dropped in this throttling episode.
+    ///
+    /// Rate-limited to one entry per
+    /// [`THROTTLE_REPORT_INTERVAL_SECS`](crate::config::ui::chat::THROTTLE_REPORT_INTERVAL_SECS)
+    /// per sender on purpose: the whole point of the limiter is to stop N
+    /// events becoming N records, and a per-message log line would move the
+    /// flood into the session log rather than stopping it.
+    ChatThrottled {
+        sender_did: String,
+        dropped: u32,
+    },
     /// The local player sent a gift offer to a peer (outbound side of
     /// [`ItemOfferReceived`](EventPayload::ItemOfferReceived)).
     ItemOfferSent {
@@ -589,6 +601,7 @@ impl EventPayload {
             | PeerWorldDigestMismatch { .. }
             | ChatReceived { .. }
             | ChatDroppedMuted { .. }
+            | ChatThrottled { .. }
             | ItemOfferSent { .. }
             | ItemOfferReceived { .. }
             | ItemOfferAutoDeclinedBusy { .. }
@@ -667,7 +680,7 @@ impl EventPayload {
             | PeerWorldDigestMismatch { .. }
             | OutboundMessageOversize { .. } => Category::Transport,
 
-            ChatReceived { .. } | ChatDroppedMuted { .. } => Category::Chat,
+            ChatReceived { .. } | ChatDroppedMuted { .. } | ChatThrottled { .. } => Category::Chat,
 
             ItemOfferSent { .. }
             | ItemOfferReceived { .. }
@@ -899,6 +912,10 @@ impl EventPayload {
                 format!("chat from {sender_did} ({text_len} B, muted={muted})")
             }
             ChatDroppedMuted { sender_did } => format!("chat dropped (muted): {sender_did}"),
+            ChatThrottled {
+                sender_did,
+                dropped,
+            } => format!("chat throttled: {sender_did} ({dropped} dropped)"),
             ItemOfferSent {
                 offer_id,
                 target_did,

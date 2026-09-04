@@ -145,6 +145,44 @@ pub const MAX_CAPACITY_FACTOR: f32 = 256.0;
 /// hierarchies cost an entity + Transform chain per node; 16 is well
 /// past any plausible hand-authored assembly.
 pub const MAX_GENERATOR_DEPTH: u32 = 16;
+
+/// Largest metre value any single primitive dimension may take in ROOM
+/// content. The number the primitive sanitiser has always used, named so
+/// the avatar's tighter one below reads as a deliberate contrast rather
+/// than a second magic constant.
+pub const MAX_PRIM_DIM_M: f32 = 100.0;
+
+/// The same bound for a body (#1221 f327).
+///
+/// A room is something you choose to enter; an avatar is worn into other
+/// people's rooms, so its size is a thing it can do TO them. At the room's
+/// 100 m, one node of one record filled every guest's view with flat
+/// colour, and the only remedy — Mute — could not be aimed, because no body
+/// carried a name.
+///
+/// Chosen from measurement, not taste. `shipped_avatars_are_unchanged_by_
+/// the_avatar_caps` sanitises all 617 trees this build can produce — 400
+/// seeded bodies and every shipped part across five seeds — under both this
+/// cap and the room's, and requires them byte-identical. The largest
+/// dimension any of them actually uses is between 2 m and 4 m (at 2 m, 28
+/// trees change; at 4 m, none do), so this is roughly 4x headroom over the
+/// biggest thing the app ships, and the guard fails loudly if content ever
+/// grows past it rather than deforming somebody's body in silence.
+pub const MAX_AVATAR_PRIM_DIM_M: f32 = 16.0;
+
+/// Largest product of scales along any root-to-leaf path of an avatar's
+/// visual tree (#1221 f327).
+///
+/// Scales compose multiplicatively and nothing bounded the product, so a
+/// body's world size was `per-node scale ^ depth` — `1000 ^ 16` at this
+/// module's own depth limit. Measured: the worst accumulated scale across
+/// 400 seeded bodies is 1.2, so this is ~3.3x headroom over anything the
+/// app ships while turning an unbounded exponent into a bounded one.
+///
+/// Together with [`MAX_AVATAR_PRIM_DIM_M`] this puts a hard ceiling on how
+/// much of a guest's view one stranger's record can occupy: 16 m x 4 = 64 m
+/// on any axis, from a previous worst case of 100 m x 1000 = 100 km.
+pub const MAX_AVATAR_SCALE_PRODUCT: f32 = 4.0;
 /// Maximum total node count (root + descendants) for a single named
 /// generator's tree. A malicious record with a million children would
 /// otherwise spawn a million Bevy entities + colliders on every compile.

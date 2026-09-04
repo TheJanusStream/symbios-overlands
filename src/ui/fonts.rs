@@ -319,6 +319,17 @@ mod tests {
 mod glyph_coverage_tests {
     use super::*;
 
+    /// Files outside `src/ui` whose string literals are rendered verbatim
+    /// as UI labels (#1223).
+    ///
+    /// `network::presence` derives the People roster's status chip and its
+    /// hover sentence, so its literals are drawn by `people_ui` and are
+    /// exactly as capable of shipping tofu as anything under `src/ui` — the
+    /// `⋯` this list was added for is one the bundled fonts cannot draw.
+    /// Add a path here when a module starts producing text a UI surface
+    /// prints without touching it.
+    const EXTRA_LABEL_SOURCES: &[&str] = &["src/network/presence.rs"];
+
     /// The charmaps of every face the proportional family falls back
     /// through, in the order the app installs them (Noto Sans first, egui's
     /// embedded tail after, no CJK).
@@ -391,10 +402,19 @@ mod glyph_coverage_tests {
     /// missing glyph, so this walks `src/ui/**` and asks the real font
     /// atlas. CJK is exempt because it is the lazily-loaded fallback's
     /// job ([`needs_cjk`]).
+    ///
+    /// [`EXTRA_LABEL_SOURCES`] extends the walk to files that produce UI
+    /// label text from OUTSIDE `src/ui` (#1223). The whole of `src/` cannot
+    /// be walked instead — it is full of log lines and wire strings nobody
+    /// renders — so a module that hands `src/ui` a string to draw verbatim
+    /// has to name itself here.
     #[test]
     fn every_ui_label_glyph_is_in_the_base_font_set() {
         let ui_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui");
-        let mut sources = Vec::new();
+        let mut sources: Vec<std::path::PathBuf> = EXTRA_LABEL_SOURCES
+            .iter()
+            .map(|rel| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(rel))
+            .collect();
         let mut stack = vec![ui_root];
         while let Some(dir) = stack.pop() {
             for entry in std::fs::read_dir(&dir).expect("src/ui is readable") {
@@ -406,7 +426,10 @@ mod glyph_coverage_tests {
                 }
             }
         }
-        assert!(!sources.is_empty(), "the walk found no UI sources");
+        assert!(
+            sources.len() > EXTRA_LABEL_SOURCES.len(),
+            "the walk found no UI sources"
+        );
 
         let atlas = BaseAtlas::new();
         let mut missing = Vec::new();

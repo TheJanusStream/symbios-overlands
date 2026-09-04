@@ -112,6 +112,7 @@ pub fn setup_decal_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh
 /// Spawn a fading quad for each matched authored decal recipe,
 /// cooldown-throttled per `(avatar, recipe)` and ground-anchored so it
 /// lies flat. Zero cost (early return) when no decal recipe is authored.
+#[allow(clippy::too_many_arguments)]
 pub fn stamp_decals(
     time: Res<Time>,
     contacts: Res<AvatarContacts>,
@@ -120,8 +121,15 @@ pub fn stamp_decals(
     mut state: ResMut<DecalStampState>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
+    settings: Res<crate::state::LocalSettings>,
 ) {
     if registry.decals.is_empty() {
+        return;
+    }
+    // The viewer's own ceiling on somebody else's room (#1221 f308). Off
+    // takes the same early return the empty registry already does.
+    let intensity = settings.effects_intensity;
+    if !intensity.plays() {
         return;
     }
     let Some(assets) = assets else {
@@ -134,12 +142,13 @@ pub fn stamp_decals(
             if !recipe.enabled || !recipe.trigger.matches(sample) {
                 continue;
             }
-            // Per-(avatar, recipe) cooldown.
-            if recipe.cooldown > 0.0
-                && state
-                    .cooldowns
-                    .active((sample.avatar, idx), now, recipe.cooldown)
-            {
+            // Per-(avatar, recipe) cooldown, with the viewer's floor under
+            // it (#1221 f308). The sanitiser permits a cooldown of 0 and
+            // this test only consulted it when it was `> 0.0`, so a Dwell
+            // recipe with zero stamped once per frame per avatar — which is
+            // what turns a permitted 64 m quad into a wall.
+            let cooldown = recipe.cooldown.max(intensity.cooldown_floor());
+            if cooldown > 0.0 && state.cooldowns.active((sample.avatar, idx), now, cooldown) {
                 continue;
             }
 
@@ -160,8 +169,11 @@ pub fn stamp_decals(
             let pos = anchor + normal * p.normal_offset;
             let rotation = Quat::from_rotation_arc(Vec3::Y, normal);
 
+            // Size and opacity both scale (#1221 f308): a Reduced screen
+            // has to remain a screen you can see through.
+            let damp = intensity.decal_scale();
             let material = materials.add(StandardMaterial {
-                base_color: Color::srgba(p.color[0], p.color[1], p.color[2], p.start_alpha),
+                base_color: Color::srgba(p.color[0], p.color[1], p.color[2], p.start_alpha * damp),
                 alpha_mode: AlphaMode::Blend,
                 unlit: true,
                 double_sided: true,
@@ -175,12 +187,12 @@ pub fn stamp_decals(
                 Transform {
                     translation: pos,
                     rotation,
-                    scale: Vec3::splat(p.start_size),
+                    scale: Vec3::splat(p.start_size * damp),
                 },
                 Decal::from_params(p, material),
             ));
 
-            if recipe.cooldown > 0.0 {
+            if cooldown > 0.0 {
                 state.cooldowns.mark((sample.avatar, idx), now);
             }
         }

@@ -196,8 +196,16 @@ pub fn play_contact_audio(
     mut state: ResMut<AudioCueState>,
     live_voices: Query<(), With<ContactAudioVoice>>,
     mut commands: Commands,
+    settings: Res<crate::state::LocalSettings>,
 ) {
     if registry.audio.is_empty() {
+        return;
+    }
+    // Contact cues are effects too (#1221 f308): the app-wide `AudioMuted`
+    // silences everything including your own room's ambience, and a visitor
+    // who only wants a stranger's cues to stop had nothing between the two.
+    let intensity = settings.effects_intensity;
+    if !intensity.plays() {
         return;
     }
     let now = time.elapsed_secs();

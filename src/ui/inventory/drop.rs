@@ -111,6 +111,20 @@ pub fn handle_generator_drop(
     // here — the usual "released over egui = cancel" rule doesn't apply.
     // -----------------------------------------------------------------
     if let Some(target) = peer_target {
+        // An ineligible row now SAYS so (#1220 f330). This used to be
+        // unreachable — an ineligible row was never recorded as a target, so
+        // the release fell past the gift branch into the silent egui-cancel
+        // below, which exists for drops over the Inventory window. The
+        // sentence is the same one the row's hover carries, from
+        // `people::gift_block_reason`, so the drag and the drop cannot tell
+        // different stories.
+        if let Some(reason) = target.blocked {
+            toasts.info(
+                format!("Couldn't give \"{name}\" to {} — {reason}", target.label),
+                time.elapsed_secs_f64(),
+            );
+            return;
+        }
         // The sender still needs the source `Generator` in hand; pull it
         // from the same sources the ground-placement branches use so
         // both drop origins can gift.
@@ -168,7 +182,7 @@ pub fn handle_generator_drop(
             outcome,
             offer_id,
             &target.did,
-            &target.handle,
+            &target.label,
             &name,
             &mut pending_offers,
             &mut session_log,
@@ -484,7 +498,7 @@ fn record_gift_outcome(
     outcome: crate::network::chunk::SendOutcome,
     offer_id: u64,
     target_did: &str,
-    target_handle: &str,
+    target_label: &str,
     item_name: &str,
     pending_offers: &mut PendingOutgoingOffers,
     session_log: &mut SessionLog,
@@ -494,20 +508,20 @@ fn record_gift_outcome(
     if !outcome.is_sent() {
         toasts.error(
             format!(
-                "Couldn't send \"{item_name}\" to @{target_handle} — the item is \
+                "Couldn't send \"{item_name}\" to {target_label} — the item is \
                  too large for a peer-to-peer transfer."
             ),
             now,
         );
         warn!(
-            "ItemOffer \"{item_name}\" to @{target_handle} ({target_did}) was not sent: {outcome:?}"
+            "ItemOffer \"{item_name}\" to {target_label} ({target_did}) was not sent: {outcome:?}"
         );
         return;
     }
     pending_offers.register(
         offer_id,
         target_did.to_string(),
-        target_handle.to_string(),
+        target_label.to_string(),
         item_name.to_string(),
         now,
     );
@@ -523,10 +537,10 @@ fn record_gift_outcome(
     // confirm NOTHING — the offer's whole lifecycle lived in the
     // diagnostics log.
     toasts.success(
-        format!("Offer sent to @{target_handle} — \"{item_name}\"."),
+        format!("Offer sent to {target_label} — \"{item_name}\"."),
         now,
     );
-    info!("Sent ItemOffer #{offer_id} \"{item_name}\" to @{target_handle} ({target_did})");
+    info!("Sent ItemOffer #{offer_id} \"{item_name}\" to {target_label} ({target_did})");
 }
 
 #[cfg(test)]
@@ -544,7 +558,7 @@ mod gift_outcome_tests {
             outcome,
             id,
             "did:plc:them",
-            "them.test",
+            "@them.test",
             "brass lantern",
             &mut offers,
             &mut log,
@@ -586,6 +600,39 @@ mod gift_outcome_tests {
         );
     }
 
+    /// #1218 f299. The recipient's name arrives already addressed off the
+    /// shared ladder, so the toasts must not glue an `@` on top of it: for a
+    /// peer whose profile has not resolved the label is a DID head, and
+    /// `@did:plc:z72i7hdy…` is the exact defect the gift modal had — a sigil
+    /// promising a name over an identifier.
+    #[test]
+    fn a_recipient_with_no_resolved_handle_is_not_toasted_at_as_an_at_sign_did() {
+        let mut offers = PendingOutgoingOffers::default();
+        let mut log = SessionLog::default();
+        let mut toasts = crate::ui::toast::Toasts::default();
+        let id = offers.peek_next_id();
+        record_gift_outcome(
+            SendOutcome::Sent,
+            id,
+            "did:plc:z72i7hdynmk6r22z27h6tvur",
+            // What `PeerLabel::addressed` yields for an unresolved profile.
+            "did:plc:z72i7hdy…",
+            "brass lantern",
+            &mut offers,
+            &mut log,
+            &mut toasts,
+            0.0,
+        );
+        let shown = toasts.shown();
+        assert_eq!(shown.len(), 1);
+        assert!(
+            !shown[0].1.contains("@did:"),
+            "the sigil belongs to the handle tier alone: {}",
+            shown[0].1
+        );
+        assert!(shown[0].1.contains("did:plc:z72i7hdy…"), "{}", shown[0].1);
+    }
+
     /// The success path is unchanged — the fix must not have cost the
     /// sender-side confirmation #843 added.
     #[test]
@@ -593,7 +640,7 @@ mod gift_outcome_tests {
         let (offers, log, toasts) = book(SendOutcome::Sent);
 
         assert_eq!(offers.by_id.len(), 1);
-        assert_eq!(offers.by_id[&0].target_handle, "them.test");
+        assert_eq!(offers.by_id[&0].target_label, "@them.test");
         assert_eq!(offers.peek_next_id(), 1, "the id is consumed");
         assert!(
             log.iter()

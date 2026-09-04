@@ -51,6 +51,11 @@
 //! * [`link`] — [`link::LinkState`], the one place the client knows whether
 //!   it is connected, and the ghost-peer sweep + narration on its edges
 //!   (#1213).
+//! * [`presence`] — how far a peer has resolved: the one naming ladder
+//!   ([`presence::PeerLabel`]), the one status chip
+//!   ([`presence::peer_status`]), the shared retry backoff, and the
+//!   stand-in body a peer wears until their real one arrives
+//!   (#1217/#1218).
 //! * [`inbound`] — [`inbound::handle_incoming_messages`] dispatcher.
 //! * [`broadcast`] — outbound `Transform` / `Identity` /
 //!   `AvatarStateUpdate` / `RoomStateUpdate` writers.
@@ -64,10 +69,12 @@ mod inbound;
 mod lifecycle;
 pub mod link;
 mod peer_cache;
+pub mod presence;
 mod smoother;
 
 pub use link::{ChatDelivery, LinkPhase, LinkState};
 pub use peer_cache::PeerAvatarCache;
+pub use presence::{PeerLabel, PeerResolve, PeerStatus, peer_label, peer_status};
 
 use bevy::prelude::*;
 use bevy_symbios_multiuser::prelude::*;
@@ -171,15 +178,36 @@ impl Plugin for NetworkPlugin {
                     link::track_link_state,
                     link::narrate_link_state,
                     lifecycle::handle_peer_connections,
+                    // Before the dispatcher: the relay's session map is the
+                    // authority on who a peer is, and waiting for their
+                    // `Identity` broadcast to learn it is what left a silent
+                    // peer counted, bodiless and undurably mutable (#1218).
+                    presence::adopt_peer_sessions,
+                    presence::dress_peer_placeholders,
                     inbound::handle_incoming_messages,
                     peer_cache::poll_peer_avatar_fetches,
+                    presence::retry_peer_avatar_fetches,
                     peer_cache::spawn_peer_rig_resolutions,
                     peer_cache::poll_peer_rig_resolutions,
                     lifecycle::evict_stale_offer_dialog,
+                    lifecycle::resolve_held_offer,
                     lifecycle::dismiss_offer_dialog_from_muted_sender,
                     lifecycle::sweep_stale_pending_offers,
                     lifecycle::flag_unannounced_peers,
+                    // The liveness the transport does not always report
+                    // (#1224 f335) — a ghost is worse than an absence.
+                    lifecycle::sweep_quiet_peers,
                     smoother::smooth_remote_transforms,
+                    presence::retire_peer_placeholders,
+                    // Mute's audio half (#1219 f324), beside its visibility
+                    // half below: `RemotePeer::muted` used to reach
+                    // `Visibility` and nothing else, while the tooltip
+                    // promised audio.
+                    presence::sync_mute_audio,
+                    // Last, and after the smoother: it owns every peer's
+                    // `Visibility`, including the "no pose has played out
+                    // yet" case the smoother resolves one system earlier
+                    // (#1217 f329).
                     lifecycle::sync_mute_visibility,
                 )
                     .chain()
@@ -188,7 +216,10 @@ impl Plugin for NetworkPlugin {
             // A session that ends must not carry its link state — or the
             // narration edge — into the next one, or the first frame of the
             // next login (no socket yet) reads as an outage (#1213).
-            .add_systems(OnExit(AppState::InGame), link::reset_link_state)
+            .add_systems(
+                OnExit(AppState::InGame),
+                (link::reset_link_state, presence::reset_mute_audio),
+            )
             // Network broadcast is tied to a fixed tick so the outbound rate
             // is independent of rendering FPS — otherwise a 144 Hz monitor
             // would blast peers with 2.4× the intended packet rate and a

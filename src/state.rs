@@ -126,6 +126,20 @@ pub enum SocialResonance {
     None,
     /// Query finished: both `following` and `followedBy` were present.
     Mutual,
+    /// The query could not be answered — a non-2xx response, a transport
+    /// error, a JSON decode failure or the wrapping timeout (#1218 f297).
+    ///
+    /// This arm exists because the three failure paths used to return
+    /// [`None`](Self::None), whose doc comment asserts a fact about the
+    /// social graph that a failed lookup cannot support. The ★ is the only
+    /// trust signal the social UI carries — it is what a user leans on
+    /// deciding whether to accept a gift or follow a stranger through a
+    /// portal — and a signal that fails closed with no distinction between
+    /// "no" and "couldn't ask" quietly under-reports friends.
+    ///
+    /// Retried on the shared doubling backoff, so a transient AppView hiccup
+    /// does not settle a relationship for the session.
+    Failed,
 }
 
 /// One row in the rolling chat HUD. The optional `did` is filled in when
@@ -473,6 +487,71 @@ pub struct LocalSettings {
     /// screen (#897). Off ⇒ the login screen keeps its sky-gradient
     /// backdrop and skips the pre-login world build entirely.
     pub login_world_backdrop: bool,
+    /// How loudly the room's contact effects are allowed to play (#1221
+    /// f308). The visual counterpart to the app-wide audio mute, and the
+    /// accessibility control the app lacked for flashing and motion.
+    pub effects_intensity: EffectsIntensity,
+}
+
+/// How much of a room's authored contact effects a visitor accepts
+/// (#1221 f308).
+///
+/// Portals and gateways invite visitors into rooms authored by strangers,
+/// and the recipe driving those effects arrives over the live-preview
+/// broadcast. The engine bounded resource use carefully and never bounded
+/// GRIEFING: it caps the decal pile at 64 quads while permitting each to be
+/// 64 m across at full opacity with a zero cooldown, so a visitor's screen
+/// filled with solid colour the moment their feet touched the ground — and
+/// the only escape was to leave the room, which is exactly what a griefer
+/// wants. There was an app-wide audio mute and no visual equivalent at all.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum EffectsIntensity {
+    /// Play what the room authored.
+    #[default]
+    Full,
+    /// Bound the worst of it: decals shrink and fade, and a zero cooldown
+    /// gets a floor so a Dwell recipe cannot stamp once per frame.
+    Reduced,
+    /// None at all — the same early-return the empty-registry path already
+    /// takes.
+    Off,
+}
+
+impl EffectsIntensity {
+    /// Whether contact effects run at all.
+    pub fn plays(self) -> bool {
+        !matches!(self, Self::Off)
+    }
+
+    /// Multiplier on a decal's authored size and opacity.
+    pub fn decal_scale(self) -> f32 {
+        match self {
+            Self::Full => 1.0,
+            // A quarter of 64 m is 16 m: present, and no longer the whole
+            // view. Applied to alpha as well, so a "Reduced" screen can
+            // always be seen through.
+            Self::Reduced => 0.25,
+            Self::Off => 0.0,
+        }
+    }
+
+    /// Least seconds between two stamps of the same recipe on the same
+    /// avatar, whatever the room authored.
+    pub fn cooldown_floor(self) -> f32 {
+        match self {
+            Self::Full => 0.0,
+            Self::Reduced => crate::config::interaction::REDUCED_EFFECT_COOLDOWN_SECS,
+            Self::Off => f32::INFINITY,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Full => "Full",
+            Self::Reduced => "Reduced",
+            Self::Off => "Off",
+        }
+    }
 }
 
 impl Default for LocalSettings {
@@ -483,6 +562,7 @@ impl Default for LocalSettings {
             camera_ground_avoidance: crate::camera::CameraGroundAvoidance::default(),
             camera_ground_clearance_m: crate::config::camera::TERRAIN_CLEARANCE,
             login_world_backdrop: true,
+            effects_intensity: EffectsIntensity::default(),
         }
     }
 }
@@ -562,7 +642,16 @@ pub struct IncomingOfferDialog {
     pub offer_id: u64,
     pub sender_peer_id: bevy_symbios_multiuser::prelude::PeerId,
     pub sender_did: String,
-    pub sender_handle: String,
+    /// The best name we have for the sender, off the ONE ladder
+    /// ([`crate::network::PeerLabel`], #1218 f299).
+    ///
+    /// A `String` here used to fall back to the raw DID, which the modal
+    /// then rendered inside an `@`-prefixed sentence — presenting
+    /// `@did:plc:z72i7hdynmk6r22z27h6tvur` as the identity the user must
+    /// judge, twice, in the app's one blocking dialog, on a countdown. The
+    /// typed label is what lets the modal say "we don't know who this is"
+    /// instead of guessing.
+    pub sender_label: crate::network::PeerLabel,
     pub item_name: String,
     pub generator: Generator,
     /// The item's wear metadata (#1108) when the sender gifted a wearable,
@@ -578,12 +667,35 @@ pub struct IncomingOfferDialog {
     pub arrived_at_epoch: i64,
 }
 
-/// DIDs the local user has muted, persisted across sessions via the
+/// An incoming offer the recipient set aside to make room for (#1220 f288).
+///
+/// The dialog is a true `egui::Modal`: it paints topmost and blocks
+/// background pointer input. So its own "Open Inventory" button — offered on
+/// the one failure path it exists for, a full stash — raised the Inventory
+/// window UNDER a modal that swallowed every click on it, while the
+/// countdown declined the gift out from under the user. The only way to
+/// reach the Inventory was to Decline first, which is the outcome the button
+/// exists to avoid.
+///
+/// Holding the offer instead lets the dialog close, the Inventory work, and
+/// the offer come back the moment a slot frees. The clock keeps running on
+/// [`IncomingOfferDialog::arrived_at_epoch`], so a hold cannot be used to
+/// extend an offer past the TTL the sender is also counting.
+#[derive(Resource, Clone, Debug)]
+pub struct HeldOffer(pub IncomingOfferDialog);
+
+/// DIDs the SIGNED-IN user has muted, persisted across sessions via the
 /// prefs layer (#820/#844). The live cache stays `RemotePeer::muted` —
 /// this set is the durable source: applied when a peer's DID resolves,
 /// updated by every mute toggle. Without it a mute lived on the
 /// session-scoped peer entity, so a harasser reset the block by simply
-/// reconnecting. Machine-local like the rest of the prefs.
+/// reconnecting.
+///
+/// Scoped to the account, not the machine (#1223 f292). It is stored in
+/// machine-local prefs like everything else, but under the owner's DID in
+/// [`MutedByOwner`] — a block list is a statement about who *you* will not
+/// hear, and a shared computer used to hand one user's list to the next,
+/// invisibly, since a muted peer renders as a hidden body and a faint dot.
 #[derive(Resource, Default, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct MutedDids(pub std::collections::HashSet<String>);
 
@@ -595,6 +707,44 @@ impl MutedDids {
             self.0.insert(did.to_owned())
         } else {
             self.0.remove(did)
+        }
+    }
+
+    /// The list in a stable order for display (#1223 f292). A `HashSet`
+    /// iterates arbitrarily, and a settings list whose rows reshuffle under
+    /// the cursor is one you cannot click an Unmute button in.
+    pub fn sorted(&self) -> Vec<&str> {
+        let mut dids: Vec<&str> = self.0.iter().map(String::as_str).collect();
+        dids.sort_unstable();
+        dids
+    }
+}
+
+/// Every account's mute list on this machine, keyed by the owner's DID
+/// (#1223 f292).
+///
+/// The persisted shape behind [`MutedDids`], which holds only the signed-in
+/// owner's entry. Kept as a separate resource rather than folded into
+/// `MutedDids` because every reader in the crate wants "the list that
+/// applies to me right now", and exactly two places — login and the prefs
+/// save — care whose it is.
+#[derive(Resource, Default, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct MutedByOwner(pub std::collections::HashMap<String, std::collections::HashSet<String>>);
+
+impl MutedByOwner {
+    /// The list belonging to `owner`, empty when they have muted nobody.
+    pub fn for_owner(&self, owner: &str) -> MutedDids {
+        MutedDids(self.0.get(owner).cloned().unwrap_or_default())
+    }
+
+    /// Store `list` as `owner`'s. An empty list is REMOVED rather than
+    /// stored empty, so unmuting everyone leaves no trace of who was
+    /// signed in on this machine.
+    pub fn set_owner(&mut self, owner: &str, list: &MutedDids) {
+        if list.0.is_empty() {
+            self.0.remove(owner);
+        } else {
+            self.0.insert(owner.to_owned(), list.0.clone());
         }
     }
 }
@@ -626,7 +776,15 @@ pub struct PendingOutgoingOffers {
 #[derive(Clone, Debug)]
 pub struct PendingOutgoingOffer {
     pub target_did: String,
-    pub target_handle: String,
+    /// How to name the recipient in the sender's own toasts, off the ONE
+    /// ladder ([`crate::network::PeerLabel`], #1218 f299) and already
+    /// carrying its `@` when — and only when — it is a real handle.
+    ///
+    /// This used to be a bare handle string with `@` glued on at four call
+    /// sites, so a recipient whose profile had not resolved was toasted at
+    /// as `@identifying…`, and the DID-head fallback would have read
+    /// `@did:plc:z72i7hdy…`. The sigil belongs to the name tier alone.
+    pub target_label: String,
     pub item_name: String,
     pub sent_at_secs: f64,
     /// Wall-clock seconds the offer was sent (#1216). The 180 s sweep runs
@@ -656,7 +814,7 @@ impl PendingOutgoingOffers {
         &mut self,
         id: u64,
         target_did: String,
-        target_handle: String,
+        target_label: String,
         item_name: String,
         sent_at_secs: f64,
     ) {
@@ -665,7 +823,7 @@ impl PendingOutgoingOffers {
             id,
             PendingOutgoingOffer {
                 target_did,
-                target_handle,
+                target_label,
                 item_name,
                 sent_at_secs,
                 // Stamped here rather than passed in: every caller would
@@ -673,6 +831,87 @@ impl PendingOutgoingOffers {
                 // the deadline is this type's own business.
                 sent_at_epoch: now_epoch_secs(),
             },
+        );
+    }
+}
+
+#[cfg(test)]
+mod effects_intensity_tests {
+    use super::*;
+
+    /// #1221 f308. The sequence: you portal into a stranger's room and your
+    /// screen fills with solid colour the moment your feet touch the ground
+    /// — a Dwell decal recipe at 64 m, alpha 1.0, cooldown 0, stamping once
+    /// per frame per avatar. The engine bounded resource use (64 live
+    /// quads) and never bounded griefing, and the only exit was to leave.
+    #[test]
+    fn each_level_bounds_a_different_half_of_the_attack() {
+        // Full is what the room authored — the setting must not change the
+        // product for people who never touch it.
+        assert!(EffectsIntensity::Full.plays());
+        assert_eq!(EffectsIntensity::Full.decal_scale(), 1.0);
+        assert_eq!(
+            EffectsIntensity::Full.cooldown_floor(),
+            0.0,
+            "an authored cooldown of zero is legitimate at Full"
+        );
+
+        // Reduced bounds BOTH factors: a 64 m quad becomes 16 m, its alpha
+        // drops with it, and the per-frame case is gone.
+        assert!(EffectsIntensity::Reduced.plays());
+        let scaled = 64.0 * EffectsIntensity::Reduced.decal_scale();
+        assert!(scaled <= 16.0, "a reduced decal is still {scaled} m across");
+        assert!(
+            EffectsIntensity::Reduced.decal_scale() < 1.0,
+            "opacity scales with size so a Reduced screen can be seen through"
+        );
+        assert!(EffectsIntensity::Reduced.cooldown_floor() > 0.0);
+
+        // Off is the early return.
+        assert!(!EffectsIntensity::Off.plays());
+    }
+
+    /// The default is Full: a setting that quietly degraded everybody's
+    /// rooms to fix a griefing case would be the wrong trade.
+    #[test]
+    fn the_default_changes_nothing_for_anyone() {
+        assert_eq!(EffectsIntensity::default(), EffectsIntensity::Full);
+        assert_eq!(
+            LocalSettings::default().effects_intensity,
+            EffectsIntensity::Full
+        );
+    }
+
+    /// Every level has a label, because the control is three buttons and an
+    /// unlabelled one is unusable.
+    #[test]
+    fn every_level_names_itself() {
+        for level in [
+            EffectsIntensity::Full,
+            EffectsIntensity::Reduced,
+            EffectsIntensity::Off,
+        ] {
+            assert!(!level.label().is_empty());
+        }
+    }
+}
+
+#[cfg(test)]
+mod mute_list_tests {
+    use super::*;
+
+    /// #1223 f292. A `HashSet` iterates arbitrarily, and a settings list
+    /// whose rows reshuffle between frames is one you cannot reliably click
+    /// an Unmute button in — the click lands on whoever moved into that row.
+    #[test]
+    fn the_mute_list_renders_in_a_stable_order() {
+        let mut muted = MutedDids::default();
+        for did in ["did:plc:charlie", "did:plc:alice", "did:plc:bob"] {
+            muted.set(did, true);
+        }
+        assert_eq!(
+            muted.sorted(),
+            vec!["did:plc:alice", "did:plc:bob", "did:plc:charlie"],
         );
     }
 }

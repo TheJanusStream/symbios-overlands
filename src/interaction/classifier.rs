@@ -381,6 +381,20 @@ pub fn classify_contacts(
         };
         peer_vel_cache.entries.insert(entity, (curr_pos, elapsed));
 
+        // A muted peer emits no contact samples (#1219 f324). Mute's tooltip
+        // promises audio, and this list is what feeds the contact one-shots
+        // (`interaction::audio`), the particle bursts
+        // (`interaction::particle_channel`) and the decals
+        // (`interaction::decal`) — so a hidden body's splashes, footsteps and
+        // scorch marks all kept arriving from a source the user could no
+        // longer see or aim at. Skipped AFTER the velocity cache is updated,
+        // so an unmute resumes with a real speed rather than a spurious
+        // one-frame teleport, and the `last_surface` state is left standing
+        // so the resumed peer transitions from where they actually are.
+        if peer.muted {
+            continue;
+        }
+
         let cfg = peer
             .avatar
             .as_ref()

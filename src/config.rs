@@ -572,6 +572,16 @@ pub(crate) mod vegetation_wind {
 /// (#246 remainder). These are behaviour constants by design, not
 /// authored per-room.
 pub(crate) mod interaction {
+    /// Minimum seconds between two stamps of the same contact recipe on the
+    /// same avatar while the viewer has effects set to Reduced (#1221 f308).
+    ///
+    /// The sanitiser permits a `cooldown` of 0, and `stamp_decals` only
+    /// consults the cooldown when it is `> 0.0` — so a Dwell recipe with
+    /// zero stamps once per frame per avatar, which is what turns a
+    /// permitted 64 m quad into a wall. A one-second floor keeps an
+    /// authored effect legible and takes the per-frame case away.
+    pub const REDUCED_EFFECT_COOLDOWN_SECS: f32 = 1.0;
+
     /// Projected-decal stamper (consumer channel C). Per-recipe decal
     /// appearance (ttl / size / alpha / colour / normal offset) is
     /// **PDS-authored** since #261 — see
@@ -797,6 +807,83 @@ pub(crate) mod network {
     /// and short enough that a PDS coming back up is picked up while the
     /// visitor is still there.
     pub const RIG_RESOLVE_RETRY_MAX_SECS: f64 = 60.0;
+
+    /// First wait (seconds) before a failed per-peer fetch — the avatar
+    /// record, the bsky profile, the relationship query — is tried again,
+    /// and how far that wait doubles (#1217/#1218).
+    ///
+    /// Each of those fetches used to be one-shot: spawned from a single
+    /// site on the peer's DID resolving, with no failure state and no
+    /// retry. One HTTP hiccup at join time therefore lasted the whole
+    /// session — a DID-seeded stranger standing in for the avatar someone
+    /// actually published, or a permanent "identifying…" on a peer who was
+    /// talking to you. Doubling from two seconds keeps a transient blip
+    /// invisible while an outage settles into a slow poll instead of a load
+    /// generator aimed at a stranger's PDS.
+    ///
+    /// The arithmetic is shared with [`RIG_RESOLVE_RETRY_BASE_SECS`] above
+    /// through `network::presence::next_wait_secs`; these two carry their
+    /// own numbers because the wardrobe fan-out is N+2 records per attempt
+    /// and these are one.
+    pub const PEER_FETCH_RETRY_BASE_SECS: f64 = 2.0;
+    /// Ceiling for the doubling in [`PEER_FETCH_RETRY_BASE_SECS`]. Matches
+    /// [`RIG_RESOLVE_RETRY_MAX_SECS`]: long enough that a room full of
+    /// unreachable peers costs nothing, short enough that a PDS coming back
+    /// up is picked up while the visitor is still in the room.
+    pub const PEER_FETCH_RETRY_MAX_SECS: f64 = 60.0;
+
+    /// The public web profile for a DID (#1223 f291).
+    ///
+    /// The app has no report path of its own and its mute is machine-local,
+    /// so the escalation a user actually has is the one Bluesky provides —
+    /// block and report at the ATProto layer, where they mean something
+    /// beyond this client. `bsky.app` resolves a DID in the actor position
+    /// exactly as it resolves a handle.
+    pub fn bsky_profile_url(did: &str) -> String {
+        format!("https://bsky.app/profile/{did}")
+    }
+
+    /// Seconds of silence from a peer before the roster says they are not
+    /// responding (#1224 f335).
+    ///
+    /// A peer entity was despawned by exactly ONE path — the transport's
+    /// `Disconnected` event — and the client had no liveness check of its
+    /// own. So whenever the transport failed to report a drop (a wedged
+    /// data channel, a suspended browser tab, a relay that loses a peer
+    /// without closing the channel) a body stood frozen indefinitely,
+    /// counted in the roster and offered as a gift and Visit target that
+    /// would never answer. A ghost is worse than an absence: it makes the
+    /// room look occupied.
+    ///
+    /// Generous against the true cadence: a parked peer still broadcasts
+    /// every [`STATIONARY_BROADCAST_DIVISOR`]th 64 Hz tick, about twice a
+    /// second, so fifteen seconds is roughly thirty missed packets.
+    pub const PEER_QUIET_SECS: f64 = 15.0;
+
+    /// Seconds of silence before the peer is despawned outright, with the
+    /// same presence line the disconnect path writes (#1224 f335).
+    ///
+    /// Long, because the cost of being wrong is asymmetric: a peer wrongly
+    /// swept reappears on their next packet — `handle_peer_connections`
+    /// never saw them leave — but a body removed from under a conversation
+    /// is jarring. Two minutes is well past any transport hiccup and well
+    /// short of "this room has been lying to me all session".
+    pub const PEER_GHOST_SECS: f64 = 120.0;
+
+    /// Radius (metres) of the translucent stand-in body drawn for a peer
+    /// whose real one has not arrived yet (#1217 f328).
+    pub const PEER_PLACEHOLDER_RADIUS: f32 = 0.32;
+    /// Length (metres) of the stand-in capsule's cylindrical section; the
+    /// total height is this plus twice [`PEER_PLACEHOLDER_RADIUS`], so
+    /// roughly a person. A peer chassis broadcasts its transform from the
+    /// body's centre, and the capsule is centred on its own origin, so the
+    /// stand-in stands where the peer stands.
+    pub const PEER_PLACEHOLDER_LENGTH: f32 = 1.06;
+    /// Colour of the stand-in. Deliberately a translucent neutral and not
+    /// anything a body could be: the point is that it reads as a placeholder
+    /// rather than as a person who chose to look like this.
+    pub const PEER_PLACEHOLDER_COLOR: bevy::prelude::Color =
+        bevy::prelude::Color::srgba(0.62, 0.68, 0.78, 0.35);
 
     /// Maximum age (seconds) a partial reassembly is kept before it is
     /// discarded. Chunks of one message ride the ordered Reliable channel and
@@ -1295,6 +1382,27 @@ pub(crate) mod ui {
         /// malicious) peer could otherwise spam the channel until egui's
         /// scroll area holds megabytes of strings, re-wrapping every frame.
         pub const MAX_HISTORY_ENTRIES: usize = 500;
+
+        /// How many messages one peer may send back-to-back before the
+        /// per-sender token bucket starts dropping them (#1222 f296).
+        ///
+        /// Flood is the cheapest attack in any chat product, and the
+        /// rolling cap above is what makes it destructive: 500 messages
+        /// evict the room's entire prior conversation, permanently, before
+        /// the victim can reach a mute control two windows away. A burst of
+        /// eight covers every legitimate pattern — a pasted multi-line
+        /// thought sent as several lines, two people answering at once —
+        /// and costs a flooder their whole advantage.
+        pub const BURST_MESSAGES: f64 = 8.0;
+        /// Sustained rate (messages per second) the bucket refills at. One
+        /// a second is faster than anybody types and two orders of
+        /// magnitude below what a script can send.
+        pub const MESSAGES_PER_SEC: f64 = 1.0;
+        /// Minimum seconds between two "this peer is being throttled" log
+        /// lines for the same sender. The point of the limiter is to stop
+        /// N events becoming N records; a per-message log entry would move
+        /// the flood into the session log instead of stopping it.
+        pub const THROTTLE_REPORT_INTERVAL_SECS: f64 = 10.0;
         // Author + mutual colours moved to the semantic theme (#856):
         // author tag = `status.info`, mutual star = `accent` (the old
         // warm gold sat in the warn-amber family — a friend must not

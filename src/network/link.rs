@@ -221,13 +221,13 @@ impl LinkState {
     /// connectivity. When our own link was down for any part of the offer's
     /// life the offer never left the machine, and blaming the recipient for
     /// not answering is a social signal the user will act on.
-    pub fn offer_expiry_line(&self, sent_at_secs: f64, item: &str, handle: &str) -> String {
+    pub fn offer_expiry_line(&self, sent_at_secs: f64, item: &str, who: &str) -> String {
+        // `who` arrives already addressed off the shared ladder (#1218
+        // f299) — this must not glue an `@` onto a DID head.
         if self.up_continuously_since(sent_at_secs) {
-            format!("Offer of \"{item}\" to @{handle} expired without an answer.")
+            format!("Offer of \"{item}\" to {who} expired without an answer.")
         } else {
-            format!(
-                "Offer of \"{item}\" to @{handle} never reached them — your connection dropped."
-            )
+            format!("Offer of \"{item}\" to {who} never reached them — your connection dropped.")
         }
     }
 }
@@ -559,11 +559,11 @@ mod tests {
         assert!(!down.up_continuously_since(20.0));
 
         assert_eq!(
-            up_all_along.offer_expiry_line(20.0, "Lamp", "alice"),
+            up_all_along.offer_expiry_line(20.0, "Lamp", "@alice"),
             "Offer of \"Lamp\" to @alice expired without an answer.",
         );
         assert_eq!(
-            up_again_since.offer_expiry_line(20.0, "Lamp", "alice"),
+            up_again_since.offer_expiry_line(20.0, "Lamp", "@alice"),
             "Offer of \"Lamp\" to @alice never reached them — your connection dropped.",
         );
     }

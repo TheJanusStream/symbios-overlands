@@ -25,6 +25,7 @@ use bevy_symbios_multiuser::auth::AtprotoSession;
 use futures_lite::future;
 use serde::Deserialize;
 
+use crate::network::presence::RetryBackoff;
 use crate::state::{AppState, RemotePeer, SocialResonance};
 
 pub struct SocialPlugin;
@@ -48,6 +49,30 @@ impl Plugin for SocialPlugin {
 #[derive(Component)]
 pub struct ResonanceFetchTask(pub Task<SocialResonance>);
 
+/// When a [`SocialResonance::Failed`] peer may be asked about again
+/// (#1218 f297). Shares [`RetryBackoff`]'s doubling with the avatar-record
+/// and profile fetches, so "retrying" means one thing across the roster.
+#[derive(Component)]
+pub struct ResonanceRetry(RetryBackoff);
+
+/// Whether the relationship query should be (re)dispatched for a peer.
+///
+/// Never asked, or asked and could not be answered (#1218 f297). A `Failed`
+/// peer waits out its backoff and is then asked again — before the `Failed`
+/// arm existed, the first hiccup WAS the answer for the session, and it was
+/// the same answer a genuine stranger gets.
+fn should_query(
+    resonance: Option<&SocialResonance>,
+    retry: Option<&ResonanceRetry>,
+    now: f64,
+) -> bool {
+    match resonance {
+        None => true,
+        Some(SocialResonance::Failed) => retry.is_some_and(|r| r.0.ready(now)),
+        Some(_) => false,
+    }
+}
+
 /// Dispatch a relationship query for every peer that has announced a DID but
 /// does not yet carry a `SocialResonance` state.  Requires an authenticated
 /// `AtprotoSession` so we know which `actor` to ask about.
@@ -55,10 +80,23 @@ pub struct ResonanceFetchTask(pub Task<SocialResonance>);
 fn dispatch_resonance_queries(
     mut commands: Commands,
     session: Option<Res<AtprotoSession>>,
-    peers: Query<(Entity, &RemotePeer), (Without<SocialResonance>, Without<ResonanceFetchTask>)>,
+    peers: Query<
+        (
+            Entity,
+            &RemotePeer,
+            Option<&SocialResonance>,
+            Option<&ResonanceRetry>,
+        ),
+        Without<ResonanceFetchTask>,
+    >,
+    time: Res<Time>,
 ) {
     let Some(sess) = session else { return };
-    for (entity, peer) in peers.iter() {
+    let now = time.elapsed_secs_f64();
+    for (entity, peer, resonance, retry) in peers.iter() {
+        if !should_query(resonance, retry, now) {
+            continue;
+        }
         let Some(remote_did) = peer.did.as_deref() else {
             continue;
         };
@@ -78,7 +116,9 @@ fn dispatch_resonance_queries(
         let pool = IoTaskPool::get();
         let task = pool.spawn(async move {
             let fut = query_resonance(local_did, remote);
-            crate::config::http::run_or(fut, SocialResonance::Unknown).await
+            // A timeout is a failure to ASK, not an answer (#1218 f297) —
+            // `Unknown` rendered identically to a genuine non-mutual.
+            crate::config::http::run_or(fut, SocialResonance::Failed).await
         });
         commands.entity(entity).insert(ResonanceFetchTask(task));
     }
@@ -88,19 +128,24 @@ fn dispatch_resonance_queries(
 /// corresponding `RemotePeer` entities as a `SocialResonance` component.
 fn poll_resonance_tasks(
     mut commands: Commands,
-    mut tasks: Query<(Entity, &mut ResonanceFetchTask, &RemotePeer)>,
+    mut tasks: Query<(
+        Entity,
+        &mut ResonanceFetchTask,
+        &RemotePeer,
+        Option<&ResonanceRetry>,
+    )>,
     time: Res<Time>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
-    for (entity, mut task, peer) in tasks.iter_mut() {
+    for (entity, mut task, peer, retry) in tasks.iter_mut() {
         let Some(status) = future::block_on(future::poll_once(&mut task.0)) else {
             continue;
         };
         // Log the resolved resonance for the diagnostics timeline (#635a). The
-        // async task returns a bare `SocialResonance`, so a network failure is
-        // indistinguishable from a legitimate `None` here — emitting the typed
-        // `SocialResonanceFailed` needs the task to carry its error and is a
-        // deliberately-deferred follow-up.
+        // The task now returns `SocialResonance::Failed` for every way the
+        // question can go unanswered (#1218 f297), so this line distinguishes
+        // "they don't follow you" from "we couldn't ask" — it could not
+        // before, and neither could the ★.
         session_log.info(
             time.elapsed_secs_f64(),
             crate::diagnostics::event::EventPayload::SocialResonanceCompleted {
@@ -108,10 +153,16 @@ fn poll_resonance_tasks(
                 resonance: format!("{status:?}"),
             },
         );
-        commands
-            .entity(entity)
-            .remove::<ResonanceFetchTask>()
-            .insert(status);
+        let mut entity = commands.entity(entity);
+        entity.remove::<ResonanceFetchTask>().insert(status);
+        if status == SocialResonance::Failed {
+            entity.insert(ResonanceRetry(RetryBackoff::after_failure(
+                retry.map(|r| &r.0),
+                time.elapsed_secs_f64(),
+            )));
+        } else {
+            entity.remove::<ResonanceRetry>();
+        }
     }
 }
 
@@ -149,11 +200,11 @@ async fn query_resonance(local_did: String, remote_did: String) -> SocialResonan
         Ok(r) if r.status().is_success() => r,
         Ok(r) => {
             bevy::log::warn!("getRelationships {} => {}", remote_did, r.status());
-            return SocialResonance::None;
+            return SocialResonance::Failed;
         }
         Err(e) => {
             bevy::log::warn!("getRelationships transport error: {e}");
-            return SocialResonance::None;
+            return SocialResonance::Failed;
         }
     };
 
@@ -161,7 +212,7 @@ async fn query_resonance(local_did: String, remote_did: String) -> SocialResonan
         Ok(p) => p,
         Err(e) => {
             bevy::log::warn!("getRelationships decode error: {e}");
-            return SocialResonance::None;
+            return SocialResonance::Failed;
         }
     };
 
@@ -409,6 +460,29 @@ async fn walk_graph(
 /// Intersect the two directions into the mutual set. Profile data is
 /// taken from the follows side; the result is handle-sorted so the picker
 /// is stable across refreshes regardless of AppView page order.
+/// Clamp an AppView display name at INGEST (#1222 f295).
+///
+/// A display name is fully attacker-controlled — it is whatever the account
+/// holder typed — and it arrived here with only a whitespace-emptiness
+/// filter, in contrast to the careful clamping applied to peer-supplied chat
+/// text and gift item names. Stripping control characters kills the
+/// bidi-override and newline tricks that let one row impersonate another;
+/// the length cap keeps a multi-thousand-character name out of a
+/// fixed-width picker window. Clamped here rather than at the renderer so
+/// no downstream consumer can be handed an unbounded string.
+fn clamp_display_name(raw: Option<String>) -> Option<String> {
+    let cleaned: String = raw?
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(MAX_DISPLAY_NAME_CHARS)
+        .collect();
+    Some(cleaned).filter(|n| !n.trim().is_empty())
+}
+
+/// Longest display name the gateway picker will carry. Matches the gift
+/// item-name clamp's order of magnitude; the picker window is 380 px wide.
+const MAX_DISPLAY_NAME_CHARS: usize = 48;
+
 fn intersect_mutuals(follows: Vec<ProfileView>, followers: &[ProfileView]) -> Vec<MutualEntry> {
     let follower_dids: std::collections::HashSet<&str> =
         followers.iter().map(|p| p.did.as_str()).collect();
@@ -420,7 +494,7 @@ fn intersect_mutuals(follows: Vec<ProfileView>, followers: &[ProfileView]) -> Ve
         .map(|p| MutualEntry {
             did: p.did,
             handle: p.handle,
-            display_name: p.display_name.filter(|n| !n.trim().is_empty()),
+            display_name: clamp_display_name(p.display_name),
         })
         .collect();
     mutuals.sort_by_key(|a| a.handle.to_lowercase());
@@ -523,5 +597,93 @@ mod tests {
             cache.needs_fetch("did:plc:x", 100.0 + MUTUALS_FAILED_RETRY_SECS + 1.0),
             "failures retry on the short interval"
         );
+    }
+}
+
+#[cfg(test)]
+mod display_name_tests {
+    use super::*;
+
+    /// #1222 f295. The sequence: an attacker sets their Bluesky display
+    /// name to somebody else's handle, and the gateway picker renders it as
+    /// the PRIMARY text with the verified handle greyed beside it — so a
+    /// visitor choosing a destination clicks the wrong person's world. The
+    /// display name arrived with only a whitespace-emptiness filter, in
+    /// contrast to the careful clamping applied to peer-supplied chat and
+    /// gift names.
+    #[test]
+    fn a_display_name_is_clamped_and_stripped_at_ingest() {
+        // Control characters — newlines and bidi overrides — are what let a
+        // name break out of its row or reverse the reading order.
+        let sneaky =
+            clamp_display_name(Some(String::from("alice\nsecond line"))).expect("still a name");
+        assert!(!sneaky.contains('\n'), "{sneaky}");
+        let bidi = clamp_display_name(Some(String::from("alice\u{202e}eciohc"))).expect("a name");
+        assert!(!bidi.chars().any(char::is_control), "{bidi}");
+
+        // Unbounded length inside a 380 px window.
+        let long = "x".repeat(5_000);
+        let clamped = clamp_display_name(Some(long)).expect("a name");
+        assert_eq!(clamped.chars().count(), MAX_DISPLAY_NAME_CHARS);
+
+        // The existing emptiness rule survives, including a name that is
+        // ONLY control characters and therefore becomes empty.
+        assert_eq!(clamp_display_name(Some(String::from("   "))), None);
+        assert_eq!(clamp_display_name(Some(String::from("\u{7}\u{7}"))), None);
+        assert_eq!(clamp_display_name(None), None);
+
+        // An ordinary name is untouched.
+        assert_eq!(
+            clamp_display_name(Some(String::from("Alice Example"))).as_deref(),
+            Some("Alice Example"),
+        );
+    }
+}
+
+#[cfg(test)]
+mod resonance_tests {
+    use super::*;
+
+    /// #1218 f297. The sequence: the AppView times out on the one
+    /// relationship query for a peer you actually follow. Before the
+    /// `Failed` arm, that returned `SocialResonance::None` — whose own doc
+    /// comment asserts the two of you do NOT follow each other — and both
+    /// consumers rendered exactly the un-highlighted state a stranger gets.
+    /// The ★ is the only trust signal the social UI carries, and it failed
+    /// closed with no way to tell "no" from "couldn't ask".
+    #[test]
+    fn a_failed_lookup_is_asked_again_and_a_settled_one_is_not() {
+        let backoff = RetryBackoff::after_failure(None, 100.0);
+        let retry = ResonanceRetry(backoff);
+
+        assert!(should_query(None, None, 0.0), "never asked: ask");
+        assert!(
+            !should_query(Some(&SocialResonance::None), None, 0.0),
+            "a real answer is not re-asked"
+        );
+        assert!(
+            !should_query(Some(&SocialResonance::Mutual), None, 0.0),
+            "a real answer is not re-asked"
+        );
+        assert!(
+            !should_query(Some(&SocialResonance::Failed), Some(&retry), 100.0),
+            "a failure waits out its backoff first"
+        );
+        assert!(
+            should_query(
+                Some(&SocialResonance::Failed),
+                Some(&retry),
+                100.0 + backoff.wait_secs
+            ),
+            "and is then asked again"
+        );
+    }
+
+    /// A `Failed` with no backoff recorded must not spin: the poll writes
+    /// the two together, and a state that could re-dispatch every frame
+    /// would be a load generator aimed at the AppView.
+    #[test]
+    fn a_failure_without_a_recorded_backoff_does_not_spin() {
+        assert!(!should_query(Some(&SocialResonance::Failed), None, 1.0e9));
     }
 }

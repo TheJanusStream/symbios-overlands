@@ -26,6 +26,7 @@ use bevy_symbios_multiuser::prelude::*;
 use crate::avatar::{BskyProfileCache, draw_avatar_icon};
 use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::EventPayload;
+use crate::network::presence::{PeerLabel, PeerResolve, peer_status, set_peer_mute};
 use crate::pds::InventoryRecord;
 use crate::protocol::OverlandsMessage;
 use crate::state::{
@@ -35,21 +36,88 @@ use crate::state::{
 use crate::ui::chat::AVATAR_ICON_PX;
 use crate::ui::inventory::{PeerDropTarget, PendingGeneratorDrop};
 
-/// Log a `PeerMuteToggled` event (#635b). Shared by the three mute controls
-/// (this roster panel, the diagnostics-panel roster, and the offer dialog) so
-/// the event's shape can't drift between them. Call it only inside the
-/// change-guard, so both mute *and* unmute are captured and a no-op write logs
-/// nothing.
-pub(crate) fn log_peer_mute_toggled(
-    session_log: &mut crate::diagnostics::SessionLog,
-    now: f64,
-    peer: String,
-    muted: bool,
-) {
-    session_log.info(
-        now,
-        crate::diagnostics::event::EventPayload::PeerMuteToggled { peer, muted },
-    );
+/// Why a peer row cannot accept a dropped gift, or `None` when it can
+/// (#1220 f330).
+///
+/// Pure, and the ONE definition: the same answer drives the row's drag
+/// highlight, its hover text, and the toast `handle_generator_drop` raises
+/// on a release. Before this the condition was an anonymous boolean that
+/// silently suppressed the highlight, the target and the explanation
+/// together — so the user's release did nothing and said nothing.
+///
+/// Order matters: a muted peer is muted whether or not they have identified,
+/// and saying "still identifying" about somebody you deliberately blocked
+/// would be the wrong sentence.
+pub fn gift_block_reason(peer: &RemotePeer, link_is_up: bool) -> Option<&'static str> {
+    if !link_is_up {
+        // A gift sent while our link is down spends an inventory item on an
+        // offer that can never be answered, and then blames the recipient
+        // three minutes later (#1213 f404).
+        return Some("You're not connected right now — the offer wouldn't reach them.");
+    }
+    if peer.muted {
+        return Some("You've muted this person. Unmute them to send a gift.");
+    }
+    if peer.did.is_none() {
+        return Some(
+            "Still identifying — a gift is addressed to an account, and theirs hasn't \
+             arrived yet. Try again in a moment.",
+        );
+    }
+    None
+}
+
+/// Why the Visit button is disabled, or `None` when it works (#1220 f302).
+///
+/// Five states used to make the button VANISH, and an absent control cannot
+/// carry a tooltip. Three of the five are visible elsewhere (the guard is a
+/// blocking modal, a travel paints a banner, a mute ticks its own checkbox),
+/// but "you are already in their world" had no cue anywhere — and a control
+/// that comes and goes reads as an unreliable feature rather than a
+/// temporarily unavailable one.
+pub fn visit_block_reason(
+    peer: &RemotePeer,
+    already_here: bool,
+    traveling: bool,
+    guarded: bool,
+) -> Option<&'static str> {
+    if peer.did.is_none() {
+        return Some("Still identifying — their overland is addressed by account.");
+    }
+    if already_here {
+        return Some("You're already in their world.");
+    }
+    if peer.muted {
+        return Some("You've muted this person.");
+    }
+    if traveling {
+        return Some("You're already travelling somewhere.");
+    }
+    if guarded {
+        return Some("Finish or discard your unsaved edits first.");
+    }
+    None
+}
+
+/// Everything the roster reads that is not the roster itself.
+///
+/// Bundled because `people_ui` sat at Bevy's 16-parameter ceiling (#1213
+/// took the last slot) and this tranche needs to add to it: the `⋯` menu's
+/// clipboard (#1223 f291) had nowhere to go. Bundling first, then adding, is
+/// the order — an over-ceiling system fails at app build with a trait error
+/// that names none of this.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct RosterDeps<'w> {
+    time: Res<'w, Time>,
+    session_log: ResMut<'w, crate::diagnostics::SessionLog>,
+    pending_offers: Res<'w, crate::state::PendingOutgoingOffers>,
+    muted_dids: ResMut<'w, crate::state::MutedDids>,
+    current_room: Option<Res<'w, crate::state::CurrentRoomDid>>,
+    traveling: Option<Res<'w, crate::state::TravelingTo>>,
+    guard: Option<Res<'w, crate::ui::unsaved_guard::UnsavedGuard>>,
+    link: Res<'w, crate::network::LinkState>,
+    /// The `⋯` menu's Copy DID (#1223 f291). Interior-mutable, so a `Res`.
+    clipboard: Res<'w, crate::boot_params::ClipboardQueue>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -58,20 +126,15 @@ pub fn people_ui(
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
     mut chrome: crate::ui::layout::WindowChrome,
     session: Option<Res<AtprotoSession>>,
-    mut peers: Query<(&mut RemotePeer, Option<&SocialResonance>)>,
+    // `PeerResolve` rides the peer query rather than arriving as its own
+    // parameter, for the same ceiling reason `RosterDeps` exists.
+    mut peers: Query<(&mut RemotePeer, Option<&SocialResonance>, &PeerResolve)>,
     profile_cache: Res<BskyProfileCache>,
     mut pending_drop: ResMut<PendingGeneratorDrop>,
-    time: Res<Time>,
-    mut session_log: ResMut<crate::diagnostics::SessionLog>,
-    pending_offers: Res<crate::state::PendingOutgoingOffers>,
-    mut muted_dids: ResMut<crate::state::MutedDids>,
     mut commands: Commands,
-    current_room: Option<Res<crate::state::CurrentRoomDid>>,
-    traveling: Option<Res<crate::state::TravelingTo>>,
-    guard: Option<Res<crate::ui::unsaved_guard::UnsavedGuard>>,
-    link: Res<crate::network::LinkState>,
+    mut deps: RosterDeps,
 ) {
-    let now = time.elapsed_secs_f64();
+    let now = deps.time.elapsed_secs_f64();
 
     // Drag-to-gift hover snapshot lives in `pending_drop.peer_target`. We
     // rebuild it from scratch each frame because a peer that was hovered
@@ -106,7 +169,7 @@ pub fn people_ui(
             // that copy is exactly what made an outage read as an empty
             // product. The wording lives on `LinkPhase` so this window, the
             // toolbar chip and the chat note cannot drift.
-            let phase = link.phase();
+            let phase = deps.link.phase();
             let header = phase.roster_header(total);
             if phase.is_up() {
                 ui.label(header);
@@ -132,6 +195,7 @@ pub fn people_ui(
                             draw_avatar_icon(
                                 ui,
                                 Some(s.did.as_str()),
+                                Some(s.handle.as_str()),
                                 &profile_cache,
                                 AVATAR_ICON_PX,
                             );
@@ -139,9 +203,11 @@ pub fn people_ui(
                         });
                     }
 
-                    // Remote peers. Handshake-in-progress peers show as
-                    // "identifying…" so their presence is visible before
-                    // the handle resolves.
+                    // Remote peers. A peer whose profile has not resolved
+                    // shows the head of their authenticated DID, and one
+                    // that has not identified at all shows "A traveler" —
+                    // the same ladder the presence lines use (#1218), in
+                    // place of the bespoke "identifying…" this row invented.
                     //
                     // Sorted (#844): bare query iteration follows archetype
                     // order, so rows JUMPED when `SocialResonance` resolved
@@ -150,14 +216,18 @@ pub fn people_ui(
                     // order the gateway picker uses; a stable list also
                     // de-risks drag-to-gift aim.
                     let mut rows: Vec<_> = peers.iter_mut().collect();
-                    rows.sort_by_key(|(peer, resonance)| {
+                    rows.sort_by_key(|(peer, resonance, _)| {
                         (
                             !matches!(resonance, Some(SocialResonance::Mutual)),
                             peer.handle.as_deref().unwrap_or("~").to_lowercase(),
                         )
                     });
-                    for (mut peer, resonance) in rows {
-                        let handle = peer.handle.as_deref().unwrap_or("identifying…").to_owned();
+                    for (mut peer, resonance, resolve) in rows {
+                        // The ONE ladder (#1218 f300/f338): a verified handle,
+                        // else the authenticated DID's head, else "A traveler".
+                        // "identifying…" was a fourth name for a peer who
+                        // already had a perfectly good identifier.
+                        let label = PeerLabel::new(peer.handle.as_deref(), peer.did.as_deref());
                         let th = crate::ui::theme::current(ui.ctx());
                         let dot_color = if peer.muted { th.text_faint } else { th.status.ok };
                         let mut muted = peer.muted;
@@ -174,13 +244,24 @@ pub fn people_ui(
                         // minutes later (#1213 f404) — so the row is inert
                         // whenever the link is not up, alongside the mute
                         // and DID-resolution gates it already had.
-                        let can_receive_gift =
-                            drag_active && !peer.muted && peer.did.is_some() && link.is_up();
+                        // Why this row cannot take a gift, if it cannot
+                        // (#1220 f330). An ineligible row used to give no
+                        // highlight during the drag AND no explanation on
+                        // release — `handle_generator_drop` found no target
+                        // and fell through to the silent egui-cancel written
+                        // for releases over the Inventory window. Silence on
+                        // release is indistinguishable from a broken
+                        // feature, and the most common ineligible state is a
+                        // normal transient: a peer's DID resolves a beat
+                        // after they appear, which is exactly when a new
+                        // user tries their first gift.
+                        let blocked = gift_block_reason(&peer, deps.link.is_up());
                         let row = ui.horizontal(|ui| {
                             crate::ui::affordances::status_dot(ui, dot_color);
                             draw_avatar_icon(
                                 ui,
                                 peer.did.as_deref(),
+                                peer.handle.as_deref(),
                                 &profile_cache,
                                 AVATAR_ICON_PX,
                             );
@@ -197,11 +278,28 @@ pub fn people_ui(
                                 // caution. Brand highlight = accent.
                                 ui.colored_label(
                                     crate::ui::theme::current(ui.ctx()).accent,
-                                    egui::RichText::new(format!("★ @{handle}")).monospace(),
+                                    egui::RichText::new(format!("★ {}", label.addressed()))
+                                        .monospace(),
                                 )
                                 .on_hover_text("You and this peer follow each other");
                             } else {
-                                ui.monospace(format!("@{}", handle));
+                                ui.monospace(label.addressed());
+                                // "Couldn't ask" is not "no" (#1218 f297).
+                                // The ★ is the only trust signal this UI
+                                // carries and it used to fail closed: a
+                                // timed-out relationship query rendered
+                                // exactly like a stranger, so a friend
+                                // quietly became someone to be careful with.
+                                if matches!(resonance, Some(SocialResonance::Failed)) {
+                                    ui.colored_label(
+                                        crate::ui::theme::current(ui.ctx()).text_weak,
+                                        egui::RichText::new("?").monospace(),
+                                    )
+                                    .on_hover_text(
+                                        "Couldn't check whether you follow each other. \
+                                         Trying again shortly.",
+                                    );
+                                }
                             }
                             // Outgoing-gift badge (#843): while an offer to
                             // this peer awaits their answer, say so on the
@@ -210,7 +308,7 @@ pub fn people_ui(
                                 .did
                                 .as_deref()
                                 .map(|did| {
-                                    pending_offers
+                                    deps.pending_offers
                                         .by_id
                                         .values()
                                         .filter(|o| o.target_did == did)
@@ -227,6 +325,50 @@ pub fn people_ui(
                                     egui::RichText::new(text).small().color(crate::ui::theme::current(ui.ctx()).text_weak),
                                 )
                                 .on_hover_text("Waiting for this peer to accept or decline");
+                            }
+                            // While a gift drag is armed, an ineligible row
+                            // says so on the row itself rather than waiting
+                            // for a hover (#1220 f330) — the user is
+                            // mid-drag, hunting for a target, and is not
+                            // going to stop and hover. Only during a drag,
+                            // so an idle roster is not littered with
+                            // sentences about a gesture nobody is making.
+                            if drag_active
+                                && let Some(reason) = blocked
+                            {
+                                ui.colored_label(
+                                    crate::ui::theme::current(ui.ctx()).text_weak,
+                                    egui::RichText::new("can't receive").small(),
+                                )
+                                .on_hover_text(reason);
+                            }
+                            // How this person is loading, in ONE chip
+                            // (#1217/#1218). Six separate failures — no
+                            // identity, a failed avatar fetch, a failed
+                            // profile fetch, an incomplete outfit, a body
+                            // still building — each used to reach the screen
+                            // nowhere at all, and the temptation was to give
+                            // each its own badge. `peer_status` picks the
+                            // worst one; a row that can carry four warnings
+                            // at once is a row nobody reads.
+                            // Not for a muted peer: how well somebody you
+                            // have blocked is loading is not news, and the
+                            // faint dot and ticked checkbox already say what
+                            // their row is (#1219).
+                            if let Some(status) =
+                                peer_status(peer.did.is_some(), resolve).filter(|_| !peer.muted)
+                            {
+                                let th = crate::ui::theme::current(ui.ctx());
+                                let color = if status.is_warning() {
+                                    th.status.warn
+                                } else {
+                                    th.text_weak
+                                };
+                                ui.colored_label(
+                                    color,
+                                    egui::RichText::new(status.chip()).small(),
+                                )
+                                .on_hover_text(status.hover());
                             }
                             // Wire-compatibility chip (#1121). Until this
                             // existed, a gift to an incompatible peer looked
@@ -272,32 +414,123 @@ pub fn people_ui(
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    ui.checkbox(&mut muted, "Mute").on_hover_text(
-                                        "Hides their avatar, chat, audio and gift \
-                                         offers. Persists across sessions.",
+                                    // The only stable identifier a person has
+                                    // (#1223 f291). Until this menu, the app's
+                                    // social surface carried none: the sole
+                                    // place to copy the DID of somebody
+                                    // standing next to you was a collapsing
+                                    // fold labelled "Peers (debug)". Copying
+                                    // it is what turns an unreportable
+                                    // stranger into somebody the user can
+                                    // block at the ATProto layer, warn a
+                                    // friend about, or report off-platform —
+                                    // the product ships no report path of its
+                                    // own.
+                                    ui.menu_button("…", |ui| {
+                                        match peer.did.as_deref() {
+                                            Some(did) => {
+                                                if ui.button("Copy account id").clicked() {
+                                                    deps.clipboard.copy(
+                                                        did,
+                                                        &format!("Copied: {did}"),
+                                                    );
+                                                    ui.close();
+                                                }
+                                                if ui
+                                                    .button("Open Bluesky profile")
+                                                    .on_hover_text(
+                                                        "Opens bsky.app in your browser, \
+                                                         where you can block or report \
+                                                         this account.",
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    crate::ui::login::open_url_in_browser(
+                                                        &crate::config::network::bsky_profile_url(
+                                                            did,
+                                                        ),
+                                                    );
+                                                    ui.close();
+                                                }
+                                            }
+                                            None => {
+                                                ui.label(
+                                                    egui::RichText::new(
+                                                        "No account id yet — this peer \
+                                                         hasn't identified itself.",
+                                                    )
+                                                    .small()
+                                                    .color(
+                                                        crate::ui::theme::current(ui.ctx())
+                                                            .text_weak,
+                                                    ),
+                                                );
+                                            }
+                                        }
+                                    });
+                                    // A mute is remembered against an ACCOUNT
+                                    // (#844), so a peer with no authenticated
+                                    // DID can only be muted for as long as
+                                    // this entity lives — the tooltip's
+                                    // "Persists across sessions" was simply
+                                    // false for them, and the checkbox did
+                                    // half its job in silence (#1218 f290).
+                                    // Now it refuses, and says why.
+                                    let identified = peer.did.is_some();
+                                    ui.add_enabled_ui(identified, |ui| {
+                                        ui.checkbox(&mut muted, "Mute").on_hover_text(
+                                            "Hides their avatar, chat, audio and gift \
+                                             offers. Persists across sessions.",
+                                        );
+                                    })
+                                    .response
+                                    .on_disabled_hover_text(
+                                        "A mute is remembered against an account, and this \
+                                         peer hasn't identified itself yet. Their messages \
+                                         are already being dropped until it does.",
                                     );
                                     // "Meet someone → visit their overland"
                                     // finally has a UI path (#845). Routed
                                     // through the unsaved-edits guard exactly
                                     // like gateway travel; `target_pos: None`
-                                    // arrives at their default landing. Not
-                                    // offered for muted peers, unresolved
-                                    // DIDs, the room we're already in, or
-                                    // while a travel/guard is in flight.
+                                    // arrives at their default landing.
+                                    //
+                                    // Rendered ALWAYS and disabled with a
+                                    // reason (#1220 f302): an absent control
+                                    // cannot carry a tooltip, and a button
+                                    // that comes and goes teaches the user
+                                    // the feature is unreliable rather than
+                                    // temporarily unavailable. The reason
+                                    // matters most for "you are already in
+                                    // their world", which is the one of the
+                                    // five gating states with no cue
+                                    // anywhere else on screen.
                                     let already_here = peer.did.as_deref().is_some_and(|did| {
-                                        current_room.as_deref().is_some_and(|room| room.0 == did)
+                                        deps.current_room
+                                            .as_deref()
+                                            .is_some_and(|room| room.0 == did)
                                     });
-                                    if !peer.muted
-                                        && !already_here
-                                        && traveling.is_none()
-                                        && guard.is_none()
+                                    let visit_blocked = visit_block_reason(
+                                        &peer,
+                                        already_here,
+                                        deps.traveling.is_some(),
+                                        deps.guard.is_some(),
+                                    );
+                                    let visit = ui
+                                        .add_enabled(
+                                            visit_blocked.is_none(),
+                                            egui::Button::small(egui::Button::new("Visit")),
+                                        )
+                                        .on_hover_text(format!(
+                                            "Travel to {}'s overland",
+                                            label.addressed()
+                                        ));
+                                    let visit = match visit_blocked {
+                                        Some(reason) => visit.on_disabled_hover_text(reason),
+                                        None => visit,
+                                    };
+                                    if visit.clicked()
                                         && let Some(did) = peer.did.as_deref()
-                                        && ui
-                                            .small_button("Visit")
-                                            .on_hover_text(format!(
-                                                "Travel to @{handle}'s overland"
-                                            ))
-                                            .clicked()
                                     {
                                         commands.insert_resource(
                                             crate::ui::unsaved_guard::UnsavedGuard::new(
@@ -312,8 +545,8 @@ pub fn people_ui(
                             );
                         });
                         let row_rect = row.response.rect;
-                        let hovered = can_receive_gift && ui.rect_contains_pointer(row_rect);
-                        if hovered {
+                        let hovered = drag_active && ui.rect_contains_pointer(row_rect);
+                        if hovered && blocked.is_none() {
                             // Soft highlight so the user has visual
                             // feedback that a release here is a gift and
                             // not a mis-click. Painted on the foreground
@@ -331,31 +564,40 @@ pub fn people_ui(
                                 pending_drop.peer_target = Some(PeerDropTarget {
                                     peer_id: peer.peer_id,
                                     did,
-                                    handle: handle.clone(),
+                                    label: label.addressed(),
+                                    blocked: None,
                                 });
                             }
+                        } else if let Some(reason) = hovered.then_some(blocked).flatten() {
+                            // Recorded WITH its reason so the drop handler
+                            // can say something instead of falling through
+                            // to the silent cancel (#1220 f330). The DID may
+                            // be absent — that is one of the reasons — so
+                            // the target carries an empty one; nothing on
+                            // this path sends a message.
+                            pending_drop.peer_target = Some(PeerDropTarget {
+                                peer_id: peer.peer_id,
+                                did: peer.did.clone().unwrap_or_default(),
+                                label: label.addressed(),
+                                blocked: Some(reason),
+                            });
                         }
 
-                        // Guard the write so Bevy's change-detection flag is
-                        // only raised when the mute state actually flips —
-                        // an unconditional assignment would mark
-                        // `RemotePeer` as `Changed` every frame and
-                        // invalidate any `Changed<RemotePeer>` filter
-                        // downstream.
-                        if peer.muted != muted {
-                            peer.muted = muted;
-                            // Mirror into the durable DID-keyed list (#844)
-                            // so the mute survives reconnects and relogs.
-                            if let Some(did) = peer.did.as_deref() {
-                                muted_dids.set(did, muted);
-                            }
-                            log_peer_mute_toggled(
-                                &mut session_log,
-                                now,
-                                peer.peer_id.to_string(),
-                                muted,
-                            );
-                        }
+                        // One funnel for every mute write (#1219): it owns
+                        // the change guard that keeps `Changed<RemotePeer>`
+                        // meaningful, the durable DID-keyed mirror (#844) and
+                        // the session-log line, so this control and the offer
+                        // dialog's "Mute & Decline" cannot drift apart.
+                        let (peer_id, did) = (peer.peer_id, peer.did.clone());
+                        set_peer_mute(
+                            Some(&mut peer),
+                            did.as_deref(),
+                            muted,
+                            &mut deps.muted_dids,
+                            &mut deps.session_log,
+                            Some(peer_id),
+                            now,
+                        );
                     }
 
                     if peer_count == 0 && session.is_none() {
@@ -430,12 +672,26 @@ pub fn incoming_offer_ui(
     let modal = egui::Modal::new(egui::Id::new("incoming-item-offer")).show(ctx, |ui| {
         ui.heading("Incoming item offer");
         ui.add_space(4.0);
-        ui.label(format!(
-            "@{} wants to gift you \"{}\".",
-            dialog.sender_handle, dialog.item_name
-        ));
+        // Who is asking is the most consequential thing in this dialog and
+        // the user has a countdown to judge it (#1218 f299). When the handle
+        // has not resolved, SAY that — the old copy put the raw DID inside an
+        // `@`-prefixed sentence, which reads as a name and is not one.
+        if dialog.sender_label.is_named() {
+            ui.label(format!(
+                "{} wants to gift you \"{}\".",
+                dialog.sender_label.addressed(),
+                dialog.item_name
+            ));
+        } else {
+            ui.label(format!(
+                "Someone whose name hasn't loaded yet wants to gift you \"{}\".",
+                dialog.item_name
+            ));
+        }
+        // Labelled, so the string below reads as an identifier rather than as
+        // a second attempt at a name.
         ui.monospace(
-            egui::RichText::new(&dialog.sender_did)
+            egui::RichText::new(format!("account id: {}", dialog.sender_did))
                 .small()
                 .color(crate::ui::theme::current(ui.ctx()).text_weak),
         );
@@ -460,27 +716,55 @@ pub fn incoming_offer_ui(
                 .color(crate::ui::theme::current(ui.ctx()).text_weak),
         );
         ui.separator();
-        if let Some(live) = live_inventory.as_deref() {
-            let cap = crate::config::state::MAX_INVENTORY_ITEMS;
-            let len = live.0.generators.len();
-            ui.label(format!("Your stash: {len}/{cap}"));
-            if len >= cap {
-                ui.colored_label(
-                    crate::ui::theme::current(ui.ctx()).status.error,
-                    "Inventory full — remove an item to accept.",
-                );
-                if ui.button("Open Inventory").clicked() {
-                    panels.inventory = true;
+        // Lifted out of the `if let Some(live)` (#1220 f302): a missing
+        // record must produce visible text too, not a silent grey Accept.
+        let cap = crate::config::state::MAX_INVENTORY_ITEMS;
+        match live_inventory.as_deref() {
+            Some(live) => {
+                let len = live.0.generators.len();
+                ui.label(format!("Your stash: {len}/{cap}"));
+                if len >= cap {
+                    ui.colored_label(
+                        crate::ui::theme::current(ui.ctx()).status.error,
+                        "Inventory full — remove an item to accept.",
+                    );
+                    // A real action, not a panel flag (#1220 f288). This
+                    // modal blocks background input, so the old button
+                    // raised the Inventory UNDER it — unclickable, while the
+                    // countdown declined the gift out from under the user.
+                    // The offer is held instead: the dialog closes, the
+                    // Inventory works, and the offer comes straight back the
+                    // moment a slot frees.
+                    if ui
+                        .button("Make room for it")
+                        .on_hover_text(
+                            "Sets this offer aside and opens your Inventory. It comes \
+                             back as soon as you free a slot — the sender's countdown \
+                             keeps running.",
+                        )
+                        .clicked()
+                    {
+                        action = Some(OfferAction::Hold);
+                    }
                 }
+            }
+            None => {
+                ui.colored_label(
+                    crate::ui::theme::current(ui.ctx()).status.warn,
+                    "Your inventory hasn't loaded — nothing can be accepted into it yet.",
+                );
             }
         }
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             let can_accept = live_inventory
                 .as_deref()
-                .map(|l| l.0.generators.len() < crate::config::state::MAX_INVENTORY_ITEMS)
+                .map(|l| l.0.generators.len() < cap)
                 .unwrap_or(false);
-            if ui
+            // A disabled control says why (#1220 f302). The reason is
+            // already on screen above, but the button is where the pointer
+            // is and the user is on a countdown.
+            let accept = ui
                 .add_enabled(
                     can_accept,
                     egui::Button::new(
@@ -488,8 +772,12 @@ pub fn incoming_offer_ui(
                             .color(crate::ui::theme::current(ui.ctx()).status.ok),
                     ),
                 )
-                .clicked()
-            {
+                .on_disabled_hover_text(if live_inventory.is_some() {
+                    "Your inventory is full — free a slot with \"Make room for it\"."
+                } else {
+                    "Your inventory hasn't loaded yet."
+                });
+            if accept.clicked() {
                 action = Some(OfferAction::Accept);
             }
             if ui.button("Decline").clicked() {
@@ -533,6 +821,23 @@ pub fn incoming_offer_ui(
     };
 
     let now = time.elapsed_secs_f64();
+    // Held, not answered (#1220 f288): the sender hears nothing yet, and
+    // `resolve_held_offer` owns both of the hold's ends. Returns before the
+    // busy-decline note below, which belongs to a dialog that is closing for
+    // good.
+    if matches!(action, OfferAction::Hold) {
+        panels.inventory = true;
+        toasts.info(
+            format!(
+                "\"{}\" is held — free a slot and it will come back.",
+                dialog.item_name
+            ),
+            now,
+        );
+        commands.insert_resource(crate::state::HeldOffer((*dialog).clone()));
+        commands.remove_resource::<IncomingOfferDialog>();
+        return;
+    }
     // The dialog is closing (#843): report offers the busy-gate silently
     // turned away while the user decided, then reset for the next one.
     if busy_declines.0 > 0 {
@@ -559,17 +864,25 @@ pub fn incoming_offer_ui(
     // response so any subsequent offer this frame (unlikely but possible
     // if the attacker double-sent) is already auto-declined as muted.
     if matches!(action, OfferAction::MuteAndDecline) {
-        for mut peer in peers.iter_mut() {
-            if peer.peer_id == dialog.sender_peer_id && !peer.muted {
-                peer.muted = true;
-                // Durable DID-keyed mute (#844). The dialog's sender DID is
-                // relay-authenticated, so it is safe to key on even if the
-                // peer entity's own `did` hasn't resolved yet.
-                muted_dids.set(&dialog.sender_did, true);
-                log_peer_mute_toggled(&mut session_log, now, peer.peer_id.to_string(), true);
-                break;
-            }
-        }
+        // Hoisted OUT of the peer loop (#1219 f120). This used to write the
+        // durable list from inside `for peer in peers.iter_mut()`, so a
+        // stranger who spammed a gift and disconnected — the hit-and-run case
+        // the durable list exists for — matched nothing and was never
+        // recorded, and their next visit reached the user exactly as before.
+        // The dialog's sender DID is relay-authenticated; the comment here
+        // always said it was safe to key on unconditionally, and now it is.
+        let live = peers
+            .iter_mut()
+            .find(|peer| peer.peer_id == dialog.sender_peer_id);
+        crate::network::presence::set_peer_mute(
+            live.map(Mut::into_inner),
+            Some(dialog.sender_did.as_str()),
+            true,
+            &mut muted_dids,
+            &mut session_log,
+            Some(dialog.sender_peer_id),
+            now,
+        );
     }
 
     if accepted {
@@ -581,12 +894,32 @@ pub fn incoming_offer_ui(
                 .as_deref()
                 .map(|s| s.0.clone())
                 .unwrap_or_default();
-            let (_, payload) = crate::ui::inventory::accept_gift(
+            // Bind the landed key (#1220 f119). `accept_gift` renames on a
+            // collision — "lantern" becomes "lantern_2" — and discarding the
+            // key meant the one moment a gift becomes yours was the least
+            // confirmed event in the lifecycle, under a name the recipient
+            // was never shown.
+            let (key, payload) = crate::ui::inventory::accept_gift(
                 &mut live.0,
                 &stored,
                 &dialog.item_name,
                 dialog.generator.clone(),
                 dialog.wear.clone(),
+            );
+            toasts.success(
+                if key == dialog.item_name {
+                    format!("\"{key}\" is in your inventory.")
+                } else {
+                    // Say the rename rather than hide it: the recipient is
+                    // the one person who cannot find the item afterwards if
+                    // the name they were shown is not the name it has.
+                    format!(
+                        "\"{}\" is in your inventory as \"{key}\" — you already had one \
+                         by that name.",
+                        dialog.item_name
+                    )
+                },
+                now,
             );
             session_log.info(
                 now,
@@ -638,8 +971,9 @@ pub fn incoming_offer_ui(
             // an accept, so it records as such but at Warn severity because
             // the item could not actually be stored.
             warn!(
-                "Could not store accepted offer \"{}\" from @{}: inventory not loaded",
-                dialog.item_name, dialog.sender_handle
+                "Could not store accepted offer \"{}\" from {}: inventory not loaded",
+                dialog.item_name,
+                dialog.sender_label.addressed()
             );
             session_log.warn(
                 now,
@@ -666,6 +1000,9 @@ pub fn incoming_offer_ui(
             dialog.offer_id,
             dialog.sender_did.clone(),
             accepted,
+            // A person answered (#1220 f127) — including "Mute & Decline",
+            // which reports as a plain decline for privacy.
+            crate::protocol::DeclineReason::Declined,
         ),
         channel: ChannelKind::Reliable,
     });
@@ -678,4 +1015,96 @@ enum OfferAction {
     Accept,
     Decline,
     MuteAndDecline,
+    /// Set the offer aside and open the Inventory (#1220 f288). Not an
+    /// answer: no response goes to the sender, and the offer returns when a
+    /// slot frees or is declined when its clock runs out — see
+    /// `network::lifecycle::resolve_held_offer`.
+    Hold,
+}
+
+#[cfg(test)]
+mod gate_tests {
+    use super::*;
+    use bevy_symbios_multiuser::prelude::PeerId;
+
+    fn peer(did: Option<&str>, muted: bool) -> RemotePeer {
+        RemotePeer {
+            peer_id: serde_json::from_str::<PeerId>("\"00000000-0000-0000-0000-000000000001\"")
+                .expect("a well-formed uuid"),
+            did: did.map(str::to_owned),
+            handle: None,
+            muted,
+            avatar: None,
+            build: None,
+            connected_at: 0.0,
+        }
+    }
+
+    /// #1220 f330. The sequence: someone joins, you drag a lamp onto their
+    /// row before their DID has resolved, release — and absolutely nothing
+    /// happens. No highlight during the drag, no toast on release, because
+    /// an ineligible row was never recorded as a target and the drop fell
+    /// through to the silent cancel written for releases over the Inventory
+    /// window. That transient is the most likely state for a new user's
+    /// FIRST gift.
+    #[test]
+    fn every_reason_a_row_cannot_take_a_gift_has_a_sentence() {
+        assert_eq!(
+            gift_block_reason(&peer(Some("did:plc:them"), false), true),
+            None
+        );
+
+        let unidentified = gift_block_reason(&peer(None, false), true).expect("blocked");
+        assert!(unidentified.contains("identifying"), "{unidentified}");
+        let muted = gift_block_reason(&peer(Some("did:plc:them"), true), true).expect("blocked");
+        assert!(muted.contains("muted"), "{muted}");
+        let offline =
+            gift_block_reason(&peer(Some("did:plc:them"), false), false).expect("blocked");
+        assert!(offline.contains("connected"), "{offline}");
+    }
+
+    /// A muted peer is muted whether or not they identified, and telling
+    /// somebody "still identifying" about a person they deliberately blocked
+    /// is the wrong sentence.
+    #[test]
+    fn a_mute_outranks_a_missing_identity_in_the_gift_reason() {
+        let reason = gift_block_reason(&peer(None, true), true).expect("blocked");
+        assert!(reason.contains("muted"), "{reason}");
+    }
+
+    /// #1220 f302. Five states used to make the Visit button VANISH, and an
+    /// absent control cannot carry a tooltip. Three are visible elsewhere;
+    /// "you're already in their world" was the one with no cue anywhere on
+    /// screen.
+    #[test]
+    fn every_reason_visit_is_unavailable_has_a_sentence() {
+        let them = peer(Some("did:plc:them"), false);
+        assert_eq!(visit_block_reason(&them, false, false, false), None);
+
+        assert!(
+            visit_block_reason(&them, true, false, false)
+                .expect("blocked")
+                .contains("already in their world")
+        );
+        assert!(
+            visit_block_reason(&them, false, true, false)
+                .expect("blocked")
+                .contains("travelling")
+        );
+        assert!(
+            visit_block_reason(&them, false, false, true)
+                .expect("blocked")
+                .contains("unsaved")
+        );
+        assert!(
+            visit_block_reason(&peer(Some("did:plc:them"), true), false, false, false)
+                .expect("blocked")
+                .contains("muted")
+        );
+        assert!(
+            visit_block_reason(&peer(None, false), false, false, false)
+                .expect("blocked")
+                .contains("identifying")
+        );
+    }
 }

@@ -20,6 +20,7 @@ use bevy_egui::{EguiTextureHandle, EguiUserTextures};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use serde::Deserialize;
 
+use crate::network::presence::{FetchState, PeerLabel, PeerResolve, RetryBackoff};
 use crate::state::{AppState, LocalPlayer, RemotePeer};
 
 pub struct AvatarPlugin;
@@ -30,9 +31,11 @@ impl Plugin for AvatarPlugin {
             Update,
             (
                 fetch_local_avatar,
+                retry_peer_profile_fetches,
                 trigger_avatar_fetches,
                 poll_avatar_tasks,
             )
+                .chain()
                 .run_if(in_state(AppState::InGame)),
         );
     }
@@ -127,6 +130,27 @@ pub struct AvatarFetchPending {
 pub struct AvatarFetchResult {
     pub bytes: Option<Vec<u8>>,
     pub handle: Option<String>,
+    /// Whether the fetch FAILED, as distinct from succeeding for someone
+    /// who has no picture (#1217 f326).
+    ///
+    /// Every failure path used to return `AvatarFetchResult::default()`,
+    /// which is byte-identical to a clean profile with nothing in it — so
+    /// the caller could not tell a transport error from a bare account, and
+    /// a failure therefore had no state, no retry and no surface. A peer
+    /// whose `getProfile` hiccuped once at join time was nameless for the
+    /// rest of the session.
+    pub failed: bool,
+}
+
+impl AvatarFetchResult {
+    /// The result every failure path returns, including the timeout
+    /// fallback handed to [`crate::config::http::run_or`].
+    pub fn failed() -> Self {
+        Self {
+            failed: true,
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Component)]
@@ -177,20 +201,75 @@ fn fetch_local_avatar(
     spawn_avatar_task(&mut commands, entity, did);
 }
 
-/// Presence line for a peer whose verified handle just resolved (#844):
-/// "joined" is announced at identification, not at raw socket connect —
-/// that's the first moment there is a trustworthy name to print. Styled
-/// as the same system authorship the portal arrival line uses; does NOT
-/// bump the unread badge (presence is ambience, not a message).
-fn push_joined_line(chat: &mut crate::state::ChatHistory, handle: &str) {
-    chat.push(None, "system", format!("@{handle} joined the room."));
+/// Presence line for a peer who has just become announceable (#844/#1218
+/// f338): "joined" is announced at identification, not at raw socket
+/// connect — that's the first moment there is a trustworthy name to print.
+/// Styled as the same system authorship the portal arrival line uses; does
+/// NOT bump the unread badge (presence is ambience, not a message).
+///
+/// One line per peer, ever, enforced by [`PeerResolve::announced`], and off
+/// the SAME [`PeerLabel`] ladder the departure line uses. The two used to be
+/// triggered by different facts: departures degraded through three name
+/// tiers and printed unconditionally, arrivals required a resolved handle —
+/// so a peer whose `getProfile` failed produced a farewell to somebody the
+/// log said had never arrived.
+fn announce_arrival(
+    chat: &mut crate::state::ChatHistory,
+    resolve: &mut PeerResolve,
+    label: &PeerLabel,
+    muted: bool,
+) {
+    // A muted person is not announced (#1219 f289), and `announced` stays
+    // false so their departure is suppressed by the same fact — the presence
+    // pair balances on one decision instead of two. Presence lines are chat
+    // rows carrying a name, and they were the one channel a blocked user
+    // retained to put theirs in front of the person who blocked them: a
+    // reconnect loop scrolls a 500-entry history clean.
+    if resolve.announced || muted {
+        return;
+    }
+    resolve.announced = true;
+    chat.push(
+        None,
+        "system",
+        format!("{} joined the room.", label.addressed()),
+    );
+}
+
+/// Re-arm a failed profile fetch once its backoff elapses (#1217 f326).
+///
+/// [`trigger_avatar_fetches`] removes [`AvatarFetchPending`] before spawning
+/// and never re-adds it, and [`AvatarFetchPending`] is inserted from exactly
+/// one site — the moment a peer's DID resolves. One HTTP hiccup there was
+/// therefore permanent for the session: the roster said "identifying…"
+/// forever and the arrival line never printed. Re-inserting the marker is
+/// all a retry needs; the existing pipeline does the rest.
+#[allow(clippy::type_complexity)]
+fn retry_peer_profile_fetches(
+    mut commands: Commands,
+    peers: Query<
+        (Entity, &RemotePeer, &PeerResolve),
+        (Without<AvatarFetchPending>, Without<AvatarFetchTask>),
+    >,
+    time: Res<Time>,
+) {
+    let now = time.elapsed_secs_f64();
+    for (entity, peer, resolve) in peers.iter() {
+        if !resolve.profile.retry_due(now) {
+            continue;
+        }
+        let Some(did) = peer.did.clone() else {
+            continue;
+        };
+        commands.entity(entity).insert(AvatarFetchPending { did });
+    }
 }
 
 fn trigger_avatar_fetches(
     mut commands: Commands,
     pending: Query<(Entity, &AvatarFetchPending)>,
     cache: Res<BskyProfileCache>,
-    mut peers: Query<&mut RemotePeer>,
+    mut peers: Query<(&mut RemotePeer, &mut PeerResolve)>,
     mut chat: ResMut<crate::state::ChatHistory>,
 ) {
     for (entity, pending) in pending.iter() {
@@ -202,13 +281,17 @@ fn trigger_avatar_fetches(
         // portal clustering 20 familiar peers at once would stall every
         // chassis on the IoTaskPool until those fetches unwind.
         if let Some(cached) = cache.by_did.get(&did) {
-            if let Some(handle) = cached.handle.clone()
-                && let Ok(mut peer) = peers.get_mut(entity)
-            {
-                if peer.handle.is_none() {
-                    push_joined_line(&mut chat, &handle);
+            if let Ok((mut peer, mut resolve)) = peers.get_mut(entity) {
+                // The profile question is answered either way: an entry is
+                // only ever cached from a fetch that came back. A cached
+                // entry with no handle is a profile that carries none, not
+                // a failure to retry.
+                resolve.profile = FetchState::Landed;
+                if let Some(handle) = cached.handle.clone() {
+                    peer.handle = Some(handle);
                 }
-                peer.handle = Some(handle);
+                let label = PeerLabel::new(peer.handle.as_deref(), peer.did.as_deref());
+                announce_arrival(&mut chat, &mut resolve, &label, peer.muted);
             }
             continue;
         }
@@ -225,7 +308,8 @@ fn spawn_avatar_task(commands: &mut Commands, entity: Entity, did: String) {
     let did_for_fetch = did.clone();
     let task = pool.spawn(async move {
         let fut = fetch_avatar_bytes(did_for_fetch);
-        crate::config::http::run_or(fut, AvatarFetchResult::default()).await
+        // A timeout is a failure, not an empty profile (#1217 f326).
+        crate::config::http::run_or(fut, AvatarFetchResult::failed()).await
     });
     commands
         .entity(entity)
@@ -237,12 +321,14 @@ fn poll_avatar_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut AvatarFetchTask)>,
     mut parked: Query<(Entity, &mut PendingAvatarImage)>,
-    mut peers: Query<&mut RemotePeer>,
+    mut peers: Query<(&mut RemotePeer, &mut PeerResolve)>,
     mut images: ResMut<Assets<Image>>,
     mut egui_textures: ResMut<EguiUserTextures>,
     mut cache: ResMut<BskyProfileCache>,
     mut chat: ResMut<crate::state::ChatHistory>,
+    time: Res<Time>,
 ) {
+    let now = time.elapsed_secs_f64();
     let mut decoded_this_frame = 0usize;
 
     // Bytes parked on an earlier frame go first, so a picture cannot be
@@ -283,13 +369,25 @@ fn poll_avatar_tasks(
         // chat HUD or disconnect log. Only a handle resolved from the
         // authenticated DID's profile record is safe to display.
         let verified_handle = result.handle.clone();
-        if let Some(handle) = verified_handle.clone()
-            && let Ok(mut peer) = peers.get_mut(entity)
-        {
-            if peer.handle.is_none() {
-                push_joined_line(&mut chat, &handle);
+        if let Ok((mut peer, mut resolve)) = peers.get_mut(entity) {
+            if let Some(handle) = verified_handle.clone() {
+                peer.handle = Some(handle);
             }
-            peer.handle = Some(handle);
+            // Failure now has a state and a retry (#1217 f326). Note the
+            // asymmetry: the arrival line is announced in BOTH branches. On
+            // success it carries the verified handle, which is the best name
+            // and the reason the announcement waits at all; on failure it
+            // falls back down the ladder, because the alternative is the
+            // departure line printing for someone the room was never told
+            // had arrived (#1218 f338).
+            let next = if result.failed {
+                FetchState::Failed(RetryBackoff::after_failure(resolve.profile.backoff(), now))
+            } else {
+                FetchState::Landed
+            };
+            resolve.profile = next;
+            let label = PeerLabel::new(peer.handle.as_deref(), peer.did.as_deref());
+            announce_arrival(&mut chat, &mut resolve, &label, peer.muted);
         }
 
         let Some(bytes) = result.bytes else { continue };
@@ -397,15 +495,15 @@ pub(crate) async fn fetch_avatar_bytes(did: String) -> AvatarFetchResult {
     );
 
     let Ok(resp) = client.get(&url).send().await else {
-        return out;
+        return AvatarFetchResult::failed();
     };
     if !resp.status().is_success() {
         bevy::log::warn!("Failed to fetch profile for {}: {}", did, resp.status());
-        return out;
+        return AvatarFetchResult::failed();
     }
 
     let Ok(profile) = resp.json::<BskyProfile>().await else {
-        return out;
+        return AvatarFetchResult::failed();
     };
     out.handle = profile.handle;
 
@@ -460,16 +558,44 @@ async fn fetch_image_bytes(
 #[cfg(target_arch = "wasm32")]
 use crate::pds::resolve_pds;
 
-/// Render a small profile-picture icon for `did` next to a chat row or
-/// a People-panel entry. When the cache holds an `egui::TextureId` for
-/// this DID, draws a `bevy_egui::egui::Image` sized at `size` px square. When
-/// the cache misses (load still in flight, no profile picture, or
-/// `did` is `None`), allocates the same square as a transparent spacer
-/// so the parent row layout doesn't shift between frames as the load
-/// resolves.
+/// The first character of `name`, upper-cased, for a picture-less icon
+/// (#1225 f351).
+///
+/// `None` when there is nothing worth drawing — an empty name, or one whose
+/// first character is not alphanumeric, where a lone `@` or an emoji
+/// fragment says less than the plain tile does. Written as a pure function
+/// because it is the only decision in the placeholder worth testing.
+pub fn icon_initial(name: Option<&str>) -> Option<char> {
+    let first = name?.trim().chars().next()?;
+    // Skip a leading sigil so "@alice" reads as A, not @.
+    let first = if first == '@' {
+        name?.trim().chars().nth(1)?
+    } else {
+        first
+    };
+    first
+        .is_alphanumeric()
+        .then(|| first.to_uppercase().next().unwrap_or(first))
+}
+
+/// Render a small profile-picture icon for `did`, falling back to a tile
+/// carrying `name`'s initial when there is no picture (#1225 f351).
+///
+/// The miss arm used to allocate a transparent square, and this function's
+/// own doc conceded that in-flight, no-picture and failed-fetch were
+/// indistinguishable — three different facts rendered as the same nothing.
+/// On wasm the failure rate is structurally higher, because `cdn.bsky.app`
+/// serves no CORS headers and the original PDS blob has to be fetched
+/// instead.
+///
+/// In the People panel that empty square is the row's only visual anchor
+/// besides the handle, so a room of pending or picture-less peers read as
+/// broken rather than as loading. A drawn tile is not a picture, but it is
+/// an anchor and it carries an identity.
 pub fn draw_avatar_icon(
     ui: &mut bevy_egui::egui::Ui,
     did: Option<&str>,
+    name: Option<&str>,
     cache: &BskyProfileCache,
     size: f32,
 ) {
@@ -484,8 +610,71 @@ pub fn draw_avatar_icon(
             )));
         }
         None => {
-            ui.allocate_space(egui::vec2(size, size));
+            // Same square either way, so a row's layout does not shift
+            // between a cache miss and a cache hit — the reason the miss
+            // arm allocated space in the first place.
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
+            if !ui.is_rect_visible(rect) {
+                return;
+            }
+            let theme = crate::ui::theme::current(ui.ctx());
+            ui.painter()
+                .rect_filled(rect, size * 0.25, theme.chart_fill);
+            if let Some(initial) = icon_initial(name) {
+                ui.painter().text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    initial,
+                    egui::FontId::proportional(size * 0.62),
+                    theme.text_weak,
+                );
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod icon_placeholder_tests {
+    use super::*;
+
+    /// #1225 f351. The sequence: you open People in a room of people who
+    /// have just arrived, and every row has a gap where a picture should be
+    /// — and the gap means "still loading", "has no picture" and "the fetch
+    /// failed" indistinguishably, because all three ended at the same
+    /// transparent square. On wasm the third is structurally more common,
+    /// because `cdn.bsky.app` serves no CORS headers and the original PDS
+    /// blob has to be fetched instead. In the People panel that square is
+    /// the row's only visual anchor besides the handle.
+    #[test]
+    fn a_picture_less_row_still_carries_an_identity() {
+        assert_eq!(icon_initial(Some("alice.bsky.social")), Some('A'));
+        assert_eq!(
+            icon_initial(Some("@alice.bsky.social")),
+            Some('A'),
+            "the sigil is decoration, not a name"
+        );
+        assert_eq!(icon_initial(Some("  sam ")), Some('S'));
+        assert_eq!(icon_initial(Some("7ravellers")), Some('7'));
+    }
+
+    /// Nothing worth drawing draws nothing: a lone sigil, an emoji
+    /// fragment or an empty name says less than the plain tile does.
+    #[test]
+    fn a_nameless_row_gets_the_tile_without_a_letter() {
+        assert_eq!(icon_initial(None), None);
+        assert_eq!(icon_initial(Some("")), None);
+        assert_eq!(icon_initial(Some("   ")), None);
+        assert_eq!(icon_initial(Some("@")), None);
+        assert_eq!(icon_initial(Some("!!!")), None);
+    }
+
+    /// Non-Latin names are names: the initial is whatever the script's
+    /// first character is, and `to_uppercase` is a no-op where the script
+    /// has no case.
+    #[test]
+    fn a_non_latin_name_keeps_its_own_first_character() {
+        assert_eq!(icon_initial(Some("さくら")), Some('さ'));
+        assert_eq!(icon_initial(Some("Ács")), Some('Á'));
     }
 }
 
@@ -575,6 +764,169 @@ mod profile_cache_tests {
                 .insert(String::from("did:plc:fresh"), entry(99))
                 .is_empty(),
             "a cleared cache has room again"
+        );
+    }
+}
+
+#[cfg(test)]
+mod presence_tests {
+    use super::*;
+
+    fn peer_id(n: u8) -> bevy_symbios_multiuser::prelude::PeerId {
+        serde_json::from_str(&format!("\"00000000-0000-0000-0000-0000000000{n:02}\""))
+            .expect("a well-formed uuid")
+    }
+
+    fn remote(n: u8, did: &str) -> RemotePeer {
+        RemotePeer {
+            peer_id: peer_id(n),
+            did: Some(did.to_owned()),
+            handle: None,
+            muted: false,
+            avatar: None,
+            build: None,
+            connected_at: 0.0,
+        }
+    }
+
+    /// #1217 f326. The sequence: a peer's `getProfile` call errors once, at
+    /// join time. `AvatarFetchPending` is inserted from exactly one site —
+    /// the moment their DID resolves — and `trigger_avatar_fetches` removes
+    /// it before spawning and never re-adds it. So the roster said
+    /// "identifying…" for the rest of the session, the arrival line never
+    /// printed, and chat from them was signed with a fallback.
+    #[test]
+    fn a_failed_profile_fetch_is_tried_again_once_its_backoff_elapses() {
+        let mut app = App::new();
+        app.add_plugins((bevy::app::TaskPoolPlugin::default(), bevy::time::TimePlugin));
+        app.add_systems(Update, retry_peer_profile_fetches);
+
+        // Dated before the app's clock started, so the wait has elapsed —
+        // `TimePlugin` recomputes `Time` in `First`, so an advance made from
+        // a test would be gone by the time the system runs.
+        let elapsed = app
+            .world_mut()
+            .spawn((
+                remote(1, "did:plc:hiccup"),
+                PeerResolve {
+                    profile: FetchState::Failed(RetryBackoff {
+                        attempts: 1,
+                        wait_secs: 2.0,
+                        failed_at: -100.0,
+                    }),
+                    ..PeerResolve::default()
+                },
+            ))
+            .id();
+        let waiting = app
+            .world_mut()
+            .spawn((
+                remote(2, "did:plc:stillwaiting"),
+                PeerResolve {
+                    profile: FetchState::Failed(RetryBackoff {
+                        attempts: 1,
+                        wait_secs: 2.0,
+                        failed_at: 0.0,
+                    }),
+                    ..PeerResolve::default()
+                },
+            ))
+            .id();
+        let landed = app
+            .world_mut()
+            .spawn((
+                remote(3, "did:plc:fine"),
+                PeerResolve {
+                    profile: FetchState::Landed,
+                    ..PeerResolve::default()
+                },
+            ))
+            .id();
+
+        app.update();
+
+        assert!(
+            app.world().entity(elapsed).contains::<AvatarFetchPending>(),
+            "re-arming the marker is all a retry needs — the pipeline does the rest"
+        );
+        assert!(!app.world().entity(waiting).contains::<AvatarFetchPending>());
+        assert!(!app.world().entity(landed).contains::<AvatarFetchPending>());
+    }
+
+    /// #1218 f338. The presence log has to balance. A peer whose profile
+    /// fetch fails still arrives — announced off the same ladder the
+    /// departure line uses — because the alternative is a farewell to
+    /// somebody the room was never told about.
+    #[test]
+    fn an_arrival_is_announced_once_with_the_best_name_available() {
+        let mut chat = crate::state::ChatHistory::default();
+        let mut resolve = PeerResolve::default();
+
+        // The profile failed: no handle, but the relay authenticated a DID.
+        announce_arrival(
+            &mut chat,
+            &mut resolve,
+            &PeerLabel::new(None, Some("did:plc:z72i7hdynmk6r22z27h6tvur")),
+            false,
+        );
+        assert_eq!(chat.messages.len(), 1);
+        assert_eq!(
+            chat.messages[0].text, "did:plc:z72i7hdy… joined the room.",
+            "the arrival side now degrades through the ladder the departure side always had"
+        );
+        assert!(resolve.announced);
+
+        // The handle lands later — the room is not told twice.
+        announce_arrival(
+            &mut chat,
+            &mut resolve,
+            &PeerLabel::new(
+                Some("sam.bsky.social"),
+                Some("did:plc:z72i7hdynmk6r22z27h6tvur"),
+            ),
+            false,
+        );
+        assert_eq!(chat.messages.len(), 1, "one arrival line per peer, ever");
+    }
+
+    /// #1219 f289. The sequence: a harasser is muted, disconnects and rejoins
+    /// on a loop, and the chat log fills with their name — the one channel a
+    /// blocked person keeps for putting it in front of you. Suppressing the
+    /// ARRIVAL is what suppresses the departure too: `announced` stays false,
+    /// and `should_announce_departure` reads it.
+    #[test]
+    fn a_muted_peer_gets_no_presence_lines_at_all() {
+        let mut chat = crate::state::ChatHistory::default();
+        let mut resolve = PeerResolve::default();
+
+        announce_arrival(
+            &mut chat,
+            &mut resolve,
+            &PeerLabel::new(Some("them.bsky.social"), Some("did:plc:them")),
+            true,
+        );
+        assert!(chat.messages.is_empty());
+        assert!(
+            !resolve.announced,
+            "the room was never told, so it must not be told they left either"
+        );
+        assert!(!crate::network::presence::should_announce_departure(
+            true,
+            resolve.announced,
+            true,
+        ));
+    }
+
+    /// #1217 f326. Every failure path used to return
+    /// `AvatarFetchResult::default()` — byte-identical to a clean profile
+    /// with no picture — so the caller could not tell a transport error from
+    /// a bare account, and a failure had no state to retry from.
+    #[test]
+    fn a_failure_is_distinguishable_from_a_profile_with_nothing_in_it() {
+        assert!(AvatarFetchResult::failed().failed);
+        assert!(
+            !AvatarFetchResult::default().failed,
+            "an account with no picture and no handle is a finished answer"
         );
     }
 }

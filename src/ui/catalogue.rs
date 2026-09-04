@@ -350,6 +350,9 @@ pub(crate) fn catalogue_ui(
     // all that ever happens.
     mut live_inventory: Option<ResMut<crate::state::LiveInventoryRecord>>,
     session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
+    // Whose room this is (#1220 f132): the drag tooltip promises a
+    // placement only to an owner — a visitor can gift and nothing else.
+    room_did: Option<Res<crate::state::CurrentRoomDid>>,
     mut undo_labels: ResMut<crate::ui::undo::PendingUndoLabels>,
     mut toasts: ResMut<crate::ui::toast::Toasts>,
     time: Res<Time>,
@@ -469,6 +472,32 @@ pub(crate) fn catalogue_ui(
                                         }
                                         _ => {}
                                     }
+                                }
+                                // The sentence the Catalogue never had
+                                // (#1220 f132). `egui_ltreeview` paints the
+                                // dragged row at the cursor on its own
+                                // Tooltip-order layer, so the drag WAS
+                                // visibly live — what was missing is the
+                                // copy saying a drop on a peer gifts it, on
+                                // the surface where a new user meets the
+                                // gesture and which auto-opens the People
+                                // window mid-drag. Display name, never the
+                                // slug: `stone_cottage_a` is not a name.
+                                if pending_drop.source == DropSource::Catalogue
+                                    && let Some(slug) = pending_drop.generator_name.as_deref()
+                                    && let Some(entry) = by_slug(slug)
+                                {
+                                    let owns_room = match (session.as_deref(), room_did.as_deref())
+                                    {
+                                        (Some(sess), Some(room)) => room.0 == sess.did,
+                                        _ => false,
+                                    };
+                                    crate::ui::inventory::drag_tooltip(
+                                        ui,
+                                        "cat_drag_tip",
+                                        entry.name(),
+                                        owns_room,
+                                    );
                                 }
                             });
                     },

@@ -16,18 +16,18 @@ use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
-use crate::avatar::AvatarFetchPending;
 use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::EventPayload;
 use crate::pds::AvatarRecord;
-use crate::protocol::OverlandsMessage;
+use crate::protocol::{DeclineReason, OverlandsMessage};
 use crate::state::{
     ChatHistory, CurrentRoomDid, IncomingOfferDialog, LiveRoomRecord, PendingOutgoingOffers,
     RemotePeer,
 };
 
 use super::SmootherConfigRes;
-use super::peer_cache::{PeerAvatarCache, spawn_peer_avatar_fetch};
+use super::peer_cache::PeerAvatarCache;
+use super::presence::{FetchState, PeerLabel, PeerResolve, adopt_peer_did};
 
 /// Message kinds that can be coalesced to the latest-per-sender within a
 /// single drain. Each fully supersedes any earlier instance from the same
@@ -52,6 +52,17 @@ enum CoalesceKey {
     /// `Hello` rides the identity cadence and every instance carries the same
     /// two values, so all but the last in a drain are literally redundant.
     Hello,
+    /// `AvatarRecordsPublished` carries no payload and is idempotent — it
+    /// forgets a resolution, and forgetting it twice is forgetting it once
+    /// (#1224 f336). It was the one heavyweight arm that neither coalesced
+    /// nor checked authority, so a modified client could hold the message
+    /// down and impose steady per-frame cost on every guest: each instance
+    /// took `peer.avatar.as_mut()`, which raises the change tick
+    /// unconditionally, and two `Changed<RemotePeer>` systems then re-ran —
+    /// a whole-record deep compare in `detect_remote_change` and a
+    /// whole-outfit diff in `sync_rigged_attachments`, which is exactly the
+    /// work #1135's latch exists to avoid.
+    AvatarPublished,
 }
 
 fn coalesce_key(msg: &OverlandsMessage) -> Option<CoalesceKey> {
@@ -60,6 +71,7 @@ fn coalesce_key(msg: &OverlandsMessage) -> Option<CoalesceKey> {
         OverlandsMessage::AvatarStateUpdate { .. } => Some(CoalesceKey::AvatarState),
         OverlandsMessage::RoomStateUpdate { .. } => Some(CoalesceKey::RoomState),
         OverlandsMessage::Hello { .. } => Some(CoalesceKey::Hello),
+        OverlandsMessage::AvatarRecordsPublished => Some(CoalesceKey::AvatarPublished),
         _ => None,
     }
 }
@@ -105,9 +117,20 @@ pub(super) struct InboundBuffers<'w, 's> {
     /// Busy-gate auto-declines counted while an offer dialog is up
     /// (#843); the dialog reports them when it closes.
     busy_declines: ResMut<'w, crate::state::BusyAutoDeclines>,
+    /// An offer the user set aside to make room for (#1220 f288) counts as
+    /// busy: it is coming back the moment a slot frees, and a second dialog
+    /// opening under it would be answered on top of the one already owed.
+    held_offer: Option<Res<'w, crate::state::HeldOffer>>,
+    /// Per-sender chat budgets (#1222 f296). A `Local`, because they are
+    /// this system's own bookkeeping and nothing else reads them — and
+    /// because a resource would have to be torn down at logout to avoid
+    /// carrying one session's flooder into the next.
+    chat_budgets: Local<'s, super::presence::ChatBudgets>,
     /// Durable mute list (#844): applied the moment a peer's DID
-    /// resolves, so a muted harasser stays muted across reconnects.
-    muted_dids: Res<'w, crate::state::MutedDids>,
+    /// resolves, so a muted harasser stays muted across reconnects — and
+    /// written in the other direction too (#1219 f331), so a mute applied
+    /// before the DID landed is promoted rather than lost with the entity.
+    muted_dids: ResMut<'w, crate::state::MutedDids>,
     /// Undo-capture classification (#862): an inbound owner
     /// `RoomStateUpdate` wholesale-replaces `LiveRoomRecord`, and the
     /// history must reset instead of recording it as a local edit.
@@ -120,6 +143,12 @@ pub(super) struct InboundBuffers<'w, 's> {
     /// taken as its own parameter because `handle_incoming_messages` is at
     /// Bevy's 16-parameter `IntoSystem` ceiling.
     world_digest: Res<'w, crate::world_digest::WorldDigest>,
+    /// How far each peer has resolved (#1217/#1218). A separate query rather
+    /// than a fifth element of the `peers` tuple: the two touch disjoint
+    /// components, so Bevy's per-component access check lets them coexist,
+    /// and `handle_incoming_messages` is at the 16-parameter ceiling so a
+    /// bare parameter is not available.
+    resolve: Query<'w, 's, &'static mut PeerResolve>,
 }
 
 /// Move a peer's existing rig resolution onto an incoming record when the
@@ -232,7 +261,13 @@ pub(super) fn handle_incoming_messages(
     // until end-of-system, so reading the resource again would report the
     // stale pre-frame state and let a peer pack many `ItemOffer`s into one
     // frame, bypassing the busy-gate.
-    let mut dialog_open = incoming_dialog.is_some();
+    // A held offer counts as busy (#1220 f288) — it is owed the screen the
+    // moment a slot frees, and a second dialog answered on top of it would
+    // shuffle the two.
+    let mut dialog_open = incoming_dialog.is_some() || bufs.held_offer.is_some();
+    // Forget senders who have gone quiet (#1222 f296), so a long session in
+    // a busy hub does not grow one bucket per `PeerId` ever seen.
+    bufs.chat_budgets.prune(now);
     for (i, msg) in messages.into_iter().enumerate() {
         if let Some(key) = coalesce_key(&msg.payload)
             && last_coalesced_idx.get(&(msg.sender, key)) != Some(&i)
@@ -248,7 +283,7 @@ pub(super) fn handle_incoming_messages(
                 // anchoring against same-frame bursts and clock-skew drift)
                 // so the worst a malicious peer can do is have their packet
                 // silently discarded.
-                for (_, peer, _tf, mut buf) in peers.iter_mut() {
+                for (entity, peer, _tf, mut buf) in peers.iter_mut() {
                     if peer.peer_id == msg.sender {
                         let accepted = buf.push_sample(
                             Vec3::from_array(position),
@@ -260,6 +295,16 @@ pub(super) fn handle_incoming_messages(
                         // discarded by the smoother; count it (E-4).
                         if !accepted {
                             crate::diagnostics::samplers::transform_rejected(&mut metrics);
+                            continue;
+                        }
+                        // The liveness fact the client already had and never
+                        // asked for (#1224 f335) — the jitter buffer stops
+                        // receiving, and nothing read that. Written to
+                        // `PeerResolve`, never to `RemotePeer`: a per-packet
+                        // write through a `Mut<RemotePeer>` would raise
+                        // `Changed<RemotePeer>` continuously.
+                        if let Ok(mut resolve) = bufs.resolve.get_mut(entity) {
+                            resolve.last_sample_at = Some(now);
                         }
                     }
                 }
@@ -309,49 +354,39 @@ pub(super) fn handle_incoming_messages(
                         continue;
                     }
 
-                    let did_changed = peer.did.as_deref() != Some(did.as_str());
-
                     // The `handle` field on the wire is peer-supplied and
                     // therefore untrusted — a malicious peer could claim any
                     // handle string to impersonate another actor in the chat
                     // HUD and disconnect log. The authoritative handle is
                     // resolved asynchronously by the avatar/profile fetch
-                    // pipeline (kicked below via `AvatarFetchPending`), which
-                    // hits `app.bsky.actor.getProfile` against the DID the
-                    // relay already authenticated. Do NOT write `peer.handle`
-                    // from this message.
-
-                    if did_changed {
+                    // pipeline (kicked via `AvatarFetchPending`), which hits
+                    // `app.bsky.actor.getProfile` against the DID the relay
+                    // already authenticated. Do NOT write `peer.handle` from
+                    // this message.
+                    //
+                    // Normally a no-op now (#1218 f290):
+                    // `presence::adopt_peer_sessions` runs before this
+                    // dispatcher and takes the DID straight off the same
+                    // relay-signed map this arm authenticates against, so a
+                    // peer is identified whether or not they ever broadcast.
+                    // The call stays because the two must not be able to
+                    // adopt an identity two different ways, and this is where
+                    // a spoof is caught.
+                    let peer_id = peer.peer_id;
+                    if adopt_peer_did(
+                        &mut commands,
+                        entity,
+                        &mut peer,
+                        peer_id,
+                        &did,
+                        &mut bufs.muted_dids,
+                        &mut avatar_cache,
+                        now,
+                    ) {
                         info!(
                             "Peer {} identified as did={} (claimed handle @{} — unverified, will resolve via getProfile)",
                             msg.sender, did, handle
                         );
-                        commands
-                            .entity(entity)
-                            .insert(AvatarFetchPending { did: did.clone() });
-                        // Clear any stale handle from a prior identity so the
-                        // HUD reverts to the DID until the profile fetch
-                        // returns a verified value.
-                        peer.handle = None;
-                        peer.did = Some(did.clone());
-                        // Durable mute (#844): the flag used to live only on
-                        // this session-scoped entity, so disconnect/rejoin
-                        // reset it — reconnecting was a mute-reset button.
-                        if bufs.muted_dids.0.contains(&did) && !peer.muted {
-                            peer.muted = true;
-                        }
-                        // Install from cache synchronously when we've fetched
-                        // this DID before in the same session; otherwise
-                        // kick the async PDS fetch. Skipping the network
-                        // round trip matters most for portal hops, which
-                        // bring a cluster of familiar peers in at once and
-                        // would otherwise saturate the IoTaskPool with
-                        // duplicate DID-document resolves.
-                        if let Some(cached) = avatar_cache.get(&did) {
-                            peer.avatar = Some(cached.clone());
-                        } else {
-                            spawn_peer_avatar_fetch(&mut commands, msg.sender, did.clone(), now);
-                        }
                     }
                 }
             }
@@ -367,11 +402,19 @@ pub(super) fn handle_incoming_messages(
                 // heaviest message in the protocol already resolves the
                 // sender before touching the payload; the second-heaviest
                 // now does too.
-                let sender_did = peers
+                let sender = peers
                     .iter()
-                    .find(|(_, peer, _, _)| peer.peer_id == msg.sender)
-                    .and_then(|(_, peer, _, _)| peer.did.clone());
-                let Some(sender_did) = sender_did else {
+                    .find(|(_, peer, _, _)| peer.peer_id == msg.sender);
+                // A muted peer does not get to run the second-heaviest
+                // decode in the protocol on this client, once per keystroke
+                // of their editor (#1219 f287). Checked in the same breath as
+                // the authority resolve and BEFORE the size check, for the
+                // same reason that one moved up: the envelope carries
+                // everything the gate needs.
+                if sender.is_some_and(|(_, peer, _, _)| peer.muted) {
+                    continue;
+                }
+                let Some(sender_did) = sender.and_then(|(_, peer, _, _)| peer.did.clone()) else {
                     debug!(
                         "Deferring AvatarStateUpdate from {}: peer DID not yet known",
                         msg.sender
@@ -409,13 +452,21 @@ pub(super) fn handle_incoming_messages(
                 };
                 new_record.sanitize();
 
-                for (_, mut peer, _, _) in peers.iter_mut() {
+                for (entity, mut peer, _, _) in peers.iter_mut() {
                     if peer.peer_id != msg.sender {
                         continue;
                     }
                     // The DID was resolved above, before the decode — a peer
                     // without one never reaches here.
                     let peer_did = sender_did.clone();
+                    // A live preview IS the peer's real record, so it retires
+                    // any failed-fetch stand-in and the retry that would have
+                    // overwritten it (#1217 f323). This is one of the two
+                    // recoveries the finding noted; it now closes the failure
+                    // state instead of silently racing it.
+                    if let Ok(mut resolve) = bufs.resolve.get_mut(entity) {
+                        resolve.avatar = FetchState::Landed;
+                    }
                     // Carry a still-valid resolution across the update
                     // (#1113). `resolved` is `#[serde(skip)]`, so every
                     // preview arrives unresolved; overwriting wholesale threw
@@ -541,7 +592,20 @@ pub(super) fn handle_incoming_messages(
                     if peer.peer_id != msg.sender {
                         continue;
                     }
-                    if let Some(record) = peer.avatar.as_mut() {
+                    // Nothing to forget is nothing to do (#1224 f336).
+                    // `peer.avatar.as_mut()` raises the change tick
+                    // unconditionally — even for a peer with no record, and
+                    // even when the resolution is already `None` — so an
+                    // unguarded notice was a free way to dirty a peer and
+                    // re-run two `Changed<RemotePeer>` systems. Read first,
+                    // and take the mutable borrow only when the answer
+                    // actually moves.
+                    let carrying = peer
+                        .avatar
+                        .as_ref()
+                        .and_then(|record| record.body.rigged_ref())
+                        .is_some_and(|rig| rig.resolved.is_some());
+                    if carrying && let Some(record) = peer.avatar.as_mut() {
                         forget_rig_resolution(record);
                     }
                     commands
@@ -711,6 +775,51 @@ pub(super) fn handle_incoming_messages(
                 );
             }
             OverlandsMessage::Chat { text } => {
+                // Authenticate the sender before anything else (#1218 f290).
+                // This arm was, uniquely among the inbound arms, unauthenticated:
+                // `Identity`, `AvatarStateUpdate`, `RoomStateUpdate`, `ItemOffer`
+                // and `ItemOfferResponse` all resolve the sender against the
+                // relay-signed session map, and chat alone fell back to
+                // `msg.sender.to_string()` — a raw PeerId UUID — as the author.
+                // A peer that never identified therefore got an author name,
+                // a chat channel, and a mute that could not be made durable:
+                // the cheapest possible griefing posture is to say nothing.
+                //
+                // Deferring costs a legitimate early message nothing it was
+                // not already going to pay — the peer re-broadcasts on its
+                // identity cadence and the map catches up within a frame or
+                // two, exactly as the `Identity` arm above assumes.
+                let Some(sender_did) = peer_sessions.session_id(&msg.sender) else {
+                    debug!(
+                        "Dropping Chat from {}: peer session not yet known",
+                        msg.sender
+                    );
+                    continue;
+                };
+
+                // Flood control BEFORE anything else this arm does (#1222
+                // f296). `Chat` is not in the coalescing set that protects
+                // the three heavy variants from bursts, and the rolling
+                // 500-entry history cap is exactly what makes a flood
+                // destructive: 500 messages evict the room's whole prior
+                // conversation, permanently, while the remedy is two windows
+                // away. Charged per authenticated DID's peer id, so a
+                // flooder cannot buy a fresh budget by re-sending.
+                match bufs.chat_budgets.charge(msg.sender, now) {
+                    super::presence::ChatVerdict::Allow => {}
+                    super::presence::ChatVerdict::Drop => continue,
+                    super::presence::ChatVerdict::DropAndReport { dropped } => {
+                        session_log.warn(
+                            now,
+                            EventPayload::ChatThrottled {
+                                sender_did: sender_did.clone(),
+                                dropped,
+                            },
+                        );
+                        continue;
+                    }
+                }
+
                 // Ignore messages from muted peers.
                 let sender_muted = peers
                     .iter()
@@ -718,11 +827,7 @@ pub(super) fn handle_incoming_messages(
                     .map(|(_, peer, _, _)| peer.muted)
                     .unwrap_or(false);
 
-                let sender_did_for_log = peers
-                    .iter()
-                    .find(|(_, peer, _, _)| peer.peer_id == msg.sender)
-                    .and_then(|(_, peer, _, _)| peer.did.clone())
-                    .unwrap_or_else(|| msg.sender.to_string());
+                let sender_did_for_log = sender_did.clone();
                 if sender_muted {
                     // The mute worked — but silently, so a log could not tell
                     // "nobody spoke" from "the person you muted did" (#1144).
@@ -759,10 +864,19 @@ pub(super) fn handle_incoming_messages(
                     let sender_peer = peers
                         .iter()
                         .find(|(_, peer, _, _)| peer.peer_id == msg.sender);
-                    let did = sender_peer.and_then(|(_, peer, _, _)| peer.did.clone());
-                    let author = sender_peer
-                        .and_then(|(_, peer, _, _)| peer.handle.clone())
-                        .unwrap_or_else(|| msg.sender.to_string());
+                    // The relay-authenticated DID and the ONE naming ladder
+                    // (#1218 f290/f300) — the sender was already resolved
+                    // above, so this cannot be `None` here. The renderer
+                    // re-resolves the name by DID every frame
+                    // (`ui::chat::author_now`), so the string stamped here is
+                    // only the floor.
+                    let Some((did, author)) = crate::network::presence::chat_attribution(
+                        Some(sender_did.as_str()),
+                        sender_peer.and_then(|(_, peer, _, _)| peer.handle.as_deref()),
+                    ) else {
+                        continue;
+                    };
+                    let did = Some(did);
                     // Chat-keyword emotes (#1068): the sender's own body plays
                     // the gesture their words asked for. Read off the CLIPPED,
                     // control-stripped text — the same string the room is shown
@@ -834,15 +948,30 @@ pub(super) fn handle_incoming_messages(
                     .as_ref()
                     .map(|(_, peer, _, _)| peer.muted)
                     .unwrap_or(false);
-                let sender_handle = peer_lookup
-                    .as_ref()
-                    .and_then(|(_, peer, _, _)| peer.handle.clone())
-                    .unwrap_or_else(|| sender_did.clone());
+                // The ONE ladder (#1218 f299): a handle if the profile
+                // fetch has landed, the DID's head otherwise — and never the
+                // DID dressed up as a name.
+                let sender_label = PeerLabel::new(
+                    peer_lookup
+                        .as_ref()
+                        .and_then(|(_, peer, _, _)| peer.handle.as_deref()),
+                    Some(sender_did.as_str()),
+                );
+                let sender_name = sender_label.addressed();
 
                 if sender_muted {
                     sender.to(
                         msg.sender,
-                        OverlandsMessage::item_offer_response(offer_id, sender_did.clone(), false),
+                        // Reported as a plain decline on purpose (#1220
+                        // f127): telling somebody they have been muted is a
+                        // privacy leak, and a muted sender should be unable
+                        // to tell a mute from a refusal.
+                        OverlandsMessage::item_offer_response(
+                            offer_id,
+                            sender_did.clone(),
+                            false,
+                            DeclineReason::Declined,
+                        ),
                         ChannelKind::Reliable,
                     );
                     continue;
@@ -860,13 +989,21 @@ pub(super) fn handle_incoming_messages(
                 let Some(payload) = OverlandsMessage::decode_item_offer(&payload_json) else {
                     sender.to(
                         msg.sender,
-                        OverlandsMessage::item_offer_response(offer_id, sender_did.clone(), false),
+                        // Not the recipient's choice: this client could not
+                        // read the gift, which most often means the two
+                        // builds disagree about the wire.
+                        OverlandsMessage::item_offer_response(
+                            offer_id,
+                            sender_did.clone(),
+                            false,
+                            DeclineReason::Unavailable,
+                        ),
                         ChannelKind::Reliable,
                     );
                     session_log.warn(
                         now,
                         EventPayload::ItemOfferDecodeFailed {
-                            reason: format!("from @{sender_handle}: failed to decode"),
+                            reason: format!("from {sender_name}: failed to decode"),
                         },
                     );
                     continue;
@@ -901,7 +1038,17 @@ pub(super) fn handle_incoming_messages(
                 if dialog_open {
                     sender.to(
                         msg.sender,
-                        OverlandsMessage::item_offer_response(offer_id, sender_did.clone(), false),
+                        // The finding's headline case (#1220 f127): a
+                        // mechanical throttle reaching the sender as "they
+                        // declined" misattributes it to a person AND teaches
+                        // them not to retry, in the one case where retrying
+                        // in ten seconds works.
+                        OverlandsMessage::item_offer_response(
+                            offer_id,
+                            sender_did.clone(),
+                            false,
+                            DeclineReason::Busy,
+                        ),
                         ChannelKind::Reliable,
                     );
                     session_log.info(now, EventPayload::ItemOfferAutoDeclinedBusy { offer_id });
@@ -932,14 +1079,19 @@ pub(super) fn handle_incoming_messages(
                 if !crate::ui::inventory::is_drop_placeable(&generator) {
                     sender.to(
                         msg.sender,
-                        OverlandsMessage::item_offer_response(offer_id, sender_did.clone(), false),
+                        OverlandsMessage::item_offer_response(
+                            offer_id,
+                            sender_did.clone(),
+                            false,
+                            DeclineReason::Unavailable,
+                        ),
                         ChannelKind::Reliable,
                     );
                     session_log.warn(
                         now,
                         EventPayload::ItemOfferRejected {
                             offer_id,
-                            reason: format!("from @{sender_handle}: item kind not giftable"),
+                            reason: format!("from {sender_name}: item kind not giftable"),
                         },
                     );
                     continue;
@@ -957,7 +1109,7 @@ pub(super) fn handle_incoming_messages(
                     offer_id,
                     sender_peer_id: msg.sender,
                     sender_did,
-                    sender_handle,
+                    sender_label,
                     item_name,
                     generator,
                     wear,
@@ -1018,29 +1170,32 @@ pub(super) fn handle_incoming_messages(
                 // and an outright decode failure declines too (#1184), so
                 // the worst a skewed peer can do is make a gift that
                 // arrived look declined — never the reverse.
-                let accepted = OverlandsMessage::decode_item_offer_response(&payload_json)
-                    .is_some_and(|payload| payload.accepted);
+                let decoded = OverlandsMessage::decode_item_offer_response(&payload_json);
+                let accepted = decoded.as_ref().is_some_and(|payload| payload.accepted);
+                let reason = decoded.map(|payload| payload.reason).unwrap_or_default();
 
                 session_log.info(
                     now,
                     EventPayload::ItemOfferResponseReceived { offer_id, accepted },
                 );
                 // The sender finally learns the outcome somewhere visible
-                // (#843). `accepted:false` covers declined / busy / muted
-                // undifferentiated — the protocol carries no reason code.
+                // (#843), and now learns WHICH outcome (#1220 f127): the
+                // boolean used to render one sentence for a refusal, a
+                // throttle, a mute and a timeout alike.
                 if accepted {
                     bufs.toasts.success(
                         format!(
-                            "@{} accepted \"{}\".",
-                            pending.target_handle, pending.item_name
+                            "{} accepted \"{}\".",
+                            pending.target_label, pending.item_name
                         ),
                         now,
                     );
                 } else {
                     bufs.toasts.info(
-                        format!(
-                            "@{} declined \"{}\".",
-                            pending.target_handle, pending.item_name
+                        crate::ui::inventory::offer_refusal_line(
+                            reason,
+                            &pending.target_label,
+                            &pending.item_name,
                         ),
                         now,
                     );

@@ -154,7 +154,13 @@ pub fn gateway_picker_ui(
                 && s.did != owner_did
             {
                 ui.horizontal(|ui| {
-                    draw_avatar_icon(ui, Some(s.did.as_str()), &profile_cache, AVATAR_ICON_PX);
+                    draw_avatar_icon(
+                        ui,
+                        Some(s.did.as_str()),
+                        Some(s.handle.as_str()),
+                        &profile_cache,
+                        AVATAR_ICON_PX,
+                    );
                     ui.monospace(format!("@{} — home", s.handle));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Go").clicked() {
@@ -221,20 +227,26 @@ pub fn gateway_picker_ui(
                                     draw_avatar_icon(
                                         ui,
                                         Some(m.did.as_str()),
+                                        Some(m.handle.as_str()),
                                         &profile_cache,
                                         AVATAR_ICON_PX,
                                     );
-                                    match &m.display_name {
-                                        Some(name) => {
-                                            ui.label(name);
-                                            ui.monospace(
-                                                egui::RichText::new(format!("@{}", m.handle))
-                                                    .weak(),
-                                            );
-                                        }
-                                        None => {
-                                            ui.monospace(format!("@{}", m.handle));
-                                        }
+                                    // Handle first, display name after
+                                    // (#1222 f295). The handle is verified by
+                                    // the network; the display name is
+                                    // whatever its owner typed, and rendering
+                                    // the spoofable field large with the
+                                    // verified one greyed beside it inverted
+                                    // the trust order the rest of the app
+                                    // gets right — a display name set to
+                                    // somebody else's handle produced a row
+                                    // that read as that person. Chat and the
+                                    // People roster show only the verified
+                                    // handle; this surface is the one
+                                    // strangers browse.
+                                    ui.monospace(format!("@{}", m.handle));
+                                    if let Some(name) = &m.display_name {
+                                        ui.label(egui::RichText::new(name).weak());
                                     }
                                     ui.with_layout(
                                         egui::Layout::right_to_left(egui::Align::Center),

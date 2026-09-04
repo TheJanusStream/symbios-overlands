@@ -49,7 +49,9 @@ pub use begin::poll_begin_auth_task;
 pub use complete::poll_complete_auth_task;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native_callback::poll_native_callback;
-pub use posts::{LoginPostFeed, poll_login_feed_fetch, start_login_feed_fetch};
+pub use posts::{
+    LoginPostFeed, open_url_in_browser, poll_login_feed_fetch, start_login_feed_fetch,
+};
 #[cfg(target_arch = "wasm32")]
 pub use wasm_resume::{ResumeAuthTask, check_wasm_callback, check_wasm_resume, poll_resume_task};
 

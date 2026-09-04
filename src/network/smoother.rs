@@ -12,17 +12,18 @@ use bevy_symbios_multiuser::prelude::*;
 use crate::state::{LocalSettings, RemotePeer};
 
 use super::SmootherConfigRes;
+use super::presence::PeerResolve;
 
 pub(super) fn smooth_remote_transforms(
     time: Res<Time>,
     settings: Res<LocalSettings>,
     cfg: Res<SmootherConfigRes>,
-    mut peers: Query<(&mut Transform, &mut TransformBuffer), With<RemotePeer>>,
+    mut peers: Query<(&mut Transform, &mut TransformBuffer, &mut PeerResolve), With<RemotePeer>>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
 ) {
     let now = time.elapsed_secs_f64();
     let mut smoothed_any = false;
-    for (mut tf, mut buf) in peers.iter_mut() {
+    for (mut tf, mut buf, mut resolve) in peers.iter_mut() {
         let pose = if settings.smooth_kinematics {
             buf.smoothed_at(now, &cfg.0)
         } else {
@@ -32,6 +33,13 @@ pub(super) fn smooth_remote_transforms(
             tf.translation = position;
             tf.rotation = rotation;
             smoothed_any = true;
+            // The first pose is what makes a peer drawable at all (#1217
+            // f329) — before it, the chassis is still at its spawn pose,
+            // the map centre ten metres up, and `sync_mute_visibility`
+            // (which runs immediately after this) keeps it hidden. Guarded
+            // so a peer standing still does not flag the component every
+            // frame.
+            PeerResolve::mark_placed(&mut resolve);
         }
     }
     // Sample the jitter-buffer playout latency (E-4) while remote peers are

@@ -79,7 +79,13 @@ pub(crate) trait Sanitize {
 ///   `RoomRecord::default_for_did` puts water inside the terrain root, and
 ///   inventory-saved water should always be a child of the region it
 ///   belongs to. Water itself is a leaf (its `children` list is cleared).
-fn sanitize_generator_node(node: &mut Generator, depth: u32, count: &mut u32, is_root: bool) {
+fn sanitize_generator_node(
+    node: &mut Generator,
+    depth: u32,
+    count: &mut u32,
+    is_root: bool,
+    max_dim: f32,
+) {
     *count += 1;
     node.transform.sanitize();
     // Forward to the asset-class sanitiser — caps embedded patch /
@@ -98,7 +104,7 @@ fn sanitize_generator_node(node: &mut Generator, depth: u32, count: &mut u32, is
         node.kind = GeneratorKind::default_cuboid();
     }
 
-    sanitize_kind(&mut node.kind);
+    sanitize_kind_with(&mut node.kind, max_dim);
 
     // Water is a leaf — `spawn_water_volume` does not consume children, so
     // strip authored children to keep the editor and spawner in sync.
@@ -118,7 +124,7 @@ fn sanitize_generator_node(node: &mut Generator, depth: u32, count: &mut u32, is
         if *count >= limits::MAX_GENERATOR_NODES {
             break;
         }
-        sanitize_generator_node(child, depth + 1, count, false);
+        sanitize_generator_node(child, depth + 1, count, false, max_dim);
         visited = i + 1;
     }
     if visited < node.children.len() {
@@ -130,6 +136,13 @@ fn sanitize_generator_node(node: &mut Generator, depth: u32, count: &mut u32, is
 /// not touch the wrapping [`Generator`]'s transform or children — those are
 /// handled by [`sanitize_generator_node`] which calls this on every node.
 pub fn sanitize_kind(kind: &mut GeneratorKind) {
+    sanitize_kind_with(kind, limits::MAX_PRIM_DIM_M);
+}
+
+/// [`sanitize_kind`] with an explicit per-dimension ceiling (#1221 f327) —
+/// room content passes [`limits::MAX_PRIM_DIM_M`], an avatar the tighter
+/// [`limits::MAX_AVATAR_PRIM_DIM_M`].
+pub fn sanitize_kind_with(kind: &mut GeneratorKind, max_dim: f32) {
     match kind {
         GeneratorKind::Terrain(cfg) => cfg.sanitize(),
         GeneratorKind::LSystem {
@@ -211,7 +224,7 @@ pub fn sanitize_kind(kind: &mut GeneratorKind) {
                 *axis = common::clamp_finite(*axis, 0.25, 50.0, 2.5);
             }
         }
-        crate::for_each_primitive!(pattern {}) => sanitize_primitive(kind),
+        crate::for_each_primitive!(pattern {}) => sanitize_primitive(kind, max_dim),
         GeneratorKind::Water { surface } => sanitize_water(surface),
         GeneratorKind::RoadNetwork(config) => sanitize_road(config),
         GeneratorKind::Sign {
@@ -290,7 +303,7 @@ fn sanitize_road(c: &mut crate::pds::generator::RoadConfig) {
 /// the room recipe and the inventory stash.
 pub fn sanitize_generator(generator: &mut Generator) {
     let mut count: u32 = 0;
-    sanitize_generator_node(generator, 0, &mut count, true);
+    sanitize_generator_node(generator, 0, &mut count, true, limits::MAX_PRIM_DIM_M);
 }
 
 /// Avatar-specific sanitiser. Reuses [`sanitize_generator_node`]'s
@@ -312,8 +325,65 @@ pub fn sanitize_generator(generator: &mut Generator) {
 /// reuses the same dispatcher as the room compiler with the room-only
 /// behaviours (RoomEntity, PrimMarker, per-prim colliders) suppressed.
 pub fn sanitize_avatar_visuals(generator: &mut Generator) {
-    sanitize_generator(generator);
+    let mut count: u32 = 0;
+    // A body is worn into other people's rooms, so its size is a thing it
+    // can do TO them (#1221 f327) — hence the tighter per-dimension cap and
+    // the bound on accumulated scale that room content does not carry.
+    sanitize_generator_node(
+        generator,
+        0,
+        &mut count,
+        true,
+        limits::MAX_AVATAR_PRIM_DIM_M,
+    );
     enforce_avatar_kinds(generator);
+    clamp_accumulated_scale(generator, 1.0);
+}
+
+/// Hold the product of scales along every root-to-leaf path under
+/// [`limits::MAX_AVATAR_SCALE_PRODUCT`] (#1221 f327).
+///
+/// Clamping the node rather than rejecting the record, like the rest of
+/// this module: an oversized body degrades to a large-but-bounded one that
+/// still round-trips, rather than vanishing with no explanation to its
+/// wearer. Clamping an ANCESTOR bounds everything under it, because that is
+/// how the composition worked in the first place — which is why this walks
+/// top-down and carries the product forward.
+fn clamp_accumulated_scale(node: &mut Generator, carried: f32) {
+    let s = node.transform.scale.0;
+    let local = s[0].abs().max(s[1].abs()).max(s[2].abs());
+    let mut here = carried * local;
+    if here > limits::MAX_AVATAR_SCALE_PRODUCT {
+        // Scale this node down by exactly the overage, preserving its
+        // per-axis proportions — a body clamped to a cube would be a
+        // stranger defect than the one being fixed.
+        let shrink = limits::MAX_AVATAR_SCALE_PRODUCT / here;
+        node.transform.scale =
+            crate::pds::types::Fp3([s[0] * shrink, s[1] * shrink, s[2] * shrink]);
+        here = limits::MAX_AVATAR_SCALE_PRODUCT;
+    }
+    for child in node.children.iter_mut() {
+        clamp_accumulated_scale(child, here);
+    }
+}
+
+/// The largest product of scales along any root-to-leaf path in `node`.
+///
+/// Measurement, not policy: scales compose multiplicatively down the
+/// hierarchy and nothing bounded the product, so a body's world-space size
+/// was `per-node scale ^ depth` — up to `1000 ^ 16` at the sanitiser's own
+/// depth limit (#1221 f327). This is what says how much headroom a cap on
+/// that product actually has over the bodies the app ships.
+pub fn accumulated_scale(node: &Generator) -> f32 {
+    fn walk(node: &Generator, carried: f32) -> f32 {
+        let s = node.transform.scale.0;
+        let here = carried * s[0].abs().max(s[1].abs()).max(s[2].abs());
+        node.children
+            .iter()
+            .map(|child| walk(child, here))
+            .fold(here, f32::max)
+    }
+    walk(node, 1.0)
 }
 
 fn enforce_avatar_kinds(node: &mut Generator) {
@@ -330,5 +400,151 @@ fn enforce_avatar_kinds(node: &mut Generator) {
     }
     for child in node.children.iter_mut() {
         enforce_avatar_kinds(child);
+    }
+}
+
+#[cfg(test)]
+mod avatar_extent_tests {
+    use super::*;
+
+    /// Every generator body and part this build can produce, for the guard
+    /// below and for anyone re-tuning the caps.
+    fn shipped_avatar_trees() -> Vec<Generator> {
+        let mut out = Vec::new();
+        for seed in 0..400u64 {
+            let (body, _) = crate::pds::avatar::default_visuals::build_for_seed(seed);
+            if let Some(visuals) = body.visuals() {
+                out.push(visuals.clone());
+            }
+        }
+        for seed in [0u64, 1, 7, 42, 1337] {
+            let ctx = crate::pds::avatar::parts::PartCtx::for_seed(seed);
+            out.extend(crate::pds::avatar::parts::entries().map(|part| part.build(&ctx)));
+        }
+        out
+    }
+
+    fn sanitised_with(tree: &Generator, max_dim: f32) -> Generator {
+        let mut out = tree.clone();
+        let mut count: u32 = 0;
+        sanitize_generator_node(&mut out, 0, &mut count, true, max_dim);
+        out
+    }
+
+    /// #1221 f327. The caps are chosen from MEASUREMENT, and this is the
+    /// measurement: no body or part this build ships is changed by them.
+    ///
+    /// A silent deformation of every existing avatar would be a stranger
+    /// defect than the one being fixed, and nothing at build time can see
+    /// it. If this fails, content has grown past the cap — raise the cap
+    /// deliberately, do not lower the content.
+    #[test]
+    fn shipped_avatars_are_unchanged_by_the_avatar_caps() {
+        let trees = shipped_avatar_trees();
+        assert!(trees.len() > 100, "the corpus is the point of this test");
+        for tree in &trees {
+            assert_eq!(
+                sanitised_with(tree, limits::MAX_AVATAR_PRIM_DIM_M),
+                sanitised_with(tree, limits::MAX_PRIM_DIM_M),
+                "the avatar dimension cap deformed a body this build ships"
+            );
+            let mut avatar = tree.clone();
+            sanitize_avatar_visuals(&mut avatar);
+            let mut room = tree.clone();
+            sanitize_generator(&mut room);
+            enforce_avatar_kinds(&mut room);
+            assert_eq!(
+                avatar, room,
+                "the accumulated-scale clamp moved a body this build ships"
+            );
+        }
+    }
+
+    /// The headline record (#1221 f327): a 100 m cuboid at scale 1000 is a
+    /// 100 km cube centred on the wearer, and it filled every guest's view
+    /// with flat colour — while the only remedy, Mute, could not be aimed
+    /// because no body carries a name.
+    #[test]
+    fn a_hostile_avatar_record_is_bounded_on_both_factors() {
+        let mut hostile = Generator {
+            kind: GeneratorKind::Cuboid {
+                size: crate::pds::types::Fp3([100.0, 100.0, 100.0]),
+                common: Default::default(),
+            },
+            ..Generator::default()
+        };
+        hostile.transform.scale = crate::pds::types::Fp3([1000.0, 1000.0, 1000.0]);
+
+        sanitize_avatar_visuals(&mut hostile);
+
+        assert!(
+            accumulated_scale(&hostile) <= limits::MAX_AVATAR_SCALE_PRODUCT + 1e-3,
+            "accumulated scale {} exceeds the cap",
+            accumulated_scale(&hostile),
+        );
+        let GeneratorKind::Cuboid { size, .. } = &hostile.kind else {
+            panic!("the kind should survive — the sanitiser clamps, it does not reject");
+        };
+        for axis in size.0 {
+            assert!(axis <= limits::MAX_AVATAR_PRIM_DIM_M, "dimension {axis}");
+        }
+    }
+
+    /// The exponent is the mechanism: scales compose down the hierarchy and
+    /// nothing bounded the product, so sixteen nested nodes at a permitted
+    /// per-node scale were `4^16` — over four billion — not 4.
+    #[test]
+    fn nested_scales_cannot_multiply_past_the_cap() {
+        fn nest(depth: u32) -> Generator {
+            let mut node = Generator::default();
+            node.transform.scale = crate::pds::types::Fp3([4.0, 4.0, 4.0]);
+            if depth > 0 {
+                node.children.push(nest(depth - 1));
+            }
+            node
+        }
+        let mut tower = nest(limits::MAX_GENERATOR_DEPTH);
+        assert!(
+            accumulated_scale(&tower) > 1.0e6,
+            "the fixture has to be genuinely unbounded to prove anything"
+        );
+
+        sanitize_avatar_visuals(&mut tower);
+
+        assert!(
+            accumulated_scale(&tower) <= limits::MAX_AVATAR_SCALE_PRODUCT + 1e-3,
+            "accumulated scale {} exceeds the cap",
+            accumulated_scale(&tower),
+        );
+    }
+
+    /// A clamp must not turn a body into a cube: the overage is taken out
+    /// of all three axes equally, so proportions survive.
+    #[test]
+    fn clamping_preserves_per_axis_proportions() {
+        let mut node = Generator::default();
+        node.transform.scale = crate::pds::types::Fp3([100.0, 50.0, 25.0]);
+        sanitize_avatar_visuals(&mut node);
+        let s = node.transform.scale.0;
+        assert!((s[0] / s[1] - 2.0).abs() < 1e-3, "{s:?}");
+        assert!((s[1] / s[2] - 2.0).abs() < 1e-3, "{s:?}");
+    }
+
+    /// ROOM content is untouched: a 100 m primitive is legitimate in a
+    /// world you choose to enter, and the wire fixtures depend on it.
+    #[test]
+    fn the_room_path_keeps_its_own_ceiling() {
+        let mut room = Generator {
+            kind: GeneratorKind::Cuboid {
+                size: crate::pds::types::Fp3([100.0, 100.0, 100.0]),
+                common: Default::default(),
+            },
+            ..Generator::default()
+        };
+        sanitize_generator(&mut room);
+        let GeneratorKind::Cuboid { size, .. } = &room.kind else {
+            panic!("kind survives");
+        };
+        assert_eq!(size.0, [100.0, 100.0, 100.0]);
     }
 }

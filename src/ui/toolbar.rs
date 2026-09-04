@@ -18,7 +18,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
-use crate::avatar::{BskyProfileCache, draw_avatar_icon};
+use crate::avatar::BskyProfileCache;
 use crate::diagnostics::anomaly::InvariantRegistry;
 use crate::player::{AirplanePreset, CarPreset, HelicopterPreset, HoverBoatPreset};
 use crate::state::{ChatHistory, CurrentRoomDid, LocalPlayer, RemotePeer};
@@ -293,9 +293,10 @@ pub fn toolbar_ui(
                 if let Some(sess) = session.as_deref() {
                     ui.menu_button(format!("@{}", sess.handle), |ui| {
                         ui.horizontal(|ui| {
-                            draw_avatar_icon(
+                            crate::avatar::draw_avatar_icon(
                                 ui,
                                 Some(sess.did.as_str()),
+                                Some(sess.handle.as_str()),
                                 &profile_cache,
                                 crate::ui::chat::AVATAR_ICON_PX,
                             );

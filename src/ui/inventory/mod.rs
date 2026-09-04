@@ -146,6 +146,61 @@ pub struct PendingGeneratorDrop {
     pub peer_target: Option<PeerDropTarget>,
 }
 
+/// The follow-the-cursor tooltip a live drag carries (#1220 f132).
+///
+/// Shared by the Inventory row and the Catalogue tree, because the Catalogue
+/// is where a new user MEETS drag-to-place and drag-to-gift — and it is also
+/// the source that auto-opens the People window mid-drag, steering the user
+/// straight at a target whose affordance nothing explained. `egui_ltreeview`
+/// does paint the dragged row at the cursor, so the drag was visibly live;
+/// what was missing is the sentence saying a drop on a peer gifts it, and
+/// the visitor-versus-owner distinction.
+///
+/// `label` is the display name, never a catalogue slug: the tooltip is read
+/// by the person dragging, and `stone_cottage_a` is not a name.
+pub fn drag_tooltip(ui: &egui::Ui, id_salt: &str, label: &str, owns_room: bool) {
+    egui::Tooltip::always_open(
+        ui.ctx().clone(),
+        ui.layer_id(),
+        egui::Id::new((id_salt, label)),
+        egui::PopupAnchor::Pointer,
+    )
+    .show(|ui| {
+        if owns_room {
+            ui.label(format!(
+                "Place “{label}” — or drop on a peer in the People list to gift"
+            ));
+        } else {
+            // A visitor cannot place: ground placement is owner-only, so
+            // gifting is the whole of what this drag can do for them.
+            ui.label(format!(
+                "Offer “{label}” — drop on a peer in the People list"
+            ));
+        }
+    });
+}
+
+/// The sentence the SENDER sees when a gift is refused (#1220 f127).
+///
+/// One place, because there are four reasons and they used to share one
+/// sentence — "@them declined" — which misattributed a mechanical throttle
+/// to a person's choice and, worse, taught the sender not to retry in the
+/// one case where retrying works. A muted sender reads `Declined`
+/// deliberately: telling somebody they have been muted is a privacy leak.
+pub fn offer_refusal_line(reason: crate::protocol::DeclineReason, who: &str, item: &str) -> String {
+    use crate::protocol::DeclineReason;
+    match reason {
+        DeclineReason::Declined => format!("{who} declined \"{item}\"."),
+        DeclineReason::Busy => {
+            format!("{who} was answering another offer — try \"{item}\" again in a moment.")
+        }
+        DeclineReason::Unavailable => {
+            format!("{who} couldn't take \"{item}\" — their inventory is full.")
+        }
+        DeclineReason::Unanswered => format!("{who} didn't answer about \"{item}\" in time."),
+    }
+}
+
 /// Per-frame hover snapshot for the peer the cursor is currently over
 /// during an armed drag. Populated by the People GUI so the drop handler
 /// can route release events without reaching into egui itself.
@@ -153,7 +208,20 @@ pub struct PendingGeneratorDrop {
 pub struct PeerDropTarget {
     pub peer_id: bevy_symbios_multiuser::prelude::PeerId,
     pub did: String,
-    pub handle: String,
+    /// The recipient's name off the ONE ladder
+    /// ([`crate::network::PeerLabel`], #1218 f299), already carrying its `@`
+    /// when it is a real handle and not when it is a DID head.
+    pub label: String,
+    /// Why this row cannot take the gift, from
+    /// [`crate::ui::people::gift_block_reason`] (#1220 f330).
+    ///
+    /// An ineligible row is recorded anyway, WITH its reason, so a release
+    /// on it can be explained. Before this the row simply was not recorded,
+    /// `handle_generator_drop` found no target, and the release fell through
+    /// to the silent cancel written for drops over the Inventory window —
+    /// so the most common failure in the app's one gifting gesture was
+    /// indistinguishable from the feature being broken.
+    pub blocked: Option<&'static str>,
 }
 
 /// Auto-open the People window the moment a gift-capable drag arms with
@@ -514,26 +582,9 @@ pub fn inventory_ui(
                                     // dragger oriented while they hunt for a
                                     // target — without it, the drag is
                                     // invisible once the pointer leaves the
-                                    // row. Visitors can only gift (ground
-                                    // placement is owner-only), so say so.
-                                    egui::Tooltip::always_open(
-                                        ui.ctx().clone(),
-                                        ui.layer_id(),
-                                        egui::Id::new(("inv_drag_tip", &name)),
-                                        egui::PopupAnchor::Pointer,
-                                    )
-                                    .show(|ui| {
-                                        if owns_room {
-                                            ui.label(format!(
-                                                "Place “{name}” — or drop on a peer in the \
-                                                 People list to gift"
-                                            ));
-                                        } else {
-                                            ui.label(format!(
-                                                "Offer “{name}” — drop on a peer in the People list"
-                                            ));
-                                        }
-                                    });
+                                    // row. Shared with the Catalogue since
+                                    // #1220 f132.
+                                    drag_tooltip(ui, "inv_drag_tip", &name, owns_room);
                                 }
                             } else if unreadable {
                                 ui.label(&name);
@@ -1122,5 +1173,100 @@ mod gift_tests {
         let key = store_accepted_gift(&mut inventory, "bench", Generator::default(), None);
         assert_eq!(key, "bench");
         assert!(!inventory.is_wearable("bench"));
+    }
+}
+
+#[cfg(test)]
+mod refusal_tests {
+    use super::*;
+    use crate::protocol::DeclineReason;
+
+    /// #1220 f119. The sequence: a friend gifts you "lantern", you already
+    /// have one, you accept — and the item is in your stash as "lantern_2"
+    /// with no explanation, under a name the modal never showed you. The
+    /// accept arm used to discard the landed key entirely, so the one moment
+    /// a gift becomes yours was the least-confirmed event in the lifecycle
+    /// AND the recipient could not find the item afterwards.
+    ///
+    /// This pins the fact the toast branches on: a collision changes the
+    /// key, so a confirmation that echoed the OFFERED name would be wrong.
+    #[test]
+    fn a_colliding_gift_lands_under_a_different_name() {
+        let mut live = crate::pds::InventoryRecord::default();
+        live.put_item(
+            String::from("lantern"),
+            crate::pds::Generator::default(),
+            None,
+        );
+        let stored = live.clone();
+
+        let (key, payload) = accept_gift(
+            &mut live,
+            &stored,
+            "lantern",
+            crate::pds::Generator::default(),
+            None,
+        );
+        assert_ne!(
+            key, "lantern",
+            "the name the modal showed is not the name it has"
+        );
+        assert!(live.generators.contains_key(&key));
+        assert!(payload.generators.contains_key(&key));
+
+        // No collision: the key is the offered name, and the confirmation
+        // has nothing to explain.
+        let mut empty = crate::pds::InventoryRecord::default();
+        let (key, _) = accept_gift(
+            &mut empty,
+            &crate::pds::InventoryRecord::default(),
+            "lantern",
+            crate::pds::Generator::default(),
+            None,
+        );
+        assert_eq!(key, "lantern");
+    }
+
+    /// #1220 f127. The sequence: you gift two friends in quick succession,
+    /// the second one's client is still showing the first dialog, and you
+    /// are told "@second declined" — a mechanical throttle reported as a
+    /// person's choice, and phrasing that teaches you not to retry in the
+    /// one case where retrying works.
+    #[test]
+    fn each_refusal_reads_as_the_thing_that_actually_happened() {
+        let declined = offer_refusal_line(DeclineReason::Declined, "@them", "lantern");
+        assert!(declined.contains("declined"), "{declined}");
+
+        let busy = offer_refusal_line(DeclineReason::Busy, "@them", "lantern");
+        assert!(
+            !busy.contains("declined"),
+            "a throttle is not a refusal: {busy}"
+        );
+        assert!(busy.contains("again"), "and it must invite a retry: {busy}");
+
+        let full = offer_refusal_line(DeclineReason::Unavailable, "@them", "lantern");
+        assert!(full.contains("full"), "{full}");
+        assert!(!full.contains("declined"), "{full}");
+
+        let quiet = offer_refusal_line(DeclineReason::Unanswered, "@them", "lantern");
+        assert!(quiet.contains("didn't answer"), "{quiet}");
+        assert!(!quiet.contains("declined"), "{quiet}");
+    }
+
+    /// Every sentence names the item and the person, because the sender may
+    /// have several offers out at once and a toast that says only "declined"
+    /// is unattributable.
+    #[test]
+    fn every_refusal_names_the_person_and_the_item() {
+        for reason in [
+            DeclineReason::Declined,
+            DeclineReason::Busy,
+            DeclineReason::Unavailable,
+            DeclineReason::Unanswered,
+        ] {
+            let line = offer_refusal_line(reason, "@them", "lantern");
+            assert!(line.contains("@them"), "{line}");
+            assert!(line.contains("lantern"), "{line}");
+        }
     }
 }

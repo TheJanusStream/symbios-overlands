@@ -61,7 +61,7 @@ fn timed_spawn_avatar_visuals(
 /// and compares against this snapshot so an unrelated field flip doesn't
 /// re-enter the expensive visual rebuild path.
 #[derive(Component)]
-pub(super) struct AppliedAvatar(AvatarRecord);
+pub(crate) struct AppliedAvatar(pub(crate) AvatarRecord);
 
 /// The body the local chassis's visual children were last painted for,
 /// with nothing worn ([`crate::pds::AvatarBody::sans_attachments`]) —
@@ -318,6 +318,14 @@ pub(super) fn detect_remote_change(
     mut avatar_deps: visuals::AvatarSpawnDeps,
 ) {
     for (entity, peer, applied, children) in peers.iter() {
+        // A muted peer's record does not get to spend this client's frame
+        // time (#1219 f287) — the rebuild despawns and re-spawns a whole
+        // visual tree, for a body that is hidden anyway. `Changed<RemotePeer>`
+        // fires on the mute flip itself, so an unmute lands here on the very
+        // next frame and rebuilds.
+        if peer.muted {
+            continue;
+        }
         let Some(record) = peer.avatar.as_ref() else {
             continue;
         };

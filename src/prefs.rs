@@ -83,8 +83,18 @@ pub struct PersistedPrefs {
     pub windows: Option<WindowLayout>,
     /// DIDs muted by the local user (#844) — the durable mute list a
     /// reconnecting peer can no longer reset.
+    ///
+    /// LEGACY, machine-wide (#1223 f292). Kept only so an existing
+    /// installation's list survives the upgrade: it is adopted by the next
+    /// account to sign in and then cleared. New writes go to
+    /// [`Self::muted_by_owner`].
     #[serde(default)]
     pub muted_dids: Option<crate::state::MutedDids>,
+    /// Every account's mute list on this machine, keyed by owner DID
+    /// (#1223 f292). A block list is a statement about who *you* will not
+    /// hear; a shared computer used to hand one user's to the next.
+    #[serde(default)]
+    pub muted_by_owner: Option<crate::state::MutedByOwner>,
     /// Gizmo frame + snap preferences (#871). A serde mirror rather than
     /// the resource itself: the upstream `GizmoOrientation` doesn't
     /// implement serde, and mirroring keeps the on-disk schema
@@ -137,14 +147,19 @@ impl PersistedPrefs {
         panels: &UiPanels,
         settings: &LocalSettings,
         windows: &WindowLayout,
-        muted_dids: &crate::state::MutedDids,
+        muted_by_owner: &crate::state::MutedByOwner,
         gizmo: &GizmoFramePref,
     ) -> Self {
         Self {
             panels: Some(panels.clone()),
             settings: Some(settings.clone()),
             windows: Some(windows.clone()),
-            muted_dids: Some(muted_dids.clone()),
+            // Never written again (#1223 f292): the legacy machine-wide
+            // list is migrated on the first sign-in after the upgrade and
+            // must not be resurrected by a later save, or it would leak
+            // back into the next account.
+            muted_dids: None,
+            muted_by_owner: Some(muted_by_owner.clone()),
             gizmo: Some(gizmo.into()),
         }
     }
@@ -259,9 +274,11 @@ pub fn load_prefs_at_startup(mut commands: Commands) {
     if let Some(windows) = prefs.windows {
         commands.insert_resource(windows);
     }
-    if let Some(muted_dids) = prefs.muted_dids {
-        commands.insert_resource(muted_dids);
-    }
+    // Both, and neither becomes `MutedDids` yet (#1223 f292): whose list
+    // applies is not known until somebody signs in, and prefs load at
+    // startup. `adopt_owner_mute_list` picks one when a session appears.
+    commands.insert_resource(prefs.muted_by_owner.unwrap_or_default());
+    commands.insert_resource(LegacyMutedDids(prefs.muted_dids));
     if let Some(gizmo) = prefs.gizmo {
         commands.insert_resource(GizmoFramePref::from(&gizmo));
     }
@@ -311,11 +328,14 @@ fn debounce_step(
 /// a snapshot shortly after the last change. Change detection also fires
 /// on the startup load's own insert — that lone extra write of identical
 /// data is harmless and keeps the system free of special cases.
+#[allow(clippy::too_many_arguments)]
 pub fn save_prefs_when_changed(
     panels: Res<UiPanels>,
     settings: Res<LocalSettings>,
     windows: Res<WindowLayout>,
     muted_dids: Res<crate::state::MutedDids>,
+    mut muted_by_owner: ResMut<crate::state::MutedByOwner>,
+    session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
     gizmo: Res<GizmoFramePref>,
     time: Res<Time>,
     mut debounce: Local<SaveDebounce>,
@@ -327,6 +347,15 @@ pub fn save_prefs_when_changed(
         // Guarded-dirty at the source (#871): the editors borrow the
         // pref bypassed and tick it only on a real toggle/edit.
         || gizmo.is_changed();
+    // Fold the live list back under its owner before capturing (#1223
+    // f292). Guarded, because the fold itself must not dirty the resource
+    // on a frame where nothing moved.
+    if let Some(owner) = session.as_deref().map(|s| s.did.as_str())
+        && muted_dids.is_changed()
+        && muted_by_owner.for_owner(owner) != *muted_dids
+    {
+        muted_by_owner.set_owner(owner, &muted_dids);
+    }
     let (pending, fire) = debounce_step(debounce.0, changed, time.elapsed_secs_f64());
     debounce.0 = pending;
     if fire {
@@ -334,9 +363,57 @@ pub fn save_prefs_when_changed(
             &panels,
             &settings,
             &windows,
-            &muted_dids,
+            &muted_by_owner,
             &gizmo,
         ));
+    }
+}
+
+/// The legacy machine-wide mute list read from prefs at startup, held only
+/// until somebody signs in (#1223 f292).
+///
+/// A newtype rather than a bare `Option` so it can be a resource and so
+/// [`adopt_owner_mute_list`] can take it once and leave `None` behind: the
+/// migration happens for the FIRST account to sign in after the upgrade,
+/// and must not repeat for the second.
+#[derive(Resource, Default, Debug)]
+pub struct LegacyMutedDids(pub Option<crate::state::MutedDids>);
+
+/// Install the signed-in owner's mute list, and migrate the legacy
+/// machine-wide one on the first sign-in after the upgrade (#1223 f292).
+///
+/// Runs whenever an `AtprotoSession` appears — the ordinary login, the wasm
+/// resume, and #1214's in-place re-authenticate all insert one, and none of
+/// them should have to remember this.
+pub fn adopt_owner_mute_list(
+    session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
+    mut by_owner: ResMut<crate::state::MutedByOwner>,
+    mut legacy: ResMut<LegacyMutedDids>,
+    mut muted_dids: ResMut<crate::state::MutedDids>,
+) {
+    let Some(session) = session else {
+        return;
+    };
+    if !session.is_added() {
+        return;
+    }
+    let owner = session.did.as_str();
+    let mut list = by_owner.for_owner(owner);
+    // The machine's pre-#1223 list belongs to whoever was using the
+    // machine, and the first person to sign in after the upgrade is the
+    // best available answer. Taken, not copied: a second account signing in
+    // on the same machine must not inherit it, which is the whole defect.
+    if let Some(legacy) = legacy.0.take() {
+        list.0.extend(legacy.0);
+        by_owner.set_owner(owner, &list);
+    }
+    // Written through `ResMut`, not `insert_resource`: a command applies at
+    // the end of the schedule, so `save_prefs_when_changed` — chained
+    // immediately after this — would still see the PREVIOUS owner's list
+    // alongside the new session and fold one user's blocks under the other's
+    // account. Which is the exact defect (#1223 f292) this is fixing.
+    if *muted_dids != list {
+        *muted_dids = list;
     }
 }
 
@@ -370,11 +447,14 @@ mod tests {
             snap_angle_deg: 15.0,
             snap_scale: 0.25,
         };
+        let mut by_owner = crate::state::MutedByOwner::default();
+        by_owner.set_owner("did:plc:me", &muted);
         let prefs = PersistedPrefs {
             panels: Some(panels.clone()),
             settings: Some(settings.clone()),
             windows: Some(windows),
             muted_dids: Some(muted),
+            muted_by_owner: Some(by_owner),
             gizmo: Some(gizmo),
         };
         let json = serde_json::to_string(&prefs).unwrap();
@@ -397,6 +477,91 @@ mod tests {
             [890.0, 40.0, 380.0, 400.0]
         );
         assert!(back.muted_dids.unwrap().0.contains("did:plc:harasser"));
+        assert!(
+            back.muted_by_owner
+                .unwrap()
+                .for_owner("did:plc:me")
+                .0
+                .contains("did:plc:harasser"),
+            "the account-scoped list is what a save writes now (#1223 f292)"
+        );
+    }
+
+    /// #1223 f292. The sequence: two people share a computer. One mutes a
+    /// harasser; the other signs in and that person is invisible to them,
+    /// with no way to discover why — a muted peer renders as a hidden body
+    /// and a faint dot, and there was no list to look at anywhere.
+    #[test]
+    fn one_users_block_list_does_not_reach_the_next_account() {
+        let mut by_owner = crate::state::MutedByOwner::default();
+        let mut mine = crate::state::MutedDids::default();
+        mine.set("did:plc:harasser", true);
+        by_owner.set_owner("did:plc:alice", &mine);
+
+        assert!(
+            by_owner
+                .for_owner("did:plc:alice")
+                .0
+                .contains("did:plc:harasser")
+        );
+        assert!(
+            by_owner.for_owner("did:plc:bob").0.is_empty(),
+            "bob never muted anybody"
+        );
+
+        // Unmuting everyone leaves no record of who was signed in here.
+        mine.set("did:plc:harasser", false);
+        by_owner.set_owner("did:plc:alice", &mine);
+        assert!(by_owner.0.is_empty());
+    }
+
+    /// The one-time migration: the pre-#1223 machine-wide list belongs to
+    /// whoever was using the machine, so the FIRST account to sign in after
+    /// the upgrade adopts it — and the second must not, which is the defect
+    /// being fixed. `LegacyMutedDids` is taken, not read.
+    #[test]
+    fn the_legacy_machine_wide_list_is_adopted_once_and_only_once() {
+        use bevy::prelude::*;
+
+        let mut legacy = crate::state::MutedDids::default();
+        legacy.set("did:plc:oldharasser", true);
+
+        let mut world = World::new();
+        world.insert_resource(crate::state::MutedByOwner::default());
+        world.insert_resource(LegacyMutedDids(Some(legacy)));
+
+        // Alice signs in first and inherits the machine's history.
+        {
+            let by_owner = world.resource::<crate::state::MutedByOwner>();
+            let mut list = by_owner.for_owner("did:plc:alice");
+            let taken = world
+                .resource_mut::<LegacyMutedDids>()
+                .0
+                .take()
+                .expect("the legacy list is there for the first sign-in");
+            list.0.extend(taken.0);
+            world
+                .resource_mut::<crate::state::MutedByOwner>()
+                .set_owner("did:plc:alice", &list);
+        }
+        assert!(
+            world
+                .resource::<crate::state::MutedByOwner>()
+                .for_owner("did:plc:alice")
+                .0
+                .contains("did:plc:oldharasser")
+        );
+        assert!(
+            world.resource::<LegacyMutedDids>().0.is_none(),
+            "taken, so bob's sign-in finds nothing to inherit"
+        );
+        assert!(
+            world
+                .resource::<crate::state::MutedByOwner>()
+                .for_owner("did:plc:bob")
+                .0
+                .is_empty()
+        );
     }
 
     #[test]
@@ -491,6 +656,7 @@ mod tests {
             settings: None,
             windows: None,
             muted_dids: None,
+            muted_by_owner: None,
             gizmo: None,
         };
         save_to_path(&path, &prefs).unwrap();

@@ -13,9 +13,13 @@ use super::common::{clamp_finite, sanitize_torture};
 use crate::pds::generator::GeneratorKind;
 use crate::pds::types::{Fp, Fp2, Fp3};
 
-pub(super) fn sanitize_primitive(kind: &mut GeneratorKind) {
+/// `max_dim` is the largest metre value any one dimension may take. Room
+/// content gets [`limits::MAX_PRIM_DIM_M`](super::limits::MAX_PRIM_DIM_M);
+/// an avatar gets a much smaller one (#1221 f327), because a body is worn
+/// into other people's rooms and its size is a thing it can do TO them.
+pub(super) fn sanitize_primitive(kind: &mut GeneratorKind, max_dim: f32) {
     sanitize_common(kind);
-    let c_dim = |v: f32| clamp_finite(v, 0.01, 100.0, 1.0);
+    let c_dim = |v: f32| clamp_finite(v, 0.01, max_dim, 1.0);
     match kind {
         GeneratorKind::Cuboid { size, .. } => {
             size.0 = [c_dim(size.0[0]), c_dim(size.0[1]), c_dim(size.0[2])];

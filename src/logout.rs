@@ -116,6 +116,10 @@ session_scoped_resources! {
     // A held same-owner room record awaiting the keep-or-take answer
     // (#1203) is a claim about this session's world.
     crate::ui::other_session::OtherSessionRoom,
+    // A gift set aside to make room for (#1220 f288) belongs to the session
+    // that received it: the sender is gone with the socket, and the next
+    // login must not open holding a stranger's lantern.
+    crate::state::HeldOffer,
     // The expired-session door (#1214) names a DID and the unsaved work
     // that belonged to it; a fresh login must not open under it.
     crate::ui::reauth::SessionExpired,
@@ -379,6 +383,13 @@ pub(crate) fn cleanup_on_logout(
     // so a `Failed` slot from the old session suppressed the new user's
     // first retry and a `Ready` one showed a list no fetch had run for.
     commands.insert_resource(crate::social::MutualsCache::default());
+    // The signed-in owner's mute list (#1223 f292). App-lifetime, so it is
+    // RESET rather than removed — `save_prefs_when_changed` reads it every
+    // frame, in every state. `MutedByOwner` keeps the stored copy; the next
+    // sign-in installs theirs through `prefs::adopt_owner_mute_list`, and
+    // until then nothing on a shared machine is muted by somebody else's
+    // list.
+    commands.insert_resource(crate::state::MutedDids::default());
     // The blob-audio cache (#1204): content-keyed like the baked-audio
     // cache cleared below, and for the same reason — its retained
     // `AudioSource` buffers are memory the next session would inherit.

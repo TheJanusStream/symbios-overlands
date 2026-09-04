@@ -276,10 +276,40 @@ where
     Ok(serde_json::from_value(value).ok())
 }
 
+/// Why an [`OverlandsMessage::ItemOffer`] was refused (#1220 f127).
+///
+/// The sender's only feedback used to be a boolean, so a mechanical
+/// throttle and a person's choice reached them as the same sentence —
+/// "@them declined" — which misattributes the throttle AND teaches the
+/// sender not to retry in the one case where retrying works.
+///
+/// A muted sender is deliberately NOT given its own arm: telling somebody
+/// they have been muted is a privacy leak, and [`Self::Declined`] is what
+/// they should see.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum DeclineReason {
+    /// A person answered no — or was muted, which reports the same way.
+    #[default]
+    Declined,
+    /// The single-dialog anti-spam gate turned the offer away because
+    /// another was already on screen. Retrying in a moment works.
+    Busy,
+    /// The recipient could not take it: their stash was full when the
+    /// offer's time ran out.
+    Unavailable,
+    /// Nobody answered before the offer expired on the recipient's side.
+    Unanswered,
+}
+
 /// The answer to an [`OverlandsMessage::ItemOffer`] (#1184).
 ///
-/// One field today; the shape exists so the second one — a decline reason
-/// the sender could show — is an addition rather than a wire break.
+/// The second field arrived as predicted (#1220 f127) and cost no protocol
+/// bump: `PROTOCOL_VERSION` covers the bincode variant layout, and this is a
+/// key inside the JSON payload that #1184 introduced precisely so a field
+/// like `reason` would be additive. An older peer sends no `reason` and
+/// [`serde(default)`] supplies `Declined`; an older peer READING this
+/// payload ignores the key it does not know.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(default)]
 pub struct ItemOfferResponsePayload {
@@ -287,6 +317,28 @@ pub struct ItemOfferResponsePayload {
     /// Defaults to `false`, so a payload this build cannot fully read is
     /// treated as a decline rather than as a silent acceptance.
     pub accepted: bool,
+    /// Why, when `accepted` is `false`. Meaningless when it is `true`.
+    ///
+    /// Read leniently: see [`lenient_reason`]. A reason a FUTURE build
+    /// invents must degrade to `Declined` rather than fail the whole
+    /// response — a response that will not decode leaves the sender's
+    /// pending offer untouched until it expires three minutes later, which
+    /// is a worse outcome than a slightly vague sentence.
+    #[serde(deserialize_with = "lenient_reason")]
+    pub reason: DeclineReason,
+}
+
+/// Deserialize [`ItemOfferResponsePayload::reason`] leniently: a value this
+/// build does not recognise yields [`DeclineReason::Declined`].
+///
+/// The same shape as [`lenient_wear`], for the same reason — one unreadable
+/// field must not cost the whole message.
+fn lenient_reason<'de, D>(deserializer: D) -> Result<DeclineReason, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).unwrap_or_default())
 }
 
 /// Version of the [`OverlandsMessage`] byte layout this build speaks.
@@ -407,8 +459,13 @@ impl OverlandsMessage {
     ///
     /// `target_did` is the *original sender*, which is who the answer is
     /// addressed to.
-    pub fn item_offer_response(offer_id: u64, target_did: String, accepted: bool) -> Self {
-        let payload = ItemOfferResponsePayload { accepted };
+    pub fn item_offer_response(
+        offer_id: u64,
+        target_did: String,
+        accepted: bool,
+        reason: DeclineReason,
+    ) -> Self {
+        let payload = ItemOfferResponsePayload { accepted, reason };
         Self::ItemOfferResponse {
             offer_id,
             target_did,
@@ -598,7 +655,12 @@ mod item_offer_tests {
     #[test]
     fn an_unreadable_offer_response_declines() {
         let OverlandsMessage::ItemOfferResponse { payload_json, .. } =
-            OverlandsMessage::item_offer_response(1, String::from("did:plc:alice"), true)
+            OverlandsMessage::item_offer_response(
+                1,
+                String::from("did:plc:alice"),
+                true,
+                DeclineReason::Declined,
+            )
         else {
             panic!("not a response");
         };
@@ -615,6 +677,108 @@ mod item_offer_tests {
             OverlandsMessage::decode_item_offer_response(b"not json").is_none(),
             "and one that will not parse at all is not a yes either"
         );
+    }
+
+    /// #1220 f127. The decline reason travels in THREE directions, which is
+    /// what a schema test owes (#211/#212): this build round-trips its own
+    /// payload; an OLDER peer's payload, which has no `reason` key at all,
+    /// decodes to the safe default; and an older peer READING this build's
+    /// payload ignores the key it does not know.
+    #[test]
+    fn the_decline_reason_travels_in_all_three_directions() {
+        // 1. This build to itself.
+        for reason in [
+            DeclineReason::Declined,
+            DeclineReason::Busy,
+            DeclineReason::Unavailable,
+            DeclineReason::Unanswered,
+        ] {
+            let OverlandsMessage::ItemOfferResponse { payload_json, .. } =
+                OverlandsMessage::item_offer_response(
+                    7,
+                    String::from("did:plc:alice"),
+                    false,
+                    reason,
+                )
+            else {
+                panic!("not a response");
+            };
+            let back = OverlandsMessage::decode_item_offer_response(&payload_json)
+                .expect("our own payload decodes");
+            assert_eq!(back.reason, reason);
+            assert!(!back.accepted);
+        }
+
+        // 2. An older peer's payload — the shape before this field existed.
+        let old = br#"{"accepted":false}"#;
+        let back = OverlandsMessage::decode_item_offer_response(old)
+            .expect("a payload without the field still decodes");
+        assert_eq!(
+            back.reason,
+            DeclineReason::Declined,
+            "an older peer's silence must read as the sentence it has always produced"
+        );
+
+        // 3. An older peer reading ours: it knows only `accepted`, and
+        // serde ignores keys a struct does not declare.
+        #[derive(serde::Deserialize, Default)]
+        #[serde(default)]
+        struct OldPayload {
+            accepted: bool,
+        }
+        let OverlandsMessage::ItemOfferResponse { payload_json, .. } =
+            OverlandsMessage::item_offer_response(
+                7,
+                String::from("did:plc:alice"),
+                true,
+                DeclineReason::Declined,
+            )
+        else {
+            panic!("not a response");
+        };
+        let old_reader: OldPayload =
+            serde_json::from_slice(&payload_json).expect("an older build still reads the verdict");
+        assert!(
+            old_reader.accepted,
+            "the field this build added must not cost an older peer the answer it came for"
+        );
+    }
+
+    /// A reason a FUTURE build invents degrades to `Declined` rather than
+    /// failing the whole response — a response that will not decode leaves
+    /// the sender's pending offer untouched until it expires three minutes
+    /// later, which is worse than a slightly vague sentence.
+    #[test]
+    fn an_unknown_decline_reason_does_not_cost_the_whole_response() {
+        let future = br#"{"accepted":false,"reason":"eatenByABear"}"#;
+        let back = OverlandsMessage::decode_item_offer_response(future)
+            .expect("an unknown reason is not a decode failure");
+        assert_eq!(back.reason, DeclineReason::Declined);
+        assert!(!back.accepted);
+
+        // And the verdict still survives when the unknown reason rides
+        // alongside an acceptance.
+        let accepted = br#"{"accepted":true,"reason":"somethingNew"}"#;
+        let back = OverlandsMessage::decode_item_offer_response(accepted).expect("decodes");
+        assert!(back.accepted);
+    }
+
+    /// The wire names are the camelCase ones a lexicon would declare, and
+    /// they are pinned: renaming a variant silently re-addresses what every
+    /// other peer reads.
+    #[test]
+    fn the_decline_reason_wire_names_are_pinned() {
+        for (reason, wire) in [
+            (DeclineReason::Declined, "declined"),
+            (DeclineReason::Busy, "busy"),
+            (DeclineReason::Unavailable, "unavailable"),
+            (DeclineReason::Unanswered, "unanswered"),
+        ] {
+            assert_eq!(
+                serde_json::to_string(&reason).expect("serialises"),
+                format!("\"{wire}\""),
+            );
+        }
     }
 }
 

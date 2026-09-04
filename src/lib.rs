@@ -599,7 +599,10 @@ pub fn run() {
         // they change. Runs in every AppState — panel toggles only happen
         // InGame, but the startup load must land before the first frame.
         .add_systems(Startup, prefs::load_prefs_at_startup)
-        .add_systems(Update, prefs::save_prefs_when_changed)
+        .add_systems(
+            Update,
+            (prefs::adopt_owner_mute_list, prefs::save_prefs_when_changed).chain(),
+        )
         .add_systems(Startup, setup_lighting)
         .add_systems(
             Update,

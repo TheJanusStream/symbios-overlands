@@ -83,6 +83,7 @@ mod rigged;
 mod spawn;
 pub mod visuals;
 
+pub(crate) use hotswap::AppliedAvatar;
 pub use portal::PortalCooldown;
 pub(crate) use portal::PortalTravelTask;
 pub(crate) use portal::begin_portal_travel;

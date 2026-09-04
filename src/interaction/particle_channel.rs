@@ -138,7 +138,14 @@ pub fn particle_dispatcher(
     room_record: Option<Res<crate::state::LiveRoomRecord>>,
     mut state: ResMut<ParticleDispatchState>,
     mut commands: Commands,
+    settings: Res<crate::state::LocalSettings>,
 ) {
+    // The viewer's own ceiling on somebody else's room (#1221 f308).
+    // Bursts are the flashing-and-motion half of the same control.
+    let intensity = settings.effects_intensity;
+    if !intensity.plays() {
+        return;
+    }
     let now = time.elapsed_secs();
     let mut spawned_this_frame: u32 = 0;
 
@@ -156,12 +163,11 @@ pub fn particle_dispatcher(
                 continue;
             }
 
-            // Cooldown throttle (continuous Dwell recipes).
-            if recipe.spawn.cooldown > 0.0
-                && state
-                    .cooldowns
-                    .active((sample.avatar, idx), now, recipe.spawn.cooldown)
-            {
+            // Cooldown throttle (continuous Dwell recipes), with the
+            // viewer's floor under it (#1221 f308) — an authored zero means
+            // once per frame per avatar.
+            let cooldown = recipe.spawn.cooldown.max(intensity.cooldown_floor());
+            if cooldown > 0.0 && state.cooldowns.active((sample.avatar, idx), now, cooldown) {
                 continue;
             }
 
@@ -241,7 +247,7 @@ pub fn particle_dispatcher(
                 .insert((TransientEmitter, ChildOf(sample.avatar)));
 
             spawned_this_frame += count;
-            if recipe.spawn.cooldown > 0.0 {
+            if cooldown > 0.0 {
                 state.cooldowns.mark((sample.avatar, idx), now);
             }
         }

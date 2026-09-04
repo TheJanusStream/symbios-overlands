@@ -12,6 +12,8 @@ use crate::diagnostics::event::EventPayload;
 use crate::pds::{self, AvatarRecord};
 use crate::state::RemotePeer;
 
+use super::presence::{FetchState, PeerResolve, RetryBackoff};
+
 /// DID → last-known `AvatarRecord` cache, keyed on the authenticated DID.
 ///
 /// Every Identity message from a previously-unseen peer used to trigger an
@@ -174,13 +176,16 @@ impl PeerRigResolveBackoff {
     ) -> Self {
         let same_set = previous
             .is_some_and(|b| b.avatar_rkey == rig.avatar && b.attachment_rkeys == rig.attachments);
-        let wait_secs = if same_set {
-            previous.map_or(config::network::RIG_RESOLVE_RETRY_BASE_SECS, |b| {
-                (b.wait_secs * 2.0).min(config::network::RIG_RESOLVE_RETRY_MAX_SECS)
-            })
-        } else {
-            config::network::RIG_RESOLVE_RETRY_BASE_SECS
-        };
+        // Shared arithmetic (#1217): the peer-fetch retries introduced by
+        // #1217/#1218 double the same way, and "doubling from base, capped
+        // at max" now means one thing in one place. A set that CHANGED
+        // starts over — the wait exists because those records could not be
+        // fetched, and these are different records.
+        let wait_secs = super::presence::next_wait_secs(
+            same_set.then(|| previous.map(|b| b.wait_secs)).flatten(),
+            config::network::RIG_RESOLVE_RETRY_BASE_SECS,
+            config::network::RIG_RESOLVE_RETRY_MAX_SECS,
+        );
         Self {
             avatar_rkey: rig.avatar.clone(),
             attachment_rkeys: rig.attachments.clone(),
@@ -239,6 +244,16 @@ pub(super) fn spawn_peer_rig_resolutions(
 ) {
     let now = time.elapsed_secs_f64();
     for (peer_entity, peer, backoff, floor) in &peers {
+        // A muted peer gets none of this (#1219 f287). The fan-out is N+2
+        // records per attempt — a DID document, a wardrobe record and up to
+        // sixteen attachments, to hosts of THEIR choosing, on the shared
+        // `IoTaskPool` — and it is the largest lever a peer retains over a
+        // client that has decided it is done with them. Re-resolved on
+        // unmute: this system runs every frame and `resolved` never rides
+        // the wire, so nothing has to be remembered.
+        if peer.muted {
+            continue;
+        }
         let Some(did) = peer.did.clone() else {
             continue;
         };
@@ -332,7 +347,11 @@ pub(super) fn spawn_peer_rig_resolutions(
 pub(super) fn poll_peer_rig_resolutions(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut PeerRigResolveTask)>,
-    mut peers: Query<(&mut RemotePeer, Option<&PeerRigResolveBackoff>)>,
+    mut peers: Query<(
+        &mut RemotePeer,
+        &mut PeerResolve,
+        Option<&PeerRigResolveBackoff>,
+    )>,
     time: Res<Time>,
     mut session_log: ResMut<SessionLog>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
@@ -374,6 +393,16 @@ pub(super) fn poll_peer_rig_resolutions(
         if let Some(reason) = &report.body_error {
             debug!("wardrobe unresolved for {}: {reason}", task.did);
         }
+        // The shortfall reaches the roster (#1217 f332). Until now the ONLY
+        // trace of a worn item that could not be fetched was a session-log
+        // line — and the failure is per-viewer, so two people in the same
+        // room saw different outfits with no way to discover the
+        // disagreement. The module's own comment named the consequence
+        // ("why is Bob a bare chassis for me but not for Alice") without
+        // giving anyone a way to answer it.
+        if let Ok((_, mut resolve, _)) = peers.get_mut(task.peer_entity) {
+            PeerResolve::record_outfit(&mut resolve, requested, installed);
+        }
         for (rkey, reason) in &report.skipped {
             crate::diagnostics::samplers::attachment_fetch_failed(&mut metrics);
             session_log.warn(
@@ -396,7 +425,7 @@ pub(super) fn poll_peer_rig_resolutions(
             let rig = peers
                 .get(task.peer_entity)
                 .ok()
-                .and_then(|(peer, backoff)| {
+                .and_then(|(peer, _, backoff)| {
                     peer.avatar
                         .as_ref()
                         .and_then(|record| record.body.rigged_ref())
@@ -407,8 +436,8 @@ pub(super) fn poll_peer_rig_resolutions(
             }
             continue;
         };
-        let Some((mut peer, previous_backoff)) =
-            peers.iter_mut().find(|(p, _)| p.peer_id == task.peer_id)
+        let Some((mut peer, _, previous_backoff)) =
+            peers.iter_mut().find(|(p, _, _)| p.peer_id == task.peer_id)
         else {
             continue;
         };
@@ -455,7 +484,7 @@ pub(super) fn poll_peer_rig_resolutions(
 pub(super) fn poll_peer_avatar_fetches(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut PeerAvatarFetchTask)>,
-    mut peers: Query<&mut RemotePeer>,
+    mut peers: Query<(&mut RemotePeer, &mut PeerResolve)>,
     mut session_log: ResMut<SessionLog>,
     mut avatar_cache: ResMut<PeerAvatarCache>,
     time: Res<Time>,
@@ -484,10 +513,10 @@ pub(super) fn poll_peer_avatar_fetches(
         // for the first time mid-session would otherwise be stuck with the
         // placeholder for every peer that happened to be on the PDS
         // fallback path).
-        let (mut record, cacheable) = match result {
+        let (mut record, cacheable, outcome) = match result {
             Ok(Some(r)) => {
                 crate::diagnostics::samplers::avatar_fetch_succeeded(&mut metrics);
-                (r, true)
+                (r, true, FetchState::Landed)
             }
             Ok(None) => {
                 // A 404 resolved to the DID-seeded default — still a successful
@@ -497,7 +526,11 @@ pub(super) fn poll_peer_avatar_fetches(
                     "Peer {} ({}) has no avatar record — synthesising default",
                     peer_id, did
                 );
-                (AvatarRecord::default_for_did(&did), false)
+                (
+                    AvatarRecord::default_for_did(&did),
+                    false,
+                    FetchState::Landed,
+                )
             }
             Err(err) => {
                 crate::diagnostics::samplers::avatar_fetch_failed(&mut metrics);
@@ -513,7 +546,23 @@ pub(super) fn poll_peer_avatar_fetches(
                     "Avatar fetch failed for {} ({}): {:?} — falling back to default",
                     peer_id, did, err
                 );
-                (AvatarRecord::default_for_did(&did), false)
+                // The two "no record" outcomes are NOT the same fact (#1217
+                // f323). A 404 above is a finished question — this person has
+                // not published an avatar — and the DID-seeded default IS
+                // their appearance. A transport failure is an unanswered one,
+                // and rendering it identically meant a one-second blip at
+                // join time replaced someone's authored body with a
+                // procedurally generated stranger, for the whole room, for
+                // the whole session, with nothing said to anybody.
+                let previous = peers
+                    .iter()
+                    .find(|(p, _)| p.peer_id == peer_id)
+                    .and_then(|(_, resolve)| resolve.avatar.backoff().copied());
+                (
+                    AvatarRecord::default_for_did(&did),
+                    false,
+                    FetchState::Failed(RetryBackoff::after_failure(previous.as_ref(), elapsed)),
+                )
             }
         };
         record.sanitize();
@@ -531,10 +580,18 @@ pub(super) fn poll_peer_avatar_fetches(
         // overwriting it here would permanently fracture visual state —
         // this client would see the old PDS record while every other peer
         // in the room sees the live preview.
-        if let Some(mut peer) = peers.iter_mut().find(|p| p.peer_id == peer_id)
-            && peer.avatar.is_none()
+        if let Some((mut peer, mut resolve)) = peers.iter_mut().find(|(p, _)| p.peer_id == peer_id)
         {
-            peer.avatar = Some(record);
+            // A stand-in installed by an earlier FAILED attempt may be
+            // replaced — that is the whole point of the retry (#1217 f323).
+            // A live preview may not: `AvatarStateUpdate` sets `avatar` to
+            // `Landed`, so the state read here distinguishes "nothing real
+            // is standing" from "something newer already arrived".
+            let stand_in = resolve.avatar.is_failed();
+            if peer.avatar.is_none() || stand_in {
+                peer.avatar = Some(record);
+            }
+            resolve.avatar = outcome;
         }
     }
 }
@@ -595,6 +652,53 @@ mod tests {
             attachments: Vec::new(),
         });
         assert!(rig_is_fully_resolved(&bare));
+    }
+
+    /// #1219 f287. The sequence: you mute a hostile peer and assume you have
+    /// disengaged, while their record keeps driving your client's network on
+    /// every edit they make. This fan-out is the biggest lever they retain —
+    /// N+2 records per attempt, to hosts of their choosing, on the shared
+    /// `IoTaskPool` — and it had no mute check at all.
+    ///
+    /// Asserts the negative only, deliberately: the unmuted control would
+    /// spawn a REAL HTTPS round trip, and under `cargo test --lib`, where
+    /// every test shares one process and one `IoTaskPool`, a blocked fetch
+    /// starves whatever else is waiting on a task. Removing the gate makes
+    /// this test fail (a task appears), which is the regression it is for.
+    #[test]
+    fn a_muted_peer_does_not_fan_out_to_a_wardrobe() {
+        let mut app = App::new();
+        app.add_plugins((bevy::app::TaskPoolPlugin::default(), bevy::time::TimePlugin));
+        app.add_systems(Update, spawn_peer_rig_resolutions);
+
+        let mut record = AvatarRecord::default_for_did("did:plc:hostile");
+        record.body = crate::pds::AvatarBody::rigged("3jzfcijpj2z2a");
+        app.world_mut().spawn(RemotePeer {
+            peer_id: serde_json::from_str("\"00000000-0000-0000-0000-000000000001\"")
+                .expect("a well-formed uuid"),
+            did: Some(String::from("did:plc:hostile")),
+            handle: None,
+            muted: true,
+            avatar: Some(record),
+            build: None,
+            connected_at: 0.0,
+        });
+
+        app.update();
+        app.update();
+
+        let mut tasks = app.world_mut().query::<&PeerRigResolveTask>();
+        assert_eq!(
+            tasks.iter(app.world()).count(),
+            0,
+            "a peer you have blocked does not get to keep making your client fetch"
+        );
+        let mut floors = app.world_mut().query::<&PeerRigResolveFloor>();
+        assert_eq!(
+            floors.iter(app.world()).count(),
+            0,
+            "and the rate floor is not stamped for work that never started"
+        );
     }
 
     /// #1113: a reference set that cannot resolve is left alone for a while
