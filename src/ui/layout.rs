@@ -136,7 +136,13 @@ impl UiWindow {
             Self::AudioEditor => (CenterLeft, [900.0, 640.0]),
             // The de-anchored Controls sheet (#834): a compact card
             // near the right edge once it stops being center-pinned.
-            Self::Controls => (Right, [300.0, 280.0]),
+            // The height is the OWNER variant's real content (#1235 f245)
+            // — heading, ~11 grid rows, the emote hint, the portal
+            // paragraph, the avatar block, then a separator, a heading,
+            // 4 editor rows, two notes and "Got it". At 280 the collision
+            // math was computed against less than half the window, so the
+            // sheet was placed as if it could not overlap anything.
+            Self::Controls => (Right, [340.0, 580.0]),
             // Compact preference card (#857) — same right-edge family
             // as the Controls sheet it usually appears near.
             Self::Settings => (Right, [300.0, 200.0]),

@@ -519,8 +519,11 @@ pub(super) fn draw_primitive_blob_group(
     ui.label("Blob elements (evaluated top to bottom):");
     ui.label(
         egui::RichText::new(
-            "Click an element's number (or its red/green ghost in the scene) \
-             to sculpt it with the gizmo. Esc returns to the whole prim.",
+            "While this blob is selected, the nearest copy of it is shown \
+             as a wireframe with one ghost per element — the other copies \
+             stay solid. Click an element's number (or its ghost in the \
+             scene) to sculpt it with the gizmo; carves are crossed \
+             through. Esc returns to the whole prim.",
         )
         .small()
         .color(crate::ui::theme::current(ui.ctx()).text_weak),
@@ -849,9 +852,18 @@ pub(super) struct FacePanel<'a, 'u> {
 /// [`FacePick`](crate::editor_gizmo::FacePick) resource narrowed to what
 /// the panel may touch, with the addressing already resolved by the caller.
 pub(super) struct FacePickUi<'a> {
-    /// Armed by this panel's button, disarmed by the click that resolves a
-    /// face (or by pressing the button again).
-    pub armed: &'a mut bool,
+    /// The whole resource: the panel arms it, notes that it is drawing the
+    /// toggle that can honour the arm, and reads it back for the toggle's
+    /// selected state. It used to be a bare `&mut bool`, which is how the
+    /// arm ended up with no owner (#1237 f140/f141).
+    pub pick: &'a mut crate::editor_gizmo::FacePick,
+    /// Whether a pick on this tree can EVER come back (#1237 f140). False
+    /// for a worn item's Parts editor: `pick_on_scene_click` records a
+    /// face only on the room-prim and avatar-visuals branches, and
+    /// `take_for` matches on a root the worn-part branch never produces —
+    /// so the toggle there is a visible, enabled control that cannot work,
+    /// whose only effect is to jam click-to-deselect app-wide.
+    pub resolvable: bool,
     /// A face the last scene click resolved on the node being drawn, to
     /// focus exactly once — creating its override first if it is new.
     pub picked: Option<FaceKey>,
@@ -930,7 +942,8 @@ fn draw_face_overrides(
         pick,
     } = faces;
     let FacePickUi {
-        armed,
+        pick,
+        resolvable,
         picked: just_picked,
     } = pick;
     // Consume the pick before the header: a new face has to be in the list
@@ -1045,27 +1058,36 @@ fn draw_face_overrides(
             // ("Side −X", "Slice start") never has to be decoded against the
             // camera. Sits with the dropdown because they are the two ways
             // to reach the same list.
-            ui.horizontal(|ui| {
-                if ui
-                    .selectable_label(*armed, "Pick from scene")
-                    .on_hover_text(
-                        "Click a face in the 3D view to give it its own \
-                         material. The click also selects whatever prim it \
-                         lands on, so this works across the whole room — not \
-                         only on the prim shown here.",
-                    )
-                    .clicked()
-                {
-                    *armed = !*armed;
-                }
-                if *armed {
-                    ui.label(
-                        egui::RichText::new("click a face in the view — or here again to cancel")
+            // Drawn only where a scene click can actually resolve back to
+            // this tree (#1237 f140). Noting the draw is what keeps the
+            // arm alive: `disarm_unbacked_face_pick` drops it on the first
+            // frame this toggle is not on screen.
+            if resolvable {
+                pick.note_panel_drawn();
+                ui.horizontal(|ui| {
+                    if ui
+                        .selectable_label(pick.is_armed(), "Pick from scene")
+                        .on_hover_text(
+                            "Click a face in the 3D view to give it its own \
+                             material. The click also selects whatever prim it \
+                             lands on, so this works across the whole room — not \
+                             only on the prim shown here.",
+                        )
+                        .clicked()
+                    {
+                        pick.toggle();
+                    }
+                    if pick.is_armed() {
+                        ui.label(
+                            egui::RichText::new(
+                                "click a face in the view — or here again to cancel",
+                            )
                             .small()
                             .color(weak),
-                    );
-                }
-            });
+                        );
+                    }
+                });
+            }
             // The picker offers only faces this prim emits *now* and does not
             // yet override — the sanitizer drops duplicate keys (first wins),
             // so offering one twice would silently discard the second.

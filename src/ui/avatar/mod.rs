@@ -121,6 +121,10 @@ enum AvatarTab {
 #[derive(Resource, Default)]
 pub struct AvatarEditorState {
     selected_tab: AvatarTab,
+    /// The avatar editor's one-node clipboard (#1244 f422) — the same
+    /// Copy / Paste-as-child gesture the room's tree gained, since both
+    /// draw the identical tree panel.
+    node_clipboard: Option<crate::pds::Generator>,
     /// Tree-view selection mirrors the room editor's RoomEditorState.
     /// `selected_generator` is always `Some(AvatarVisualsTreeSource::ROOT_NAME)`
     /// once a node has been picked; `selected_prim_path` is the child
@@ -603,6 +607,7 @@ pub fn avatar_ui(
         mut undo_shortcut,
         mut undo_labels,
         mut face_pick,
+        movement,
     ): (
         Res<bevy_symbios_audio::ui::AudioMonitor>,
         MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
@@ -616,6 +621,7 @@ pub fn avatar_ui(
         ResMut<crate::ui::undo::UndoShortcut>,
         ResMut<crate::ui::undo::PendingUndoLabels>,
         ResMut<crate::editor_gizmo::FacePick>,
+        Res<crate::ui::modes::LocalMovement>,
     ),
 ) {
     // `ResMut::deref_mut` unconditionally flips the change tick, so
@@ -626,6 +632,11 @@ pub fn avatar_ui(
     // `live.set_changed()` explicitly below, only after the debounce
     // timer drains.
     let mut widget_changed = false;
+    // The owner every catalogue stamp is personalised for (#1239 f78) —
+    // the avatar's trees belong to the signed-in user by construction.
+    let owner_did: String = session
+        .as_deref()
+        .map_or_else(String::new, |s| s.did.clone());
     // Snapshot pre-frame selection state so we can detect (a) "selection
     // just appeared" — the rising edge that clears the room editor's
     // selection per the cross-editor mutex contract, and (b) tab change —
@@ -729,6 +740,7 @@ pub fn avatar_ui(
                     pending_part_focus,
                     part_selected_generator,
                     part_selected_path,
+                    node_clipboard,
                     ..
                 } = &mut *editor;
 
@@ -1130,6 +1142,15 @@ pub fn avatar_ui(
                                     &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
                                     None,
                                     &mut face_pick,
+                                    // #1239 f78: the same owner every other
+                                    // catalogue path stamps with.
+                                    &owner_did,
+                                    // No placement layer on an avatar's
+                                    // trees — its roots ARE instanced.
+                                    &mut None,
+                                    // Single-root: no filter box is drawn.
+                                    &mut String::new(),
+                                    node_clipboard,
                                 );
                                 // The tree's selection IS the gizmo target:
                                 // mirror it (a tree click picks a part; a
@@ -1217,6 +1238,10 @@ pub fn avatar_ui(
                                 // Avatars can't grow roads — no stats readout.
                                 None,
                                 &mut face_pick,
+                                &owner_did,
+                                &mut None,
+                                &mut String::new(),
+                                node_clipboard,
                             );
                         });
                     }
@@ -1262,6 +1287,7 @@ pub fn avatar_ui(
                                     fallback_seed,
                                     &mut widget_changed,
                                     &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
+                                    &movement,
                                 );
                             });
                     }
@@ -1607,6 +1633,44 @@ pub fn poll_publish_avatar_tasks(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1236 f139. Sequence: right-click your hat → "Edit …", the body
+    /// freezes under the gizmo, press Esc. The Esc back-out ladder tested
+    /// `has_visuals_selection`, which is FALSE for a worn prop and for a
+    /// worn part — so the rung was skipped, the press closed an unrelated
+    /// window, and the chassis stayed axis-locked at `GravityScale(0)`.
+    /// The ladder now asks `has_gizmo_selection` and answers with
+    /// `clear_gizmo_selections`, which is exactly the difference this
+    /// pins.
+    #[test]
+    fn a_worn_prop_selection_is_invisible_to_the_visuals_question() {
+        for aim in [
+            (|s: &mut AvatarEditorState| {
+                s.select_attachment_from_scene_pick(String::from("3jzfcijpj2z2a"))
+            }) as fn(&mut AvatarEditorState),
+            |s: &mut AvatarEditorState| {
+                s.select_attachment_part_from_scene_pick(String::from("3jzfcijpj2z2a"), vec![1])
+            },
+        ] {
+            let mut state = AvatarEditorState {
+                window_visible: true,
+                ..Default::default()
+            };
+            aim(&mut state);
+            assert!(
+                !state.has_visuals_selection(),
+                "precondition: the old ladder question is blind to this aim"
+            );
+            assert!(state.has_gizmo_selection(), "the ladder's question sees it");
+            assert!(state.holds_avatar_still(), "and the body is frozen by it");
+
+            state.clear_gizmo_selections();
+            assert!(
+                !state.holds_avatar_still(),
+                "one Esc must release the freeze it created"
+            );
+        }
+    }
 
     /// #1103 (owner direction, reversing #814): the chassis freeze and the
     /// gait/sway hold engage only while a gizmo is aimed at the avatar or

@@ -159,7 +159,7 @@ pub fn reauth_modal(
     let mut dismiss = false;
 
     crate::ui::confirm::note_modal_open(ctx);
-    egui::Modal::new(egui::Id::new("session-expired")).show(ctx, |ui| {
+    let modal = egui::Modal::new(egui::Id::new("session-expired")).show(ctx, |ui| {
         let th = crate::ui::theme::current(ui.ctx());
         ui.heading("Your session has expired");
         ui.add_space(4.0);
@@ -207,6 +207,13 @@ pub fn reauth_modal(
         });
     });
 
+    // Esc / backdrop click is "Not now" — the shared modal contract
+    // (#1236 f53). While the browser leg is in flight there is no button
+    // to be equivalent TO, so the dialog holds; it says "Waiting for your
+    // browser…" and that is the state it is describing.
+    if modal.should_close() && !waiting && !begin {
+        dismiss = true;
+    }
     if dismiss {
         expired.dismissed = true;
         expired.notice = None;

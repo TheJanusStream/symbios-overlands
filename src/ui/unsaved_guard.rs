@@ -16,7 +16,9 @@
 //!   unconditionally open the guard.
 //! - **Dirty case** — a modal offers *Publish & continue* (spawns the same
 //!   publish tasks the editors use, waits for every poll to drain, then
-//!   re-checks), *Discard & continue*, or *Stay*.
+//!   re-checks), *Discard & continue*, or *Stay*. Esc and a backdrop click
+//!   mean *Stay*, the same as everywhere else in the app (#1236 f53) — it
+//!   was the one modal that consumed the key and did nothing with it.
 //!
 //! Waiting for the publish to finish before acting is load-bearing, not
 //! politeness: the publish poll systems pin `stored = live` **at completion
@@ -519,7 +521,14 @@ pub fn unsaved_guard_ui(
     } = guard_labels(&guard.action);
 
     crate::ui::confirm::note_modal_open(ctx);
-    egui::Modal::new(egui::Id::new("unsaved-guard")).show(ctx, |ui| {
+    // Esc / backdrop click cancels, which here means "Stay here" — the
+    // shared modal contract this dialog is the last one to honour (#1236
+    // f53). It stamps `note_modal_open`, so `ShortcutGate::allows_esc` was
+    // already false: the press was consumed by nothing and produced no
+    // response anywhere, which reads as a hang on the one dialog where the
+    // user is most likely to be reacting quickly.
+    let mut answered = false;
+    let modal = egui::Modal::new(egui::Id::new("unsaved-guard")).show(ctx, |ui| {
         ui.heading("Unpublished changes");
         ui.add_space(4.0);
 
@@ -565,6 +574,7 @@ pub fn unsaved_guard_ui(
             // going. It used to read "Continue in background", which sat
             // where "Stay here" sits and read as "proceed".
             if ui.button(&stay_while_publishing).clicked() {
+                answered = true;
                 close(&guard.action, &mut commands, &time);
             }
             // Discard stays reachable while publishing (#1129). It was
@@ -584,6 +594,7 @@ pub fn unsaved_guard_ui(
                     ))
                     .clicked()
                 {
+                    answered = true;
                     proceed(
                         &guard.action,
                         &mut commands,
@@ -621,6 +632,7 @@ pub fn unsaved_guard_ui(
                 && let (Some(session), Some(refresh_ctx)) =
                     (session.as_deref(), refresh_ctx.as_deref())
             {
+                answered = true;
                 guard.notice = None;
                 if dirty.room
                     && let Some(live) = records.live_room.as_deref()
@@ -684,6 +696,7 @@ pub fn unsaved_guard_ui(
                 guard.enter_publishing(now);
             }
             if ui.button(stay).clicked() {
+                answered = true;
                 close(&guard.action, &mut commands, &time);
             }
             // Discard is the data-loss option (#838): danger-styled and
@@ -701,6 +714,7 @@ pub fn unsaved_guard_ui(
                     // No revert needed: portal travel overwrites the live
                     // room record with the destination's, and logout
                     // removes every record resource outright.
+                    answered = true;
                     proceed(
                         &guard.action,
                         &mut commands,
@@ -712,6 +726,13 @@ pub fn unsaved_guard_ui(
             });
         });
     });
+    if modal.should_close() && !answered {
+        // Identical to the button the dialog's own copy names, in BOTH
+        // phases: `stay` and `stay_while_publishing` are two labels for
+        // one `close`, and an in-flight publish is landed by the editors'
+        // poll systems either way.
+        close(&guard.action, &mut commands, &time);
+    }
 }
 
 /// Execute the guarded action and drop the guard.

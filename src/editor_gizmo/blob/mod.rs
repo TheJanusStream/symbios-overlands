@@ -104,6 +104,18 @@ pub struct BlobEditContext {
     pub(crate) wireframe_dirty: bool,
 }
 
+impl BlobEditContext {
+    /// Is `entity` the blob instance this edit session is hosted on? A
+    /// proxy built under a different instance is stale — the record
+    /// rebuilt the prim, or the camera moved and the closest-instance rule
+    /// re-homed the edit.
+    pub(crate) fn hosts(&self, entity: Entity) -> bool {
+        self.active
+            .as_ref()
+            .is_some_and(|active| active.blob_entity == entity)
+    }
+}
+
 /// Walk a generator tree by child indices. Returns `None` when the path
 /// dangles (tree reshaped since the selection was made).
 pub(crate) fn node_at_path<'a>(root: &'a Generator, path: &[usize]) -> Option<&'a Generator> {

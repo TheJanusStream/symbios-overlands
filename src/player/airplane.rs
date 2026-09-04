@@ -17,6 +17,11 @@
 //! direction. No take-off mechanic; the avatar is effectively always
 //! airborne and crashes on terrain contact like any other physics body.
 //!
+//! A flipped airplane rights itself: [`apply_airplane_uprighting`] is
+//! the fourth preset's copy of the assist the car, hover-boat and
+//! helicopter have always had (#1240 f162), and the passive cruise thrust
+//! is cut while inverted so the assist is not fighting the engine.
+//!
 //! Aerodynamics (lift, drag) and the idle cruise thrust are PASSIVE —
 //! they live in [`apply_airplane_aerodynamics`], which is not gated on
 //! egui keyboard focus, so typing in a chat/search field leaves the
@@ -29,6 +34,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
+use crate::config::rover as cfg;
 use crate::pds::LocomotionConfig;
 use crate::state::{LiveAvatarRecord, LocalPlayer, TravelingTo};
 
@@ -54,6 +60,63 @@ fn lift_force(airspeed: f32, min_airspeed: f32, lift_per_speed: f32) -> Vec3 {
         Vec3::Y * (lift_per_speed * airspeed)
     } else {
         Vec3::ZERO
+    }
+}
+
+/// Restoring torque for an airplane that has ended up on its back
+/// (#1240 f162), modelled directly on the car's `upright_assist_torque`.
+///
+/// `None` while the tilt is inside
+/// [`cfg::AIRPLANE_UPRIGHT_ENGAGE_TILT_DEGREES`] — a plane banks and rolls
+/// as ordinary flight, and an assist that fought that would be flying the
+/// aircraft. Past it, rotate `up` toward world-up, falling back to the
+/// roll axis when the chassis is DEAD inverted (where `up × world-up`
+/// degenerates and the plane could otherwise perch on its back forever),
+/// minus a spin-damping term so it settles level rather than oscillating.
+fn upright_assist_torque(up: Vec3, right: Vec3, ang_vel: Vec3, mass: f32) -> Option<Vec3> {
+    if up.dot(Vec3::Y) >= cfg::AIRPLANE_UPRIGHT_ENGAGE_TILT_DEGREES.to_radians().cos() {
+        return None;
+    }
+    let mut axis = up.cross(Vec3::Y);
+    if axis.length_squared() < cfg::CAR_UPRIGHT_DEGENERATE_SQ {
+        axis = right;
+    }
+    let restoring = axis.normalize_or_zero() * (mass * cfg::AIRPLANE_UPRIGHT_ASSIST_ACCEL);
+    let damping = -ang_vel * (mass * cfg::AIRPLANE_UPRIGHT_ASSIST_DAMPING);
+    Some(restoring + damping)
+}
+
+/// Whether the hands-off cruise thrust is applied at this attitude
+/// (#1240 f162). Pure so the boundary is testable.
+///
+/// An inverted plane on the ground is being driven INTO the terrain by its
+/// own engine, and `respawn_if_fallen` cannot rescue it: it is lying ON
+/// the ground, not 20 m below it. Cutting the thrust is what lets
+/// [`upright_assist_torque`] win.
+fn cruise_thrust_applies(up: Vec3) -> bool {
+    up.dot(Vec3::Y) > cfg::AIRPLANE_THRUST_CUT_TILT_DEGREES.to_radians().cos()
+}
+
+/// Right an airplane that has flipped onto its back. Registered ungated
+/// beside the other three presets' assists (#1240 f162) — the airplane was
+/// simply missed, and a crashed plane is exactly the state where the owner
+/// is least able to do anything about it.
+#[allow(clippy::type_complexity)]
+pub(super) fn apply_airplane_uprighting(
+    live: Res<LiveAvatarRecord>,
+    mut query: Query<(Forces, &GlobalTransform), (With<LocalPlayer>, With<AirplanePreset>)>,
+) {
+    let LocomotionConfig::Airplane(p) = &live.0.locomotion else {
+        return;
+    };
+    let Ok((mut forces, global_tf)) = query.single_mut() else {
+        return;
+    };
+    let up = global_tf.up().as_vec3();
+    let right = global_tf.right().as_vec3();
+    let ang_vel = forces.angular_velocity();
+    if let Some(torque) = upright_assist_torque(up, right, ang_vel, p.mass.0) {
+        forces.apply_torque(torque);
     }
 }
 
@@ -93,7 +156,11 @@ pub(super) fn apply_airplane_aerodynamics(
     let forward = global_tf.forward().as_vec3();
 
     // Idle cruise: the airplane flies by default; input only modulates.
-    forces.apply_force(forward * p.thrust.0 * p.cruise_throttle.0);
+    // Cut while inverted (#1240 f162) so the righting assist is not
+    // fighting the engine driving the fuselage into the terrain.
+    if cruise_thrust_applies(global_tf.up().as_vec3()) {
+        forces.apply_force(forward * p.thrust.0 * p.cruise_throttle.0);
+    }
 
     // Aerodynamics.
     let lin_vel = forces.linear_velocity();
@@ -175,6 +242,57 @@ mod tests {
     /// The default record cruise fraction — the historical constant.
     fn cruise() -> f32 {
         crate::pds::AirplaneParams::default().cruise_throttle.0
+    }
+
+    /// #1240 f162. Sequence: clip a ridge, the fuselage flips onto its
+    /// back on flat ground. The car, the hover-boat and the helicopter all
+    /// ship a righting assist; the airplane was simply missed, and the
+    /// fall respawn cannot rescue it — it is lying ON the ground, not 20 m
+    /// below it.
+    #[test]
+    fn an_inverted_airplane_is_righted_and_a_banking_one_is_not() {
+        let mass = 40.0;
+        // Level flight, and a hard bank: ordinary flying, hands off.
+        assert!(upright_assist_torque(Vec3::Y, Vec3::X, Vec3::ZERO, mass).is_none());
+        let banked = Quat::from_rotation_z(60_f32.to_radians()) * Vec3::Y;
+        assert!(
+            upright_assist_torque(banked, Vec3::X, Vec3::ZERO, mass).is_none(),
+            "a 60° bank is flying, not a crash"
+        );
+        // On its back: a torque, and one that rotates toward world-up.
+        let inverted = Quat::from_rotation_z(170_f32.to_radians()) * Vec3::Y;
+        let torque = upright_assist_torque(inverted, Vec3::X, Vec3::ZERO, mass)
+            .expect("an inverted plane must right itself");
+        assert!(torque.length() > 0.0);
+        // DEAD inverted: `up × world-up` degenerates and the assist must
+        // fall back to the roll axis, or the plane perches on its back.
+        let dead = -Vec3::Y;
+        let roll_axis = Vec3::X;
+        let fallback = upright_assist_torque(dead, roll_axis, Vec3::ZERO, mass)
+            .expect("dead-inverted must still right");
+        assert!(
+            fallback.normalize().dot(roll_axis) > 0.99,
+            "expected the roll-axis fallback, got {fallback:?}"
+        );
+    }
+
+    /// #1240 f162, the other half: the passive cruise thrust is applied
+    /// unconditionally, so an inverted plane grinds itself into the
+    /// terrain with the engine on while the assist tries to lift it.
+    #[test]
+    fn cruise_thrust_is_cut_while_inverted() {
+        assert!(cruise_thrust_applies(Vec3::Y));
+        assert!(cruise_thrust_applies(
+            Quat::from_rotation_z(60_f32.to_radians()) * Vec3::Y
+        ));
+        assert!(!cruise_thrust_applies(-Vec3::Y));
+        // The thrust cuts BEFORE the assist engages, so the assist is
+        // never fighting the engine.
+        const {
+            assert!(
+                cfg::AIRPLANE_THRUST_CUT_TILT_DEGREES < cfg::AIRPLANE_UPRIGHT_ENGAGE_TILT_DEGREES
+            )
+        };
     }
 
     #[test]

@@ -118,16 +118,24 @@ pub(super) fn draw_shape_forge(
             // colonnade's shafts and its flat entablature normally share
             // one stone.
             ui.label("Turned terminals (round cross-section)");
-            let mut joined = round_meshes.join(", ");
-            if ui
-                .add(
-                    egui::TextEdit::singleline(&mut joined)
-                        .desired_width(f32::INFINITY)
-                        .hint_text("Column, Silo"),
-                )
-                .changed()
-            {
-                *round_meshes = joined
+            // Deferred commit (#1238 f77). This used to regenerate the
+            // buffer from the record every frame and re-parse on every
+            // change: a typed comma produced an empty entry, the empty was
+            // filtered out, and the next frame re-rendered the field
+            // WITHOUT the comma — so the second name could never be
+            // started and the documented multi-id feature was reachable
+            // only by pasting the whole string at once.
+            let joined = round_meshes.join(", ");
+            let out = crate::ui::room::widgets::text_draft_row(
+                ui,
+                "shape_round_meshes",
+                &joined,
+                f32::INFINITY,
+                "Comma-separated mesh ids. Press Enter (or click away) to apply.",
+                |_| None,
+            );
+            if let Some(text) = out.committed {
+                *round_meshes = text
                     .split(',')
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
@@ -164,6 +172,10 @@ pub(super) fn draw_shape_forge(
             // every insert/remove and disorient the user.
             let mut slot_names: Vec<String> = materials.keys().cloned().collect();
             slot_names.sort();
+            // Every key currently in use, for the rename refusal — read
+            // once, because `materials` is borrowed mutably inside the
+            // loop below.
+            let taken: std::collections::HashSet<String> = slot_names.iter().cloned().collect();
             let mut to_remove: Option<String> = None;
             // Pending rename: `(old_name, new_name)`. Applied after the
             // iteration so we never mutate the map while walking it.
@@ -174,19 +186,34 @@ pub(super) fn draw_shape_forge(
                 };
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
-                        let mut draft = name.clone();
-                        if ui
-                            .add(
-                                egui::TextEdit::singleline(&mut draft)
-                                    .desired_width(150.0)
-                                    .hint_text("slot name"),
-                            )
-                            .changed()
-                        {
-                            // Defer the actual rename: we still need the
-                            // map's current key to fetch & display the
-                            // settings on this frame.
-                            to_rename = Some((name.clone(), draft));
+                        // Commit on focus loss, not per keystroke (#1238
+                        // f80). Per keystroke the building flashed grey
+                        // through every intermediate name (none of which
+                        // matches a `Mat("…")` in the grammar), a full
+                        // recompile was armed per digit, an empty or
+                        // colliding draft was reverted with no
+                        // explanation, and the row jumped position
+                        // mid-word because the list re-sorts by name every
+                        // frame — taking the focused field's egui id with
+                        // it. The refusal is the generator rename modal's
+                        // own, so the two say the same thing.
+                        let out = crate::ui::room::widgets::text_draft_row(
+                            ui,
+                            ("shape_slot_name", name),
+                            name,
+                            150.0,
+                            "Slot name — press Enter (or click away) to rename",
+                            |draft| {
+                                crate::ui::confirm::validate_new_key(draft, name, |candidate| {
+                                    taken.contains(candidate)
+                                })
+                                .err()
+                            },
+                        );
+                        if let Some(new_name) = out.committed {
+                            // Deferred: we still need the map's current key
+                            // to fetch & display the settings this frame.
+                            to_rename = Some((name.clone(), new_name));
                             *dirty = true;
                         }
                         if crate::ui::affordances::remove_button(ui, "Remove this material slot")
@@ -218,6 +245,10 @@ pub(super) fn draw_shape_forge(
                 materials.remove(&name);
                 *dirty = true;
             }
+            // The draft row already refused an empty or taken name with a
+            // visible reason, so by the time a rename arrives here it is
+            // valid; the guards stay as a belt-and-braces invariant on the
+            // map rather than as the (silent) user-facing rule they were.
             if let Some((old, new)) = to_rename
                 && old != new
                 && !new.is_empty()

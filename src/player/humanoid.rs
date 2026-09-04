@@ -83,19 +83,16 @@ pub(super) fn clear_jump_queue(mut queued: ResMut<JumpQueued>) {
 /// directly beneath them. Drives the three locomotion modes — walking on
 /// land, slowed wading with feet under water, and free 3D swimming with
 /// gravity overridden once the head is fully submerged.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum WaterState {
+    #[default]
     Dry,
     /// Feet are below the water surface, head is above. `depth` is how
     /// much of the avatar's height (m) is submerged.
-    Wading {
-        depth: f32,
-    },
+    Wading { depth: f32 },
     /// Head is below the water surface. `depth` is how far below the
     /// surface the avatar's centre is (m).
-    Swimming {
-        depth: f32,
-    },
+    Swimming { depth: f32 },
 }
 
 /// Classify the avatar's relationship to the water column at its XZ
@@ -131,6 +128,88 @@ pub fn humanoid_water_state(
             depth: surface_y - chassis_y,
         }
     }
+}
+
+/// Publish the local humanoid's water classification for the UI (#1241
+/// f160).
+///
+/// Deliberately its own ungated `Update` system rather than a write inside
+/// [`apply_humanoid_walk`]: the drive systems stand down whenever an egui
+/// text field has focus (#821), so a banner fed from there would blink out
+/// the moment the swimmer clicked into chat — and "the mode indicator
+/// disappears while you type" is a worse lie than no indicator.
+///
+/// Guarded (#879): the resource is written only when the classification
+/// actually changes, so an every-frame system does not mark it changed
+/// forever.
+/// The local humanoid chassis, as one param so the publisher stays under
+/// clippy's argument budget.
+pub(super) type LocalHumanoid<'w, 's> =
+    Query<'w, 's, (Entity, &'static GlobalTransform), (With<LocalPlayer>, With<HumanoidPreset>)>;
+
+pub(super) fn publish_movement_facts(
+    live: Option<Res<LiveAvatarRecord>>,
+    water_surfaces: Res<WaterSurfaces>,
+    query: LocalHumanoid,
+    bodies: Query<(&ChildOf, &bevy_symbios_avatar::AvatarBody), With<super::rigged::RiggedRoot>>,
+    camera: Query<&GlobalTransform, With<Camera3d>>,
+    mut published: ResMut<crate::ui::modes::LocalMovement>,
+) {
+    let mut facts = crate::ui::modes::LocalMovement::default();
+    // The camera's own submersion, not the avatar's (#1241 f160): a
+    // third-person orbit camera dips under the surface by itself, and the
+    // water plane is back-face culled, so from below there is nothing at
+    // all to see.
+    if let Ok(cam) = camera.single() {
+        let eye = cam.translation();
+        facts.camera_submerged = water_surfaces
+            .surface_at(Vec2::new(eye.x, eye.z))
+            .is_some_and(|(_, surface_y)| eye.y < surface_y);
+    }
+    if let (Some(live), Ok((entity, global_tf))) = (live.as_deref(), query.single())
+        && let LocomotionConfig::Humanoid(p) = &live.0.locomotion
+    {
+        let pos = global_tf.translation();
+        facts.water = humanoid_water_state(
+            pos.y,
+            Vec2::new(pos.x, pos.z),
+            p.total_height(),
+            &water_surfaces,
+        );
+        // The same derivation `apply_humanoid_walk` uses for the unshifted
+        // walk, off the same rig — read here so the locomotion editor and
+        // the walk cannot disagree about what "walk" means (#1241 f168).
+        facts.derived_walk = bodies
+            .iter()
+            .find(|(child_of, _)| child_of.parent() == entity)
+            .map(|(_, body)| derived_walk_speed(&body.avatar.rig));
+    }
+    // A non-humanoid body is not in the water and has no derived walk: a
+    // vehicle preset has its own buoyancy and its own keys.
+    if *published != facts {
+        *published = facts;
+    }
+}
+
+/// The unshifted walk this rig walks at (m/s) — the engine's own
+/// calibration point, [`WALK_FROUDE`], read back through the speed axis so
+/// a child walks slower and a giant faster on the same dimensionless
+/// number.
+pub fn derived_walk_speed(rig: &symbios_avatar::Rig) -> f32 {
+    symbios_avatar::Speed::from_froude(WALK_FROUDE).metres_per_second(rig)
+}
+
+/// True when the record's `walk_speed` — which IS the run since #1193 —
+/// has been tuned at or below the body's derived walk, so Shift does
+/// nothing at all (#1241 f168).
+///
+/// `apply_humanoid_walk` takes `walking.min(travel)`, so below the derived
+/// walk both branches collapse to the same number rather than inverting
+/// the key. The code comment there acknowledged it; nothing surfaced it,
+/// and the slider's range starts at 1.0 m/s against a default body that
+/// walks at ~1.73, so the bottom of its travel silently disables a key.
+pub fn run_key_is_dead(record_walk_speed: f32, derived_walk: f32) -> bool {
+    record_walk_speed <= derived_walk
 }
 
 /// Locomotion controller. Three modes selected by [`humanoid_water_state`]:
@@ -236,8 +315,7 @@ pub(super) fn apply_humanoid_walk(
                 .iter()
                 .find(|(child_of, _)| child_of.parent() == entity)
                 .map_or(travel * WALK_OF_TRAVEL_FALLBACK, |(_, body)| {
-                    symbios_avatar::Speed::from_froude(WALK_FROUDE)
-                        .metres_per_second(&body.avatar.rig)
+                    derived_walk_speed(&body.avatar.rig)
                 })
                 .min(travel);
             let walk_speed = if running { travel } else { walking } * speed_scale;
@@ -716,6 +794,37 @@ mod speed_change {
             "unshifted must walk the fallback share: {walk} of {travel}"
         );
         assert!(walk < run, "the walk outran the run: {walk} vs {run}");
+    }
+
+    /// #1241 f168. Sequence: drag "Run speed" to 1.5 m/s to make the
+    /// avatar amble; afterwards Shift does nothing at all — no message, no
+    /// disabled control, just a key that stopped working.
+    /// `apply_humanoid_walk` takes `walking.min(travel)`, so below the
+    /// body's derived walk both branches collapse to one number rather
+    /// than inverting the key. The slider starts at 1.0 m/s against a
+    /// default body that walks at ~1.73, so the bottom of its travel is a
+    /// dead band — measured here off the real rig rather than asserted.
+    #[test]
+    fn the_run_key_dies_below_the_derived_walk_and_the_slider_can_reach_it() {
+        let rig = symbios_avatar::Rig::from_skeleton(
+            &symbios_avatar::HumanoidParams::default()
+                .skeleton(&symbios_avatar::Composites::default()),
+        )
+        .expect("the default body rigs");
+        let walk = derived_walk_speed(&rig);
+        assert!(!run_key_is_dead(walk + 0.01, walk));
+        assert!(run_key_is_dead(walk, walk), "equal collapses the min too");
+        assert!(run_key_is_dead(walk - 0.01, walk));
+        // The trap is reachable: the Run slider's lower bound is 1.0 m/s
+        // (src/ui/avatar/locomotion/humanoid.rs), well under the walk.
+        assert!(
+            run_key_is_dead(1.0, walk),
+            "the dead band must exist, or the warning has nothing to warn about"
+        );
+        assert!(!run_key_is_dead(
+            crate::pds::HumanoidParams::default().walk_speed.0,
+            walk
+        ));
     }
 
     /// The derivation the fallback stands in for (#1193): on a built default

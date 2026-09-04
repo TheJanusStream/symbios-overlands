@@ -16,6 +16,7 @@ use crate::world_builder::{AttachmentPrim, AvatarVisualPrim, PlacementMarker, Pr
 use super::blob::BlobEditContext;
 use super::blob::proxy::BlobElementProxy;
 use super::blob::write::{BlobDragInfo, commit_blob_element_drag};
+use super::commit::DragOutcome;
 use super::commit::{
     commit_attachment_drag, commit_attachment_part_drag, commit_avatar_drag, commit_room_drag,
     resolve_committed_local,
@@ -53,10 +54,20 @@ use super::{ActiveTarget, DragState, GizmoDetachedPrim};
 /// copy-on-drag in v1: there's only one local avatar tree, and the
 /// inventory + room placements vocabulary doesn't apply.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
+/// Say what a finished drag did, when it is not what was asked (#1237
+/// f144, #1243 f150). Silent on success — a toast per completed drag
+/// would be noise on the app's most-repeated gesture.
+fn report_drag(toasts: &mut crate::ui::toast::Toasts, time: &Time, outcome: DragOutcome) {
+    if let Some(text) = outcome.toast() {
+        toasts.warn(text, time.elapsed_secs_f64());
+    }
+}
+
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(super) fn manage_gizmo_drag(
     mut state: Local<DragState>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut gizmos: Gizmos,
+    mut gizmos: Gizmos<super::EditorOverlayGizmos>,
     mut room_editor: ResMut<RoomEditorState>,
     mut blob_ctx: ResMut<BlobEditContext>,
     mut placement_query: Query<
@@ -124,7 +135,7 @@ pub(super) fn manage_gizmo_drag(
     // Bundled with the parts-of-worn-props query (#1098) to stay under the
     // 16-parameter ceiling; that query's five `Without`s keep it disjoint
     // from every other `&mut Transform` query above.
-    (rigged_bodies, global_tf, part_query): (
+    (rigged_bodies, global_tf, part_query, mut toasts, time): (
         Query<&bevy_symbios_avatar::AvatarBody>,
         Query<&GlobalTransform>,
         Query<
@@ -143,6 +154,11 @@ pub(super) fn manage_gizmo_drag(
                 Without<LocalAttachment>,
             ),
         >,
+        // #1237 f144 / #1243 f150: every commit refusal in this system was
+        // a `warn!` to a console the user does not have, and the scene
+        // went on showing the move as having succeeded.
+        ResMut<crate::ui::toast::Toasts>,
+        Res<Time>,
     ),
     room_record: Option<ResMut<LiveRoomRecord>>,
     avatar_record: Option<ResMut<LiveAvatarRecord>>,
@@ -297,7 +313,15 @@ pub(super) fn manage_gizmo_drag(
             return;
         }
 
-        if state.is_copy {
+        // A blob element's duplicate routes through `BlobDragInfo` rather
+        // than the placement/prim copy path, so `is_copy` is forced false
+        // for it above — and the copy FEEDBACK hung off `is_copy` alone,
+        // which is why a Shift-drag on an element drew no ghost, no tripod
+        // and no "+" at all (#1243 f150). The user had no way to tell,
+        // during the gesture, whether they were copying or moving.
+        let showing_a_copy =
+            state.is_copy || state.blob.as_ref().is_some_and(|info| info.duplicate);
+        if showing_a_copy {
             // Ghost at origin: a wireframe cube + tripod marks where
             // the original sits while the dragged copy is whisked away.
             gizmos.axes(state.original_world_tf, 1.0);
@@ -307,6 +331,9 @@ pub(super) fn manage_gizmo_drag(
             let current_tf = if let Ok((_e, tf, _m, _t)) = placement_query.get(active_entity) {
                 Some(*tf)
             } else if let Ok((_e, tf, _m, _t, _d)) = prim_query.get(active_entity) {
+                Some(*tf)
+            } else if let Ok((_e, tf, _p, _t, _d)) = proxy_query.get(active_entity) {
+                // The blob element's own proxy (#1243 f150).
                 Some(*tf)
             } else {
                 None
@@ -352,6 +379,7 @@ pub(super) fn manage_gizmo_drag(
                 });
         let Some(local) = committed_local else {
             blob_ctx.wireframe_dirty = true;
+            report_drag(&mut toasts, &time, DragOutcome::Refused);
             return;
         };
         let landed = match info.key.target {
@@ -382,8 +410,22 @@ pub(super) fn manage_gizmo_drag(
         match landed.flatten() {
             // Keep the gizmo on the element the edit landed at — for a
             // Shift-duplicate that's the freshly inserted copy.
-            Some(index) => blob_ctx.selected_element = Some(index),
-            None => blob_ctx.wireframe_dirty = true,
+            Some(landing) => {
+                blob_ctx.selected_element = Some(landing.index);
+                report_drag(
+                    &mut toasts,
+                    &time,
+                    if landing.degraded_to_move {
+                        DragOutcome::CopyDegradedToMove
+                    } else {
+                        DragOutcome::Committed
+                    },
+                );
+            }
+            None => {
+                blob_ctx.wireframe_dirty = true;
+                report_drag(&mut toasts, &time, DragOutcome::Refused);
+            }
         }
         return;
     }
@@ -421,6 +463,15 @@ pub(super) fn manage_gizmo_drag(
                 // just mutated the live record. `set_changed()` still
                 // drives the recompile + peer broadcast.
                 record.set_changed();
+            } else {
+                report_drag(&mut toasts, &time, DragOutcome::Refused);
+                // The record is UNCHANGED, and `sync` keeps the dragged
+                // entity detached at its dropped pose until the selection
+                // moves — so without this the scene goes on showing the
+                // move until something unrelated recompiles (#1237 f144).
+                // Marking the untouched record changed rebuilds from it,
+                // which snaps the object back where it really is.
+                record.set_changed();
             }
         }
         ActiveTarget::Avatar => {
@@ -434,6 +485,9 @@ pub(super) fn manage_gizmo_drag(
                 // fire; a gizmo drag bypasses that path, so explicitly
                 // mark the record changed so `rebuild_local_visuals` and
                 // `network::broadcast_avatar_state` see a fresh tick.
+                record.set_changed();
+            } else {
+                report_drag(&mut toasts, &time, DragOutcome::Refused);
                 record.set_changed();
             }
         }
@@ -455,6 +509,9 @@ pub(super) fn manage_gizmo_drag(
                 // be set here for `sync_rigged_attachments` (re-dress) and
                 // `broadcast_avatar_state` (peer preview) to see it.
                 record.set_changed();
+            } else {
+                report_drag(&mut toasts, &time, DragOutcome::Refused);
+                record.set_changed();
             }
         }
         ActiveTarget::AttachmentPart => {
@@ -464,6 +521,9 @@ pub(super) fn manage_gizmo_drag(
             if commit_attachment_part_drag(active_entity, &part_query, &global_tf, &mut record) {
                 info!("Gizmo drag committed (worn item part). Re-dressing the body.");
                 undo_labels.set_avatar("move of worn item part");
+                record.set_changed();
+            } else {
+                report_drag(&mut toasts, &time, DragOutcome::Refused);
                 record.set_changed();
             }
         }

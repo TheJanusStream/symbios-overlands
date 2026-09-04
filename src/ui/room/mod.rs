@@ -113,6 +113,35 @@ impl GenNodeId {
     }
 }
 
+/// Display order for the Placements list (#1244 f414).
+///
+/// Insertion order is no index at all once a seeded settlement has handed
+/// the owner several hundred machine-authored rows interleaved with their
+/// own — and the record's `Vec` order was the ONLY order available.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PlacementSort {
+    /// The record's own order, which is also the index shown on each row.
+    #[default]
+    Order,
+    /// Alphabetical by the generator each placement points at — the
+    /// question "where are this asset's placements" answered by grouping.
+    Generator,
+    /// Absolute / Scatter / Grid together.
+    Kind,
+}
+
+impl PlacementSort {
+    pub const ALL: [Self; 3] = [Self::Order, Self::Generator, Self::Kind];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Order => "Order",
+            Self::Generator => "Generator",
+            Self::Kind => "Kind",
+        }
+    }
+}
+
 /// Persistent editor state kept across frames. Promoted to a `Resource` so
 /// the 3D gizmo controller in `editor_gizmo` can observe which placement the
 /// owner has selected in the UI panel.
@@ -121,6 +150,26 @@ pub struct RoomEditorState {
     pub selected_tab: EditorTab,
     pub selected_generator: Option<String>,
     pub selected_placement: Option<usize>,
+    /// Additional selected placement rows (#1244 f415) — `selected_placement`
+    /// stays the ANCHOR (the gizmo target, the detail panel's subject) and
+    /// this carries the rest of a shift/ctrl-extended range. Kept as a
+    /// sidecar rather than widening the anchor to a `Vec`, because
+    /// `editor_gizmo`, the highlight and `draw_placement_visualizers` all
+    /// read the anchor and need no change at all.
+    pub extra_placements: Vec<usize>,
+    /// Substring filter over the placement list's row labels (#1244 f414).
+    pub placement_filter: String,
+    /// Display order for the placement list (#1244 f414). Sorts a vector
+    /// of INDICES; `record.placements` is never reordered, because the
+    /// index is the placement's identity everywhere else in the editor.
+    pub placement_sort: PlacementSort,
+    /// Substring filter over the generator tree's root names (#1244 f414).
+    pub generator_filter: String,
+    /// The editor's one-node clipboard (#1244 f422): a deep copy of a
+    /// tree node, so a sub-assembly can cross roots without consuming one
+    /// of the inventory's 50 slots and round-tripping through another
+    /// window. Session-scoped by being editor state.
+    pub node_clipboard: Option<crate::pds::Generator>,
     /// Selected recipe row on the Effects tab's master-detail split
     /// (#825). Not gizmo-coupled, so tab switches leave it alone — the
     /// user's place in the recipe list survives a peek at Environment.
@@ -195,6 +244,10 @@ pub struct RoomEditorState {
     /// (#840): the button hard-overwrites the stored record, and a
     /// stale banner (pre-#840) could offer it against a healthy one.
     recovery_reset_confirm: crate::ui::confirm::ConfirmState<()>,
+    /// The bulk placement delete's confirmation (#1244 f415), carrying the
+    /// rows it will remove. Behind the shared modal like every other
+    /// destructive path, and it names N.
+    placement_bulk_delete: crate::ui::confirm::ConfirmState<Vec<usize>>,
     /// Pending publish-after-unrecoverable-fetch confirmation (#1199):
     /// while [`RoomRecordRecovery`] is present the editor holds the
     /// default and Save (or Ctrl+S) would overwrite the real stored
@@ -238,10 +291,18 @@ impl RoomEditorState {
     /// over via the cross-editor mutex.
     pub fn clear_selection(&mut self) {
         self.selected_placement = None;
+        self.extra_placements.clear();
         self.selected_generator = None;
         self.selected_prim_path = None;
         self.tree_view_state.set_selected(Vec::new());
         self.preferred_pick = None;
+    }
+
+    /// Every selected placement index, anchor first (#1244 f415).
+    pub fn selected_placements(&self) -> Vec<usize> {
+        let mut all: Vec<usize> = self.selected_placement.into_iter().collect();
+        all.extend(self.extra_placements.iter().copied());
+        all
     }
 
     /// Snapshot the selection state an undo entry carries (#862) so a
@@ -271,6 +332,7 @@ impl RoomEditorState {
         // record. Same for a half-typed rename.
         self.tree_confirms.cancel_all();
         self.recovery_reset_confirm.cancel();
+        self.placement_bulk_delete.cancel();
         self.publish_guard.cancel();
         self.renaming_generator = None;
         // A widget burst still in the debounce was aimed at record state
@@ -285,6 +347,11 @@ impl RoomEditorState {
         // instead of pointing the gizmo at the wrong node.
         self.preferred_pick = None;
         self.selected_placement = sel.placement.filter(|&idx| idx < record.placements.len());
+        // The sidecar multi-selection (#1244 f415) is not carried in an
+        // undo entry: a restore renumbers the placement vector, so every
+        // extra row would point somewhere arbitrary. The anchor above is
+        // validated against the restored record; the rest goes.
+        self.extra_placements.clear();
         let generator_valid = match (&sel.generator, &sel.prim_path) {
             (Some(root), Some(path)) => record
                 .generators
@@ -367,6 +434,10 @@ pub struct RoomEditorExtras<'w, 's> {
     /// Label channel for the next undo entry (#865): sites name their
     /// edit; the flush fallback names the tab.
     undo_labels: ResMut<'w, crate::ui::undo::PendingUndoLabels>,
+    /// Where the gizmo host is, and the channel that walks the player
+    /// there (#1244 f148) — the "Go to" button's two halves.
+    gizmo_focus: Res<'w, crate::editor_gizmo::GizmoFocus>,
+    player_move: ResMut<'w, crate::player::PlayerMoveRequest>,
     /// Click-to-pick face selection (#961): shared with the scene click
     /// handler that resolves what the Faces panel armed.
     face_pick: ResMut<'w, crate::editor_gizmo::FacePick>,
@@ -539,6 +610,8 @@ pub fn room_admin_ui(
         heightmap,
         mut blob_ctx,
         players,
+        gizmo_focus,
+        mut player_move,
         grammar_diag,
         road_stats,
         compile_truncation,
@@ -586,6 +659,11 @@ pub fn room_admin_ui(
         selected_tab,
         selected_generator,
         selected_placement,
+        extra_placements,
+        placement_filter,
+        placement_sort,
+        generator_filter,
+        node_clipboard,
         selected_effect,
         selected_prim_path,
         tree_view_state,
@@ -599,6 +677,7 @@ pub fn room_admin_ui(
         pin_hunt,
         tree_confirms,
         recovery_reset_confirm,
+        placement_bulk_delete,
         publish_guard,
         default_cache,
         stored_baseline,
@@ -617,6 +696,10 @@ pub fn room_admin_ui(
     // Load/Reset click actually mutated the record.
     let mut widget_change = false;
     let mut needs_broadcast = false;
+    // #1239 f81: the Region Assets tab's "Place it at my position" writes
+    // its request here, because it is this level that holds the record's
+    // placements, the player's pose and the tab/selection state.
+    let mut place_root: Option<String> = None;
 
     {
         let record_mut: &mut RoomRecord = &mut record.bypass_change_detection().0;
@@ -842,6 +925,31 @@ pub fn room_admin_ui(
                         blob_ctx.selected_element.is_some(),
                     ) {
                         gizmo_frame_pref.set_changed();
+                    }
+                    // "Go to" (#1244 f148): the tree is the primary way to
+                    // select, and `sync_gizmo_selection` attaches the gizmo
+                    // to whichever live instance is nearest the CAMERA — so
+                    // selecting a distant or behind-the-camera asset
+                    // produced no visible result and there was no command
+                    // to reach it. Disabled with the reason when there is
+                    // nothing aimed.
+                    let go = ui
+                        .add_enabled(
+                            gizmo_focus.centre.is_some(),
+                            egui::Button::new("Go to").small(),
+                        )
+                        .on_hover_text("Walk to the selected object (F)")
+                        .on_disabled_hover_text("Select something first");
+                    if go.clicked()
+                        && let (Some(centre), Ok(player)) = (gizmo_focus.centre, players.single())
+                    {
+                        player_move.request(crate::player::PlayerMove::GoTo(
+                            crate::player::go_to_pose(
+                                centre,
+                                gizmo_focus.radius,
+                                player.translation,
+                            ),
+                        ));
                     }
                     ui.separator();
                     crate::ui::undo::undo_redo_buttons(
@@ -1177,6 +1285,12 @@ pub fn room_admin_ui(
                                 player_pose,
                                 &mut widget_change,
                                 &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::World),
+                                placements::PlacementList {
+                                    filter: placement_filter,
+                                    sort: placement_sort,
+                                    extra: extra_placements,
+                                    bulk_delete: placement_bulk_delete,
+                                },
                             );
                         });
                     }
@@ -1217,6 +1331,10 @@ pub fn room_admin_ui(
                                 &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::World),
                                 Some(&road_stats),
                                 &mut face_pick,
+                                &session.did,
+                                &mut place_root,
+                                generator_filter,
+                                node_clipboard,
                             );
                         });
                     }
@@ -1253,6 +1371,30 @@ pub fn room_admin_ui(
                     }
                 }
             });
+
+        // #1239 f81: perform the requested placement. Appending here — not
+        // in the tree panel — is what lets it also switch the tab and land
+        // the selection on the new row, so the user SEES the thing the
+        // click made.
+        if let Some(root) = place_root {
+            let cap = caps::Cap::Placements;
+            if cap.is_full(record_mut.placements.len()) {
+                toasts.warn(cap.full_reason(), time.elapsed_secs_f64());
+            } else {
+                undo_labels
+                    .slot(crate::ui::shortcuts::EditorKind::World)
+                    .set(format!("placement of {root}"));
+                record_mut
+                    .placements
+                    .push(placements::new_absolute_placement(
+                        root,
+                        placements::anchor_xz(player_pose),
+                    ));
+                *selected_placement = Some(record_mut.placements.len() - 1);
+                *selected_tab = EditorTab::Placements;
+                widget_change = true;
+            }
+        }
 
         // Pop-out audio editor — a top-level Window sibling to the World
         // Editor so its node canvas has room to pan/zoom. Slot-agnostic:

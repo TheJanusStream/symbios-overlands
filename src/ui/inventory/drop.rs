@@ -45,6 +45,14 @@ use super::{DropSource, PendingGeneratorDrop, is_drop_placeable};
 ///
 /// The handler clears `pending.generator_name` and `pending.peer_target`
 /// on every exit path so the next drag starts clean.
+///
+/// Escape disarms the drag mid-flight (#831), but the key is NOT read
+/// here: it is [`EscStep::DragToPlace`](crate::ui::shortcuts::EscStep), a
+/// rung of the shared back-out ladder (#1236 f37). Reading it here meant
+/// two systems answered the same press in the same frame — nothing
+/// consumes `ButtonInput` — so one Escape disarmed the drag *and* cleared
+/// the selection underneath it, against the ladder's own "one step per
+/// press" contract.
 #[allow(clippy::too_many_arguments)]
 pub fn handle_generator_drop(
     mut contexts: EguiContexts,
@@ -63,9 +71,8 @@ pub fn handle_generator_drop(
     mut sender: SendMessage<OverlandsMessage>,
     mut chunk: crate::network::chunk::ChunkSend,
     // Bundled to stay under Bevy's 16-parameter ceiling.
-    (time, keyboard, mut toasts, mut undo_labels): (
+    (time, mut toasts, mut undo_labels): (
         Res<Time>,
-        Res<ButtonInput<KeyCode>>,
         ResMut<crate::ui::toast::Toasts>,
         ResMut<crate::ui::undo::PendingUndoLabels>,
     ),
@@ -75,14 +82,6 @@ pub fn handle_generator_drop(
     };
     let source = pending.source;
     let peer_target = pending.peer_target.clone();
-
-    // Escape disarms the drag mid-flight (#831) — before this the only
-    // ways out were releasing over a window or over the sky.
-    if keyboard.just_pressed(KeyCode::Escape) {
-        pending.generator_name = None;
-        pending.peer_target = None;
-        return;
-    }
 
     // The drag only commits on the frame the button is released. Every other
     // frame the mouse is either still held (drag in progress — we want to

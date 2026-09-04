@@ -328,7 +328,12 @@ mod glyph_coverage_tests {
     /// `⋯` this list was added for is one the bundled fonts cannot draw.
     /// Add a path here when a module starts producing text a UI surface
     /// prints without touching it.
-    const EXTRA_LABEL_SOURCES: &[&str] = &["src/network/presence.rs"];
+    const EXTRA_LABEL_SOURCES: &[&str] = &[
+        "src/network/presence.rs",
+        // #1240: `RecoveryReason::toast` and the return-to-spawn refusals
+        // are drawn verbatim by the toast stack.
+        "src/player/respawn.rs",
+    ];
 
     /// The charmaps of every face the proportional family falls back
     /// through, in the order the app installs them (Noto Sans first, egui's

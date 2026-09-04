@@ -85,6 +85,7 @@ mod face_pick;
 mod highlight;
 /// The subtree-bounds walk behind the selection wire box, shared with the
 /// peer nametag surface (#1226) — see [`highlight::subtree_world_bounds`].
+pub(crate) use commit::append_sibling_at_path;
 pub(crate) use highlight::subtree_world_bounds;
 mod sync;
 
@@ -312,6 +313,74 @@ pub(crate) fn determine_active_target(
     }
 }
 
+/// Where the thing carrying the gizmo actually is, and how big it is
+/// (#1244 f148).
+///
+/// Published every frame so the "Go to selection" button and its key can
+/// answer "where is my selection" without re-deriving the instance choice
+/// `sync_gizmo_selection` already made — which is nearest the CAMERA for a
+/// GUI-originated selection, and therefore not somewhere the caller could
+/// guess.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
+pub struct GizmoFocus {
+    /// Centre of the gizmo host's merged subtree bounds, world space.
+    pub centre: Option<Vec3>,
+    /// Half the largest bound axis — the stand-off distance the player is
+    /// put down beyond.
+    pub radius: f32,
+}
+
+/// Publish [`GizmoFocus`] from whatever currently carries a `GizmoTarget`.
+///
+/// Guarded (#879): a per-frame `ResMut` write would mark the resource
+/// changed forever.
+pub fn publish_gizmo_focus(
+    targets: Query<Entity, With<GizmoTarget>>,
+    children: Query<&Children>,
+    bounds: Query<(&bevy::camera::primitives::Aabb, &GlobalTransform)>,
+    mut focus: ResMut<GizmoFocus>,
+) {
+    let next = match targets.iter().next() {
+        Some(entity) => match subtree_world_bounds(entity, None, &children, &bounds) {
+            Some((min, max)) => GizmoFocus {
+                centre: Some((min + max) * 0.5),
+                radius: ((max - min) * 0.5).max_element().max(0.5),
+            },
+            None => GizmoFocus::default(),
+        },
+        None => GizmoFocus::default(),
+    };
+    if *focus != next {
+        *focus = next;
+    }
+}
+
+/// The editor's in-scene overlay lines: the selection wire boxes, the
+/// copy-drag ghost and "+", the face-pick highlight and the placement
+/// visualiser (#1243 f147).
+///
+/// Their own group solely so they can carry a NEGATIVE depth bias. Every
+/// one of them is drawn with Bevy's immediate-mode [`Gizmos`], nothing in
+/// the crate ever touched `GizmoConfig`, and the default `depth_bias: 0.0`
+/// occlusion-tests each line against the scene — so the indicator whose
+/// entire purpose is "show the blast radius before a drag" (#822) was
+/// simply not drawn for anything enclosed by other geometry, which is the
+/// case where the owner most needs it. The authors already knew: the
+/// face-pick highlight displaces its triangles along their normals
+/// specifically so the depth-tested outline does not z-fight the face it
+/// outlines.
+///
+/// A dedicated group rather than the default one, so world-space debug
+/// gizmos do not start punching through terrain alongside them.
+#[derive(Clone, Default, Reflect, bevy::gizmos::config::GizmoConfigGroup)]
+#[reflect(Clone, Default)]
+pub struct EditorOverlayGizmos;
+
+/// How far in front of the depth buffer the editor overlays draw. `-1.0`
+/// is "always in front" — an indicator is not part of the scene, and a
+/// half-hidden one is worse than none.
+const EDITOR_OVERLAY_DEPTH_BIAS: f32 = -1.0;
+
 pub struct EditorGizmoPlugin;
 
 impl Plugin for EditorGizmoPlugin {
@@ -340,6 +409,16 @@ impl Plugin for EditorGizmoPlugin {
         app.init_resource::<blob::BlobEditContext>()
             .init_resource::<blob::proxy::BlobEditAssets>()
             .init_resource::<face_pick::FacePick>()
+            .init_resource::<GizmoFocus>()
+            // The editor's own overlay lines draw IN FRONT of the scene
+            // (#1243 f147). See `EditorOverlayGizmos`.
+            .insert_gizmo_config(
+                EditorOverlayGizmos,
+                bevy::gizmos::config::GizmoConfig {
+                    depth_bias: EDITOR_OVERLAY_DEPTH_BIAS,
+                    ..default()
+                },
+            )
             .add_systems(
                 PostUpdate,
                 (
@@ -354,6 +433,8 @@ impl Plugin for EditorGizmoPlugin {
                     face_pick::draw_face_pick_highlight,
                     blob::wireframe::swap_blob_wireframe,
                     blob::preview::blob_drag_preview,
+                    // After `sync` has chosen the instance (#1244 f148).
+                    publish_gizmo_focus,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame)),
@@ -379,6 +460,12 @@ impl Plugin for EditorGizmoPlugin {
                 Update,
                 context_menu::detect_scene_right_click.run_if(in_state(AppState::InGame)),
             )
+            // A face-pick arm outlives nothing (#1237 f140/f141): it is
+            // dropped on the first frame the Faces panel that could honour
+            // it stops drawing. Registered in EVERY state, not just
+            // `InGame` — the arm must not survive a trip through Login
+            // either, and the check is two branches on one bool.
+            .add_systems(Update, face_pick::disarm_unbacked_face_pick)
             .add_systems(
                 EguiPrimaryContextPass,
                 context_menu::scene_context_menu_ui
@@ -500,7 +587,7 @@ fn pick_on_scene_click(
     // for one. The group table is per render entity — a split prim's child
     // mesh carries its own — so the hit entity is the one to ask, and the
     // ancestor walks below only decide *whose* face it is.
-    let picked_face = if face_pick.armed {
+    let picked_face = if face_pick.is_armed() {
         hit.and_then(|hit| {
             let SceneHit::Mesh {
                 entity,
@@ -609,7 +696,7 @@ fn pick_on_scene_click(
     // helper for the visuals row, the worn prop (#1062) and the part
     // (#1098, missing here until #1103 — a miss used to leave the part
     // gizmo up); the face-pick exemption lives inside it.
-    avatar_state.release_on_scene_miss(face_pick.armed);
+    avatar_state.release_on_scene_miss(face_pick.is_armed());
 
     // Picking needs the editor open in a room the user owns (the same
     // gate the editor window itself renders under). In every other
@@ -622,7 +709,7 @@ fn pick_on_scene_click(
         (Some(s), Some(r)) if s.did == r.0
     );
     if !(panels.world_editor && owns_room) {
-        if room_state.has_selection() && !face_pick.armed {
+        if room_state.has_selection() && !face_pick.is_armed() {
             room_state.clear_selection();
         }
         return;
@@ -670,7 +757,7 @@ fn pick_on_scene_click(
             if let Some((marker, marker_entity)) = picked_prim {
                 record_face(&marker, &mut face_pick);
                 select_prim_in_tree(&mut room_state, marker, marker_entity, &global_tfs);
-            } else if !face_pick.armed {
+            } else if !face_pick.is_armed() {
                 room_state.clear_selection();
             }
         }
@@ -680,7 +767,7 @@ fn pick_on_scene_click(
                 room_state.selected_prim_path = None;
                 room_state.tree_view_state.set_selected(Vec::new());
                 room_state.selected_placement = Some(index);
-            } else if !face_pick.armed {
+            } else if !face_pick.is_armed() {
                 room_state.clear_selection();
             }
         }
@@ -699,7 +786,7 @@ fn pick_on_scene_click(
                 room_state.selected_prim_path = None;
                 room_state.tree_view_state.set_selected(Vec::new());
                 room_state.selected_placement = Some(index);
-            } else if !face_pick.armed {
+            } else if !face_pick.is_armed() {
                 room_state.clear_selection();
             }
         }

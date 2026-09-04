@@ -83,10 +83,30 @@ pub(super) fn draw_generator_particles(
         .id_salt(format!("{}_pe_life", salt))
         .default_open(false)
         .show(ui, |ui| {
-            fp_slider(ui, "Lifetime min", lifetime_min, 0.01, 30.0, dirty);
-            fp_slider(ui, "Lifetime max", lifetime_max, 0.01, 30.0, dirty);
-            fp_slider(ui, "Speed min", speed_min, 0.0, 100.0, dirty);
-            fp_slider(ui, "Speed max", speed_max, 0.0, 100.0, dirty);
+            // Bounded against each other (#1238 f90): an inverted pair used
+            // to be accepted here and repaired ~0.25 s later by the
+            // sanitiser CLAMPING the max up to the min — losing the typed
+            // max, in the panel the user was looking at, unexplained.
+            crate::ui::room::widgets::fp_range_sliders(
+                ui,
+                "Lifetime min",
+                "Lifetime max",
+                lifetime_min,
+                lifetime_max,
+                0.01,
+                30.0,
+                dirty,
+            );
+            crate::ui::room::widgets::fp_range_sliders(
+                ui,
+                "Speed min",
+                "Speed max",
+                speed_min,
+                speed_max,
+                0.0,
+                100.0,
+                dirty,
+            );
         });
 
     egui::CollapsingHeader::new("Dynamics")
@@ -182,9 +202,32 @@ pub(super) fn draw_generator_particles(
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Seed:");
-                let mut s = seed.to_string();
-                if ui.add(egui::TextEdit::singleline(&mut s)).changed()
-                    && let Ok(parsed) = s.parse::<u64>()
+                // Deferred commit (#1238 f85). This rebuilt its buffer
+                // from the record every frame and wrote back on any
+                // change that happened to parse — so the field could not
+                // be CLEARED and retyped (an empty string does not parse,
+                // and the old number came straight back on the next
+                // frame), and every digit that did parse committed a
+                // partial number and armed an emitter rebuild. The road
+                // "Layout seed" row one file away already worked this way;
+                // now they share the implementation.
+                let out = crate::ui::room::widgets::text_draft_row(
+                    ui,
+                    ("particle_seed", salt),
+                    &seed.to_string(),
+                    150.0,
+                    "Emitter seed — press Enter (or click away) to apply. The \
+                     same seed reproduces the same particles.",
+                    |draft| {
+                        draft
+                            .trim()
+                            .parse::<u64>()
+                            .is_err()
+                            .then(|| String::from("Type a whole number."))
+                    },
+                );
+                if let Some(text) = out.committed
+                    && let Ok(parsed) = text.trim().parse::<u64>()
                 {
                     *seed = parsed;
                     *dirty = true;

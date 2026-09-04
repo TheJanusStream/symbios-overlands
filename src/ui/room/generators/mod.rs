@@ -117,6 +117,31 @@ pub(crate) trait GeneratorTreeSource {
         self.get_root(root)
             .map_or(0, crate::ui::room::caps::node_count)
     }
+    /// Does this source's record instance its roots through PLACEMENTS
+    /// (#1239 f81)?
+    ///
+    /// The world compiler builds exclusively from `record.placements`, so
+    /// a room root with none spawns no entity, no gizmo and no highlight —
+    /// "+ New" is the World Editor's primary create button and it appears
+    /// to do nothing at all. An avatar's visuals tree has no placement
+    /// layer; its roots ARE instanced.
+    fn instances_through_placements(&self) -> bool {
+        false
+    }
+    /// Can a viewport click resolve a face back onto THIS tree (#1237
+    /// f140)?
+    ///
+    /// `pick_on_scene_click` records a face on the room-prim branches and
+    /// the avatar-visuals branch only, and
+    /// [`FacePick::take_for`](crate::editor_gizmo::FacePick::take_for)
+    /// matches on the root those calls produce. A worn item's Parts editor
+    /// renders the same shared detail panel, so it drew a "Pick from
+    /// scene" toggle that could never resolve — and whose stuck arm
+    /// suppressed click-to-deselect everywhere in the app. A source that
+    /// no branch of the pick can address must say so here.
+    fn resolves_face_picks(&self) -> bool {
+        true
+    }
 }
 
 /// Pending destructive tree operations awaiting confirmation (#838):
@@ -159,6 +184,9 @@ impl<'a> RoomTreeSource<'a> {
 }
 
 impl GeneratorTreeSource for RoomTreeSource<'_> {
+    fn instances_through_placements(&self) -> bool {
+        true
+    }
     fn root_names(&self) -> Vec<String> {
         let mut names: Vec<String> = self.record.generators.keys().cloned().collect();
         names.sort();
@@ -306,6 +334,14 @@ impl<'a> AttachmentTreeSource<'a> {
 }
 
 impl GeneratorTreeSource for AttachmentTreeSource<'_> {
+    /// No branch of `pick_on_scene_click` records a face for a worn part
+    /// (#1237 f140), so the Faces panel's "Pick from scene" toggle is
+    /// hidden here rather than offered and unable to work. The face
+    /// dropdown next to it is unaffected — overrides on worn parts are
+    /// fine, it is only the viewport route that has no return path.
+    fn resolves_face_picks(&self) -> bool {
+        false
+    }
     fn root_names(&self) -> Vec<String> {
         vec![self.rkey.clone()]
     }
@@ -371,6 +407,18 @@ pub(crate) fn draw_generators_tab(
     // Click-to-pick face selection (#961), shared with the scene click
     // handler that arms it — the Faces panel's other way in.
     face_pick: &mut crate::editor_gizmo::FacePick,
+    // The signed-in owner's DID (#1239 f78), for the tree's catalogue
+    // menus. See `draw_tree_panel`.
+    owner_did: &str,
+    // Out-channel (#1239 f81): the root the user asked to be PLACED in the
+    // world. Performed by the caller, which is the only level holding the
+    // record's placements, the player's pose and the tab state. `None` at
+    // sources with no placement layer.
+    place_root: &mut Option<String>,
+    // Substring filter over root names (#1244 f414).
+    filter: &mut String,
+    // The editor's one-node clipboard (#1244 f422).
+    clipboard: &mut Option<Generator>,
 ) {
     // Inventory now flows only into the tree panel (for the root-level
     // "+ From Inventory" toolbar, the per-row "+ From Inventory" submenu,
@@ -396,10 +444,44 @@ pub(crate) fn draw_generators_tab(
                 toasts,
                 now,
                 label,
+                owner_did,
+                filter,
+                clipboard,
             );
         });
 
     egui::CentralPanel::default().show(ui, |ui| {
+        // "This exists but is not in the world" (#1239 f81). The concept
+        // split — generator = blueprint, placement = instance — is real
+        // and worth keeping, but it was taught only by failure: "+ New"
+        // put a row in the tree, selected it, and changed nothing in the
+        // 3D view, while "+ From Catalogue" and drag-to-place both DO
+        // produce visible objects. That made the primary create button
+        // look broken rather than different.
+        if source.instances_through_placements()
+            && let Some(root) = selected_generator.as_deref()
+            && selected_prim_path
+                .as_deref()
+                .is_some_and(<[usize]>::is_empty)
+            && source.placement_ref_count(root) == 0
+        {
+            let theme = crate::ui::theme::current(ui.ctx());
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(theme.status.warn, "Not in the world yet.");
+                if ui
+                    .button("Place it at my position")
+                    .on_hover_text(
+                        "Adds a placement pointing at this asset. A region \
+                         asset is a blueprint; a placement is where a copy of \
+                         it stands.",
+                    )
+                    .clicked()
+                {
+                    *place_root = Some(root.to_string());
+                }
+            });
+            ui.separator();
+        }
         detail::draw_detail_panel(
             ui,
             source,
@@ -511,5 +593,109 @@ mod attachment_source_tests {
             .children
             .push(Generator::default_cuboid());
         assert_eq!(item.children.len(), 2, "edits land on the worn copy");
+    }
+
+    /// #1237 f140. Sequence: open a worn hat's Parts editor, click "Pick
+    /// from scene", click the brim — nothing happens, ever, and the button
+    /// stays lit. `pick_on_scene_click` records a face on the room-prim
+    /// and avatar-visuals branches only, and `take_for` matches on a root
+    /// the worn-part branch never produces. The control was visible,
+    /// enabled, unable to work, and its stuck arm suppressed
+    /// click-to-deselect everywhere else in the app.
+    #[test]
+    fn only_trees_a_scene_click_can_address_offer_the_face_picker() {
+        let mut record = crate::pds::RoomRecord::default();
+        assert!(RoomTreeSource::new(&mut record).resolves_face_picks());
+
+        let mut visuals = Generator::default();
+        assert!(
+            AvatarVisualsTreeSource::new(&mut visuals).resolves_face_picks(),
+            "the avatar visuals branch DOES record faces"
+        );
+
+        let mut item = Generator::default();
+        assert!(
+            !AttachmentTreeSource::new("3jzfcijpj2z2a", &mut item).resolves_face_picks(),
+            "a worn part has no return path, so the toggle must not be drawn"
+        );
+    }
+
+    /// #1239 f78. Sequence: add a theme Monument from the TREE's "+ From
+    /// Catalogue" and its portrait panel is permanently blank; add the
+    /// same item by dragging it out of the Catalogue window and your own
+    /// profile picture appears. Both tree entry points passed the empty
+    /// string as the local DID, which every monument threads into a
+    /// `SignSource::DidPfp` at stamp time; the fetch for an empty DID
+    /// fails silently, so the author saw an unexplained grey rectangle
+    /// with no path to a fix short of the Raw JSON tab.
+    #[test]
+    fn a_catalogue_stamp_from_the_tree_carries_the_owner() {
+        let owner = "did:plc:owner";
+        let entry = crate::catalogue::ENTRIES
+            .iter()
+            .find(|e| e.slug() == "ancient_monument")
+            .expect("the ancient monument is catalogued");
+        let stamped = entry.build(owner);
+        let mut dids = Vec::new();
+        collect_pfp_dids(&stamped, &mut dids);
+        assert!(
+            !dids.is_empty(),
+            "precondition: this entry personalises on the owner's DID"
+        );
+        for did in &dids {
+            assert_eq!(did, owner, "the tree menu must stamp the real owner");
+        }
+
+        // …and the empty DID the tree used to pass is exactly what
+        // produces the blank panel.
+        let mut blank = Vec::new();
+        collect_pfp_dids(&entry.build(""), &mut blank);
+        assert!(blank.iter().all(String::is_empty));
+    }
+
+    /// Walk a stamped generator for every `SignSource::DidPfp` DID.
+    #[cfg(test)]
+    fn collect_pfp_dids(node: &Generator, out: &mut Vec<String>) {
+        if let crate::pds::GeneratorKind::Sign { source, .. } = &node.kind
+            && let crate::pds::generator::SignSource::DidPfp { did } = source
+        {
+            out.push(did.clone());
+        }
+        for child in &node.children {
+            collect_pfp_dids(child, out);
+        }
+    }
+
+    /// #1239 f81. Sequence: click "+ New → Cuboid" in the World Editor.
+    /// The row appears and is selected, and absolutely nothing changes in
+    /// the 3D view — the compiler builds exclusively from
+    /// `record.placements`, so a generator with no placement spawns no
+    /// entity, and the gizmo has nothing to attach to either. Nothing in
+    /// the tree, the detail panel or the empty state mentioned it.
+    #[test]
+    fn a_room_root_with_no_placement_is_known_to_be_unplaced() {
+        let mut record = crate::pds::RoomRecord::default();
+        record.placements.clear();
+        record.generators.clear();
+        {
+            let mut source = RoomTreeSource::new(&mut record);
+            assert!(source.instances_through_placements());
+            let name = source
+                .add_root("cuboid", Generator::default())
+                .expect("a fresh room takes a root");
+            assert_eq!(
+                source.placement_ref_count(&name),
+                0,
+                "'+ New' adds a blueprint, not an instance — this is the banner's trigger"
+            );
+        }
+        // An avatar's visuals tree has no placement layer at all, so the
+        // banner must never appear there.
+        let mut visuals = Generator::default();
+        assert!(!AvatarVisualsTreeSource::new(&mut visuals).instances_through_placements());
+        let mut item = Generator::default();
+        assert!(
+            !AttachmentTreeSource::new("3jzfcijpj2z2a", &mut item).instances_through_placements()
+        );
     }
 }

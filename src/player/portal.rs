@@ -67,6 +67,7 @@ pub(super) fn handle_portal_interaction(
     current_room: Option<Res<CurrentRoomDid>>,
     traveling: Option<Res<TravelingTo>>,
     guard: Option<Res<UnsavedGuard>>,
+    modal: Res<crate::ui::confirm::ModalOpen>,
     cooldown: Option<Res<PortalCooldown>>,
     time: Res<Time>,
 ) {
@@ -77,9 +78,12 @@ pub(super) fn handle_portal_interaction(
     if traveling.is_some() {
         return;
     }
-    // An unsaved-edits dialog is already pending (for this portal or for
-    // a logout) — don't stack another action behind it.
-    if guard.is_some() {
+    // A modal is already up — don't stack another action behind it
+    // (#852, widened by #1241 f164). This asked about the unsaved-edits
+    // guard alone, so a player who kept walking under a GIFT OFFER (which
+    // blocks the pointer but not the keys) could raise the guard behind
+    // it: two modals, one of them invisible under the other.
+    if guard.is_some() || modal.0 {
         return;
     }
     // Post-teleport cooldown: keeps a portal-overlapping arrival from
@@ -510,6 +514,7 @@ pub(super) fn release_travel_on_arrival(
         (&mut Position, &mut LinearVelocity, &mut AngularVelocity),
         With<LocalPlayer>,
     >,
+    mut room_editor: Option<ResMut<crate::ui::room::RoomEditorState>>,
 ) {
     let Some(traveling) = traveling.as_deref() else {
         return;
@@ -522,6 +527,17 @@ pub(super) fn release_travel_on_arrival(
     };
     if let Ok((mut pos, mut lin, mut ang)) = players.single_mut() {
         super::hotswap::snap_above_ground(&heightmap.0, &mut pos, &mut lin, &mut ang);
+    }
+    // The selection belonged to the world we LEFT (#1237 f142). Travel
+    // swaps the record, the DID, the socket, the peers, the chat and the
+    // player's pose and never touched the editor state, so an index into
+    // the old room's placements arrived pointing into a stranger's. The
+    // ownership gates elsewhere stop it being *drawn* or *dragged*; this
+    // is the state itself not surviving the journey.
+    if let Some(room_editor) = room_editor.as_deref_mut()
+        && room_editor.has_selection()
+    {
+        room_editor.clear_selection();
     }
     commands.remove_resource::<TravelingTo>();
 }

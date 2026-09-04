@@ -16,6 +16,56 @@ use crate::world_builder::{AttachmentPrim, AvatarVisualPrim, PlacementMarker, Pr
 use super::GizmoDetachedPrim;
 use super::blob::proxy::BlobElementProxy;
 
+/// What a finished gizmo drag actually did to the record (#1237 f144,
+/// #1243 f150).
+///
+/// Every commit path in this module could already refuse — the original
+/// parent despawned mid-drag, a path went stale under a recompile, a
+/// duplicate hit the element cap — and every refusal was a `warn!` to a
+/// console the user does not have. `manage_gizmo_drag` wrote every branch
+/// as `if commit_*(…) { … }` with no `else`, and `sync` keeps the dragged
+/// entity detached at its dropped pose until the selection changes, so the
+/// scene went on showing the move as having succeeded while the record
+/// held the old value. The user's model of "what is saved" diverged from
+/// the record, and they published the wrong thing.
+///
+/// One vocabulary rather than a message per call site, because the three
+/// refusals are one event as far as the user is concerned: the thing you
+/// dragged is not where you left it.
+///
+/// A refusal ALSO forces a rebuild at the call site (`set_changed()` on
+/// the untouched record), because saying so is only half the fix: the
+/// scene must stop showing the move that did not happen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum DragOutcome {
+    /// The record was updated as the gesture asked.
+    Committed,
+    /// The record WAS updated, but a Shift-duplicate became a plain move:
+    /// the blob's element list is full (#1243 f150). The worse of the two
+    /// possible mistakes — the original was moved rather than copied.
+    CopyDegradedToMove,
+    /// Nothing was written. The object was rebuilt or reshaped under the
+    /// drag.
+    Refused,
+}
+
+impl DragOutcome {
+    /// What the user is told, or `None` when the gesture did what it said.
+    pub(super) fn toast(self) -> Option<&'static str> {
+        match self {
+            Self::Committed => None,
+            Self::CopyDegradedToMove => Some(
+                "This blob is at its element limit — the drag moved the element \
+                 instead of copying it.",
+            ),
+            Self::Refused => Some(
+                "That move could not be applied — the object was rebuilt \
+                     mid-drag. Try again.",
+            ),
+        }
+    }
+}
+
 /// Commit a finished drag against the room record. Handles the placement
 /// vs prim split and the copy-on-drag clone path. Returns `true` when
 /// the record was actually mutated — the caller is responsible for
@@ -96,11 +146,16 @@ pub(super) fn commit_room_drag(
         if is_copy && !marker.path.is_empty() {
             if let Some(new_idx) = append_sibling_at_path(generator, &marker.path, Some(new_local))
             {
-                if let Some(path) = editor.selected_prim_path.as_mut()
-                    && let Some(last) = path.last_mut()
-                {
+                let mut new_path = marker.path.clone();
+                if let Some(last) = new_path.last_mut() {
                     *last = new_idx;
                 }
+                select_copy(
+                    editor,
+                    &marker.generator_ref,
+                    new_path,
+                    transform.translation,
+                );
                 return true;
             }
             return false;
@@ -110,6 +165,46 @@ pub(super) fn commit_room_drag(
     }
 
     false
+}
+
+/// Land the editor on the clone a Shift-copy-drag just made (#1237 f145).
+///
+/// The copy path used to rewrite `selected_prim_path`'s last index and
+/// nothing else — but the TREE is the source of truth: after every draw
+/// `draw_tree_panel` reads `tree_view_state.selected()` back over
+/// `selected_generator` / `selected_prim_path`, so the next World-Editor
+/// frame reverted the selection to the original. The gizmo and the
+/// highlight jumped back to the object that had not moved, and the user's
+/// next drag silently edited the wrong node — against the documented
+/// contract of one of the four gestures the Controls sheet teaches.
+///
+/// These are the same fields `MenuChoice::DuplicateItem` writes, which is
+/// the duplicate path that always got it right.
+fn select_copy(
+    editor: &mut RoomEditorState,
+    generator_ref: &str,
+    new_path: Vec<usize>,
+    world_pos: Vec3,
+) {
+    editor.selected_generator = Some(generator_ref.to_string());
+    editor.selected_prim_path = Some(new_path.clone());
+    editor
+        .tree_view_state
+        .set_selected(vec![crate::ui::room::GenNodeId::child(
+            generator_ref.to_string(),
+            new_path.clone(),
+        )]);
+    editor.pending_tree_focus = true;
+    // …and the instance preference, or the gizmo falls back to
+    // camera-proximity ranking and can land on a different copy of a
+    // scattered generator than the one just dropped. `world_pos` is the
+    // detached entity's transform, which for a prim under the gizmo is
+    // world-space — the drop point itself.
+    editor.preferred_pick = Some(crate::ui::room::PreferredPick {
+        generator_ref: generator_ref.to_string(),
+        path: new_path,
+        pos: world_pos,
+    });
 }
 
 /// Commit a finished drag against the avatar's visuals tree. Returns
@@ -387,7 +482,7 @@ fn commit_transform_at_path(
 /// menu's in-place Duplicate (#824). Returns the new sibling's
 /// child-index on success; `None` if `path` is empty (root has no
 /// parent to clone into) or invalid. Avatar prims do not support copy.
-pub(super) fn append_sibling_at_path(
+pub(crate) fn append_sibling_at_path(
     generator: &mut Generator,
     path: &[usize],
     new_local: Option<Transform>,
@@ -620,5 +715,54 @@ mod scatter_commit_tests {
             }
             other => panic!("variant changed: {other:?}"),
         }
+    }
+
+    /// #1237 f144 / #1243 f150. Sequence: drag a prop, let go; it stays
+    /// where you dropped it; later something rebuilds and it snaps back
+    /// with no memory of anything having gone wrong. Every commit refusal
+    /// in this module was a `warn!` to a console the user does not have,
+    /// and `manage_gizmo_drag` wrote every branch with no `else` at all.
+    #[test]
+    fn every_outcome_but_success_says_something() {
+        assert_eq!(DragOutcome::Committed.toast(), None, "no noise on success");
+        let refused = DragOutcome::Refused.toast().expect("a refusal must speak");
+        assert!(refused.contains("could not be applied"), "{refused}");
+        let degraded = DragOutcome::CopyDegradedToMove
+            .toast()
+            .expect("a copy that became a move must speak");
+        assert!(degraded.contains("limit"), "{degraded}");
+        assert_ne!(refused, degraded, "they are different events");
+    }
+
+    /// #1237 f145. Sequence: Shift-drag a window sub-part to make a second
+    /// one. The copy appears where you dropped it, then the gizmo and the
+    /// highlight jump back to the ORIGINAL, and your next drag moves the
+    /// original instead of the copy. The copy path rewrote
+    /// `selected_prim_path`'s last index and nothing else — but
+    /// `draw_tree_panel` reads `tree_view_state.selected()` back over
+    /// those fields after every draw, so the tree, which still named the
+    /// original, won.
+    #[test]
+    fn a_copy_drag_hands_the_tree_the_clone_not_the_original() {
+        let mut editor = RoomEditorState::default();
+        editor.selected_generator = Some("house".into());
+        editor.selected_prim_path = Some(vec![2, 0]);
+
+        select_copy(&mut editor, "house", vec![2, 1], Vec3::new(4.0, 1.0, -2.0));
+
+        assert_eq!(editor.selected_prim_path.as_deref(), Some(&[2, 1][..]));
+        // The tree is the source of truth — it must name the clone, or the
+        // very next World-Editor draw reverts the selection.
+        assert_eq!(
+            editor.tree_view_state.selected().as_slice(),
+            [crate::ui::room::GenNodeId::child(
+                "house".to_string(),
+                vec![2, 1]
+            )]
+        );
+        assert!(editor.pending_tree_focus, "the row has to be revealed");
+        let pick = editor.preferred_pick.expect("the instance preference");
+        assert_eq!(pick.path, vec![2, 1]);
+        assert_eq!(pick.pos, Vec3::new(4.0, 1.0, -2.0));
     }
 }

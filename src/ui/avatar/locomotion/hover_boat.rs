@@ -4,9 +4,10 @@ use bevy_egui::egui;
 
 use super::{LocomotionPanel, fp_slider, fp3_extents};
 use crate::pds::HoverBoatParams;
+use crate::ui::modes::LocalMovement;
 
 impl LocomotionPanel for HoverBoatParams {
-    fn draw(&mut self, ui: &mut egui::Ui, dirty: &mut bool) {
+    fn draw(&mut self, ui: &mut egui::Ui, dirty: &mut bool, _facts: &LocalMovement) {
         egui::CollapsingHeader::new("Chassis")
             .default_open(true)
             .show(ui, |ui| {

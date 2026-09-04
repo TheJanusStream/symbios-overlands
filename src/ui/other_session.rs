@@ -128,6 +128,12 @@ pub fn other_session_room_ui(
             )
             .small(),
         );
+        // This modal deliberately does NOT take Esc (#1236 f53): both
+        // answers are consequential and there is no third, non-destructive
+        // one to make a dismissal mean. A silent refusal reads as a hang,
+        // so the refusal is stated instead.
+        ui.add_space(4.0);
+        ui.small("Choose one to continue — this dialog has no dismiss.");
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             if ui.button("Keep my edits").clicked() {

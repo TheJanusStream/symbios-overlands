@@ -75,7 +75,7 @@ pub(crate) mod gait;
 mod helicopter;
 mod hotswap;
 mod hover_boat;
-mod humanoid;
+pub mod humanoid;
 mod portal;
 mod preset;
 mod respawn;
@@ -91,6 +91,7 @@ pub(crate) use portal::begin_portal_travel;
 pub use preset::{
     AirplanePreset, CarPreset, HelicopterPreset, HoverBoatPreset, HumanoidPreset, VehicleChassis,
 };
+pub use respawn::{PlayerMove, PlayerMoveRequest, go_to_pose, return_to_spawn_blocked};
 pub(crate) use rigged::RiggedRoot;
 
 use avian3d::prelude::*;
@@ -102,15 +103,32 @@ use crate::state::{AppState, LocalPlayer};
 use crate::ui::avatar::AvatarEditorState;
 use crate::ui::unsaved_guard::UnsavedGuard;
 
-/// Run condition: an [`UnsavedGuard`] modal is up (#852). egui modals
-/// block the pointer but NOT game keys, so without this the player could
-/// WASD away from a portal mid-"Unpublished changes" decision and
-/// "Publish & travel" would fire from wherever they had drifted. The
-/// five input-driven drive systems (and the jump latch) gate on
-/// `not(this)`; passive physics (suspension, stabilisation, gravity)
-/// keeps running, same policy as the egui-focus gate.
-fn guard_modal_open(guard: Option<Res<UnsavedGuard>>) -> bool {
-    guard.is_some()
+/// Run condition: SOME modal dialog owns attention (#852, widened by
+/// #1241 f164). egui modals block the pointer but NOT game keys, so
+/// without this the player could WASD away from a portal
+/// mid-"Unpublished changes" decision and "Publish & travel" would fire
+/// from wherever they had drifted. The five input-driven drive systems
+/// (and the jump latch) gate on `not(this)`; passive physics (suspension,
+/// stabilisation, gravity) keeps running, same policy as the egui-focus
+/// gate.
+///
+/// This asked `Option<Res<UnsavedGuard>>` and therefore knew about
+/// exactly ONE of the app's six modals. The drive systems also gate on
+/// `not(egui_wants_any_keyboard_input)`, which covers the rename dialog
+/// (it focuses its field) and the login/reauth forms — but a
+/// BUTTONS-ONLY dialog focuses no widget at all, which is the whole
+/// reason `confirm::note_modal_open` exists. So a gift offer from a
+/// stranger, or a destructive confirm, blocked every click while W kept
+/// walking the avatar into a portal — and stacked a second modal behind
+/// the first. [`ModalOpen`](crate::ui::confirm::ModalOpen) is the ECS
+/// mirror of that stamp; `mirror_modal_open` writes it in `PreUpdate`,
+/// so the FixedUpdate steps later in the same frame read this frame's
+/// answer.
+pub(crate) fn guard_modal_open(
+    guard: Option<Res<UnsavedGuard>>,
+    modal: Res<crate::ui::confirm::ModalOpen>,
+) -> bool {
+    guard.is_some() || modal.0
 }
 
 // Corner offsets in local space for the four suspension rays. The
@@ -250,6 +268,11 @@ impl Plugin for PlayerPlugin {
                     // sky whenever a text field grabbed the keyboard).
                     helicopter::apply_helicopter_stabilization,
                     airplane::apply_airplane_aerodynamics,
+                    // The fourth preset's righting assist (#1240 f162),
+                    // ungated like the car's and the hover-boat's: a
+                    // flipped aircraft keeps righting even while the owner
+                    // types in a chat field.
+                    airplane::apply_airplane_uprighting.run_if(not(avatar_visuals_row_selected)),
                     // Disable keyboard-driven control systems while the
                     // owner is typing in an egui text field — otherwise
                     // WASD-heavy chat messages steer the vehicle through
@@ -293,10 +316,20 @@ impl Plugin for PlayerPlugin {
                     .run_if(in_state(AppState::InGame)),
             )
             .init_resource::<humanoid::JumpQueued>()
+            .init_resource::<respawn::PlayerMoveRequest>()
+            .init_resource::<crate::ui::modes::LocalMovement>()
             .add_systems(
                 Update,
                 (
                     freeze_local_avatar_while_editing,
+                    // The owner's unstuck command (#1240 f159). `Update`,
+                    // not `FixedUpdate`: it is a one-shot position write
+                    // answering a click, not part of the physics step.
+                    respawn::apply_player_move,
+                    // The swim/wade classification, for the mode banner
+                    // (#1241 f160). UNGATED on egui focus, unlike the
+                    // drive systems it mirrors — see its own doc.
+                    humanoid::publish_movement_facts,
                     // Same gates as `apply_humanoid_walk`, so a space typed
                     // into chat (or pressed under a guard modal) never
                     // queues a jump for the moment focus returns (#852).

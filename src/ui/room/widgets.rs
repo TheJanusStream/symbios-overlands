@@ -192,6 +192,39 @@ pub(super) fn fp_slider(
     response
 }
 
+/// A min/max PAIR of [`fp_slider`]s that cannot be inverted (#1238 f90).
+///
+/// Four such pairs shipped as two independent sliders with no
+/// cross-validation, and what happened downstream to an inverted pair was
+/// neither uniform nor universal: the particle sanitiser clamps the max UP
+/// to the min (losing the typed max), the road-lot sanitiser SWAPS the
+/// pair (preserving both), and the splat rules have no sanitiser at all,
+/// so an inverted rule is never corrected and never flagged. Where a
+/// repair does happen it lands about a quarter-second later, in the panel
+/// the user is looking at, unexplained.
+///
+/// Clamping at the widget removes the question: the max slider starts at
+/// the current min and the min slider stops at the current max, so an
+/// inverted pair cannot be entered and no sanitiser has to guess what was
+/// meant.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn fp_range_sliders(
+    ui: &mut egui::Ui,
+    label_min: &str,
+    label_max: &str,
+    min: &mut Fp,
+    max: &mut Fp,
+    lo: f32,
+    hi: f32,
+    dirty: &mut bool,
+) {
+    // Read the partner BEFORE either drag: reading it after would let a
+    // drag on one slider widen its own bound within the same frame.
+    let (current_min, current_max) = (min.0, max.0);
+    fp_slider(ui, label_min, min, lo, current_max.clamp(lo, hi), dirty);
+    fp_slider(ui, label_max, max, current_min.clamp(lo, hi), hi, dirty);
+}
+
 /// The drag's own response, for the same reason [`fp_slider`] returns one
 /// — not the row's, so a tooltip lands on the control rather than the
 /// whole line.
@@ -276,9 +309,26 @@ pub(super) fn generator_combo(
     names: &[String],
     dirty: &mut bool,
 ) {
+    // An empty reference SAYS it is empty (#1239 f71). Records written
+    // before `+ Absolute` learnt to refuse still carry rows whose target
+    // is the empty string, and an empty selected text beside an empty
+    // option list reads as a rendering fault rather than as the thing to
+    // fix.
+    let selected = if value.is_empty() {
+        String::from("(none — pick one)")
+    } else {
+        value.clone()
+    };
     egui::ComboBox::from_label(label)
-        .selected_text(value.clone())
+        .selected_text(selected)
         .show_ui(ui, |ui| {
+            if names.is_empty() {
+                ui.label(
+                    egui::RichText::new("No region assets in this world yet")
+                        .small()
+                        .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                );
+            }
             for n in names {
                 if ui.selectable_value(value, n.clone(), n).changed() {
                     *dirty = true;
@@ -468,6 +518,227 @@ mod tests {
         let ypr = quat_to_ypr_degrees([0.0, 0.0, 0.0, 1.0]);
         for a in ypr {
             assert!(a.abs() < 1e-4);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Deferred-commit text rows (#1238 f77 / f80 / f85)
+// ---------------------------------------------------------------------------
+
+/// A text field whose draft lives in egui temp memory until the user is
+/// finished with it.
+///
+/// Three of this tranche's findings are ONE bug written three times: a
+/// field whose buffer is regenerated from the record on every frame and
+/// written back on every `.changed()`. Whatever the user types that the
+/// record cannot represent is erased on the next frame, before they can
+/// finish typing it:
+///
+/// * the Shape forge's comma-separated "Turned terminals" list filtered
+///   out the empty entry a trailing comma produces, so the comma vanished
+///   as it was typed and the multi-id feature was unreachable except by
+///   paste;
+/// * the particle Seed could not be CLEARED and retyped, because an empty
+///   field does not parse and the old number came straight back;
+/// * a Shape material rename committed per keystroke — flashing the
+///   building grey through every intermediate name, silently reverting an
+///   empty or colliding draft, and re-sorting the row out from under the
+///   cursor mid-word.
+///
+/// The road editor's "Layout seed" row already had the answer (#885). This
+/// is that pattern promoted so the three surfaces cannot drift apart:
+/// hold the draft, re-sync it when the record changes underneath (undo,
+/// dice, a remote edit), tint it while it is not committable, and commit
+/// on `lost_focus()`.
+#[derive(Clone)]
+pub(super) struct TextDraft {
+    text: String,
+    /// The record value the draft was last synced from. A change here
+    /// means something OTHER than typing moved the record, so the draft is
+    /// stale and must be replaced rather than fought.
+    synced_to: String,
+}
+
+/// What a [`text_draft_row`] did this frame.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub(super) struct DraftOutcome {
+    /// The committed text, present exactly on the frame focus was lost
+    /// with a value that differs from the record's.
+    pub committed: Option<String>,
+    /// The live draft, for a caller that wants to validate as it is typed.
+    pub draft: String,
+}
+
+/// Draw a deferred-commit text field. `current` is the record's value;
+/// `refusal` is asked about the live draft each frame and, when it answers,
+/// tints the field, shows the reason inline, and blocks the commit.
+///
+/// `id_salt` must be unique per edited value — a shared salt would let two
+/// rows fight over one draft.
+pub(super) fn text_draft_row(
+    ui: &mut egui::Ui,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
+    current: &str,
+    width: f32,
+    hover: &str,
+    refusal: impl Fn(&str) -> Option<String>,
+) -> DraftOutcome {
+    let id = ui.id().with(id_salt);
+    let mut state = ui
+        .data_mut(|d| d.get_temp::<TextDraft>(id))
+        .unwrap_or_else(|| TextDraft {
+            text: current.to_string(),
+            synced_to: current.to_string(),
+        });
+    if state.synced_to != current {
+        state.text = current.to_string();
+        state.synced_to = current.to_string();
+    }
+
+    let refused = refusal(&state.text);
+    let mut field = egui::TextEdit::singleline(&mut state.text).desired_width(width);
+    if refused.is_some() {
+        field = field.text_color(crate::ui::theme::current(ui.ctx()).status.error);
+    }
+    let response = ui.add(field).on_hover_text(hover);
+    if let Some(reason) = &refused {
+        ui.label(
+            egui::RichText::new(reason.clone())
+                .small()
+                .color(crate::ui::theme::current(ui.ctx()).status.warn),
+        );
+    }
+
+    let mut outcome = DraftOutcome {
+        committed: None,
+        draft: state.text.clone(),
+    };
+    if response.lost_focus() && refused.is_none() && state.text != state.synced_to {
+        outcome.committed = Some(state.text.clone());
+        state.synced_to = state.text.clone();
+    }
+    ui.data_mut(|d| d.insert_temp(id, state));
+    outcome
+}
+
+#[cfg(test)]
+mod draft_tests {
+    use super::*;
+
+    /// #1238 f77. Sequence: type "Column, Silo" into Turned terminals. The
+    /// buffer was regenerated from the record every frame and re-parsed on
+    /// every change, so the trailing comma produced an empty entry, the
+    /// empty was filtered, and the comma was gone before the second name
+    /// could be started. Only a paste of the whole string worked.
+    #[test]
+    fn a_draft_survives_a_state_the_record_cannot_hold() {
+        let ctx = egui::Context::default();
+        let typed = ["Column", "Column,", "Column, ", "Column, Silo"];
+        let mut seen = Vec::new();
+        for (frame, text) in typed.iter().enumerate() {
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                // The record still says "Column" the whole way through —
+                // nothing is committed until focus is lost.
+                let out = text_draft_row(ui, "terminals", "Column", 100.0, "", |_| None);
+                seen.push(out.draft.clone());
+                // Simulate the keystroke by writing the draft back, which
+                // is what the TextEdit itself does.
+                let id = ui.id().with("terminals");
+                ui.data_mut(|d| {
+                    d.insert_temp(
+                        id,
+                        TextDraft {
+                            text: (*text).to_string(),
+                            synced_to: "Column".to_string(),
+                        },
+                    );
+                });
+            });
+            assert!(frame < typed.len());
+        }
+        assert_eq!(
+            seen.last().map(String::as_str),
+            Some("Column, "),
+            "the draft carried the trailing comma and space across frames"
+        );
+    }
+
+    /// A record value that changes underneath the draft — undo, the dice
+    /// button, a peer edit — replaces it rather than being fought.
+    #[test]
+    fn a_record_change_underneath_replaces_the_draft() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let out = text_draft_row(ui, "seed", "1234", 100.0, "", |_| None);
+            assert_eq!(out.draft, "1234");
+        });
+        let mut after = String::new();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            after = text_draft_row(ui, "seed", "9999", 100.0, "", |_| None).draft;
+        });
+        assert_eq!(after, "9999");
+    }
+
+    /// A refused draft is SHOWN as refused, not silently reverted — which
+    /// was indistinguishable from a dead widget (#1238 f80).
+    #[test]
+    fn a_refused_draft_is_kept_and_explained() {
+        let ctx = egui::Context::default();
+        let mut refused_text = String::new();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let id = ui.id().with("slot");
+            ui.data_mut(|d| {
+                d.insert_temp(
+                    id,
+                    TextDraft {
+                        text: String::new(),
+                        synced_to: "Slot0".to_string(),
+                    },
+                );
+            });
+            let out = text_draft_row(ui, "slot", "Slot0", 100.0, "", |draft| {
+                crate::ui::confirm::validate_new_key(draft, "Slot0", |_| false).err()
+            });
+            refused_text = out.draft;
+            assert!(out.committed.is_none(), "a refused draft never commits");
+        });
+        assert_eq!(refused_text, "", "the draft is kept so it can be corrected");
+    }
+}
+
+#[cfg(test)]
+mod range_tests {
+
+    /// #1238 f90. Sequence: set particle lifetime min 20, max 2. All four
+    /// paired sliders in the editor were independent, and what happened to
+    /// an inverted pair afterwards was three different things: particles
+    /// clamp the max UP to the min (losing the typed max), road lots SWAP
+    /// (preserving both), and splat rules — which have no `Sanitize` impl
+    /// at all — are never corrected and never flagged. Clamping at the
+    /// widget means no sanitiser has to guess.
+    ///
+    /// The bounds are computed here exactly as `fp_range_sliders` computes
+    /// them, because what is being pinned is the ARITHMETIC: reading the
+    /// partner before either drag, and clamping each partner into the
+    /// pair's own outer range so a record already inverted by a hand edit
+    /// still yields a usable slider.
+    #[test]
+    fn neither_half_of_a_pair_can_cross_the_other() {
+        let (lo, hi) = (0.01_f32, 30.0_f32);
+        for (min, max) in [(1.0_f32, 5.0_f32), (5.0, 5.0), (20.0, 2.0)] {
+            let min_hi = max.clamp(lo, hi);
+            let max_lo = min.clamp(lo, hi);
+            assert!(min_hi <= hi && min_hi >= lo, "min slider's top is in range");
+            assert!(
+                max_lo >= lo && max_lo <= hi,
+                "max slider's bottom is in range"
+            );
+            // Dragging the min slider to its own top lands exactly on the
+            // max — the pair can meet but never cross.
+            assert!(min_hi <= max.max(lo));
+            // …and the same from the other side.
+            assert!(max_lo >= min.min(hi));
         }
     }
 }

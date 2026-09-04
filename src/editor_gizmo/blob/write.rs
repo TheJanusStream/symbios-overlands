@@ -140,20 +140,34 @@ pub(crate) fn apply_local_to_element(e: &mut BlobElement, tf: &Transform) {
     }
 }
 
-/// Write the committed element into the generator tree. Returns the index
-/// the edit landed at (`index`, or `index + 1` for a duplicate) so the
-/// caller can move the selection onto it; `None` when the tree reshaped
-/// mid-drag and the write was skipped.
+/// Where an element drag landed, and whether it did what was asked
+/// (#1243 f150).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct ElementLanding {
+    /// The element index the edit landed at — `index`, or `index + 1` for
+    /// a duplicate — so the caller can move the selection onto it.
+    pub index: usize,
+    /// A Shift-duplicate that became a plain MOVE because the element
+    /// list is full. The user asked for a copy and got their original
+    /// moved instead, which is the worse of the two possible mistakes and
+    /// was reported nowhere.
+    pub degraded_to_move: bool,
+}
+
+/// Write the committed element into the generator tree. `None` when the
+/// tree reshaped mid-drag and the write was skipped.
 ///
 /// A duplicate against a full element list degrades to a plain move — the
-/// user still gets the pose they dragged to, minus the copy.
+/// user still gets the pose they dragged to, minus the copy — and SAYS so
+/// through [`ElementLanding::degraded_to_move`] (#1243 f150). Before that
+/// the caller saw an index either way and simply moved the selection.
 fn commit_element_into_generator(
     root: &mut Generator,
     path: &[usize],
     index: usize,
     local: &Transform,
     duplicate: bool,
-) -> Option<usize> {
+) -> Option<ElementLanding> {
     let node = super::node_at_path_mut(root, path)?;
     let GeneratorKind::BlobGroup { elements, .. } = &mut node.kind else {
         return None;
@@ -162,10 +176,16 @@ fn commit_element_into_generator(
     apply_local_to_element(&mut edited, local);
     if duplicate && elements.len() < MAX_BLOB_ELEMENTS {
         elements.insert(index + 1, edited);
-        Some(index + 1)
+        Some(ElementLanding {
+            index: index + 1,
+            degraded_to_move: false,
+        })
     } else {
         elements[index] = edited;
-        Some(index)
+        Some(ElementLanding {
+            index,
+            degraded_to_move: duplicate,
+        })
     }
 }
 
@@ -178,7 +198,7 @@ pub(crate) fn commit_blob_element_drag(
     local: &Transform,
     room_record: Option<&mut crate::pds::RoomRecord>,
     avatar_record: Option<&mut crate::state::LiveAvatarRecord>,
-) -> Option<usize> {
+) -> Option<ElementLanding> {
     match info.key.target {
         ActiveTarget::Room => {
             let generator_ref = info.key.generator_ref.as_ref()?;
@@ -422,7 +442,13 @@ mod tests {
         let mut root = blob_node(vec![sphere_at([0.0; 3], 0.25), sphere_at([1.0; 3], 0.25)]);
         let local = Transform::from_xyz(2.0, 3.0, 4.0).with_scale(Vec3::splat(0.5));
         let landed = commit_element_into_generator(&mut root, &[], 1, &local, false);
-        assert_eq!(landed, Some(1));
+        assert_eq!(
+            landed,
+            Some(ElementLanding {
+                index: 1,
+                degraded_to_move: false
+            })
+        );
         let GeneratorKind::BlobGroup { elements, .. } = &root.kind else {
             panic!("kind changed");
         };
@@ -438,7 +464,13 @@ mod tests {
         let mut root = blob_node(vec![sphere_at([0.0; 3], 0.25)]);
         let local = Transform::from_xyz(5.0, 0.0, 0.0).with_scale(Vec3::splat(0.25));
         let landed = commit_element_into_generator(&mut root, &[], 0, &local, true);
-        assert_eq!(landed, Some(1));
+        assert_eq!(
+            landed,
+            Some(ElementLanding {
+                index: 1,
+                degraded_to_move: false
+            })
+        );
         let GeneratorKind::BlobGroup { elements, .. } = &root.kind else {
             panic!("kind changed");
         };
@@ -453,7 +485,17 @@ mod tests {
         let mut root = blob_node(vec![sphere_at([0.0; 3], 0.25); MAX_BLOB_ELEMENTS]);
         let local = Transform::from_xyz(5.0, 0.0, 0.0).with_scale(Vec3::splat(0.25));
         let landed = commit_element_into_generator(&mut root, &[], 0, &local, true);
-        assert_eq!(landed, Some(0));
+        // #1243 f150: the degrade is now REPORTED, not merely documented.
+        // The caller saw an index either way and silently moved the
+        // selection, so a Shift-drag that destroyed the original looked
+        // exactly like one that copied it.
+        assert_eq!(
+            landed,
+            Some(ElementLanding {
+                index: 0,
+                degraded_to_move: true
+            })
+        );
         let GeneratorKind::BlobGroup { elements, .. } = &root.kind else {
             panic!("kind changed");
         };

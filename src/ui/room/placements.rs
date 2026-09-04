@@ -47,15 +47,172 @@ fn placement_label(index: usize, placement: &Placement) -> String {
     }
 }
 
+/// The Placements list's own state, bundled (#1244 f414 / f415).
+///
+/// A seeded settlement hands the owner several hundred machine-authored
+/// rows on arrival, interleaved with their own, in raw record order with
+/// no filter, no sort and no grouping — and the single control that looked
+/// like a filter (`draw_biome_filter`) edits a RECORD field on the
+/// selected scatter, filtering terrain layers at compile time rather than
+/// the list.
+pub(super) struct PlacementList<'a> {
+    pub filter: &'a mut String,
+    pub sort: &'a mut crate::ui::room::PlacementSort,
+    /// Rows selected BESIDE the anchor. The anchor stays the gizmo target.
+    pub extra: &'a mut Vec<usize>,
+    /// The shared confirm the bulk delete parks behind, carrying the rows
+    /// it will remove.
+    pub bulk_delete: &'a mut crate::ui::confirm::ConfirmState<Vec<usize>>,
+}
+
+/// The rows to draw, in display order (#1244 f414).
+///
+/// Returns record INDICES, never a reordered record: the index is the
+/// placement's identity to the gizmo, the visualiser, the detail panel and
+/// the delete path, so display order and storage order have to stay
+/// separate things. Pure, which is the only way this is testable.
+pub(super) fn visible_rows(
+    placements: &[Placement],
+    filter: &str,
+    sort: crate::ui::room::PlacementSort,
+) -> Vec<usize> {
+    use crate::ui::room::PlacementSort;
+    let needle = filter.trim().to_lowercase();
+    let mut rows: Vec<usize> = placements
+        .iter()
+        .enumerate()
+        .filter(|(i, p)| {
+            // Filter on the row's OWN text — which already embeds the
+            // generator name — so "where are this asset's placements" is
+            // answered for free.
+            needle.is_empty() || placement_label(*i, p).to_lowercase().contains(&needle)
+        })
+        .map(|(i, _)| i)
+        .collect();
+    match sort {
+        PlacementSort::Order => {}
+        PlacementSort::Generator => {
+            rows.sort_by_key(|&i| (placement_target(&placements[i]).to_lowercase(), i))
+        }
+        PlacementSort::Kind => rows.sort_by_key(|&i| (placement_kind_rank(&placements[i]), i)),
+    }
+    rows
+}
+
+/// The anchor plus its sidecar rows, in ascending order (#1244 f415).
+fn selected_rows(anchor: Option<usize>, extra: &[usize]) -> Vec<usize> {
+    let mut all: Vec<usize> = anchor.into_iter().chain(extra.iter().copied()).collect();
+    all.sort_unstable();
+    all.dedup();
+    all
+}
+
+/// Point a placement at a different generator (#1244 f415). `Unknown` is
+/// left alone: the editor refuses to write into a schema it cannot read.
+fn retarget_placement(placement: &mut Placement, target: &str) {
+    match placement {
+        Placement::Absolute { generator_ref, .. }
+        | Placement::Scatter { generator_ref, .. }
+        | Placement::Grid { generator_ref, .. } => *generator_ref = target.to_string(),
+        Placement::Unknown => {}
+    }
+}
+
+/// The generator a placement points at, or `""` for an unknown variant.
+fn placement_target(placement: &Placement) -> &str {
+    match placement {
+        Placement::Absolute { generator_ref, .. }
+        | Placement::Scatter { generator_ref, .. }
+        | Placement::Grid { generator_ref, .. } => generator_ref,
+        Placement::Unknown => "",
+    }
+}
+
+/// Stable rank for the Kind sort: Absolute, Scatter, Grid, Unknown.
+fn placement_kind_rank(placement: &Placement) -> u8 {
+    match placement {
+        Placement::Absolute { .. } => 0,
+        Placement::Scatter { .. } => 1,
+        Placement::Grid { .. } => 2,
+        Placement::Unknown => 3,
+    }
+}
+
+/// What a click on a placement row does, given the modifiers (#1244 f415).
+///
+/// Pure so the range arithmetic is testable: the shift-range is taken over
+/// the DISPLAY order, not the record order, or a filtered or re-sorted
+/// list would select rows the user cannot see.
+pub(super) fn click_selection(
+    rows: &[usize],
+    clicked: usize,
+    anchor: Option<usize>,
+    shift: bool,
+    ctrl: bool,
+    extra: &[usize],
+) -> (Option<usize>, Vec<usize>) {
+    if shift
+        && let Some(anchor) = anchor
+        && let (Some(from), Some(to)) = (
+            rows.iter().position(|&i| i == anchor),
+            rows.iter().position(|&i| i == clicked),
+        )
+    {
+        let (lo, hi) = if from <= to { (from, to) } else { (to, from) };
+        // The anchor stays the anchor: extending a range must not move the
+        // gizmo, or a 40-row shift-click would re-target it 40 times.
+        let extra = rows[lo..=hi]
+            .iter()
+            .copied()
+            .filter(|&i| i != anchor)
+            .collect();
+        return (Some(anchor), extra);
+    }
+    if ctrl {
+        let mut extra = extra.to_vec();
+        match anchor {
+            Some(a) if a == clicked => {
+                // Ctrl-clicking the anchor promotes the next selected row.
+                let next = extra.first().copied();
+                extra.retain(|&i| Some(i) != next);
+                return (next, extra);
+            }
+            _ => {
+                if let Some(pos) = extra.iter().position(|&i| i == clicked) {
+                    extra.remove(pos);
+                    return (anchor, extra);
+                }
+                if let Some(a) = anchor {
+                    extra.push(a);
+                }
+                return (Some(clicked), extra);
+            }
+        }
+    }
+    (Some(clicked), Vec::new())
+}
+
+/// Remove several placements at once, highest index first so the earlier
+/// removals cannot shift the later ones (#1244 f415).
+pub(super) fn remove_placements(placements: &mut Vec<Placement>, mut rows: Vec<usize>) {
+    rows.sort_unstable();
+    rows.dedup();
+    for index in rows.into_iter().rev() {
+        if index < placements.len() {
+            placements.remove(index);
+        }
+    }
+}
+
 /// The player's ground position as an anchor for a fresh placement —
 /// `[x, z]` when the pose is known, world origin otherwise.
-fn anchor_xz(player_pose: Option<PlayerPose>) -> [f32; 2] {
+pub(super) fn anchor_xz(player_pose: Option<PlayerPose>) -> [f32; 2] {
     player_pose.map(|p| [p.x, p.z]).unwrap_or([0.0, 0.0])
 }
 
 /// Fresh `Absolute` at the player's feet: snapped, so Y is a surface
 /// offset and 0 lands it exactly on the ground at the anchor.
-fn new_absolute_placement(target: String, anchor: [f32; 2]) -> Placement {
+pub(super) fn new_absolute_placement(target: String, anchor: [f32; 2]) -> Placement {
     Placement::Absolute {
         generator_ref: target,
         transform: TransformData {
@@ -108,6 +265,7 @@ fn new_grid_placement(target: String, anchor: [f32; 2]) -> Placement {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_placements_tab(
     ui: &mut egui::Ui,
     record: &mut RoomRecord,
@@ -118,6 +276,10 @@ pub(super) fn draw_placements_tab(
     // Undo-entry label channel (#865): add/remove name themselves;
     // detail-panel widget edits fall back to the tab-level label.
     label: &mut crate::ui::undo::LabelSlot,
+    // Finding a row, and operating on more than one of them (#1244 f414 /
+    // f415): the substring filter, the display order, the extra selected
+    // rows, and the confirm the bulk delete parks behind.
+    list: PlacementList<'_>,
 ) {
     // Sorted: `record.generators` is a HashMap, so unsorted keys would put
     // the combos in nondeterministic hash order (varying between sessions).
@@ -165,10 +327,29 @@ pub(super) fn draw_placements_tab(
                     .color(crate::ui::room::caps::tone_color(ui, tone)),
             );
             ui.horizontal(|ui| {
+                // Refused with no region asset to point at (#1239 f71).
+                // The cap gate was already here; what was missing is the
+                // one its two SIBLINGS have always had — `+ Scatter` and
+                // `+ Grid` refuse an ineligible target for exactly this
+                // reason. Unconditionally enabled, `+ Absolute` took
+                // `all_names.first().unwrap_or_default()` — the EMPTY
+                // string — and minted a row reading "#0 Absolute › " that
+                // spawns nothing, survives `sanitize` (only Scatter/Grid
+                // with ineligible targets are dropped), and is published;
+                // its Generator dropdown is empty, so it cannot be
+                // repaired either.
+                let absolute_refusal = if full {
+                    full_reason.as_str()
+                } else {
+                    "Add a region asset first — a placement has to point at one"
+                };
                 if ui
-                    .add_enabled(!full, egui::Button::new("+ Absolute").small())
+                    .add_enabled(
+                        !full && !all_names.is_empty(),
+                        egui::Button::new("+ Absolute").small(),
+                    )
                     .on_hover_text("Add a single placement at your position")
-                    .on_disabled_hover_text(&full_reason)
+                    .on_disabled_hover_text(absolute_refusal)
                     .clicked()
                 {
                     label.set("add of absolute placement");
@@ -223,7 +404,83 @@ pub(super) fn draw_placements_tab(
             });
             ui.separator();
 
+            // Find a row (#1244 f414). The filter runs over the row's own
+            // label, which already embeds the generator name.
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(list.filter)
+                        .desired_width(120.0)
+                        .hint_text("Filter…"),
+                )
+                .on_hover_text("Show only rows whose label contains this text");
+                egui::ComboBox::from_id_salt("placement_sort")
+                    .selected_text(list.sort.label())
+                    .width(90.0)
+                    .show_ui(ui, |ui| {
+                        for option in crate::ui::room::PlacementSort::ALL {
+                            ui.selectable_value(list.sort, option, option.label());
+                        }
+                    });
+            });
+
+            let rows = visible_rows(&record.placements, list.filter, *list.sort);
+            if !list.filter.trim().is_empty() {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} of {} rows",
+                        rows.len(),
+                        record.placements.len()
+                    ))
+                    .small()
+                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                );
+            }
+
+            // Bulk actions (#1244 f415). Rendered only with more than one
+            // row selected — a single selection has its own per-row
+            // controls and the detail panel beside it.
+            let mut selection = selected_rows(*selected, list.extra);
+            let mut retarget: Option<String> = None;
+            if selection.len() > 1 {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("Selected ({})", selection.len())).strong(),
+                    );
+                    if ui
+                        .add(crate::ui::confirm::danger_button(
+                            "Delete",
+                            &crate::ui::theme::current(ui.ctx()),
+                        ))
+                        .clicked()
+                    {
+                        list.bulk_delete.request(
+                            "Delete these placements?",
+                            format!(
+                                "{} placements will be removed from this world. \
+                                 The region assets they point at are kept.",
+                                selection.len()
+                            ),
+                            "Delete",
+                            selection.clone(),
+                        );
+                    }
+                    ui.label("Retarget to:");
+                    egui::ComboBox::from_id_salt("placement_retarget")
+                        .selected_text("Pick an asset…")
+                        .width(140.0)
+                        .show_ui(ui, |ui| {
+                            for name in &all_names {
+                                if ui.button(name).clicked() {
+                                    retarget = Some(name.clone());
+                                }
+                            }
+                        });
+                });
+                ui.separator();
+            }
+
             let mut to_remove: Option<usize> = None;
+            let (shift, ctrl) = ui.input(|i| (i.modifiers.shift, i.modifiers.command));
             egui::ScrollArea::vertical()
                 .id_salt("placements_list")
                 .auto_shrink([false, false])
@@ -234,14 +491,30 @@ pub(super) fn draw_placements_tab(
                                 .small()
                                 .color(crate::ui::theme::current(ui.ctx()).text_weak),
                         );
+                    } else if rows.is_empty() {
+                        ui.label(
+                            egui::RichText::new("(no rows match the filter)")
+                                .small()
+                                .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                        );
                     }
-                    for (i, p) in record.placements.iter().enumerate() {
+                    for i in &rows {
+                        let i = *i;
+                        let p = &record.placements[i];
                         ui.horizontal(|ui| {
+                            let picked = *selected == Some(i) || list.extra.contains(&i);
                             if ui
-                                .selectable_label(*selected == Some(i), placement_label(i, p))
+                                .selectable_label(picked, placement_label(i, p))
+                                .on_hover_text(
+                                    "Shift-click to extend the selection · Ctrl-click to \
+                                     add or remove one row",
+                                )
                                 .clicked()
                             {
-                                *selected = Some(i);
+                                let (anchor, extra) =
+                                    click_selection(&rows, i, *selected, shift, ctrl, list.extra);
+                                *selected = anchor;
+                                *list.extra = extra;
                             }
                             if crate::ui::affordances::remove_button(ui, "Delete this placement")
                                 .clicked()
@@ -251,6 +524,30 @@ pub(super) fn draw_placements_tab(
                         });
                     }
                 });
+
+            if let Some(target) = retarget {
+                selection = selected_rows(*selected, list.extra);
+                for &index in &selection {
+                    if let Some(p) = record.placements.get_mut(index) {
+                        retarget_placement(p, &target);
+                    }
+                }
+                label.set(format!(
+                    "retarget of {} placements to {target}",
+                    selection.len()
+                ));
+                *dirty = true;
+            }
+            if let Some(rows) = list.bulk_delete.show(ui.ctx(), "placements-bulk") {
+                label.set(format!("remove of {} placements", rows.len()));
+                remove_placements(&mut record.placements, rows);
+                // Every remaining index above a removal shifted; nothing
+                // survives the renumbering meaningfully, so the selection
+                // goes rather than pointing somewhere arbitrary.
+                *selected = None;
+                list.extra.clear();
+                *dirty = true;
+            }
             if let Some(idx) = to_remove {
                 label.set(format!(
                     "remove of {}",
@@ -265,6 +562,13 @@ pub(super) fn draw_placements_tab(
                     Some(s) if s > idx => Some(s - 1),
                     other => other,
                 };
+                // The sidecar selection is renumbered by the same rule.
+                list.extra.retain(|&s| s != idx);
+                for s in list.extra.iter_mut() {
+                    if *s > idx {
+                        *s -= 1;
+                    }
+                }
                 *dirty = true;
             }
         });
@@ -312,17 +616,16 @@ fn draw_placement_detail(
             avoid_water_clearance,
         } => {
             generator_combo(ui, "Generator", generator_ref, all_names, dirty);
-            if ui
-                .checkbox(snap_to_terrain, "Snap to Terrain")
-                .on_hover_text(
-                    "Snapped: the anchor sits ON the terrain, and Y is an \
-                     offset from that surface (drag the gizmo vertically or \
-                     edit Y to float/sink it). Turning snap ON drops the \
-                     object onto the surface; turning it OFF keeps it where \
-                     it is (Y becomes absolute).",
-                )
-                .changed()
-            {
+            if snap_toggle(
+                ui,
+                snap_to_terrain,
+                heightmap,
+                "Snapped: the anchor sits ON the terrain, and Y is an \
+                 offset from that surface (drag the gizmo vertically or \
+                 edit Y to float/sink it). Turning snap ON drops the \
+                 object onto the surface; turning it OFF keeps it where \
+                 it is (Y becomes absolute).",
+            ) {
                 // Compile semantics for Absolute: snapped world Y =
                 // terrain(x, z) + authored Y; unsnapped world Y =
                 // authored Y.
@@ -432,15 +735,14 @@ fn draw_placement_detail(
             random_yaw,
         } => {
             generator_combo(ui, "Generator", generator_ref, eligible_names, dirty);
-            if ui
-                .checkbox(snap_to_terrain, "Snap to Terrain")
-                .on_hover_text(
-                    "Snapped: the grid anchor sits at the terrain height under \
-                     it (its Y is ignored). Toggling writes that height into Y \
-                     so the grid stays where it is.",
-                )
-                .changed()
-            {
+            if snap_toggle(
+                ui,
+                snap_to_terrain,
+                heightmap,
+                "Snapped: the grid anchor sits at the terrain height under \
+                 it (its Y is ignored). Toggling writes that height into Y \
+                 so the grid stays where it is.",
+            ) {
                 // Compile semantics for Grid REPLACE the anchor Y with the
                 // terrain height while snapped, so the stay-in-place rebase
                 // is the same in both directions: store the ground height
@@ -524,21 +826,73 @@ fn draw_placement_detail(
     }
 }
 
+/// The "Snap to Terrain" checkbox, refused with a reason while there is no
+/// heightmap to snap against (#1238 f60).
+///
+/// Both snap rebases depend on `FinishedHeightMap`, and the resource is
+/// REMOVED for the whole duration of a terrain regeneration — i.e. exactly
+/// after any terrain edit, which is the most likely moment to be
+/// re-seating placements. Without it, un-snapping an `Absolute` left the
+/// authored offset (usually 0) as an absolute world Y and the object
+/// dropped to sea level, while `Grid` left its anchor Y stale in the other
+/// direction; `*dirty` fired either way, so the wrong pose was committed
+/// and broadcast. The checkbox's own hover text promised the opposite —
+/// "turning it OFF keeps it where it is".
+///
+/// Returns true on the frame the value changed, so the callers keep their
+/// existing `if … { rebase }` shape.
+fn snap_toggle(
+    ui: &mut egui::Ui,
+    snap_to_terrain: &mut bool,
+    heightmap: Option<&crate::terrain::FinishedHeightMap>,
+    hover: &str,
+) -> bool {
+    let mut value = *snap_to_terrain;
+    let response = ui
+        .add_enabled(
+            heightmap.is_some(),
+            egui::Checkbox::new(&mut value, "Snap to Terrain"),
+        )
+        .on_hover_text(hover)
+        .on_disabled_hover_text(
+            "Waiting for the terrain rebuild — snapping needs a heightmap, and \
+             toggling without one would move this object.",
+        );
+    if response.changed() {
+        *snap_to_terrain = value;
+        return true;
+    }
+    false
+}
+
 fn draw_scatter_bounds(ui: &mut egui::Ui, bounds: &mut ScatterBounds, dirty: &mut bool) {
     ui.label("Bounds");
     let is_circle = matches!(bounds, ScatterBounds::Circle { .. });
     let mut circle = is_circle;
+    // A shape change is not a move (#1238 f64). Both arms used to build
+    // the new bounds with a hard-coded `center: [0, 0]`, so squaring off a
+    // scatter placed 400 m from spawn teleported the whole stand to the
+    // world origin — and the coordinates it had were gone from the UI, so
+    // recovery meant noticing and undoing. Radius↔extents carries too: a
+    // circle's radius becomes the rect's half-extents and back, so the
+    // patch keeps roughly the ground it covered.
+    let (center, span) = match bounds {
+        ScatterBounds::Circle { center, radius } => (*center, Fp2([radius.0, radius.0])),
+        ScatterBounds::Rect {
+            center, extents, ..
+        } => (*center, *extents),
+    };
     if ui.radio_value(&mut circle, true, "Circle").clicked() && !is_circle {
         *bounds = ScatterBounds::Circle {
-            center: Fp2([0.0, 0.0]),
-            radius: Fp(64.0),
+            center,
+            radius: Fp(((span.0[0] + span.0[1]) * 0.5).clamp(1.0, 1024.0)),
         };
         *dirty = true;
     }
     if ui.radio_value(&mut circle, false, "Rect").clicked() && is_circle {
         *bounds = ScatterBounds::Rect {
-            center: Fp2([0.0, 0.0]),
-            extents: Fp2([64.0, 64.0]),
+            center,
+            extents: span,
             rotation: Fp(0.0),
         };
         *dirty = true;
@@ -816,5 +1170,177 @@ mod tests {
             }
             other => panic!("expected Grid, got {other:?}"),
         }
+    }
+
+    /// #1238 f64. Sequence: place a scatter around a clearing 400 m from
+    /// spawn, then switch its bounds from Circle to Rect to square it off
+    /// — the whole stand teleports to the world origin, and the
+    /// coordinates it had are gone from the UI. Both arms built the new
+    /// bounds with a hard-coded `center: [0, 0]`, three lines from
+    /// `new_scatter_placement`, which uses the very same centre-binding
+    /// pattern to preserve one.
+    ///
+    /// Exercises the pure half of the swap — the same expression the radio
+    /// arms read — rather than driving egui radio buttons.
+    #[test]
+    fn a_bounds_shape_change_keeps_the_patch_where_it_is() {
+        fn carry(bounds: &ScatterBounds) -> (Fp2, Fp2) {
+            match bounds {
+                ScatterBounds::Circle { center, radius } => (*center, Fp2([radius.0, radius.0])),
+                ScatterBounds::Rect {
+                    center, extents, ..
+                } => (*center, *extents),
+            }
+        }
+        let circle = ScatterBounds::Circle {
+            center: Fp2([-400.0, 120.0]),
+            radius: Fp(30.0),
+        };
+        let (center, span) = carry(&circle);
+        assert_eq!(center.0, [-400.0, 120.0], "a shape change is not a move");
+        assert_eq!(span.0, [30.0, 30.0], "and the patch keeps its ground");
+
+        let rect = ScatterBounds::Rect {
+            center: Fp2([12.0, -8.0]),
+            extents: Fp2([50.0, 10.0]),
+            rotation: Fp(30.0),
+        };
+        let (center, span) = carry(&rect);
+        assert_eq!(center.0, [12.0, -8.0]);
+        let radius = ((span.0[0] + span.0[1]) * 0.5).clamp(1.0, 1024.0);
+        assert!((radius - 30.0).abs() < 1e-6, "{radius}");
+    }
+
+    fn abs(target: &str) -> Placement {
+        new_absolute_placement(target.to_string(), [0.0, 0.0])
+    }
+
+    /// #1244 f414. Sequence: a seeded settlement hands the owner several
+    /// hundred machine-authored placements on arrival, interleaved with
+    /// their own, in raw record order with no filter, no sort and no
+    /// grouping — and the only control that looked like a filter
+    /// (`draw_biome_filter`) edits a RECORD field on the selected scatter.
+    /// The filter runs over the row's own label, which already embeds the
+    /// generator name, so "where are this asset's placements" is answered
+    /// for free.
+    #[test]
+    fn the_list_can_be_filtered_and_reordered_without_touching_the_record() {
+        use crate::ui::room::PlacementSort;
+        let placements = vec![
+            abs("oak_17"),
+            new_scatter_placement("birch".into(), [0.0, 0.0]),
+            abs("oak_2"),
+            new_grid_placement("aspen".into(), [0.0, 0.0]),
+        ];
+        // Unfiltered, unsorted: every row, in record order.
+        assert_eq!(
+            visible_rows(&placements, "", PlacementSort::Order),
+            vec![0, 1, 2, 3]
+        );
+        // Substring, case-insensitively, over the row label.
+        assert_eq!(
+            visible_rows(&placements, "OAK", PlacementSort::Order),
+            vec![0, 2]
+        );
+        assert!(visible_rows(&placements, "nothing", PlacementSort::Order).is_empty());
+        // Grouped by target — the question the finding leads with.
+        assert_eq!(
+            visible_rows(&placements, "", PlacementSort::Generator),
+            vec![3, 1, 0, 2]
+        );
+        // …and by kind: Absolute, Scatter, Grid.
+        assert_eq!(
+            visible_rows(&placements, "", PlacementSort::Kind),
+            vec![0, 2, 1, 3]
+        );
+        // The rows are INDICES into the untouched record: the index is the
+        // placement's identity to the gizmo, the visualiser and the
+        // delete path, so display order and storage order stay separate.
+        assert_eq!(placements.len(), 4);
+    }
+
+    /// #1244 f415. Sequence: select forty placements and delete them. The
+    /// selection was a single `Option<usize>` and every removal was one
+    /// red "−" per row, so a 200-row cleanup was 200 clicks. The ANCHOR
+    /// never moves while a range is extended — otherwise a 40-row
+    /// shift-click would re-target the gizmo forty times.
+    #[test]
+    fn shift_and_ctrl_click_build_a_selection_without_moving_the_anchor() {
+        let rows = vec![0, 1, 2, 3, 4];
+        // A plain click replaces everything.
+        let (anchor, extra) = click_selection(&rows, 2, Some(0), false, false, &[1]);
+        assert_eq!(anchor, Some(2));
+        assert!(extra.is_empty());
+
+        // Shift extends from the anchor, in DISPLAY order, and the anchor
+        // stays where it was.
+        let (anchor, mut extra) = click_selection(&rows, 4, Some(1), true, false, &[]);
+        assert_eq!(anchor, Some(1));
+        extra.sort_unstable();
+        assert_eq!(extra, vec![2, 3, 4]);
+
+        // …including backwards.
+        let (anchor, mut extra) = click_selection(&rows, 0, Some(3), true, false, &[]);
+        assert_eq!(anchor, Some(3));
+        extra.sort_unstable();
+        assert_eq!(extra, vec![0, 1, 2]);
+
+        // Ctrl adds one row, and Ctrl again on the same row removes it.
+        let (anchor, extra) = click_selection(&rows, 4, Some(1), false, true, &[]);
+        assert_eq!(anchor, Some(4));
+        assert_eq!(extra, vec![1]);
+        let (anchor, extra) = click_selection(&rows, 1, Some(4), false, true, &[1]);
+        assert_eq!(anchor, Some(4));
+        assert!(
+            extra.is_empty(),
+            "ctrl-clicking a selected row deselects it"
+        );
+    }
+
+    /// The shift-range follows the DISPLAY order, not the record order —
+    /// or a filtered or re-sorted list would select rows the user cannot
+    /// see (#1244 f414 + f415 meeting).
+    #[test]
+    fn a_range_over_a_reordered_list_selects_only_visible_rows() {
+        let rows = vec![7, 2, 9];
+        let (anchor, mut extra) = click_selection(&rows, 9, Some(7), true, false, &[]);
+        assert_eq!(anchor, Some(7));
+        extra.sort_unstable();
+        assert_eq!(extra, vec![2, 9], "the hidden rows between them stay out");
+    }
+
+    /// #1244 f415. Removing several rows at once must not let an earlier
+    /// removal shift a later index — the classic way a bulk delete takes
+    /// the wrong things with it.
+    #[test]
+    fn a_bulk_delete_removes_exactly_the_chosen_rows() {
+        let mut placements = vec![abs("a"), abs("b"), abs("c"), abs("d"), abs("e")];
+        remove_placements(&mut placements, vec![1, 3, 3]);
+        let names: Vec<&str> = placements.iter().map(placement_target).collect();
+        assert_eq!(names, vec!["a", "c", "e"]);
+        // An out-of-range index is ignored rather than panicking.
+        remove_placements(&mut placements, vec![99]);
+        assert_eq!(placements.len(), 3);
+    }
+
+    /// #1244 f415. Retargeting after an asset revision is the commonest
+    /// large-world edit and had no supported route at all short of the
+    /// Raw JSON tab. `Unknown` is left alone — the editor refuses to write
+    /// into a schema it cannot read.
+    #[test]
+    fn retarget_rewrites_every_known_variant_and_skips_the_unknown() {
+        let mut rows = [
+            abs("shed"),
+            new_scatter_placement("shed".into(), [0.0, 0.0]),
+            new_grid_placement("shed".into(), [0.0, 0.0]),
+            Placement::Unknown,
+        ];
+        for p in rows.iter_mut() {
+            retarget_placement(p, "shed_v2");
+        }
+        assert_eq!(placement_target(&rows[0]), "shed_v2");
+        assert_eq!(placement_target(&rows[1]), "shed_v2");
+        assert_eq!(placement_target(&rows[2]), "shed_v2");
+        assert!(matches!(rows[3], Placement::Unknown));
     }
 }

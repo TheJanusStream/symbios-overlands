@@ -46,8 +46,8 @@ use super::{ActiveTarget, GizmoDetachedPrim, GizmoFramePref, determine_active_ta
 /// `PostUpdate` (transforms propagated, this frame's gizmo host known).
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn draw_selection_highlight(
-    mut gizmos: Gizmos,
-    panels: Res<crate::ui::toolbar::UiPanels>,
+    mut gizmos: Gizmos<crate::editor_gizmo::EditorOverlayGizmos>,
+    access: crate::ui::toolbar::RoomEditAccess,
     room_state: Res<RoomEditorState>,
     avatar_state: Res<AvatarEditorState>,
     blob_ctx: Res<BlobEditContext>,
@@ -65,17 +65,58 @@ pub(super) fn draw_selection_highlight(
     bounds_query: Query<(&Aabb, &GlobalTransform)>,
     frame_pref: Res<GizmoFramePref>,
     transforms: Query<&GlobalTransform>,
+    proxies: Query<(Entity, &crate::editor_gizmo::blob::proxy::BlobElementProxy)>,
 ) {
     // Element sculpting owns the in-scene picture (#705): wireframe +
-    // proxies. A whole-node box on top would only add noise.
-    if blob_ctx.active.is_some() && blob_ctx.selected_element.is_some() {
+    // proxies. A whole-node box on top would only add noise — but the
+    // SELECTED element gets the ordinary amber box (#1243 f151). Element
+    // identity was carried entirely by hue and alpha: add is green, carve
+    // is red — the canonical unsafe pair — and "selected" is the same hue
+    // at 0.55 instead of 0.28, read through a translucent wireframe shell.
+    // For concentric elements the gizmo handles sit at the same point too,
+    // so there was no way at all to tell which of eight overlapping ghosts
+    // a drag would reshape. One box, in the app's one selection colour, is
+    // a non-colour, non-alpha channel and unifies the vocabulary.
+    if blob_ctx.active.is_some()
+        && let Some(index) = blob_ctx.selected_element
+    {
+        let selected = Color::srgba(
+            cfg::SELECTED_COLOR[0],
+            cfg::SELECTED_COLOR[1],
+            cfg::SELECTED_COLOR[2],
+            cfg::SELECTED_COLOR[3],
+        );
+        for (entity, proxy) in proxies.iter() {
+            if !blob_ctx.hosts(proxy.blob_entity) {
+                continue;
+            }
+            if proxy.index == index {
+                draw_subtree_box(
+                    &mut gizmos,
+                    entity,
+                    selected,
+                    None,
+                    &children,
+                    &bounds_query,
+                );
+            }
+            // The carve cue: a cross through the element's centre, in the
+            // wire colour. A SHAPE channel, so add-vs-carve no longer rests
+            // on green-against-red alone.
+            if proxy.is_carve()
+                && let Ok(tf) = transforms.get(entity)
+            {
+                draw_carve_cross(&mut gizmos, tf, entity, &children, &bounds_query);
+            }
+        }
         return;
     }
 
     let mut active = determine_active_target(&room_state, &avatar_state);
-    // Mirror the sync gate: the room gizmo (and therefore its highlight)
-    // exists only while the World-editor window is open.
-    if active == ActiveTarget::Room && !panels.world_editor {
+    // Mirror the sync gate exactly, ownership included (#1237 f142): the
+    // room gizmo — and therefore its highlight — exists only while the
+    // World-editor window is open on a room the user owns.
+    if active == ActiveTarget::Room && !access.can_edit_room() {
         active = ActiveTarget::None;
     }
 
@@ -264,7 +305,7 @@ pub(crate) fn subtree_world_bounds(
 /// an approximation (shear is not representable) — the same
 /// approximation the gizmo handles themselves live with.
 fn draw_subtree_box(
-    gizmos: &mut Gizmos,
+    gizmos: &mut Gizmos<crate::editor_gizmo::EditorOverlayGizmos>,
     root: Entity,
     color: Color,
     frame: Option<Quat>,
@@ -316,6 +357,28 @@ fn merge_bounds(acc: Option<(Vec3, Vec3)>, point: Vec3) -> (Vec3, Vec3) {
     match acc {
         None => (point, point),
         Some((min, max)) => (min.min(point), max.max(point)),
+    }
+}
+
+/// Mark a carving blob element with a cross through its centre (#1243
+/// f151). A shape channel beside the hue one, sized to the element's own
+/// bounds so a small carve gets a small cross.
+fn draw_carve_cross(
+    gizmos: &mut Gizmos<crate::editor_gizmo::EditorOverlayGizmos>,
+    tf: &GlobalTransform,
+    entity: Entity,
+    children: &Query<&Children>,
+    bounds_query: &Query<(&Aabb, &GlobalTransform)>,
+) {
+    let Some((min, max)) = subtree_world_bounds(entity, None, children, bounds_query) else {
+        return;
+    };
+    let half = ((max - min) * 0.5).max_element().max(0.02);
+    let centre = tf.translation();
+    let carve = crate::config::ui::blob_edit::PROXY_CARVE_COLOR;
+    let colour = Color::srgba(carve[0], carve[1], carve[2], 1.0);
+    for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+        gizmos.line(centre - axis * half, centre + axis * half, colour);
     }
 }
 

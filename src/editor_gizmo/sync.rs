@@ -33,7 +33,7 @@ use super::{ActiveTarget, GizmoDetachedPrim, GizmoFramePref, determine_active_ta
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn sync_gizmo_selection(
     mut commands: Commands,
-    panels: Res<crate::ui::toolbar::UiPanels>,
+    access: crate::ui::toolbar::RoomEditAccess,
     room_state: Res<RoomEditorState>,
     avatar_state: Res<AvatarEditorState>,
     blob_ctx: Res<BlobEditContext>,
@@ -131,7 +131,12 @@ pub(super) fn sync_gizmo_selection(
     // restores it), but the gizmo itself detaches. The tab gates below
     // (Region Assets → prims, Placements → placements) already restrict
     // WHICH room selection can carry it.
-    if active == ActiveTarget::Room && !panels.world_editor {
+    //
+    // …and only in a room the user OWNS (#1237 f142). The window flag
+    // alone was not enough: it stays true for a visitor, so a selection
+    // carried through a gateway kept a live gizmo in a stranger's world
+    // whose drag commits rewrote their record locally.
+    if active == ActiveTarget::Room && !access.can_edit_room() {
         active = ActiveTarget::None;
     }
 
@@ -486,10 +491,19 @@ pub(super) fn sync_gizmo_selection(
 ///
 /// * `Absolute` / `Grid` — translate + rotate (both written verbatim;
 ///   scale is owned by the generator tree, as before).
-/// * `Scatter` — translate ONLY (user decision, 2026-07-16): the GUI
-///   shows bounds, not a transform, and a Rect's angle is the Bounds
-///   "Rotation (deg)" slider — a gizmo rotation was discarded (Circle)
-///   or half-kept (Rect yaw), reading as a bug.
+/// * `Scatter` — HORIZONTAL translate only (user decision, 2026-07-16 for
+///   rotate; #1243… see below for Y). The GUI shows bounds, not a
+///   transform, and a Rect's angle is the Bounds "Rotation (deg)" slider —
+///   a gizmo rotation was discarded (Circle) or half-kept (Rect yaw),
+///   reading as a bug. The vertical handles were the same bug still live
+///   (#1237 f146): `write_transform_into_placement` stores X and Z into
+///   the bounds CENTRE and a `ScatterBounds` has no Y field at all, so a
+///   Y drag lifted the patch while held and dropped it back on release —
+///   the compile re-derives the anchor Y from the terrain. Dropping
+///   `TranslateY`, `TranslateXY`, `TranslateYZ` and `TranslateView`
+///   (which moves along the view forward axis, so it has a Y component
+///   from almost every camera) leaves exactly the gestures the commit
+///   keeps.
 /// * `Unknown` — nothing: the commit refuses to write into a schema it
 ///   doesn't know, so no handle should promise otherwise.
 /// * `None` (record momentarily unavailable) — the pre-#827 set, so a
@@ -498,7 +512,9 @@ fn placement_modes(placement: Option<&Placement>) -> EnumSet<GizmoMode> {
     let mut modes = EnumSet::new();
     match placement {
         Some(Placement::Scatter { .. }) => {
-            modes.insert_all(GizmoMode::all_translate());
+            modes.insert(GizmoMode::TranslateX);
+            modes.insert(GizmoMode::TranslateZ);
+            modes.insert(GizmoMode::TranslateXZ);
         }
         Some(Placement::Unknown) => {}
         Some(Placement::Absolute { .. }) | Some(Placement::Grid { .. }) | None => {
@@ -1097,7 +1113,11 @@ mod mode_tests {
     #[test]
     fn scatter_gets_translate_only_handles() {
         let modes = placement_modes(Some(&scatter()));
-        for m in GizmoMode::all_translate() {
+        for m in [
+            GizmoMode::TranslateX,
+            GizmoMode::TranslateZ,
+            GizmoMode::TranslateXZ,
+        ] {
             assert!(modes.contains(m), "missing translate mode {m:?}");
         }
         for m in GizmoMode::all_rotate() {
@@ -1106,6 +1126,36 @@ mod mode_tests {
         for m in GizmoMode::all_scale() {
             assert!(!modes.contains(m), "placements never scale: {m:?}");
         }
+    }
+
+    /// #1237 f146. Sequence: select a scatter of trees, drag the green Y
+    /// arrow to lift the patch — it lifts while held, then drops straight
+    /// back on release with no explanation. `write_transform_into_placement`
+    /// stores X and Z into the bounds centre, and a `ScatterBounds` has no
+    /// Y field at all; the compile re-derives the anchor Y from the
+    /// terrain. This is the same class of bug #827 removed the ROTATION
+    /// handle for, still live for translation on the one variant with no
+    /// Y — against this function's own stated contract, "only the gestures
+    /// the commit actually keeps, so no drag silently evaporates".
+    #[test]
+    fn a_scatter_offers_no_handle_that_can_move_it_vertically() {
+        let modes = placement_modes(Some(&scatter()));
+        for m in [
+            GizmoMode::TranslateY,
+            GizmoMode::TranslateXY,
+            GizmoMode::TranslateYZ,
+            // The view-forward handle has a Y component from all but a
+            // perfectly level camera, so it promises the same thing.
+            GizmoMode::TranslateView,
+        ] {
+            assert!(
+                !modes.contains(m),
+                "{m:?} promises a vertical move a ScatterBounds cannot store"
+            );
+        }
+        // The horizontal ones the commit DOES keep are still there.
+        assert!(modes.contains(GizmoMode::TranslateX));
+        assert!(modes.contains(GizmoMode::TranslateZ));
     }
 
     #[test]

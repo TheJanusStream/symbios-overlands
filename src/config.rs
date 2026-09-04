@@ -116,12 +116,44 @@ pub(crate) mod rover {
     /// degenerated (the chassis is dead-inverted — a saddle it could perch on),
     /// so the assist falls back to the roll axis to tip it off its roof.
     pub const CAR_UPRIGHT_DEGENERATE_SQ: f32 = 1.0e-4;
+
+    // --- Airplane uprighting (#1240 f162) ------------------------------------
+    // The airplane was the only preset of four with no righting assist, so a
+    // plane that flipped onto its back on flat ground sat there with cruise
+    // thrust grinding it into the terrain and the fall respawn unable to fire.
+    // Constants rather than record fields (unlike the car's, which #876
+    // promoted): these are recovery behaviour, not feel to author.
+    /// Tilt past which the airplane's righting assist engages, in degrees
+    /// off world-up. Generous compared with the car's default, because a
+    /// plane legitimately banks: below this a roll is flying, not a crash.
+    pub const AIRPLANE_UPRIGHT_ENGAGE_TILT_DEGREES: f32 = 120.0;
+    /// Restoring angular acceleration of the assist (rad/s², times mass).
+    pub const AIRPLANE_UPRIGHT_ASSIST_ACCEL: f32 = 6.0;
+    /// Spin damping, so the assist settles level instead of oscillating.
+    pub const AIRPLANE_UPRIGHT_ASSIST_DAMPING: f32 = 3.0;
+    /// Tilt past which the passive cruise thrust is cut, in degrees off
+    /// world-up. Tighter than the engage tilt: an inverted plane under
+    /// thrust is driving itself INTO the ground, and the assist should not
+    /// have to fight the engine to lift it off.
+    pub const AIRPLANE_THRUST_CUT_TILT_DEGREES: f32 = 100.0;
     /// Metres *below local ground* at which the rover is considered fallen
     /// through the terrain and respawned. Using a ground-relative delta
     /// rather than an absolute world-Y threshold keeps the respawn system
     /// from soft-locking on rooms whose `height_scale` sinks the entire
     /// heightmap far below the origin.
     pub const FALL_BELOW_GROUND: f32 = 20.0;
+    /// Metres beyond the heightmap's half-extent at which the player is
+    /// considered to have LEFT the world and is returned to spawn (#1240
+    /// f169), and the width of the band over which the hover-boat's
+    /// buoyancy fades out.
+    ///
+    /// The fall test cannot cover this: `respawn_if_fallen` samples the
+    /// heightmap with the coordinates clamped INTO the extent, so past the
+    /// edge the ground reference is the boundary height and an aircraft
+    /// cruising above it never falls 20 m below anything. One margin for
+    /// both because the boat must be recovered before its lift is gone,
+    /// not after.
+    pub const WORLD_EDGE_MARGIN: f32 = 100.0;
 
     // --- Chassis -------------------------------------------------------------
     pub const LINEAR_DAMPING: f32 = 1.5;

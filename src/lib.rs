@@ -632,6 +632,11 @@ pub fn run() {
                 .run_if(in_state(AppState::InGame))
                 .run_if(resource_exists::<ui::other_session::OtherSessionRoom>),
         )
+        // ECS mirror of the egui modal stamp (#1236, read by #1241's
+        // movement gate). PreUpdate so the FixedUpdate drive systems later
+        // in the same frame see this frame's answer, not last frame's.
+        .init_resource::<ui::confirm::ModalOpen>()
+        .add_systems(PreUpdate, ui::confirm::mirror_modal_open)
         // Global keyboard shortcuts (#836): Esc back-out ladder,
         // Enter-to-chat, Ctrl+S publish, Ctrl+Z/Ctrl+Shift+Z undo (#864).
         // Update (not the egui pass) so the ladder's state checks land
@@ -648,10 +653,23 @@ pub fn run() {
                 .chain()
                 .run_if(in_state(AppState::InGame)),
         )
+        // Any dismissal of the Controls sheet ends its first-run pinning
+        // (#1235 f36) — including the two that never reach its renderer.
+        .add_systems(
+            Update,
+            ui::toolbar::latch_controls_seen.run_if(in_state(AppState::InGame)),
+        )
         // A compile that hit the entity budget says so once (#1211).
         .add_systems(
             Update,
             ui::room::announce_compile_truncation.run_if(in_state(AppState::InGame)),
+        )
+        // The invisible-mode banner (#1240 f170, #1241 f160/f161): held
+        // still under a gizmo, an unrecognised locomotion preset, and the
+        // swim/wade key remap all had NO surface anywhere.
+        .add_systems(
+            EguiPrimaryContextPass,
+            ui::modes::movement_mode_ui.run_if(in_state(AppState::InGame)),
         )
         // Gateway destination picker (#748): the zone watcher opens/closes
         // the picker from the player's sensor overlap, the window renders

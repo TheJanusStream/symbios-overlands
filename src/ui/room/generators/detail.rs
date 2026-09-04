@@ -98,6 +98,16 @@ pub(super) fn draw_detail_panel(
         source.allowed_kinds_for_child()
     };
 
+    // How many placements point at this root (#1244 f424). The count was
+    // already computed — by `placement_ref_count` — and shown in exactly
+    // two places, BOTH inside the destructive path: the delete confirm's
+    // body and the undo label after it is answered. So the only way to
+    // learn whether a generator was used anywhere was to start deleting
+    // it: the action that reveals the number is the one that destroys the
+    // thing. Orphans are the natural sediment of a long session (catalogue
+    // stamps never placed, assets superseded by a v2) and each still costs
+    // a PDS child record, room bytes and one of the 256 slots.
+    let placement_uses = is_root.then(|| source.placement_ref_count(&id.root));
     ui.horizontal(|ui| {
         if is_root {
             ui.heading(&id.root);
@@ -105,6 +115,27 @@ pub(super) fn draw_detail_panel(
                 egui::RichText::new(format!("({})", kind_tag))
                     .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
+            if let Some(uses) = placement_uses {
+                let th = crate::ui::theme::current(ui.ctx());
+                let (text, colour) = if uses == 0 {
+                    (String::from("· not placed in the world"), th.status.warn)
+                } else {
+                    (
+                        format!(
+                            "· used by {uses} placement{}",
+                            if uses == 1 { "" } else { "s" }
+                        ),
+                        th.text_weak,
+                    )
+                };
+                ui.label(egui::RichText::new(text).small().color(colour))
+                    .on_hover_text(
+                        "A region asset is a blueprint; a placement is where \
+                         a copy of it stands. An asset with no placements is \
+                         still saved, and still counts against this world's \
+                         asset limit.",
+                    );
+            }
         } else {
             ui.heading(kind_tag);
             ui.label(
@@ -124,6 +155,10 @@ pub(super) fn draw_detail_panel(
     // between the click and this draw) from painting whichever node happens
     // to be selected now.
     let picked_face = face_pick.take_for(&id.root, &id.path);
+    // #1237 f140: only trees a scene click can address back to may offer
+    // "Pick from scene". Read here, before the source is borrowed for the
+    // node lookup below.
+    let source_resolves_face_picks = source.resolves_face_picks();
 
     // Resolved BEFORE the mutable node borrow below: which nodes the
     // terrain plugin actually reads roads from (#886/#895).
@@ -162,6 +197,21 @@ pub(super) fn draw_detail_panel(
         }
 
         ui.add_space(4.0);
+        // #1243 f152: a ROOT's in-world gizmo has no translate handles
+        // (`prim_modes`), and the panel drew the Translation boxes anyway
+        // — handles silently disappearing, contradicted three inches away
+        // by a numeric field that does the forbidden thing. Say which is
+        // which, the way the neighbouring restrictions already do.
+        if id.path.is_empty() {
+            ui.label(
+                egui::RichText::new(
+                    "This is a root: set its position here or on its Placement. \
+                     The in-world gizmo rotates and scales it.",
+                )
+                .small()
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
+            );
+        }
         draw_transform(ui, &mut node.transform, dirty);
         ui.add_space(4.0);
         ui.separator();
@@ -181,7 +231,8 @@ pub(super) fn draw_detail_panel(
                     road_stats,
                     FacePickUi {
                         picked: picked_face,
-                        armed: &mut face_pick.armed,
+                        resolvable: source_resolves_face_picks,
+                        pick: face_pick,
                     },
                 );
 
@@ -789,12 +840,19 @@ fn draw_road_editor(
             let lots = &mut config.lots;
             ui.horizontal(|ui| {
                 ui.label("Building scale");
+                // Bounded against each other (#1238 f90). This pair was
+                // repaired downstream by SWAPPING — a third convention
+                // beside the particles' clamp-to-min and the splat rules'
+                // nothing at all, applied ~0.25 s after the drag with no
+                // message. Ranges read before either drag, so a drag on
+                // one cannot widen its own bound within the frame.
+                let (min, max) = (lots.scale_min.0, lots.scale_max.0);
                 let mut changed = false;
                 changed |= ui
                     .add(
                         egui::DragValue::new(&mut lots.scale_min.0)
                             .speed(0.05)
-                            .range(0.1..=5.0),
+                            .range(0.1..=max.clamp(0.1, 5.0)),
                     )
                     .changed();
                 ui.label("to");
@@ -802,7 +860,7 @@ fn draw_road_editor(
                     .add(
                         egui::DragValue::new(&mut lots.scale_max.0)
                             .speed(0.05)
-                            .range(0.1..=5.0),
+                            .range(min.clamp(0.1, 5.0)..=5.0),
                     )
                     .changed();
                 if changed {
@@ -896,7 +954,8 @@ fn draw_generator_detail(
     // panel borrows `undo_label` mutably, and only the arm that runs may
     // take that borrow.
     let FacePickUi {
-        armed: pick_armed,
+        pick: face_pick,
+        resolvable,
         picked: just_picked,
     } = pick;
     macro_rules! edit {
@@ -907,7 +966,8 @@ fn draw_generator_detail(
                     snapshot: snapshot.as_ref(),
                     undo_label: &mut *undo_label,
                     pick: FacePickUi {
-                        armed: &mut *pick_armed,
+                        pick: &mut *face_pick,
+                        resolvable,
                         picked: just_picked,
                     },
                 },

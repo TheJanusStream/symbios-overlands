@@ -26,6 +26,8 @@
 //!   nothing), Enter applies, Esc cancels, and the field is focused
 //!   only on the frame the dialog opens so Tab still works.
 
+use bevy::ecs::resource::Resource;
+use bevy::ecs::system::ResMut;
 use bevy_egui::egui;
 
 /// egui temp-data key under which every modal renderer records the pass it
@@ -63,6 +65,75 @@ pub fn modal_is_open(ctx: &egui::Context) -> bool {
     let now = ctx.cumulative_pass_nr();
     ctx.data(|data| data.get_temp::<u64>(egui::Id::new(MODAL_OPEN_ID)))
         .is_some_and(|stamped| now.saturating_sub(stamped) <= 1)
+}
+
+/// egui temp-data key under which a non-modal popup that OWNS Escape
+/// records the pass it drew on. See [`note_popup_open`].
+const POPUP_OPEN_ID: &str = "overlands-popup-open";
+
+/// Record that a menu / popup which egui will close on Escape is open
+/// (#1236 f37).
+///
+/// Only needed by popups egui does NOT track in its own memory: a
+/// [`egui::Popup`] built with `open_bool` keeps its open flag in the
+/// caller's state, so [`egui::Popup::is_any_open`] cannot see it. Every
+/// `menu_button` and combo box IS memory-tracked and needs no stamp.
+///
+/// Deliberately a SEPARATE signal from [`note_modal_open`]: a menu owns
+/// the Escape key, but it does not own attention. Conflating the two would
+/// freeze the avatar under an open combo box, which is what
+/// [`ModalOpen`] mirrors and #1241 gates movement on.
+pub fn note_popup_open(ctx: &egui::Context) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|data| data.insert_temp(egui::Id::new(POPUP_OPEN_ID), pass));
+}
+
+/// True when a menu, submenu, combo box or context menu will consume the
+/// next Escape (#1236 f37).
+///
+/// Two sources because egui has two: memory-tracked popups (`menu_button`,
+/// `ComboBox`, `Popup::menu`) answer [`egui::Popup::is_any_open`], and
+/// `open_bool` popups — the in-scene right-click menu is the only one —
+/// stamp [`note_popup_open`] instead. Same one-pass tolerance as
+/// [`modal_is_open`], and for the same reason: the press that closes the
+/// menu must not also step the back-out ladder.
+pub fn popup_is_open(ctx: &egui::Context) -> bool {
+    if egui::Popup::is_any_open(ctx) {
+        return true;
+    }
+    let now = ctx.cumulative_pass_nr();
+    ctx.data(|data| data.get_temp::<u64>(egui::Id::new(POPUP_OPEN_ID)))
+        .is_some_and(|stamped| now.saturating_sub(stamped) <= 1)
+}
+
+/// ECS mirror of [`modal_is_open`] (#1236, consumed by #1241 f164).
+///
+/// [`note_modal_open`] lives in egui's per-context store, which only a
+/// system holding an egui context can read — and the systems that most
+/// need the answer are the FixedUpdate drive systems, which hold no egui
+/// context at all. Before this, `player::guard_modal_open` asked
+/// `Option<Res<UnsavedGuard>>` and therefore knew about exactly one of the
+/// six modals in the app: a gift offer from a stranger blocked every click
+/// while W kept walking the avatar into a portal.
+///
+/// Written once per frame by [`mirror_modal_open`] in `PreUpdate`, so the
+/// FixedUpdate steps later in the same frame read a value at most one
+/// frame old — the same slack [`modal_is_open`] already runs on.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModalOpen(pub bool);
+
+/// Copy the egui modal stamp into [`ModalOpen`] (#1236).
+///
+/// Guarded (#879): an every-frame `ResMut` write would mark the resource
+/// changed on every frame of the app's life.
+pub fn mirror_modal_open(mut contexts: bevy_egui::EguiContexts, mut open: ResMut<ModalOpen>) {
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+    let now = modal_is_open(ctx);
+    if open.0 != now {
+        open.0 = now;
+    }
 }
 
 /// A danger-styled button: white label on the theme's danger red
@@ -392,6 +463,133 @@ mod tests {
         );
     }
 
+    /// Modal renderers that deliberately refuse Esc, and the reason. A
+    /// file listed here must SAY so on the dialog instead — a silent
+    /// refusal is what #1236 f53 is about; a stated one is defensible.
+    const MODALS_THAT_REFUSE_DISMISSAL: &[(&str, &str)] = &[(
+        "other_session.rs",
+        "both answers are consequential and there is no neutral third",
+    )];
+
+    /// #1236 f53. Sequence: hit "Log out" by accident, the unsaved-changes
+    /// dialog appears, press Esc as on every other dialog in this app —
+    /// nothing at all happens. The contract is stated at the top of this
+    /// module ("Esc / backdrop click cancels") and enforced by
+    /// `egui::Modal::should_close()`, which three of the six renderers
+    /// never inspected: they stamp `note_modal_open`, so
+    /// `ShortcutGate::allows_esc` is false and the press is consumed by
+    /// nothing and produces no response anywhere.
+    ///
+    /// The review named one renderer; two more (`reauth`, `other_session`)
+    /// were added after it was written, which is exactly why this is a
+    /// walk and not three fixes.
+    #[test]
+    fn every_modal_renderer_answers_esc_or_says_why_not() {
+        let ui_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui");
+        let mut sources = Vec::new();
+        let mut stack = vec![ui_root];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("src/ui is readable") {
+                let path = entry.expect("dir entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    sources.push(path);
+                }
+            }
+        }
+
+        let mut renderers = 0usize;
+        for path in sources {
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .expect("utf-8 file name")
+                .to_owned();
+            let source = std::fs::read_to_string(&path).expect("UI source is readable");
+            if !source.contains("note_modal_open(ctx)") {
+                continue;
+            }
+            renderers += 1;
+            if let Some((_, why)) = MODALS_THAT_REFUSE_DISMISSAL
+                .iter()
+                .find(|(file, _)| *file == name)
+            {
+                assert!(
+                    !source.contains("should_close()"),
+                    "{name} is listed as refusing dismissal ({why}) but now honours it — drop it from MODALS_THAT_REFUSE_DISMISSAL"
+                );
+                assert!(
+                    source.contains("no dismiss"),
+                    "{name} refuses Esc ({why}); the dialog must say so"
+                );
+                continue;
+            }
+            assert!(
+                source.contains("should_close()"),
+                "{name} stamps note_modal_open, so the Esc ladder stands down for it — it must answer the key itself (or join MODALS_THAT_REFUSE_DISMISSAL and say so on the dialog)"
+            );
+        }
+        assert!(
+            renderers >= 5,
+            "the walk found only {renderers} modal renderers; it has stopped working"
+        );
+    }
+
+    /// #1236 f37. Sequence: right-click the ground, open the scene menu,
+    /// press Esc. egui closes the popup itself and stamps nothing, and
+    /// this one is an `open_bool` popup — so `Popup::is_any_open`, which
+    /// reads egui's own memory, cannot see it either. Without the stamp
+    /// the ladder ran on the same press and cleared the selection under
+    /// the menu.
+    #[test]
+    fn an_open_bool_popup_is_only_visible_through_the_stamp() {
+        let ctx = egui::Context::default();
+        assert!(!popup_is_open(&ctx), "nothing has drawn yet");
+
+        let mut open = true;
+        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+            egui::Popup::new(
+                egui::Id::new("test-menu"),
+                root.ctx().clone(),
+                egui::pos2(10.0, 10.0),
+                egui::LayerId::new(egui::Order::Foreground, egui::Id::new("test-menu-layer")),
+            )
+            .kind(egui::PopupKind::Menu)
+            .open_bool(&mut open)
+            .show(|ui| {
+                note_popup_open(ui.ctx());
+                let _ = ui.button("Delete");
+            });
+        });
+
+        assert!(
+            !egui::Popup::is_any_open(&ctx),
+            "precondition: an open_bool popup is NOT in egui's memory, which is the whole bug"
+        );
+        assert!(
+            !modal_is_open(&ctx),
+            "a menu is not a modal — conflating them would freeze the avatar under it"
+        );
+        assert!(popup_is_open(&ctx), "the Esc ladder must stand down");
+    }
+
+    /// And the popup stamp expires the same way the modal one does — one
+    /// pass of slack, no more, or a menu closed long ago would keep
+    /// eating Escape.
+    #[test]
+    fn the_popup_stamp_expires_after_one_pass() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+            note_popup_open(root.ctx());
+        });
+        assert!(popup_is_open(&ctx));
+        for _ in 0..3 {
+            let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        }
+        assert!(!popup_is_open(&ctx));
+    }
+
     /// And the stamp expires: it is a per-pass mark, not a latch, so
     /// closing the dialog releases the shortcuts again. Without this the
     /// first modal of a session would disable Esc for good.
@@ -427,5 +625,66 @@ mod tests {
             });
         });
         assert_eq!(outcome, RenameOutcome::Open);
+    }
+
+    /// #1241 f164. Sequence: a stranger's gift offer pops up. You cannot
+    /// click anything in the world, but W still walks you — straight into
+    /// a portal — and now a second modal stacks on top of the first.
+    ///
+    /// The movement gate asked `Option<Res<UnsavedGuard>>` and therefore
+    /// knew about one of six modals. The drive systems' OTHER gate,
+    /// `not(egui_wants_any_keyboard_input)`, covers a dialog that focuses
+    /// a text field — but a buttons-only dialog focuses nothing, which is
+    /// the whole reason `note_modal_open` exists. This pins that the ECS
+    /// mirror carries the stamp across, and that it goes back down.
+    #[test]
+    fn the_ecs_mirror_carries_a_buttons_only_modal_to_the_drive_systems() {
+        use bevy::prelude::*;
+
+        let ctx = egui::Context::default();
+        let mut state: ConfirmState<&'static str> = ConfirmState::default();
+        state.request("Delete item?", "Cannot be undone.", "Delete", "payload");
+        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+            state.show(root.ctx(), "test");
+        });
+        assert!(
+            !ctx.egui_wants_keyboard_input(),
+            "precondition: the OTHER gate cannot see a buttons-only dialog"
+        );
+        assert!(modal_is_open(&ctx));
+
+        // The mirror is the pure half of the copy — `mirror_modal_open`
+        // needs an `EguiContexts`, which no test builds.
+        let mut world = World::new();
+        world.init_resource::<ModalOpen>();
+        world.resource_mut::<ModalOpen>().0 = modal_is_open(&ctx);
+        assert!(world.resource::<ModalOpen>().0);
+
+        // …and once the dialog stops drawing, movement comes back.
+        for _ in 0..3 {
+            let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        }
+        world.resource_mut::<ModalOpen>().0 = modal_is_open(&ctx);
+        assert!(
+            !world.resource::<ModalOpen>().0,
+            "a stuck mirror would freeze the player for the session"
+        );
+    }
+
+    /// #1241 f164, the structural half: nothing may go back to asking
+    /// about the unsaved guard alone. The gate is one run condition wired
+    /// to six systems plus the portal handler, so the question has to be
+    /// right in one place.
+    #[test]
+    fn the_movement_gate_asks_about_every_modal() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for rel in ["src/player/mod.rs", "src/player/portal.rs"] {
+            let src = std::fs::read_to_string(root.join(rel)).expect("source is readable");
+            assert!(
+                src.contains("ModalOpen"),
+                "{rel} gates movement on the unsaved guard alone again — a gift \
+                 offer blocks the pointer but not the keys"
+            );
+        }
     }
 }

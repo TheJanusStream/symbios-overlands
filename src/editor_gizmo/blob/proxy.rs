@@ -46,6 +46,16 @@ pub(crate) struct BlobElementProxy {
     selected: bool,
 }
 
+impl BlobElementProxy {
+    /// Does this element CARVE rather than add (#1243 f151)? Read by the
+    /// highlight, which marks carves with a shape cue: add-vs-carve was
+    /// carried by hue alone — green against red, the canonical unsafe
+    /// pair — on a translucent ghost read through a wireframe shell.
+    pub(crate) fn is_carve(&self) -> bool {
+        self.subtract
+    }
+}
+
 /// Meshes/materials shared by every proxy + the wireframe line material.
 /// Built once at plugin init; per-band materials are shared handles so
 /// reconciling selection state is a handle swap, not an asset write.

@@ -80,6 +80,7 @@ pub mod inventory;
 pub mod layout;
 pub mod loading;
 pub mod login;
+pub mod modes;
 pub mod nametag;
 pub mod other_session;
 pub mod people;

@@ -170,14 +170,25 @@ pub(super) fn apply_hover_boat_buoyancy(
     let Ok((mut forces, global_tf)) = query.single_mut() else {
         return;
     };
-    if let Some(hm_res) = hm_res.as_deref() {
-        let hm = &hm_res.0;
-        let half = (hm.width() - 1) as f32 * hm.scale() * 0.5;
-        let pos = global_tf.translation();
-        if pos.x.abs() > half || pos.z.abs() > half {
-            return;
+    // Past the heightmap's edge the lift FADES rather than cutting out
+    // (#1240 f169). It used to return outright the instant the hull
+    // crossed the extent, so a boat driven over the boundary lost all
+    // buoyancy with no cue and sank — which reads as a physics bug, not as
+    // a world edge. The band is `WORLD_EDGE_MARGIN` wide, the same margin
+    // at which `automatic_recovery` returns the player to spawn, so a hull
+    // that keeps going is recovered before its lift is gone.
+    let edge_scale = match hm_res.as_deref() {
+        Some(hm_res) => {
+            let hm = &hm_res.0;
+            let half = (hm.width() - 1) as f32 * hm.scale() * 0.5;
+            let scale = super::respawn::edge_buoyancy_falloff(global_tf.translation(), half);
+            if scale <= 0.0 {
+                return;
+            }
+            scale
         }
-    }
+        None => 1.0,
+    };
 
     let half_extents = Vec3::from_array(p.chassis_half_extents.0);
     let corners = chassis_corners(half_extents);
@@ -185,7 +196,7 @@ pub(super) fn apply_hover_boat_buoyancy(
     let lin_vel = forces.linear_velocity();
     let ang_vel = forces.angular_velocity();
     let center_of_mass = global_tf.translation();
-    let buoyancy_scale = 1.0 / corners.len() as f32;
+    let buoyancy_scale = edge_scale / corners.len() as f32;
 
     for local_offset in corners {
         let world_origin = chassis_tf.transform_point(local_offset);

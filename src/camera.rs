@@ -46,13 +46,78 @@ impl Plugin for CameraPlugin {
     }
 }
 
+/// Which button pans, and under which modifier key (#1242 f166).
+///
+/// Pan was bound to the middle button and nothing else, so a laptop or
+/// trackpad user — explicitly in scope, and the audience the 1280x720
+/// layout work is for — could not perform one of the three camera
+/// controls the Controls sheet advertises.
+///
+/// The obvious fix does not work, and the shape of the crate is why.
+/// `pan_pressed` is `modifier_pan.pressed() && mouse.pressed(button_pan)`,
+/// so setting `modifier_pan: Some(AltLeft)` on its own does NOT add
+/// Alt+right-drag — it makes plain middle-drag stop panning and asks for
+/// Alt+MIDDLE instead. `orbit_pressed` additionally requires
+/// `!modifier_pan.pressed()`, which is the piece that makes this work:
+/// with Alt held, moving `button_pan` onto the right button suppresses
+/// orbit and enables pan on the SAME button, and with Alt released the
+/// binding goes back to plain middle-drag with no modifier.
+///
+/// Read at drag START only (see [`gate_camera_on_gui`]): swapping the
+/// binding under a held button would flip an orbit into a pan mid-gesture.
+fn pan_binding(alt_held: bool) -> (MouseButton, Option<KeyCode>) {
+    if alt_held {
+        (MouseButton::Right, Some(KeyCode::AltLeft))
+    } else {
+        (MouseButton::Middle, None)
+    }
+}
+
+/// How the cursor behaves during a camera drag (#1242 f171).
+///
+/// The pointer is never confined anywhere in the app, and in the BROWSER
+/// build that rations the only look-around gesture by screen width: winit
+/// derives its web delta from `movementX/Y`, which goes to zero once the
+/// OS cursor pins at the screen edge. (On native the deltas are raw
+/// `DeviceEvent::MouseMotion` and are not clamped at all — which is the
+/// correction the review's own refuter made, and why this is a browser
+/// fix wearing native clothes.)
+///
+/// `Locked` on wasm because `Confined` is not a thing the web backend
+/// implements — pointer lock is; `Confined` on native, which is the
+/// gentler of the two and enough, since native motion is already
+/// unbounded. The cursor is hidden either way: a pointer visibly stuck
+/// against the screen edge while the view keeps turning is its own small
+/// lie.
+fn drag_cursor_grab(dragging: bool) -> (bevy::window::CursorGrabMode, bool) {
+    if !dragging {
+        return (bevy::window::CursorGrabMode::None, true);
+    }
+    #[cfg(target_arch = "wasm32")]
+    let held = bevy::window::CursorGrabMode::Locked;
+    #[cfg(not(target_arch = "wasm32"))]
+    let held = bevy::window::CursorGrabMode::Confined;
+    (held, false)
+}
+
 /// Our replacement for `bevy_panorbit_camera`'s `bevy_egui` feature (which
 /// is deliberately disabled — see Cargo.toml): block camera input while the
-/// GUI wants the pointer/keyboard, EXCEPT that a held right or middle
-/// button always controls the camera — an orbit (#702) or pan (#853) must
-/// never die because the drag started over (or crossed) an editor window.
+/// GUI wants the pointer, EXCEPT that a held right or middle button always
+/// controls the camera — an orbit (#702) or pan (#853) must never die
+/// because the drag started over (or crossed) an editor window.
 /// Scroll-zoom stays blocked while hovering a window on purpose: the wheel
 /// is how egui scrolls its own panels.
+///
+/// KEYBOARD focus is deliberately NOT part of the gate (#1242 f165). It
+/// used to be, and it protected nothing: `PanOrbitCamera` is configured
+/// with no keyboard bindings at all, while `egui_wants_keyboard_input()`
+/// is true for as long as any text field holds focus — anywhere on screen,
+/// including with the cursor far out over the 3D world. Chat focuses its
+/// input when it opens and re-focuses after every send, so in the app's
+/// most common overlay state the wheel simply stopped zooming, with
+/// right-drag still working: the failure read as "the wheel is broken".
+/// The Alt modifier below is the one keyboard input the camera has, and it
+/// is gated by the crate, not by this.
 ///
 /// Mirrors the crate's own two-frame trick: `wants_pointer_input()` flips
 /// true one frame late on a click into a window, so both the previous and
@@ -60,22 +125,46 @@ impl Plugin for CameraPlugin {
 fn gate_camera_on_gui(
     mut contexts: Query<&mut bevy_egui::EguiContext>,
     mouse: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
     mut cameras: Query<&mut PanOrbitCamera>,
+    mut cursors: Query<&mut bevy::window::CursorOptions, With<bevy::window::PrimaryWindow>>,
     mut prev_gui_wants: Local<bool>,
 ) {
     let mut gui_wants = false;
     for mut ctx in contexts.iter_mut() {
         let ctx = ctx.get_mut();
-        gui_wants |= ctx.egui_wants_pointer_input() || ctx.egui_wants_keyboard_input();
+        gui_wants |= ctx.egui_wants_pointer_input();
     }
-    let enable = mouse.any_pressed([MouseButton::Right, MouseButton::Middle])
-        || (!gui_wants && !*prev_gui_wants);
+    let dragging = mouse.any_pressed([MouseButton::Right, MouseButton::Middle]);
+    let enable = dragging || (!gui_wants && !*prev_gui_wants);
     *prev_gui_wants = gui_wants;
+    // Only while no camera button is down, so a held drag keeps the
+    // meaning it started with (#1242 f166).
+    let rebind = (!dragging).then(|| {
+        pan_binding(keyboard.pressed(KeyCode::AltLeft) || keyboard.pressed(KeyCode::AltRight))
+    });
     for mut cam in cameras.iter_mut() {
         // Manual change-detect: writing every frame would dirty the
         // component and defeat the crate's own change tracking.
         if cam.enabled != enable {
             cam.enabled = enable;
+        }
+        if let Some((button_pan, modifier_pan)) = rebind
+            && (cam.button_pan != button_pan || cam.modifier_pan != modifier_pan)
+        {
+            cam.button_pan = button_pan;
+            cam.modifier_pan = modifier_pan;
+        }
+    }
+    // The cursor treatment follows an ENABLED drag: a right-drag that egui
+    // owns (resizing a window) must not confine the pointer.
+    let (grab, visible) = drag_cursor_grab(dragging && enable);
+    for mut cursor in cursors.iter_mut() {
+        if cursor.grab_mode != grab {
+            cursor.grab_mode = grab;
+        }
+        if cursor.visible != visible {
+            cursor.visible = visible;
         }
     }
 }
@@ -261,7 +350,14 @@ fn spawn_orbit_camera(mut commands: Commands) {
             radius: Some(cfg::ORBIT_RADIUS),
             pitch: Some(cfg::ORBIT_PITCH),
             button_orbit: MouseButton::Right,
+            // Re-bound per frame by `gate_camera_on_gui` so Alt+right-drag
+            // pans too (#1242 f166) — this is the no-modifier resting
+            // state it returns to.
             button_pan: MouseButton::Middle,
+            // Two fingers on a trackpad are the other half of the same
+            // gap: without this a laptop had middle-drag pan it could not
+            // perform AND no pinch zoom.
+            trackpad_pinch_to_zoom_enabled: true,
             // Zoom + pitch envelope (#853): without limits the wheel
             // could zoom through the avatar or out past the fog, and a
             // low orbit dived straight under the ground plane (the
@@ -575,5 +671,44 @@ mod tests {
             flat_ground,
         );
         assert_eq!(sunk, cfg::TERRAIN_CLAMP_MIN_DIST);
+    }
+
+    /// #1242 f166. Sequence: a laptop trackpad user reads
+    /// "Middle-drag — pan camera" and has no middle button. The obvious
+    /// fix — `modifier_pan: Some(AltLeft)` — makes it WORSE: the crate's
+    /// `pan_pressed` is `modifier && pressed(button_pan)`, so plain
+    /// middle-drag would stop panning and Alt+MIDDLE would be asked for
+    /// instead. Moving the button under the modifier is what actually
+    /// adds Alt+right-drag, and `orbit_pressed`'s `!modifier_pan.pressed()`
+    /// is what keeps the two off each other.
+    #[test]
+    fn alt_moves_pan_onto_the_right_button_and_releases_it_again() {
+        assert_eq!(pan_binding(false), (MouseButton::Middle, None));
+        assert_eq!(
+            pan_binding(true),
+            (MouseButton::Right, Some(KeyCode::AltLeft))
+        );
+        // The resting state must carry NO modifier, or middle-drag — the
+        // binding the sheet has always advertised — stops working.
+        assert_eq!(pan_binding(false).1, None);
+    }
+
+    /// #1242 f171, as its refuter corrected it: the grab is a BROWSER fix
+    /// (winit derives the web delta from `movementX/Y`, which goes to zero
+    /// once the OS cursor pins at the screen edge; native motion is raw
+    /// device motion and already unbounded). It must be off whenever no
+    /// camera drag is live, or the pointer stays captured.
+    #[test]
+    fn the_cursor_is_only_captured_while_a_drag_is_live() {
+        let (grab, visible) = drag_cursor_grab(false);
+        assert_eq!(grab, bevy::window::CursorGrabMode::None);
+        assert!(visible, "a released drag must give the pointer back");
+
+        let (grab, visible) = drag_cursor_grab(true);
+        assert_ne!(grab, bevy::window::CursorGrabMode::None);
+        assert!(
+            !visible,
+            "a pointer visibly stuck at the screen edge while the view turns is its own lie"
+        );
     }
 }

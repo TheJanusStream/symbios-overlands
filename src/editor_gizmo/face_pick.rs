@@ -37,8 +37,17 @@ use crate::world_builder::FaceTable;
 pub struct FacePick {
     /// Set by the panel's "Pick from scene" button; cleared by the click
     /// that resolves a face (a click that hits nothing keeps it armed, so a
-    /// near-miss costs one more click rather than a silent cancel).
-    pub armed: bool,
+    /// near-miss costs one more click rather than a silent cancel) — and by
+    /// [`disarm_unbacked_face_pick`] the moment nothing is drawing the
+    /// toggle that armed it.
+    armed: bool,
+    /// A Faces panel that CAN resolve a pick drew its toggle on the last
+    /// egui pass (#1237 f140/f141). The arm had exactly one writer, one
+    /// clearer and no reset: nothing dropped it on panel close, `InGame`
+    /// exit, travel or logout, and while it was stuck it suppressed
+    /// click-to-deselect app-wide. This is the backing that makes the arm
+    /// a MODE OF A PANEL rather than a free-floating flag.
+    backed: bool,
     /// What the last click resolved, awaiting the panel draw that consumes
     /// it via [`take_for`](Self::take_for).
     picked: Option<Picked>,
@@ -70,6 +79,24 @@ struct Highlight {
 }
 
 impl FacePick {
+    /// Is a scene click currently expected to resolve a face?
+    pub fn is_armed(&self) -> bool {
+        self.armed
+    }
+
+    /// Flip the arm — the panel toggle's whole behaviour.
+    pub fn toggle(&mut self) {
+        self.armed = !self.armed;
+    }
+
+    /// The Faces panel drew its "Pick from scene" toggle on this pass, so
+    /// an arm has somewhere to come back to. Called every frame the
+    /// toggle is drawn; [`disarm_unbacked_face_pick`] drops the arm on the
+    /// first frame it is not.
+    pub fn note_panel_drawn(&mut self) {
+        self.backed = true;
+    }
+
     /// Record what a scene click resolved and disarm.
     pub(super) fn record(
         &mut self,
@@ -103,6 +130,35 @@ impl FacePick {
         }
         self.picked.take().map(|p| p.face)
     }
+}
+
+/// Drop an arm that no panel is behind any more (#1237 f140/f141).
+///
+/// `armed` had ONE writer (the panel toggle) and ONE clearer (a click that
+/// resolved a face), and nothing reset it — not panel close, not
+/// `OnExit(InGame)`, not portal travel (which never leaves `InGame`), not
+/// logout. A stale arm is not merely untidy: while it stands,
+/// `pick_on_scene_click` refuses to clear the room selection and
+/// `release_on_scene_miss` refuses to drop the visuals selection, so
+/// clicking empty sky to deselect stops working everywhere in the app with
+/// nothing on screen saying why.
+///
+/// Rather than a reset per door — there are at least five — the arm is
+/// tied to the thing that can honour it: the Faces panel's own toggle.
+/// Any frame that toggle does not draw, the arm goes. That covers the
+/// panel closing, the window closing, the tab changing, travel, logout and
+/// state exit at once.
+///
+/// Runs in `Update`, one frame behind the egui pass that draws the toggle,
+/// which is the same slack `confirm::modal_is_open` runs on. Writes
+/// through `bypass_change_detection` because the bookkeeping half fires
+/// every frame and nothing filters on `Changed<FacePick>`.
+pub fn disarm_unbacked_face_pick(mut pick: ResMut<FacePick>) {
+    let pick = pick.bypass_change_detection();
+    if pick.armed && !pick.backed {
+        pick.armed = false;
+    }
+    pick.backed = false;
 }
 
 /// The face a ray hit belongs to: the hit entity's group table, indexed by
@@ -194,7 +250,7 @@ fn lift([a, b, c]: [Vec3; 3]) -> [Vec3; 3] {
 /// editor closed between the click and the draw) — and a pick that outlived
 /// its window would paint a face the user has stopped thinking about.
 pub(super) fn draw_face_pick_highlight(
-    mut gizmos: Gizmos,
+    mut gizmos: Gizmos<super::EditorOverlayGizmos>,
     mut pick: ResMut<FacePick>,
     time: Res<Time>,
 ) {
@@ -325,5 +381,52 @@ mod tests {
         assert_eq!(pick.take_for("shed", &[1, 0]), None, "wrong root");
         assert_eq!(pick.take_for("house", &[1, 0]), Some(FaceKey::SidePx));
         assert_eq!(pick.take_for("house", &[1, 0]), None, "consumed once");
+    }
+
+    /// #1237 f140/f141. Sequence: click "Pick from scene", change your
+    /// mind, close the World Editor. `armed` had ONE writer and ONE
+    /// clearer and nothing reset it — not panel close, not `OnExit(InGame)`,
+    /// not portal travel (which never leaves `InGame`), not logout. While
+    /// it stood, clicking empty sky to deselect stopped working
+    /// everywhere in the app, with nothing on screen saying why.
+    #[test]
+    fn an_arm_dies_the_frame_its_panel_stops_drawing() {
+        let mut world = World::new();
+        world.init_resource::<FacePick>();
+        world.resource_mut::<FacePick>().toggle();
+        assert!(world.resource::<FacePick>().is_armed());
+
+        // The panel is on screen: the arm survives, frame after frame.
+        for _ in 0..3 {
+            world.resource_mut::<FacePick>().note_panel_drawn();
+            world
+                .run_system_cached(disarm_unbacked_face_pick)
+                .expect("system runs");
+            assert!(
+                world.resource::<FacePick>().is_armed(),
+                "an arm behind a live panel must survive"
+            );
+        }
+
+        // The panel closes — nothing notes a draw.
+        world
+            .run_system_cached(disarm_unbacked_face_pick)
+            .expect("system runs");
+        assert!(
+            !world.resource::<FacePick>().is_armed(),
+            "an arm with no panel behind it jams click-to-deselect app-wide"
+        );
+    }
+
+    /// The arm is still one-shot in the ordinary case: a click that
+    /// resolves a face disarms it, and a near MISS deliberately does not
+    /// (one more click beats a silent cancel).
+    #[test]
+    fn recording_a_face_disarms_and_a_miss_does_not() {
+        let mut pick = FacePick::default();
+        pick.toggle();
+        assert!(pick.is_armed());
+        pick.record("house".into(), vec![0], FaceKey::SidePx, Vec::new(), 1.0);
+        assert!(!pick.is_armed());
     }
 }

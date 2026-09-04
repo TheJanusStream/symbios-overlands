@@ -45,6 +45,22 @@ pub(super) enum PendingAction {
         generator: Box<Generator>,
     },
     Rename(String),
+    /// Duplicate a node in place (#1244 f422): an inner node becomes a
+    /// coincident sibling, a root becomes a new root under a fresh name.
+    /// Copying a sub-assembly is the core reuse gesture of any large-world
+    /// editor, and the one surface that can reach an unplaced or
+    /// off-screen generator — the tree — could not do it: drag resolves
+    /// only to `Action::Move`, so the gesture the owner WILL try is
+    /// destructive to the source, and the only Duplicate in the app
+    /// required physically finding the object in the world and
+    /// right-clicking it.
+    Duplicate(GenNodeId),
+    /// Put a deep copy of a node on the editor's clipboard (#1244 f422),
+    /// so a copy can cross roots without round-tripping through the
+    /// inventory's 50 slots and a different window.
+    Copy(GenNodeId),
+    /// Append the clipboard's node as a child of `parent`.
+    PasteChild(GenNodeId),
     SaveToInventory(GenNodeId),
     Delete(GenNodeId),
     /// Reparent triggered by drag-and-drop. `target` is the destination
@@ -78,6 +94,8 @@ pub(super) fn apply_pending(
     // mutate the record (`dirty = true`) — a parked label with no
     // matching change tick would mislabel the NEXT edit.
     label: &mut crate::ui::undo::LabelSlot,
+    // The editor's one-node clipboard (#1244 f422).
+    clipboard: &mut Option<Generator>,
 ) {
     match action {
         PendingAction::AddChild { parent, kind_tag } => {
@@ -125,6 +143,108 @@ pub(super) fn apply_pending(
                 *selected_prim_path = Some(new_path);
                 tree_view_state.set_openness(parent, true);
                 tree_view_state.set_one_selected(new_id);
+                *dirty = true;
+            }
+        }
+        PendingAction::Duplicate(id) => {
+            let Some(node) = find_node(&*source, &id).cloned() else {
+                return;
+            };
+            if id.path.is_empty() {
+                // A single-root source (the avatar's visuals tree, a worn
+                // item's parts) has nowhere to put a second root, and
+                // `add_root` refuses — say THAT rather than the generator
+                // cap, which is not why.
+                if !source.allow_multiple_roots() {
+                    toasts.warn(
+                        "This tree holds one top-level item — duplicate a part                          inside it instead.",
+                        now,
+                    );
+                    return;
+                }
+                // A root's duplicate is a new root: `add_root` mints a
+                // fresh unique name and refuses at the generator cap.
+                let kind = node.kind_tag().to_string();
+                match source.add_root(&id.root, node) {
+                    Some(new_name) => {
+                        label.set(format!("duplicate of {}", id.root));
+                        *selected_generator = Some(new_name.clone());
+                        *selected_prim_path = Some(Vec::new());
+                        tree_view_state.set_one_selected(GenNodeId::root(new_name));
+                        *dirty = true;
+                    }
+                    None => toasts.warn(
+                        format!(
+                            "Couldn't duplicate this {kind} — {}",
+                            super::super::caps::Cap::Generators.full_reason()
+                        ),
+                        now,
+                    ),
+                }
+                return;
+            }
+            let parent = GenNodeId::child(&id.root, id.path[..id.path.len() - 1].to_vec());
+            if let Some(reason) = child_refusal(
+                &*source,
+                &parent,
+                super::super::caps::subtree_depth(&node),
+                super::super::caps::node_count(&node),
+            ) {
+                toasts.warn(reason, now);
+                return;
+            }
+            let Some(root) = source.get_root_mut(&id.root) else {
+                return;
+            };
+            // The same helper the in-world "Duplicate item" uses, so the
+            // two doors onto one gesture cannot drift.
+            let Some(new_idx) = crate::editor_gizmo::append_sibling_at_path(root, &id.path, None)
+            else {
+                return;
+            };
+            let mut new_path = id.path.clone();
+            if let Some(last) = new_path.last_mut() {
+                *last = new_idx;
+            }
+            label.set(format!("duplicate of {}", node.kind_tag()));
+            *selected_generator = Some(id.root.clone());
+            *selected_prim_path = Some(new_path.clone());
+            tree_view_state.set_openness(parent, true);
+            tree_view_state.set_one_selected(GenNodeId::child(&id.root, new_path));
+            *dirty = true;
+        }
+        PendingAction::Copy(id) => {
+            if let Some(node) = find_node(&*source, &id) {
+                let kind = node.kind_tag();
+                toasts.info(format!("Copied {kind} — paste it under any row"), now);
+                *clipboard = Some(node.clone());
+            }
+        }
+        PendingAction::PasteChild(parent) => {
+            let Some(node) = clipboard.clone() else {
+                return;
+            };
+            if let Some(reason) = child_refusal(
+                &*source,
+                &parent,
+                super::super::caps::subtree_depth(&node),
+                super::super::caps::node_count(&node),
+            ) {
+                toasts.warn(reason, now);
+                return;
+            }
+            if let Some(target) = find_node_mut(source, &parent)
+                && allows_children(&target.kind)
+            {
+                label.set(format!("paste of {}", node.kind_tag()));
+                target.children.push(node);
+                let new_idx = target.children.len() - 1;
+                let mut new_path = parent.path.clone();
+                new_path.push(new_idx);
+                *selected_generator = Some(parent.root.clone());
+                *selected_prim_path = Some(new_path.clone());
+                tree_view_state.set_openness(parent.clone(), true);
+                tree_view_state.set_one_selected(GenNodeId::child(&parent.root, new_path));
                 *dirty = true;
             }
         }
@@ -817,6 +937,7 @@ mod tests {
             &mut toasts,
             0.0,
             &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
+            &mut None,
         );
         assert!(!dirty, "nothing moves on the drop itself");
         assert!(record.generators.contains_key("oak"));
@@ -849,6 +970,7 @@ mod tests {
             &mut toasts,
             0.0,
             &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
+            &mut None,
         );
         assert!(dirty);
         assert_eq!(record.generators["host"].children.len(), 1);
@@ -1514,5 +1636,155 @@ mod tests {
         let water = record.generators.get("water").expect("water still there");
         assert!(water.children.is_empty());
         assert!(!dirty);
+    }
+
+    /// #1244 f422. Sequence: build a good window frame inside "house_a"
+    /// and want a copy inside "house_b". Dragging it in the tree MOVES it
+    /// out of house_a (egui_ltreeview resolves only `Action::Move`, and
+    /// `apply_reparent` is extract-then-insert), and the only Duplicate in
+    /// the app was on the in-world right-click menu — which cannot reach
+    /// an unplaced or off-screen generator at all. The only cross-root
+    /// copy route was Save to Inventory → + From Inventory, consuming one
+    /// of 50 slots and round-tripping through another window.
+    #[test]
+    fn copy_and_paste_move_a_subtree_between_roots_without_touching_the_source() {
+        let mut record = RoomRecord::default();
+        record.generators.clear();
+        record.placements.clear();
+        record.generators.insert(
+            "house_a".into(),
+            Generator {
+                children: vec![Generator::default()],
+                ..Generator::default()
+            },
+        );
+        record
+            .generators
+            .insert("house_b".into(), Generator::default());
+        let mut sel_gen = None;
+        let mut sel_path = None;
+        let mut tvs = TreeViewState::default();
+        let mut renaming = None;
+        let mut dirty = false;
+        let mut confirms = crate::ui::room::generators::TreeConfirms::default();
+        let mut toasts = crate::ui::toast::Toasts::default();
+        let mut labels = crate::ui::undo::PendingUndoLabels::default();
+        let mut clipboard: Option<Generator> = None;
+
+        let mut apply =
+            |action: PendingAction, record: &mut RoomRecord, clipboard: &mut Option<Generator>| {
+                apply_pending(
+                    action,
+                    &mut RoomTreeSource::new(record),
+                    &mut sel_gen,
+                    &mut sel_path,
+                    &mut tvs,
+                    &mut renaming,
+                    None,
+                    &mut dirty,
+                    &mut confirms,
+                    &mut toasts,
+                    0.0,
+                    &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
+                    clipboard,
+                );
+            };
+
+        apply(
+            PendingAction::Copy(GenNodeId::child("house_a", vec![0])),
+            &mut record,
+            &mut clipboard,
+        );
+        assert!(clipboard.is_some(), "Copy holds a deep copy");
+        assert_eq!(
+            record.generators["house_a"].children.len(),
+            1,
+            "Copy is not a move — the source is untouched"
+        );
+
+        apply(
+            PendingAction::PasteChild(GenNodeId::root("house_b")),
+            &mut record,
+            &mut clipboard,
+        );
+        assert_eq!(
+            record.generators["house_b"].children.len(),
+            1,
+            "the copy crossed roots without the inventory"
+        );
+        assert_eq!(record.generators["house_a"].children.len(), 1);
+        assert!(dirty);
+    }
+
+    /// #1244 f422, the in-place half: an inner node duplicates as a
+    /// coincident SIBLING (the same helper the in-world Duplicate uses,
+    /// so the two doors onto one gesture cannot drift), and a root
+    /// duplicates as a new root under a fresh unique name.
+    #[test]
+    fn duplicate_adds_a_sibling_for_an_inner_node_and_a_root_for_a_root() {
+        let mut record = RoomRecord::default();
+        // `RoomRecord::default()` is a seeded world, not an empty one.
+        record.generators.clear();
+        record.placements.clear();
+        record.generators.insert(
+            "house".into(),
+            Generator {
+                children: vec![Generator::default()],
+                ..Generator::default()
+            },
+        );
+        let mut sel_gen = None;
+        let mut sel_path = None;
+        let mut tvs = TreeViewState::default();
+        let mut renaming = None;
+        let mut dirty = false;
+        let mut confirms = crate::ui::room::generators::TreeConfirms::default();
+        let mut toasts = crate::ui::toast::Toasts::default();
+        let mut labels = crate::ui::undo::PendingUndoLabels::default();
+        let mut clipboard = None;
+
+        apply_pending(
+            PendingAction::Duplicate(GenNodeId::child("house", vec![0])),
+            &mut RoomTreeSource::new(&mut record),
+            &mut sel_gen,
+            &mut sel_path,
+            &mut tvs,
+            &mut renaming,
+            None,
+            &mut dirty,
+            &mut confirms,
+            &mut toasts,
+            0.0,
+            &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
+            &mut clipboard,
+        );
+        assert_eq!(record.generators["house"].children.len(), 2);
+        assert_eq!(
+            sel_path.as_deref(),
+            Some(&[1][..]),
+            "the selection lands on the copy, ready to drag apart"
+        );
+
+        apply_pending(
+            PendingAction::Duplicate(GenNodeId::root("house")),
+            &mut RoomTreeSource::new(&mut record),
+            &mut sel_gen,
+            &mut sel_path,
+            &mut tvs,
+            &mut renaming,
+            None,
+            &mut dirty,
+            &mut confirms,
+            &mut toasts,
+            0.0,
+            &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
+            &mut clipboard,
+        );
+        assert_eq!(record.generators.len(), 2, "a root duplicates as a root");
+        assert_ne!(
+            sel_gen.as_deref(),
+            Some("house"),
+            "…under a fresh name, and the selection follows it"
+        );
     }
 }

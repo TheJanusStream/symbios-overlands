@@ -44,7 +44,10 @@
 //! The menu itself is an egui [`egui::Popup`] of kind [`egui::PopupKind::Menu`]
 //! anchored at the click position; egui owns its close behaviour (click,
 //! click-outside, Escape) via `open_bool`, and its submenu-aware close logic
-//! keeps the parent open while the user is inside `Create new…`.
+//! keeps the parent open while the user is inside `Create new…`. Because
+//! `open_bool` keeps the flag here rather than in egui's memory, the body
+//! stamps [`crate::ui::confirm::note_popup_open`] so the Esc back-out
+//! ladder stands down while it is up (#1236 f37).
 
 use std::cell::RefCell;
 
@@ -456,6 +459,12 @@ pub(super) fn scene_context_menu_ui(
     .layout(egui::Layout::top_down_justified(egui::Align::Min))
     .open_bool(&mut menu.open)
     .show(|ui| {
+        // egui closes this popup on Escape and tells nobody: it is an
+        // `open_bool` popup, so `egui::Popup::is_any_open` (which reads
+        // egui's own memory) cannot see it either. Without the stamp the
+        // press that dismissed the menu also stepped the Esc back-out
+        // ladder in the same frame (#1236 f37).
+        crate::ui::confirm::note_popup_open(ui.ctx());
         ui.set_min_width(170.0);
         // --- Worn prop (#1097) ------------------------------------------
         if let Some(worn) = &picked_worn {

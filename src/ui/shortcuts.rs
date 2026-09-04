@@ -5,12 +5,23 @@
 //! three that make the whole UI navigable from the keyboard:
 //!
 //! * **Esc — back-out ladder.** One step per press, first applicable
-//!   wins: abort an active gizmo drag (handled where it always was, in
-//!   `editor_gizmo::drag`) → step out of blob-element editing (handled
-//!   in `editor_gizmo::blob`) → clear the ordinary editor selection
+//!   wins, and the rungs are [`esc_step`] — pure, so the order is
+//!   testable without an egui context: abort an active gizmo drag
+//!   (handled where it always was, in `editor_gizmo::drag`) → step out of
+//!   blob-element editing (handled in `editor_gizmo::blob`) → disarm an
+//!   armed drag-to-place → clear the ordinary editor selection
 //!   (previously only possible by clicking empty scenery) → close the
-//!   audio pop-out → close the top-most open window. "Top-most" is
-//!   egui's own area order, so it matches what the user sees stacked.
+//!   audio pop-out → dismiss the gateway destination picker → close the
+//!   top-most open window. "Top-most" is egui's own area order, so it
+//!   matches what the user sees stacked.
+//!
+//!   Three rungs were bolted on by #1236, and each was a place the press
+//!   did something OTHER than one step: the drag disarm read the key on
+//!   its own in `Update` (so one press cancelled the drag *and* stepped
+//!   the ladder), the picker had no rung at all (so the press closed a
+//!   toolbar window behind it), and the selection rung asked the avatar
+//!   editor only about its VISUALS row — leaving a worn prop's gizmo up
+//!   and the chassis frozen while Esc chewed through windows.
 //! * **Enter — open/focus chat.** Flips the Chat panel on and requests
 //!   focus on its input via [`crate::ui::chat::ChatFocusRequest`], so a
 //!   reply is two keystrokes away and typing never steers the avatar.
@@ -33,6 +44,11 @@
 //!   buttons focuses no widget, so the keyboard-focus test below sees
 //!   nothing in the way; Esc used to cancel the dialog AND close the
 //!   window behind it in the same frame.
+//! * **Is a menu up?** Esc alone stands down (#1236 f37). egui closes a
+//!   popup on Escape without telling anyone, so the identical
+//!   double-step applied to every `menu_button`, every combo box and the
+//!   in-scene right-click menu — see
+//!   [`crate::ui::confirm::popup_is_open`].
 //! * **Is a text field focused?** Plain keys stand down, so typing "s" in
 //!   chat never publishes and Enter keeps its in-widget meaning. The Ctrl
 //!   chords are the exception for Ctrl+S: egui's `TextEdit` does not claim
@@ -40,6 +56,11 @@
 //!   to want — and on wasm the browser's own dialog is suppressed anyway,
 //!   so the chord produced literally nothing. Ctrl+Z/Y keep the gate:
 //!   `TextEdit` owns those for text undo/redo.
+//!
+//! * **F — go to the selection** (#1244 f148). The camera's
+//!   `target_focus` is pinned to the chassis every frame, so there is no
+//!   "frame selection" to bind: the only way to bring an off-screen
+//!   selection into view in this world is to walk the player to it.
 //!
 //! Gizmo-style S/R/G/X/Y/Z keys are deliberately NOT bound — they collide
 //! with WASD/Shift movement.
@@ -221,14 +242,26 @@ struct ShortcutGate {
     /// Some egui widget has keyboard focus — in practice a text field,
     /// since egui 0.35 does not focus a clicked button.
     text_focus: bool,
+    /// A menu, submenu, combo box or the in-scene right-click menu was
+    /// open on the last egui pass (#1236 f37). egui closes those on
+    /// Escape itself, so the press is already spoken for.
+    popup_open: bool,
 }
 
 impl ShortcutGate {
     /// The Esc back-out ladder. A modal answers its own Esc; a focused
     /// text field has egui consume Esc to release focus, and the ladder
-    /// resumes on the next press.
+    /// resumes on the next press. An open menu is the third of those
+    /// (#1236 f37): egui closes a popup on Escape without telling anyone,
+    /// so the same press used to cancel the menu AND clear the selection
+    /// the user was about to gizmo — the #1139 bug shape, written for
+    /// popups instead of modals.
+    ///
+    /// Deliberately Esc only. Enter and the Ctrl chords are not keys egui
+    /// popups claim, and a Ctrl+S typed with a colour picker open is still
+    /// a save the user meant.
     fn allows_esc(self) -> bool {
-        !self.modal_open && !self.text_focus
+        !self.modal_open && !self.text_focus && !self.popup_open
     }
 
     /// Enter opens/focuses Chat. Behind a modal this was the worst of the
@@ -251,6 +284,116 @@ impl ShortcutGate {
     /// chords for editing the text itself.
     fn allows_undo(self) -> bool {
         !self.modal_open && !self.text_focus
+    }
+}
+
+/// One rung of the Esc back-out ladder (#1236). The module contract is
+/// "one step per press, first applicable wins", and before this the rungs
+/// were an `if/else if` chain inside `global_shortcuts` that two other Esc
+/// consumers were not part of at all — the drag-to-place disarm read the
+/// key independently in `Update`, and the gateway picker had no rung, so a
+/// press aimed at it closed a toolbar window behind it instead.
+///
+/// Naming the rungs makes the order testable without an egui context,
+/// which is the only way this ladder is checkable at all.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EscStep {
+    /// Abort the active gizmo drag. Owned by `editor_gizmo::drag`
+    /// (PostUpdate, later this same frame) — the ladder stands down.
+    GizmoDrag,
+    /// Step out of blob-element editing. Owned by `editor_gizmo::blob`,
+    /// same pattern.
+    BlobElement,
+    /// Disarm an armed drag-to-place / drag-to-gift (#831).
+    DragToPlace,
+    /// Clear the ordinary editor selection — room OR avatar.
+    Selection,
+    /// Close the audio pop-out, exactly like its title-bar close button.
+    AudioPopout,
+    /// Dismiss the gateway destination picker, exactly like its Close
+    /// button (which also arms the re-open chip).
+    GatewayPicker,
+    /// Close the top-most open toolbar window.
+    Window,
+}
+
+/// Everything the ladder can see this frame, as data (#1236).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct EscFacts {
+    /// A `GizmoTarget` reports an active drag.
+    pub gizmo_dragging: bool,
+    /// `BlobEditContext` has an element selected.
+    pub blob_element: bool,
+    /// `PendingGeneratorDrop` is armed.
+    pub drag_armed: bool,
+    /// Either editor holds a gizmo selection. For the avatar this is
+    /// `has_gizmo_selection()` — all THREE selections (visuals row, worn
+    /// prop, worn part), not just the visuals one (#1236 f139): the other
+    /// two are what `holds_avatar_still` freezes the chassis on, so a
+    /// ladder that could not see them left the body frozen and answered
+    /// the press by closing an unrelated window.
+    pub has_selection: bool,
+    /// Either editor's audio pop-out is open.
+    pub audio_popout: bool,
+    /// The gateway destination picker is up (#1236 f26).
+    pub gateway_picker: bool,
+}
+
+/// The back-out ladder, pure. First applicable rung wins; [`EscStep::Window`]
+/// is the floor, and with nothing open at all it closes nothing.
+pub fn esc_step(facts: EscFacts) -> EscStep {
+    if facts.gizmo_dragging {
+        EscStep::GizmoDrag
+    } else if facts.blob_element {
+        EscStep::BlobElement
+    } else if facts.drag_armed {
+        EscStep::DragToPlace
+    } else if facts.has_selection {
+        EscStep::Selection
+    } else if facts.audio_popout {
+        EscStep::AudioPopout
+    } else if facts.gateway_picker {
+        EscStep::GatewayPicker
+    } else {
+        EscStep::Window
+    }
+}
+
+/// The Esc ladder's own world access, bundled so `global_shortcuts` stays
+/// well under Bevy's 16-parameter ceiling (#1236). Two of these — the
+/// gateway picker and the pending drag — are new rungs, and the system was
+/// at 14 with no `Commands` at all, so the bundle came first.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct EscLadder<'w, 's> {
+    commands: Commands<'w, 's>,
+    room_editor: ResMut<'w, crate::ui::room::RoomEditorState>,
+    avatar_editor: ResMut<'w, crate::ui::avatar::AvatarEditorState>,
+    blob_ctx: Res<'w, crate::editor_gizmo::BlobEditContext>,
+    gizmo_targets: Query<'w, 's, &'static GizmoTarget>,
+    audio_requests: MessageWriter<'w, bevy_symbios_audio::ui::MonitorRequest>,
+    picker: Option<Res<'w, crate::ui::gateway::GatewayPicker>>,
+    pending_drop: ResMut<'w, crate::ui::inventory::PendingGeneratorDrop>,
+}
+
+impl EscLadder<'_, '_> {
+    /// True while a gizmo drag is live — also read by the undo chord,
+    /// which must not restore a record under an in-flight drag.
+    fn gizmo_dragging(&self) -> bool {
+        self.gizmo_targets.iter().any(|t| t.is_active())
+    }
+
+    /// Read the ladder's world state into [`EscFacts`].
+    fn facts(&self) -> EscFacts {
+        EscFacts {
+            gizmo_dragging: self.gizmo_dragging(),
+            blob_element: self.blob_ctx.selected_element.is_some(),
+            drag_armed: self.pending_drop.generator_name.is_some(),
+            has_selection: self.room_editor.has_selection()
+                || self.avatar_editor.has_gizmo_selection(),
+            audio_popout: self.room_editor.audio_editor.open
+                || self.avatar_editor.audio_editor.open,
+            gateway_picker: self.picker.is_some(),
+        }
     }
 }
 
@@ -328,15 +471,16 @@ pub fn global_shortcuts(
     mut panels: ResMut<UiPanels>,
     mut chat_focus: ResMut<crate::ui::chat::ChatFocusRequest>,
     mut publish: ResMut<PublishShortcut>,
-    mut room_editor: ResMut<crate::ui::room::RoomEditorState>,
-    mut avatar_editor: ResMut<crate::ui::avatar::AvatarEditorState>,
-    blob_ctx: Res<crate::editor_gizmo::BlobEditContext>,
-    gizmo_targets: Query<&GizmoTarget>,
-    mut audio_requests: MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
+    mut esc: EscLadder,
     dirty: EditorDirtyState,
     mut undo: ResMut<crate::ui::undo::UndoShortcut>,
     mut toasts: ResMut<crate::ui::toast::Toasts>,
     time: Res<Time>,
+    // "Go to selection" (#1244 f148): where the gizmo host is, and the
+    // channel that moves the player there.
+    focus: Res<crate::editor_gizmo::GizmoFocus>,
+    mut player_move: ResMut<crate::player::PlayerMoveRequest>,
+    players: Query<&Transform, With<crate::state::LocalPlayer>>,
 ) {
     // Guarded so the every-frame system doesn't flag the resource
     // changed while nothing is pending.
@@ -350,61 +494,83 @@ pub fn global_shortcuts(
     let gate = ShortcutGate {
         modal_open: crate::ui::confirm::modal_is_open(ctx),
         text_focus: ctx.egui_wants_keyboard_input(),
+        popup_open: crate::ui::confirm::popup_is_open(ctx),
     };
 
     // ── Esc: the back-out ladder ─────────────────────────────────────
+    // The rungs live in `esc_step`; this is only the world-writing half.
     if keyboard.just_pressed(KeyCode::Escape) && gate.allows_esc() {
-        if gizmo_targets.iter().any(|t| t.is_active()) {
-            // Step 1 — abort the active gizmo drag. Owned by
-            // `editor_gizmo::drag::manage_gizmo_drag` (PostUpdate, later
-            // this same frame); doing nothing here lets it consume the
-            // press exactly as before.
-        } else if blob_ctx.selected_element.is_some() {
-            // Step 2 — exit blob-element editing. Owned by
-            // `editor_gizmo::blob::resolve_blob_edit`, same pattern.
-        } else if room_editor.has_selection() || avatar_editor.has_visuals_selection() {
-            // Step 3 — clear the ordinary selection (both editors; the
-            // cross-editor mutex means at most one actually holds one).
-            // Previously the only deselect was clicking empty scenery.
-            room_editor.clear_selection();
-            avatar_editor.clear_visuals_selection();
-        } else if room_editor.audio_editor.open || avatar_editor.audio_editor.open {
-            // Step 4 — close the audio pop-out, exactly like its [x]:
-            // stop any looping audition, drop the working copy. Its egui
-            // area id is salted per slot, so it gets an explicit step
-            // rather than a slot in the generic top-most scan below.
-            audio_requests.write(bevy_symbios_audio::ui::MonitorRequest::Stop);
-            room_editor.audio_editor.close();
-            avatar_editor.audio_editor.close();
-        } else {
-            // Step 5 — close the top-most open window, in egui's own
-            // stacking order so it matches what the user sees.
-            let candidates: Vec<(egui::Id, UiWindow)> = [
-                (UiWindow::Chat, panels.chat),
-                (UiWindow::People, panels.people),
-                (UiWindow::Avatar, panels.avatar),
-                (UiWindow::Inventory, panels.inventory),
-                (UiWindow::Catalogue, panels.catalogue),
-                (UiWindow::WorldEditor, panels.world_editor),
-                (UiWindow::Diagnostics, panels.diagnostics),
-                (UiWindow::Controls, panels.controls),
-                (UiWindow::Settings, panels.settings),
-            ]
-            .into_iter()
-            .filter(|(_, open)| *open)
-            .map(|(w, _)| (window_area_id(w), w))
-            .collect();
-            match topmost(ctx, &candidates) {
-                Some(UiWindow::Chat) => panels.chat = false,
-                Some(UiWindow::People) => panels.people = false,
-                Some(UiWindow::Avatar) => panels.avatar = false,
-                Some(UiWindow::Inventory) => panels.inventory = false,
-                Some(UiWindow::Catalogue) => panels.catalogue = false,
-                Some(UiWindow::WorldEditor) => panels.world_editor = false,
-                Some(UiWindow::Diagnostics) => panels.diagnostics = false,
-                Some(UiWindow::Controls) => panels.controls = false,
-                Some(UiWindow::Settings) => panels.settings = false,
-                Some(UiWindow::AudioEditor) | None => {}
+        match esc_step(esc.facts()) {
+            // Owned elsewhere (`editor_gizmo::drag` / `::blob`, PostUpdate,
+            // later this same frame); doing nothing here lets them consume
+            // the press exactly as before.
+            EscStep::GizmoDrag | EscStep::BlobElement => {}
+            EscStep::DragToPlace => {
+                // #1236 f37. This used to be read independently in
+                // `handle_generator_drop`, off the ladder entirely, so one
+                // press disarmed the drag AND cleared the selection under
+                // it (nothing consumes `ButtonInput`).
+                esc.pending_drop.generator_name = None;
+                esc.pending_drop.peer_target = None;
+            }
+            EscStep::Selection => {
+                // Clear the ordinary selection (both editors; the
+                // cross-editor mutex means at most one actually holds one).
+                // Previously the only deselect was clicking empty scenery.
+                esc.room_editor.clear_selection();
+                esc.avatar_editor.clear_gizmo_selections();
+            }
+            EscStep::AudioPopout => {
+                // Exactly like its [x]: stop any looping audition, drop the
+                // working copy. Its egui area id is salted per slot, so it
+                // gets an explicit rung rather than a slot in the generic
+                // top-most scan below.
+                esc.audio_requests
+                    .write(bevy_symbios_audio::ui::MonitorRequest::Stop);
+                esc.room_editor.audio_editor.close();
+                esc.avatar_editor.audio_editor.close();
+            }
+            EscStep::GatewayPicker => {
+                // #1236 f26 — the same pair the picker's own Close button
+                // writes, so the re-open chip appears exactly as it does
+                // after a click. The picker is not a `UiPanels` flag and so
+                // was never a candidate in the window scan below; the press
+                // closed a toolbar window behind it instead.
+                esc.commands
+                    .remove_resource::<crate::ui::gateway::GatewayPicker>();
+                esc.commands
+                    .insert_resource(crate::ui::gateway::GatewayDismissed);
+            }
+            EscStep::Window => {
+                // Close the top-most open window, in egui's own stacking
+                // order so it matches what the user sees.
+                let candidates: Vec<(egui::Id, UiWindow)> = [
+                    (UiWindow::Chat, panels.chat),
+                    (UiWindow::People, panels.people),
+                    (UiWindow::Avatar, panels.avatar),
+                    (UiWindow::Inventory, panels.inventory),
+                    (UiWindow::Catalogue, panels.catalogue),
+                    (UiWindow::WorldEditor, panels.world_editor),
+                    (UiWindow::Diagnostics, panels.diagnostics),
+                    (UiWindow::Controls, panels.controls),
+                    (UiWindow::Settings, panels.settings),
+                ]
+                .into_iter()
+                .filter(|(_, open)| *open)
+                .map(|(w, _)| (window_area_id(w), w))
+                .collect();
+                match topmost(ctx, &candidates) {
+                    Some(UiWindow::Chat) => panels.chat = false,
+                    Some(UiWindow::People) => panels.people = false,
+                    Some(UiWindow::Avatar) => panels.avatar = false,
+                    Some(UiWindow::Inventory) => panels.inventory = false,
+                    Some(UiWindow::Catalogue) => panels.catalogue = false,
+                    Some(UiWindow::WorldEditor) => panels.world_editor = false,
+                    Some(UiWindow::Diagnostics) => panels.diagnostics = false,
+                    Some(UiWindow::Controls) => panels.controls = false,
+                    Some(UiWindow::Settings) => panels.settings = false,
+                    Some(UiWindow::AudioEditor) | None => {}
+                }
             }
         }
     }
@@ -468,6 +634,26 @@ pub fn global_shortcuts(
         }
     }
 
+    // ── F: go to the selection (#1244 f148) ─────────────────────────
+    // Unmodified, and not on the movement letters. The camera is pinned
+    // to the chassis every frame, so there is no "look at" to bind — the
+    // only way to bring an off-screen selection into view is to go to it.
+    if keyboard.just_pressed(KeyCode::KeyF) && gate.allows_esc() {
+        let now = time.elapsed_secs_f64();
+        match (focus.centre, players.single().ok()) {
+            (Some(centre), Some(player)) => {
+                player_move.request(crate::player::PlayerMove::GoTo(crate::player::go_to_pose(
+                    centre,
+                    focus.radius,
+                    player.translation,
+                )));
+            }
+            // Said aloud rather than eaten, like the save chord's own
+            // no-op (#1208).
+            _ => toasts.info("Nothing is selected to go to", now),
+        }
+    }
+
     // ── Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y): undo / redo (#864) ────────
     // Routes to the front-most OPEN editor window — same `topmost` scan
     // as Ctrl+S, minus the dirty gate (an empty history toasts its own
@@ -483,7 +669,7 @@ pub fn global_shortcuts(
     // candidate it wins the scan and `apply_undo_shortcut` says so.
     let z = keyboard.just_pressed(KeyCode::KeyZ);
     let y = keyboard.just_pressed(KeyCode::KeyY);
-    if ctrl && (z || y) && gate.allows_undo() && !gizmo_targets.iter().any(|t| t.is_active()) {
+    if ctrl && (z || y) && gate.allows_undo() && !esc.gizmo_dragging() {
         let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
         let kind = if y || shift {
             crate::ui::undo::StepKind::Redo
@@ -548,6 +734,7 @@ mod tests {
     const NOTHING_IN_THE_WAY: ShortcutGate = ShortcutGate {
         modal_open: false,
         text_focus: false,
+        popup_open: false,
     };
 
     /// #1139, finding 114. Sequence: click into the World Editor's name or
@@ -561,6 +748,7 @@ mod tests {
         let typing = ShortcutGate {
             modal_open: false,
             text_focus: true,
+            popup_open: false,
         };
         assert!(typing.allows_save());
         // The plain keys still stand down, or typing "s" would publish and
@@ -584,11 +772,137 @@ mod tests {
         let modal = ShortcutGate {
             modal_open: true,
             text_focus: false,
+            popup_open: false,
         };
         assert!(!modal.allows_esc());
         assert!(!modal.allows_enter());
         assert!(!modal.allows_save());
         assert!(!modal.allows_undo());
+    }
+
+    /// #1236 f37. Sequence: right-click the ground, open `Create new…`,
+    /// change your mind, press Esc. egui closes the menu on Escape and
+    /// tells nobody, so the same press also cleared the selection you were
+    /// about to gizmo — the #1139 double-step, written for popups instead
+    /// of modals. Esc alone stands down: a Ctrl+S typed with a colour
+    /// picker open is still a save the user meant.
+    #[test]
+    fn esc_alone_stands_down_while_a_menu_is_open() {
+        let menu = ShortcutGate {
+            modal_open: false,
+            text_focus: false,
+            popup_open: true,
+        };
+        assert!(!menu.allows_esc());
+        assert!(menu.allows_enter());
+        assert!(menu.allows_save());
+        assert!(menu.allows_undo());
+    }
+
+    /// #1236. The ladder's whole contract in one place: one step per
+    /// press, first applicable wins. Written as the FULL descending
+    /// sequence rather than six independent cases, because the defect the
+    /// rungs fix is precisely that a lower rung fired while a higher one
+    /// was live.
+    #[test]
+    fn the_esc_ladder_takes_exactly_one_step_from_the_top() {
+        let everything = EscFacts {
+            gizmo_dragging: true,
+            blob_element: true,
+            drag_armed: true,
+            has_selection: true,
+            audio_popout: true,
+            gateway_picker: true,
+        };
+        let mut facts = everything;
+        assert_eq!(esc_step(facts), EscStep::GizmoDrag);
+        facts.gizmo_dragging = false;
+        assert_eq!(esc_step(facts), EscStep::BlobElement);
+        facts.blob_element = false;
+        assert_eq!(esc_step(facts), EscStep::DragToPlace);
+        facts.drag_armed = false;
+        assert_eq!(esc_step(facts), EscStep::Selection);
+        facts.has_selection = false;
+        assert_eq!(esc_step(facts), EscStep::AudioPopout);
+        facts.audio_popout = false;
+        assert_eq!(esc_step(facts), EscStep::GatewayPicker);
+        facts.gateway_picker = false;
+        assert_eq!(esc_step(facts), EscStep::Window);
+        assert_eq!(esc_step(EscFacts::default()), EscStep::Window);
+    }
+
+    /// #1236 f37. Sequence: drag an item out of Inventory, change your
+    /// mind mid-flight, press Esc. The disarm used to be read
+    /// independently in `handle_generator_drop`; nothing consumes
+    /// `ButtonInput`, so `global_shortcuts` ran its ladder on the same
+    /// press and deselected the placement underneath. As a rung it wins,
+    /// and nothing below it runs.
+    #[test]
+    fn an_armed_drag_is_the_whole_step() {
+        let dragging_over_a_selection = EscFacts {
+            drag_armed: true,
+            has_selection: true,
+            ..EscFacts::default()
+        };
+        assert_eq!(esc_step(dragging_over_a_selection), EscStep::DragToPlace);
+    }
+
+    /// #1236 f26. Sequence: walk into a gateway with Chat open, decide not
+    /// to travel, press Esc. `GatewayPicker` is not a `UiPanels` flag and
+    /// had no rung, so the press fell through to the top-most-window scan
+    /// and closed Chat while the picker stayed up. It is the one window
+    /// the app opens without being asked, so it is the one users most want
+    /// to dismiss reflexively.
+    #[test]
+    fn the_gateway_picker_is_dismissed_before_any_toolbar_window() {
+        let picker_over_chat = EscFacts {
+            gateway_picker: true,
+            ..EscFacts::default()
+        };
+        assert_eq!(esc_step(picker_over_chat), EscStep::GatewayPicker);
+    }
+
+    /// #1236 f139. Sequence: right-click your hat → "Edit …" (the avatar
+    /// freezes under the gizmo), press Esc. The ladder asked
+    /// `has_visuals_selection`, which is one of THREE avatar gizmo
+    /// selections; with only a worn prop or a worn part aimed, the rung
+    /// was skipped and the press closed the Chat window behind instead,
+    /// leaving the chassis axis-locked at `GravityScale(0)` until Esc had
+    /// chewed through enough windows to close the Avatar one.
+    ///
+    /// The behavioural half is
+    /// `ui::avatar::tests::a_worn_prop_selection_is_invisible_to_the_visuals_question`;
+    /// this pins that the ladder asks the question that covers all three,
+    /// which is the half a type checker cannot.
+    #[test]
+    fn the_selection_rung_asks_about_every_avatar_gizmo_selection() {
+        let src = include_str!("shortcuts.rs");
+        let ladder = src
+            .split_once("impl EscLadder")
+            .expect("EscLadder impl block")
+            .1
+            .split_once("\n}\n")
+            .expect("end of the impl block")
+            .0;
+        assert!(
+            ladder.contains("has_gizmo_selection()"),
+            "the ladder must see worn props and worn parts, not just the visuals row"
+        );
+        assert!(
+            !ladder.contains("has_visuals_selection"),
+            "asking only about the visuals row is #1236 f139"
+        );
+        let arm = src
+            .split_once("EscStep::Selection => {")
+            .expect("the Selection arm")
+            .1
+            .split_once("}\n")
+            .expect("end of the arm")
+            .0;
+        assert!(
+            arm.contains("clear_gizmo_selections()"),
+            "clearing only the visuals row leaves the chassis frozen"
+        );
     }
 
     #[test]

@@ -4,9 +4,10 @@ use bevy_egui::egui;
 
 use super::{LocomotionPanel, fp_slider};
 use crate::pds::HumanoidParams;
+use crate::ui::modes::LocalMovement;
 
 impl LocomotionPanel for HumanoidParams {
-    fn draw(&mut self, ui: &mut egui::Ui, dirty: &mut bool) {
+    fn draw(&mut self, ui: &mut egui::Ui, dirty: &mut bool, facts: &LocalMovement) {
         egui::CollapsingHeader::new("Capsule")
             .default_open(true)
             .show(ui, |ui| {
@@ -37,6 +38,28 @@ impl LocomotionPanel for HumanoidParams {
                 // what the slider does now.
                 ui.label("Run speed (m/s)");
                 fp_slider(ui, &mut self.walk_speed, 1.0..=10.0, 0.1, dirty);
+                // The dead band at the bottom of that slider (#1241 f168).
+                // `apply_humanoid_walk` takes `walking.min(travel)`, so a
+                // run tuned at or below the body's own walk collapses both
+                // branches to one number and Shift stops doing anything —
+                // with no message, no disabled control, just a key that
+                // stopped working. The derived walk is ~1.73 m/s on the
+                // default body against a slider that starts at 1.0, so
+                // roughly the bottom 8% of its travel is the trap.
+                if let Some(walk) = facts.derived_walk {
+                    ui.label(
+                        egui::RichText::new(format!("Walk is ~{walk:.1} m/s on this body"))
+                            .small()
+                            .weak(),
+                    );
+                    if crate::player::humanoid::run_key_is_dead(self.walk_speed.0, walk) {
+                        ui.colored_label(
+                            crate::ui::theme::current(ui.ctx()).status.warn,
+                            "Run speed is at or below this body's walk — Shift will \
+                             have no effect.",
+                        );
+                    }
+                }
                 ui.label("Acceleration (1/s)");
                 fp_slider(ui, &mut self.acceleration, 2.0..=30.0, 0.5, dirty);
                 ui.label("Jump impulse (N·s)");

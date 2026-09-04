@@ -40,6 +40,18 @@ pub(super) fn draw_tree_panel(
     // Undo-entry label channel (#865): structural ops name themselves so
     // the toast can say "Undid: add of oak_3" instead of "Undid: edit".
     label: &mut crate::ui::undo::LabelSlot,
+    // The signed-in owner's DID (#1239 f78). Threaded solely for
+    // `catalogue_menu`: DID-personalised entries — every theme's Monument
+    // — bake it into a `SignSource::DidPfp` at stamp time, and this menu
+    // passed the empty string, so 24 monuments rendered a permanently
+    // blank portrait while the SAME item dragged out of the Catalogue
+    // window worked. Empty when the tree has no owner (the avatar
+    // editor's sources hand their own owner in).
+    owner_did: &str,
+    // Substring filter over root names (#1244 f414).
+    filter: &mut String,
+    // The editor's one-node clipboard (#1244 f422).
+    clipboard: &mut Option<Generator>,
 ) {
     ui.heading("Generators");
     ui.add_space(2.0);
@@ -122,7 +134,7 @@ pub(super) fn draw_tree_panel(
             if !crate::catalogue::ENTRIES.is_empty() {
                 ui.menu_button("+ From Catalogue", |ui| {
                     let mut picked: Option<(String, Generator)> = None;
-                    catalogue_menu(ui, "", |slug, g| picked = Some((slug, g)));
+                    catalogue_menu(ui, owner_did, |slug, g| picked = Some((slug, g)));
                     if let Some((slug, g)) = picked
                         && let Some(new_name) = source.add_root(&slug, g)
                     {
@@ -142,10 +154,38 @@ pub(super) fn draw_tree_panel(
 
     ui.separator();
 
+    // Find a root (#1244 f414). Alphabetical order is a weak index once
+    // the names are auto-generated — `unique_key` yields `cuboid`,
+    // `cuboid_1`, `cuboid_2`, … — and at 256 roots the only affordance
+    // was scrolling. Only offered where there is more than one root to
+    // find, so the avatar's single-root trees are unchanged.
+    let multi_root = source.allow_multiple_roots();
+    if multi_root {
+        ui.add(
+            egui::TextEdit::singleline(filter)
+                .desired_width(f32::INFINITY)
+                .hint_text("Filter assets…"),
+        )
+        .on_hover_text("Show only assets whose name contains this text");
+    }
+
     // The tree itself. Roots are sorted by the source for stable
     // presentation — HashMap iteration order would otherwise reshuffle
     // every frame as the layout cache rebuilds.
-    let root_names: Vec<String> = source.root_names();
+    let all_roots: Vec<String> = source.root_names();
+    let root_names: Vec<String> = matching_roots(&all_roots, if multi_root { filter } else { "" });
+    let hidden = all_roots.len() - root_names.len();
+    if hidden > 0 {
+        ui.label(
+            egui::RichText::new(format!(
+                "{} of {} assets",
+                root_names.len(),
+                all_roots.len()
+            ))
+            .small()
+            .color(crate::ui::theme::current(ui.ctx()).text_weak),
+        );
+    }
 
     // Pending-action channel shared into every per-row `context_menu`
     // closure. Closures all hold `&pending`; clicks call `borrow_mut()` to
@@ -160,13 +200,23 @@ pub(super) fn draw_tree_panel(
         .show(ui, |ui| {
             if root_names.is_empty() {
                 ui.label(
-                    egui::RichText::new("(no generators — click \"+ New\" above)")
-                        .small()
-                        .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                    egui::RichText::new(if all_roots.is_empty() {
+                        // #1239 f81: the empty state now says what "+ New"
+                        // actually produces, because the compiler builds
+                        // only from placements and a fresh root is
+                        // invisible until one exists.
+                        "(no region assets — click \"+ New\" above; a new asset needs \
+                         a placement before it appears in the world)"
+                    } else {
+                        "(no assets match the filter)"
+                    })
+                    .small()
+                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
                 );
                 return;
             }
             let inv_for_build: Option<&LiveInventoryRecord> = inventory.as_deref();
+            let has_clipboard = clipboard.is_some();
             // Reborrow as a shared trait-object reference for the
             // tree-build closure: it only needs read access via
             // `get_root`, and pending-action mutations are buffered into
@@ -190,6 +240,8 @@ pub(super) fn draw_tree_panel(
                                 &pending,
                                 inv_for_build,
                                 crate::ui::room::caps::node_count(node),
+                                owner_did,
+                                has_clipboard,
                             );
                         }
                     }
@@ -241,6 +293,7 @@ pub(super) fn draw_tree_panel(
             toasts,
             now,
             label,
+            clipboard,
         );
     }
 
@@ -300,6 +353,24 @@ fn sync_selection_fields(
     }
 }
 
+/// Root names matching a substring filter, case-insensitively (#1244
+/// f414). An empty filter passes everything through unchanged.
+///
+/// Pure, so the one behaviour that matters — that filtering never drops a
+/// root the user has selected out from under them without saying so — is
+/// testable without egui.
+pub(super) fn matching_roots(roots: &[String], filter: &str) -> Vec<String> {
+    let needle = filter.trim().to_lowercase();
+    if needle.is_empty() {
+        return roots.to_vec();
+    }
+    roots
+        .iter()
+        .filter(|name| name.to_lowercase().contains(&needle))
+        .cloned()
+        .collect()
+}
+
 /// Recursively add `node` and its children to the tree-view builder. The
 /// label format matches the user's expectation: roots show the source's key
 /// (the user-given name) plus a kind hint; inner nodes show only the kind
@@ -325,17 +396,33 @@ fn build_tree_node(
     inventory: Option<&LiveInventoryRecord>,
     // Nodes in this root's whole tree, for the per-generator cap (#1210).
     root_nodes: usize,
+    // The signed-in owner's DID, for this row's "+ From Catalogue"
+    // submenu (#1239 f78) — see `draw_tree_panel`.
+    owner_did: &str,
+    // Whether the editor's clipboard holds anything to paste (#1244 f422).
+    has_clipboard: bool,
 ) {
     let id = GenNodeId::child(root_name, path.clone());
     let label = if is_root {
         format!("{}  ({})", root_name, node.kind_tag())
     } else {
-        node.kind_tag().to_string()
+        // The sibling index (#1244 f423). Inner rows were labelled by kind
+        // ALONE — forty sibling Cuboids were forty identical rows — while
+        // the disambiguating path was reduced to a small weak line in the
+        // detail pane, never appearing in the row the owner is scanning.
+        // `#index` matches `placement_label`'s convention, and it is the
+        // last path segment, which is what the detail pane's `path: /12`
+        // shows.
+        match path.last() {
+            Some(index) => format!("{}  #{index}", node.kind_tag()),
+            None => node.kind_tag().to_string(),
+        }
     };
 
     let menu_id = id.clone();
     let menu_root = id.root.clone();
     let menu_allows_children = allows_children(&node.kind);
+    let menu_has_clipboard = has_clipboard;
     // Why a child cannot be added under this node right now (#1210): the
     // nesting or node cap the sanitiser would otherwise enforce a quarter
     // second after the add by amputating the tree. `apply_pending`
@@ -415,7 +502,7 @@ fn build_tree_node(
             // inventory clone — same buffered insert path, fresh blueprint.
             if menu_allows_children && !crate::catalogue::ENTRIES.is_empty() {
                 ui.menu_button("+ From Catalogue", |ui| {
-                    catalogue_menu(ui, "", |_slug, g| {
+                    catalogue_menu(ui, owner_did, |_slug, g| {
                         *pending.borrow_mut() = Some(PendingAction::AddChildPrebuilt {
                             parent: menu_id.clone(),
                             generator: Box::new(g),
@@ -432,6 +519,44 @@ fn build_tree_node(
         // positional + unnamed and have nothing to rename. Single-root
         // sources (avatar visuals) suppress the option entirely via
         // `allow_rename = false`.
+        // Copy a sub-assembly (#1244 f422). Drag resolves only to
+        // `Action::Move`, which is destructive to the source, and the only
+        // Duplicate in the app before this required physically finding the
+        // object in the world and right-clicking it — impossible for an
+        // unplaced or off-screen generator, which is exactly the case the
+        // tree exists to reach.
+        if ui
+            .button("Duplicate")
+            .on_hover_text("Make a copy beside this one")
+            .clicked()
+        {
+            *pending.borrow_mut() = Some(PendingAction::Duplicate(menu_id.clone()));
+            ui.close();
+        }
+        if ui
+            .button("Copy")
+            .on_hover_text("Hold a copy of this node — paste it under any row, in any asset")
+            .clicked()
+        {
+            *pending.borrow_mut() = Some(PendingAction::Copy(menu_id.clone()));
+            ui.close();
+        }
+        if ui
+            .add_enabled(
+                menu_allows_children && menu_has_clipboard,
+                egui::Button::new("Paste as child"),
+            )
+            .on_hover_text("Add the copied node under this one")
+            .on_disabled_hover_text(if menu_has_clipboard {
+                "This kind holds no children"
+            } else {
+                "Nothing copied yet — use Copy on a row first"
+            })
+            .clicked()
+        {
+            *pending.borrow_mut() = Some(PendingAction::PasteChild(menu_id.clone()));
+            ui.close();
+        }
         if menu_is_root && menu_allow_rename && ui.button("Rename").clicked() {
             *pending.borrow_mut() = Some(PendingAction::Rename(menu_root.clone()));
             ui.close();
@@ -497,6 +622,8 @@ fn build_tree_node(
                 pending,
                 inventory,
                 root_nodes,
+                owner_did,
+                has_clipboard,
             );
         }
         builder.close_dir();
@@ -574,5 +701,41 @@ mod tests {
         assert_eq!(selected_generator, None);
         assert_eq!(selected_prim_path, None);
         assert!(tree_state.selected().is_empty());
+    }
+
+    /// #1244 f414. Sequence: a name typed three sessions ago among 256
+    /// roots. Alphabetical order is a weak index once the names are
+    /// auto-generated — `unique_key` yields `cuboid`, `cuboid_1`,
+    /// `cuboid_2`, … — and the only affordance was scrolling.
+    #[test]
+    fn the_tree_filter_is_a_case_insensitive_substring() {
+        let roots: Vec<String> = ["oak_17", "Oak_2", "cuboid", "cuboid_1"]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+        assert_eq!(matching_roots(&roots, ""), roots, "no filter, no change");
+        assert_eq!(matching_roots(&roots, "   "), roots, "blank is no filter");
+        assert_eq!(matching_roots(&roots, "oak"), vec!["oak_17", "Oak_2"]);
+        assert_eq!(matching_roots(&roots, "_1"), vec!["oak_17", "cuboid_1"]);
+        assert!(matching_roots(&roots, "willow").is_empty());
+    }
+
+    /// #1244 f423. Sequence: a detailed building shows a column of rows
+    /// all reading "Cuboid" with nothing to tell them apart, and Rename is
+    /// not offered on any of them. The sibling index is the cheap half of
+    /// the fix and it matches `placement_label`'s `#index` convention.
+    #[test]
+    fn an_inner_row_carries_its_sibling_index() {
+        let node = Generator::default();
+        let kind = node.kind_tag();
+        // The label logic, as `build_tree_node` computes it.
+        let inner = |path: &[usize]| match path.last() {
+            Some(index) => format!("{kind}  #{index}"),
+            None => kind.to_string(),
+        };
+        assert_eq!(inner(&[3]), format!("{kind}  #3"));
+        assert_eq!(inner(&[1, 12]), format!("{kind}  #12"), "the LAST segment");
+        assert_eq!(inner(&[]), kind, "a root is named, so it needs no index");
+        assert_ne!(inner(&[0]), inner(&[1]), "forty siblings read differently");
     }
 }

@@ -13,12 +13,13 @@ mod humanoid;
 use bevy_egui::egui;
 
 use crate::pds::{Fp, GaitParams, LocomotionConfig};
+use crate::ui::modes::LocalMovement;
 
 /// Egui detail panel for one locomotion preset. Implemented on each
 /// `*Params` struct in this module's siblings — `draw_locomotion_tab`
 /// dispatches to whichever variant the live `LocomotionConfig` carries.
 pub trait LocomotionPanel {
-    fn draw(&mut self, ui: &mut egui::Ui, dirty: &mut bool);
+    fn draw(&mut self, ui: &mut egui::Ui, dirty: &mut bool, facts: &LocalMovement);
 }
 
 /// Render the picker row (one selectable label per preset, switching
@@ -37,6 +38,10 @@ pub fn draw_locomotion_tab(
     fallback_seed: u64,
     dirty: &mut bool,
     undo_label: &mut crate::ui::undo::LabelSlot,
+    // What the live body is actually doing (#1241 f168): a panel that
+    // tunes movement needs to be able to say when a value it publishes
+    // has stopped having an effect on THIS body.
+    facts: &LocalMovement,
 ) {
     let current_kind = locomotion.kind_tag();
 
@@ -57,11 +62,11 @@ pub fn draw_locomotion_tab(
     ui.separator();
 
     match locomotion {
-        LocomotionConfig::HoverBoat(p) => p.draw(ui, dirty),
-        LocomotionConfig::Humanoid(p) => p.draw(ui, dirty),
-        LocomotionConfig::Airplane(p) => p.draw(ui, dirty),
-        LocomotionConfig::Helicopter(p) => p.draw(ui, dirty),
-        LocomotionConfig::Car(p) => p.draw(ui, dirty),
+        LocomotionConfig::HoverBoat(p) => p.draw(ui, dirty, facts),
+        LocomotionConfig::Humanoid(p) => p.draw(ui, dirty, facts),
+        LocomotionConfig::Airplane(p) => p.draw(ui, dirty, facts),
+        LocomotionConfig::Helicopter(p) => p.draw(ui, dirty, facts),
+        LocomotionConfig::Car(p) => p.draw(ui, dirty, facts),
         LocomotionConfig::Unknown => {
             ui.colored_label(
                 crate::ui::theme::current(ui.ctx()).status.warn,

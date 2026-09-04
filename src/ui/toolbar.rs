@@ -79,13 +79,46 @@ impl Default for UiPanels {
 
 /// Does the signed-in player own the overland they're standing in?
 /// Ownership is DID equality — the room record lives in the owner's PDS.
-fn owns_current_room(
+pub(crate) fn owns_current_room(
     session: Option<&AtprotoSession>,
     current_room: Option<&CurrentRoomDid>,
 ) -> bool {
     match (session, current_room) {
         (Some(session), Some(room)) => session.did == room.0,
         _ => false,
+    }
+}
+
+/// "May the room gizmo, its highlight and its overlays exist right now?"
+/// as one system param (#1237 f142).
+///
+/// Three surfaces used to answer it with three different subsets of the
+/// same three facts, and the visitor case fell through all of them: a
+/// `RoomEditorState` selection survives portal travel (`TravelingTo` never
+/// leaves `InGame`, and the record swap does not touch the editor state),
+/// `panels.world_editor` stays `true` for a visitor because the toolbar
+/// renders a DISABLED button without clearing the flag and `room_admin_ui`
+/// returns at its ownership gate before the reconcile that would, and the
+/// placement visualiser gated on neither. The result was a glowing green
+/// circle over a stranger's terrain, and a gizmo that could still drag and
+/// commit into their room's live record.
+///
+/// Bundling `panels` in keeps `sync_gizmo_selection` at its existing
+/// sixteen parameters rather than seventeen.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct RoomEditAccess<'w> {
+    pub panels: Res<'w, UiPanels>,
+    session: Option<Res<'w, AtprotoSession>>,
+    current_room: Option<Res<'w, CurrentRoomDid>>,
+}
+
+impl RoomEditAccess<'_> {
+    /// The World Editor window is open AND this is the owner's own room.
+    /// The exact gate the editor window itself renders under, and the one
+    /// `pick_on_scene_click` uses to decide whether a click may select.
+    pub fn can_edit_room(&self) -> bool {
+        self.panels.world_editor
+            && owns_current_room(self.session.as_deref(), self.current_room.as_deref())
     }
 }
 
@@ -179,6 +212,13 @@ pub struct AccountChip<'w, 's> {
     /// open, are the two states the home row must refuse to stack behind.
     traveling: Option<Res<'w, crate::state::TravelingTo>>,
     guard: Option<Res<'w, crate::ui::unsaved_guard::UnsavedGuard>>,
+    /// #1240 f159: the unstuck command. The menu is where it belongs —
+    /// somebody wedged between a settlement wall and a rock can still
+    /// reach the toolbar, and there is no free key that does not collide
+    /// with movement.
+    return_to_spawn: ResMut<'w, crate::player::PlayerMoveRequest>,
+    /// Whether there is any ground to be returned TO.
+    terrain: Option<Res<'w, crate::terrain::FinishedHeightMap>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -349,6 +389,36 @@ pub fn toolbar_ui(
                             }
                         }
                         ui.separator();
+                        // The unstuck command (#1240 f159). Before this the
+                        // only recovery in the whole app was
+                        // `respawn_if_fallen`, which fires 20 m BELOW local
+                        // ground — so geometry that traps you ABOVE the
+                        // terrain (a construct collider, a crevasse, a
+                        // settlement wall, a pit a skiff cannot climb out
+                        // of) never satisfied it and the only exit was
+                        // logging out.
+                        let stuck_blocked = crate::player::return_to_spawn_blocked(
+                            chip.terrain.is_some(),
+                            chip.traveling.is_some(),
+                        );
+                        let unstuck = ui
+                            .add_enabled(
+                                stuck_blocked.is_none(),
+                                egui::Button::new("Return to spawn"),
+                            )
+                            .on_hover_text(
+                                "Puts you back on solid ground in this overland — \
+                                 for when you are wedged and cannot move",
+                            );
+                        let unstuck = match stuck_blocked {
+                            Some(reason) => unstuck.on_disabled_hover_text(reason),
+                            None => unstuck,
+                        };
+                        if unstuck.clicked() {
+                            chip.return_to_spawn
+                                .request(crate::player::PlayerMove::ReturnToSpawn);
+                            ui.close();
+                        }
                         // The route home (#1232 f251). Until this existed
                         // the only one was the gateway picker's home row,
                         // inside a window that opens solely while standing
@@ -521,6 +591,13 @@ enum PilotedChassis {
     Skiff,
     Airship,
     Airplane,
+    /// A spawned body carrying NO preset marker (#1241 f161): the record
+    /// names a locomotion preset this build does not model, so
+    /// `build_preset_components` inserted a bare collider and nothing
+    /// else, and not one drive system runs. The sheet used to fall back to
+    /// `OnFoot` here and cheerfully list the walk keys for an avatar that
+    /// could not move at all.
+    Unrecognised,
 }
 
 impl PilotedChassis {
@@ -534,6 +611,7 @@ impl PilotedChassis {
             Self::Skiff => "Skiff",
             Self::Airship => "Airship",
             Self::Airplane => "Airplane",
+            Self::Unrecognised => "Unknown vehicle",
         }
     }
 }
@@ -548,14 +626,26 @@ struct ControlRow {
 // Per-chassis movement rows. These mirror the live key handlers in
 // `player/{humanoid,hover_boat,car,helicopter,airplane}.rs`, so the sheet can
 // never drift from the actual controls again (#803) — change both together.
+//
+// It drifted anyway, because nothing tested it: the #803 guards pinned
+// GLOBAL_ROWS and EDITOR_ROWS only. `on_foot_rows_mirror_the_humanoid_
+// handler` closes that (#1235 f40/f41) — Shift became the run key with
+// #1193 and the sheet went on calling it "swim down", while Space
+// advertised a "climb" the humanoid controller has never implemented.
 const ON_FOOT_ROWS: &[ControlRow] = &[
     ControlRow {
         keys: "W A S D  or  Arrows",
         action: "walk",
     },
     ControlRow {
+        // #1193: the record's `walk_speed` IS the run, and unshifted
+        // movement walks at the body's own derived pace.
+        keys: "Shift",
+        action: "run (on land)",
+    },
+    ControlRow {
         keys: "Space",
-        action: "jump · climb · swim up",
+        action: "jump · swim up",
     },
     ControlRow {
         // Ctrl is not bound on wasm (#839): W+Ctrl is the browser's
@@ -565,7 +655,7 @@ const ON_FOOT_ROWS: &[ControlRow] = &[
         } else {
             "Shift / Ctrl / C"
         },
-        action: "swim down",
+        action: "swim down (in water — Shift stops meaning run)",
     },
 ];
 const BOAT_ROWS: &[ControlRow] = &[
@@ -614,6 +704,15 @@ const AIRSHIP_ROWS: &[ControlRow] = &[
         action: "climb / descend",
     },
 ];
+// The one "row" for a preset this build cannot drive (#1241 f161). Not a
+// key binding: it is the sentence that replaces the key bindings, and it
+// points at the ONE surface that can fix it — which used to be reachable
+// only by a warn-coloured paragraph two clicks into Avatar › Locomotion,
+// which nobody has a reason to open.
+const UNRECOGNISED_ROWS: &[ControlRow] = &[ControlRow {
+    keys: "—",
+    action: "this build can't drive your preset · pick one in Avatar › Locomotion",
+}];
 const AIRPLANE_ROWS: &[ControlRow] = &[
     ControlRow {
         keys: "W / S  or  ⬆ / ⬇",
@@ -642,6 +741,18 @@ const AIRPLANE_ROWS: &[ControlRow] = &[
 //   window is open)
 // * Shift-copy-drag  → `editor_gizmo::drag` (Shift at drag-start clones)
 // * Esc              → drag abort + selection clear (`ui::shortcuts`)
+// Right-click rows every visitor can perform (#1235 f149). The scene
+// menu's avatar entries are explicitly NOT owner-gated — "those work for
+// visitors too" (`editor_gizmo::context_menu`) — yet the only place in the
+// app documenting right-click at all was the owner-gated block below, so a
+// visitor never learned that Take off / Re-seat / Save to inventory /
+// Wear from inventory exist. Right-click doubling as camera orbit actively
+// teaches people not to try it.
+const AVATAR_ROWS: &[ControlRow] = &[ControlRow {
+    keys: "Right-click yourself",
+    action: "your body or a worn item: edit · re-seat · take off · wear",
+}];
+
 const EDITOR_ROWS: &[ControlRow] = &[
     ControlRow {
         keys: "Right-click",
@@ -659,6 +770,13 @@ const EDITOR_ROWS: &[ControlRow] = &[
         keys: "Esc",
         action: "abort a drag · clear the selection",
     },
+    // #1244 f148: a tree-row click attaches the gizmo to whichever live
+    // instance is nearest the camera, which can be far away or behind
+    // you — half the time selecting from the tree showed nothing at all.
+    ControlRow {
+        keys: "F",
+        action: "go to the selected object",
+    },
 ];
 
 // Global shortcut rows (#836, #864) — the same on every chassis, and the
@@ -673,6 +791,25 @@ const EDITOR_ROWS: &[ControlRow] = &[
 // * Esc            → drag abort · selection clear · window close
 // * Ctrl+S         → `ui::shortcuts` publish
 // * Ctrl+Z / Shift → `ui::undo::trigger`
+// Camera rows — the same on every chassis. A const rather than inline
+// grid rows since #1235 f166: the pan row advertised a middle button a
+// laptop does not have, with no alternative anywhere, and a cheat-sheet
+// row that cannot be performed is worse than no row.
+const CAMERA_ROWS: &[ControlRow] = &[
+    ControlRow {
+        keys: "Right-drag",
+        action: "orbit camera",
+    },
+    ControlRow {
+        keys: "Middle-drag  or  Alt + right-drag",
+        action: "pan camera",
+    },
+    ControlRow {
+        keys: "Scroll  or  pinch",
+        action: "zoom",
+    },
+];
+
 const GLOBAL_ROWS: &[ControlRow] = &[
     ControlRow {
         keys: "Enter",
@@ -680,7 +817,7 @@ const GLOBAL_ROWS: &[ControlRow] = &[
     },
     ControlRow {
         keys: "Esc",
-        action: "back out: drag · selection · windows",
+        action: "back out one step: drag · selection · pop-out · gateway · windows",
     },
     ControlRow {
         keys: "Ctrl+S",
@@ -689,6 +826,14 @@ const GLOBAL_ROWS: &[ControlRow] = &[
     ControlRow {
         keys: "Ctrl+Z / Ctrl+Shift+Z",
         action: "undo / redo in the open editor",
+    },
+    // Not a key: the unstuck command (#1240 f159) has no binding that does
+    // not collide with movement, and the sheet is the only place that can
+    // tell anybody it exists. Listed here because being unable to move is
+    // the failure a cheat-sheet most needs to answer.
+    ControlRow {
+        keys: "Your @name menu",
+        action: "Return to spawn — if you are wedged and cannot move",
     },
 ];
 
@@ -702,14 +847,30 @@ fn movement_rows(chassis: PilotedChassis) -> &'static [ControlRow] {
         PilotedChassis::Skiff => SKIFF_ROWS,
         PilotedChassis::Airship => AIRSHIP_ROWS,
         PilotedChassis::Airplane => AIRPLANE_ROWS,
+        PilotedChassis::Unrecognised => UNRECOGNISED_ROWS,
     }
 }
 
 /// Resolve the piloted chassis from the `LocalPlayer`'s preset markers (only
 /// one is ever present — the hot-swap strips the old before inserting the new).
-/// Falls back to [`PilotedChassis::OnFoot`] when no vehicle marker is present:
-/// the humanoid preset, or the local player not yet spawned.
-fn piloted_chassis(boat: bool, skiff: bool, airship: bool, airplane: bool) -> PilotedChassis {
+///
+/// A body with NO marker at all is [`PilotedChassis::Unrecognised`]
+/// (#1241 f161), not `OnFoot`: `build_preset_components` gives an unknown
+/// preset a bare collider and no marker, and every drive system is
+/// marker-queried, so that body is an inert falling cube. It used to
+/// resolve to `OnFoot` and the sheet listed the walk keys under
+/// "Piloting: On foot" — total immobility presented as normal movement.
+///
+/// The caller distinguishes "no marker" from "no body yet": the query
+/// returns nothing at all before the local player spawns, and that case
+/// still shows the on-foot default.
+fn piloted_chassis(
+    boat: bool,
+    skiff: bool,
+    airship: bool,
+    airplane: bool,
+    humanoid: bool,
+) -> PilotedChassis {
     if boat {
         PilotedChassis::Boat
     } else if skiff {
@@ -718,8 +879,10 @@ fn piloted_chassis(boat: bool, skiff: bool, airship: bool, airplane: bool) -> Pi
         PilotedChassis::Airship
     } else if airplane {
         PilotedChassis::Airplane
-    } else {
+    } else if humanoid {
         PilotedChassis::OnFoot
+    } else {
+        PilotedChassis::Unrecognised
     }
 }
 
@@ -739,6 +902,15 @@ pub fn flash_owner_controls_once(
     }
 }
 
+/// Points of the panel-free rect the Controls sheet gives up to its own
+/// title bar, frame and margins before its body starts scrolling (#1235
+/// f245).
+const SHEET_CHROME_SLACK: f32 = 64.0;
+
+/// Floor under that subtraction, so a viewport shorter than the chrome
+/// still yields a scrollable body rather than a zero-height one.
+const SHEET_MIN_BODY_HEIGHT: f32 = 160.0;
+
 /// Movement / camera cheat-sheet. Open on first `InGame` entry (the
 /// [`UiPanels`] default) and from the toolbar afterwards. The movement rows are
 /// context-sensitive to the chassis the player is currently piloting (#803);
@@ -755,6 +927,7 @@ pub fn controls_hint_ui(
             Has<CarPreset>,
             Has<HelicopterPreset>,
             Has<AirplanePreset>,
+            Has<crate::player::HumanoidPreset>,
         ),
         With<LocalPlayer>,
     >,
@@ -769,8 +942,12 @@ pub fn controls_hint_ui(
     };
 
     let chassis = local.iter().next().map_or(
+        // No local player entity yet — not the same as a body with no
+        // preset marker, which is `Unrecognised` (#1241 f161).
         PilotedChassis::OnFoot,
-        |(boat, skiff, airship, airplane)| piloted_chassis(boat, skiff, airship, airplane),
+        |(boat, skiff, airship, airplane, humanoid)| {
+            piloted_chassis(boat, skiff, airship, airplane, humanoid)
+        },
     );
 
     let mut open = true;
@@ -783,85 +960,115 @@ pub fn controls_hint_ui(
     // frame — permanently immovable — so once the sheet has been seen
     // it becomes a normal draggable window near the right edge, and can
     // no longer superimpose with the (also centered) offer modal.
+    let free = chrome.available_rect(ctx);
     if panels.controls_seen {
         let (pos, _size) = chrome.place(crate::ui::layout::UiWindow::Controls, ctx);
-        window = window
-            .default_pos(pos)
-            .constrain_to(chrome.available_rect(ctx));
+        window = window.default_pos(pos).constrain_to(free);
     } else {
-        window = window.anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
+        // Constrained on the first run TOO (#1235 f245). The anchored
+        // branch had no `constrain_to` at all, and the owner variant — the
+        // tallest, and the one `flash_owner_controls_once` opens by itself
+        // — runs to roughly 570pt against a 470pt laptop viewport, pushing
+        // "Got it" below the fold and the title-bar [x] above it on a
+        // window that is `.resizable(false)` and re-pinned every frame.
+        window = window
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .constrain_to(free);
     }
     let response = window.show(ctx, |ui| {
-        ui.strong(format!("Piloting: {}", chassis.label()));
-        ui.add_space(4.0);
-        egui::Grid::new("controls-grid")
-            .num_columns(2)
-            .spacing([24.0, 4.0])
+        // …and the body scrolls, which is what actually bounds it:
+        // `constrain_to` moves and caps the window, but a non-resizable
+        // window with unscrolled content still lays out taller than the
+        // cap. `SHEET_CHROME_SLACK` leaves the title bar and the window
+        // frame their room.
+        egui::ScrollArea::vertical()
+            .max_height((free.height() - SHEET_CHROME_SLACK).max(SHEET_MIN_BODY_HEIGHT))
             .show(ui, |ui| {
-                for row in movement_rows(chassis) {
-                    ui.monospace(row.keys);
-                    ui.label(row.action);
-                    ui.end_row();
-                }
-                // Camera controls are the same on every chassis.
-                ui.monospace("Right-drag");
-                ui.label("orbit camera");
-                ui.end_row();
-                ui.monospace("Middle-drag");
-                ui.label("pan camera");
-                ui.end_row();
-                ui.monospace("Scroll");
-                ui.label("zoom");
-                ui.end_row();
-                for row in GLOBAL_ROWS {
-                    ui.monospace(row.keys);
-                    ui.label(row.action);
-                    ui.end_row();
-                }
-            });
-        ui.add_space(6.0);
-        ui.small("Change your vehicle in Avatar › Locomotion.");
-        ui.add_space(6.0);
-        // The chat-keyword emotes (#1068) had no UI surface at all — a
-        // shipped feature nobody could find without typing one of its
-        // words by chance (#1141). Sourced from the keyword table so the
-        // example words cannot drift from the ones that gesture.
-        ui.label(crate::player::emote::Emote::hint_line());
-        ui.add_space(6.0);
-        ui.label(
-            "Walk through a portal doorway — or a gateway — to travel into \
+                ui.strong(format!("Piloting: {}", chassis.label()));
+                ui.add_space(4.0);
+                egui::Grid::new("controls-grid")
+                    .num_columns(2)
+                    .spacing([24.0, 4.0])
+                    .show(ui, |ui| {
+                        for row in movement_rows(chassis) {
+                            ui.monospace(row.keys);
+                            ui.label(row.action);
+                            ui.end_row();
+                        }
+                        // Camera controls are the same on every chassis.
+                        for row in CAMERA_ROWS {
+                            ui.monospace(row.keys);
+                            ui.label(row.action);
+                            ui.end_row();
+                        }
+                        for row in GLOBAL_ROWS {
+                            ui.monospace(row.keys);
+                            ui.label(row.action);
+                            ui.end_row();
+                        }
+                    });
+                ui.add_space(6.0);
+                ui.small("Change your vehicle in Avatar › Locomotion.");
+                ui.add_space(6.0);
+                // The chat-keyword emotes (#1068) had no UI surface at all — a
+                // shipped feature nobody could find without typing one of its
+                // words by chance (#1141). Sourced from the keyword table so the
+                // example words cannot drift from the ones that gesture.
+                ui.label(crate::player::emote::Emote::hint_line());
+                ui.add_space(6.0);
+                ui.label(
+                    "Walk through a portal doorway — or a gateway — to travel into \
              another overland.",
-        );
-        // Owner-only: the world-editing gestures (#851). Every one of
-        // these was previously undiscoverable — and right-click doubling
-        // as camera orbit actively taught people to avoid the menu.
-        if owns_current_room(session.as_deref(), current_room.as_deref()) {
-            ui.add_space(8.0);
-            ui.separator();
-            ui.strong("You own this world — World Editor");
-            ui.add_space(4.0);
-            egui::Grid::new("controls-editor-grid")
-                .num_columns(2)
-                .spacing([24.0, 4.0])
-                .show(ui, |ui| {
-                    for row in EDITOR_ROWS {
-                        ui.monospace(row.keys);
-                        ui.label(row.action);
-                        ui.end_row();
+                );
+                // Visitor-usable right-click, shown to everyone (#1235 f149).
+                ui.add_space(6.0);
+                egui::Grid::new("controls-avatar-grid")
+                    .num_columns(2)
+                    .spacing([24.0, 4.0])
+                    .show(ui, |ui| {
+                        for row in AVATAR_ROWS {
+                            ui.monospace(row.keys);
+                            ui.label(row.action);
+                            ui.end_row();
+                        }
+                    });
+                // Owner-only: the world-editing gestures (#851). Every one of
+                // these was previously undiscoverable — and right-click doubling
+                // as camera orbit actively taught people to avoid the menu.
+                if owns_current_room(session.as_deref(), current_room.as_deref()) {
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.strong("You own this world — World Editor");
+                    ui.add_space(4.0);
+                    egui::Grid::new("controls-editor-grid")
+                        .num_columns(2)
+                        .spacing([24.0, 4.0])
+                        .show(ui, |ui| {
+                            for row in EDITOR_ROWS {
+                                ui.monospace(row.keys);
+                                ui.label(row.action);
+                                ui.end_row();
+                            }
+                        });
+                    ui.add_space(4.0);
+                    ui.small(
+                        "The World/Local toggle beside the editor's transform fields \
+                 switches the drag gizmo's orientation.",
+                    );
+                    // #1240 f170: aiming a gizmo freezes the avatar, and the key
+                    // that releases it is the one the sheet already lists.
+                    ui.small(
+                        "While a gizmo is aimed your avatar is held still — Esc \
+                 releases it.",
+                    );
+                }
+                ui.add_space(6.0);
+                ui.vertical_centered(|ui| {
+                    if ui.button("Got it").clicked() {
+                        panels.controls = false;
                     }
                 });
-            ui.add_space(4.0);
-            ui.small(
-                "The World/Local toggle beside the editor's transform fields \
-                 switches the drag gizmo's orientation.",
-            );
-        }
-        ui.add_space(6.0);
-        ui.vertical_centered(|ui| {
-            if ui.button("Got it").clicked() {
-                panels.controls = false;
-            }
-        });
+            });
     });
     // Only track geometry once de-anchored — remembering the anchored
     // rect would persist "screen center" as the window's home.
@@ -876,11 +1083,35 @@ pub fn controls_hint_ui(
     if !open {
         panels.controls = false;
     }
-    // Any dismissal — [x] or "Got it" — ends the first-run treatment on
-    // this machine (persisted via #820, like the rest of UiPanels).
-    if !panels.controls && !panels.controls_seen {
+    // The latch that de-anchors the sheet lives in `latch_controls_seen`
+    // (#1235 f36), NOT here: it used to sit at the bottom of this
+    // function, behind the early return above, so only the two dismissals
+    // that close from inside — the title-bar [x] and "Got it" — ever
+    // reached it.
+}
+
+/// Latch the first-run treatment off on ANY dismissal of the Controls
+/// sheet (#1235 f36).
+///
+/// While `controls_seen` is false the sheet is built with
+/// `.anchor(CENTER_CENTER)`, which re-pins every frame and is therefore
+/// immovable, and no rect is remembered. The only write of the flag used
+/// to live at the BOTTOM of `controls_hint_ui`, behind its
+/// `if !panels.controls { return; }` — so a user who dismissed with Esc
+/// (the key the sheet itself advertises) or with the toolbar toggle set
+/// `panels.controls = false` from elsewhere, the next run early-returned,
+/// and every reopen thereafter came back centre-pinned and undraggable.
+/// The flag is persisted per machine (#820), so it survived restarts.
+///
+/// A falling edge rather than a render-path write, because the point is
+/// that dismissal happens in three places and only one of them is the
+/// renderer. Guarded (#879): the write only happens on the edge.
+pub fn latch_controls_seen(mut panels: ResMut<UiPanels>, mut was_open: Local<bool>) {
+    let open = panels.controls;
+    if *was_open && !open && !panels.controls_seen {
         panels.controls_seen = true;
     }
+    *was_open = open;
 }
 
 #[cfg(test)]
@@ -890,29 +1121,53 @@ mod tests {
     #[test]
     fn markers_resolve_to_the_matching_chassis() {
         assert_eq!(
-            piloted_chassis(true, false, false, false),
+            piloted_chassis(true, false, false, false, false),
             PilotedChassis::Boat
         );
         assert_eq!(
-            piloted_chassis(false, true, false, false),
+            piloted_chassis(false, true, false, false, false),
             PilotedChassis::Skiff
         );
         assert_eq!(
-            piloted_chassis(false, false, true, false),
+            piloted_chassis(false, false, true, false, false),
             PilotedChassis::Airship
         );
         assert_eq!(
-            piloted_chassis(false, false, false, true),
+            piloted_chassis(false, false, false, true, false),
             PilotedChassis::Airplane
         );
     }
 
     #[test]
-    fn no_vehicle_marker_falls_back_to_on_foot() {
-        // Humanoid preset (no vehicle marker) or the local player not yet spawned.
+    fn the_humanoid_marker_is_on_foot() {
         assert_eq!(
-            piloted_chassis(false, false, false, false),
+            piloted_chassis(false, false, false, false, true),
             PilotedChassis::OnFoot
+        );
+    }
+
+    /// #1241 f161. Sequence: an avatar record written by a newer build
+    /// names a locomotion preset this one does not model; land in the
+    /// world and press W. `build_preset_components` inserts a bare
+    /// collider and NO marker, every drive system is marker-queried, and
+    /// the body is an inert falling cube — while the sheet reported
+    /// "Piloting: On foot" and listed walk keys. Total immobility
+    /// presented as normal movement is the worst combination of a dead
+    /// end and a lie.
+    #[test]
+    fn a_body_with_no_preset_marker_is_not_on_foot() {
+        let chassis = piloted_chassis(false, false, false, false, false);
+        assert_eq!(chassis, PilotedChassis::Unrecognised);
+        assert_eq!(chassis.label(), "Unknown vehicle");
+        let rows = movement_rows(chassis);
+        assert!(
+            rows.iter()
+                .any(|r| r.action.contains("Avatar › Locomotion")),
+            "the only row must point at the surface that can fix it"
+        );
+        assert!(
+            !rows.iter().any(|r| r.action.contains("walk")),
+            "listing walk keys for a body that cannot move is the defect"
         );
     }
 
@@ -924,6 +1179,7 @@ mod tests {
             PilotedChassis::Skiff,
             PilotedChassis::Airship,
             PilotedChassis::Airplane,
+            PilotedChassis::Unrecognised,
         ] {
             let rows = movement_rows(chassis);
             assert!(!rows.is_empty(), "{chassis:?} has no movement rows");
@@ -946,6 +1202,265 @@ mod tests {
         for row in EDITOR_ROWS {
             assert!(!row.action.is_empty(), "{} row has empty action", row.keys);
         }
+    }
+
+    /// Every `KeyCode` `player::humanoid` reads, and the fragment
+    /// [`ON_FOOT_ROWS`] must print for it. A key that appears in the
+    /// handler and not here fails the test below by name: adding a
+    /// binding without telling the sheet is exactly the drift #803's
+    /// comment promised could not happen.
+    const ON_FOOT_KEY_ROWS: &[(&str, &str)] = &[
+        ("KeyW", "W A S D"),
+        ("KeyA", "W A S D"),
+        ("KeyS", "W A S D"),
+        ("KeyD", "W A S D"),
+        ("ArrowUp", "Arrows"),
+        ("ArrowDown", "Arrows"),
+        ("ArrowLeft", "Arrows"),
+        ("ArrowRight", "Arrows"),
+        ("Space", "Space"),
+        ("ShiftLeft", "Shift"),
+        ("ShiftRight", "Shift"),
+        ("KeyC", "C"),
+        // Ctrl is not bound on wasm (#839) and the row says so.
+        (
+            "ControlLeft",
+            if cfg!(target_arch = "wasm32") {
+                ""
+            } else {
+                "Ctrl"
+            },
+        ),
+        (
+            "ControlRight",
+            if cfg!(target_arch = "wasm32") {
+                ""
+            } else {
+                "Ctrl"
+            },
+        ),
+    ];
+
+    /// **The on-foot rows mirror the humanoid handler** (#1235 f40/f41).
+    ///
+    /// The #803 contract — "the sheet can never drift from the actual
+    /// controls again, change both together" — was a comment, and the
+    /// guards next to it pinned `GLOBAL_ROWS` and `EDITOR_ROWS` only.
+    /// Nothing tested the MOVEMENT rows, and both halves drifted: #1193
+    /// made Shift the run key on land while the sheet went on listing
+    /// Shift as "swim down" and nothing else, and the Space row advertised
+    /// a "climb" the humanoid controller has never implemented — a verb
+    /// the user hunts for a surface to use, concluding the app is broken
+    /// rather than the sheet wrong.
+    ///
+    /// Reads the handler's source rather than its behaviour, because
+    /// "which keys does this system look at" is a property of the text and
+    /// there is no harness that could answer it otherwise. It is the same
+    /// idiom the glyph guard and the room-writer walk use.
+    #[test]
+    fn on_foot_rows_mirror_the_humanoid_handler() {
+        let handler = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/player/humanoid.rs"),
+        )
+        .expect("the humanoid handler is readable");
+        let printed: String = ON_FOOT_ROWS
+            .iter()
+            .map(|r| format!("{}\n{}\n", r.keys, r.action))
+            .collect();
+
+        let mut bound: Vec<&str> = Vec::new();
+        let mut rest = handler.as_str();
+        while let Some(at) = rest.find("KeyCode::") {
+            rest = &rest[at + "KeyCode::".len()..];
+            let end = rest
+                .find(|c: char| !c.is_ascii_alphanumeric())
+                .unwrap_or(rest.len());
+            let key = &rest[..end];
+            if !bound.contains(&key) {
+                bound.push(key);
+            }
+        }
+        assert!(
+            bound.len() >= 8,
+            "the handler scan found only {bound:?} — it has stopped working"
+        );
+
+        for key in bound {
+            let (_, fragment) = ON_FOOT_KEY_ROWS
+                .iter()
+                .find(|(name, _)| *name == key)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "player::humanoid binds KeyCode::{key} and ON_FOOT_KEY_ROWS \
+                         does not know it — say what it does on the sheet (or list \
+                         it here with an empty fragment if it is deliberately \
+                         undocumented)"
+                    )
+                });
+            if fragment.is_empty() {
+                continue;
+            }
+            assert!(
+                printed.contains(fragment),
+                "the sheet never prints {fragment:?} for KeyCode::{key}:\n{printed}"
+            );
+        }
+
+        // Shift is the run key on land (#1193) and the sheet must say so —
+        // it listed Shift ONLY as "swim down", so a careful reader came
+        // away actively believing Shift does something else on land.
+        assert!(
+            handler.contains("let running ="),
+            "the run branch moved; re-check what the sheet should say about Shift"
+        );
+        assert!(
+            printed.contains("run"),
+            "Shift-to-run is bound and the sheet does not mention running"
+        );
+        // …and it must not name a verb the handler does not have.
+        assert!(
+            !handler.to_lowercase().contains("climb"),
+            "the humanoid handler grew a climb — the sheet may advertise one again"
+        );
+        assert!(
+            !printed.to_lowercase().contains("climb"),
+            "the sheet advertises a climb the humanoid controller does not implement"
+        );
+    }
+
+    /// #1235 f36. Sequence: a brand-new user closes the auto-opened
+    /// Controls sheet with Esc — the key the sheet itself lists under
+    /// "back out" — and from then on every reopen lands dead centre and
+    /// cannot be dragged, forever, persisted per machine. The latch used
+    /// to live at the bottom of `controls_hint_ui`, behind its
+    /// `if !panels.controls { return; }`, so only the [x] and "Got it"
+    /// (which close from inside) reached it.
+    #[test]
+    fn any_dismissal_ends_the_first_run_pinning() {
+        // `run_system_cached`, not `run_system_once`: the falling edge
+        // lives in a `Local`, and a fresh system every call would have no
+        // previous frame to fall from.
+        let mut world = bevy::prelude::World::new();
+        world.insert_resource(UiPanels::default());
+        assert!(
+            world.resource::<UiPanels>().controls,
+            "precondition: the sheet opens itself on a first run"
+        );
+
+        // Open, drawn, still first-run.
+        world
+            .run_system_cached(latch_controls_seen)
+            .expect("system runs");
+        assert!(!world.resource::<UiPanels>().controls_seen);
+
+        // Dismissed from OUTSIDE the renderer — the Esc ladder and the
+        // toolbar toggle both look exactly like this.
+        world.resource_mut::<UiPanels>().controls = false;
+        world
+            .run_system_cached(latch_controls_seen)
+            .expect("system runs");
+        assert!(
+            world.resource::<UiPanels>().controls_seen,
+            "Esc / the toolbar toggle must de-anchor the sheet too"
+        );
+    }
+
+    /// #1237 f142. Sequence: leave your own world through a gateway with
+    /// the World Editor open and a placement selected; arrive in a
+    /// stranger's overland, and find a glowing green circle over their
+    /// terrain that the gizmo can still drag and commit into their room's
+    /// live record.
+    ///
+    /// `panels.world_editor` stays TRUE for a visitor — the toolbar
+    /// renders a DISABLED button without clearing the flag, and
+    /// `room_admin_ui` returns at its ownership gate before the reconcile
+    /// that would — so a window-flag-only gate is not a gate at all here.
+    /// Three surfaces answered the question three different ways and the
+    /// overlay answered it not at all; this pins that they now share one.
+    #[test]
+    fn every_room_gizmo_surface_asks_the_same_ownership_question() {
+        // Structural, not behavioural: an `AtprotoSession` fixture needs a
+        // live DPoP-signing session, and what actually broke here was
+        // WHICH question each surface asked, not the answer. Nothing may
+        // go back to reading
+        // `panels.world_editor` on its own, which is the shape of the bug.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for rel in [
+            "src/editor_gizmo/sync.rs",
+            "src/editor_gizmo/highlight.rs",
+            "src/world_builder/mod.rs",
+        ] {
+            let src = std::fs::read_to_string(root.join(rel)).expect("source is readable");
+            assert!(
+                src.contains("can_edit_room()"),
+                "{rel} must gate the room gizmo on RoomEditAccess"
+            );
+            assert!(
+                !src.contains("panels.world_editor"),
+                "{rel} reads the window flag directly again — that flag is true \
+                 for a visitor standing in a stranger's world"
+            );
+        }
+    }
+
+    /// **The camera rows name gestures a laptop can perform** (#1242
+    /// f166). Pan was middle-button-only with no modifier and no
+    /// alternative, while the sheet advertised it unconditionally — a
+    /// cheat-sheet row that cannot be performed is worse than no row.
+    #[test]
+    fn camera_rows_offer_a_reachable_pan_and_zoom() {
+        let printed: String = CAMERA_ROWS
+            .iter()
+            .map(|r| format!("{}\n{}\n", r.keys, r.action))
+            .collect();
+        assert!(
+            printed.contains("Alt"),
+            "no trackpad-reachable pan: {printed}"
+        );
+        assert!(
+            printed.contains("pinch"),
+            "no trackpad-reachable zoom: {printed}"
+        );
+        assert!(printed.contains("orbit"));
+    }
+
+    /// **The visitor-usable right-click is documented to visitors**
+    /// (#1235 f149). `AVATAR_ROWS` is rendered outside the ownership
+    /// branch; `EDITOR_ROWS` inside it. The rows must not swap sides.
+    #[test]
+    fn the_avatar_right_click_row_is_not_owner_gated() {
+        let src = include_str!("toolbar.rs");
+        let owner_heading = src
+            .find("You own this world — World Editor")
+            .expect("the owner heading");
+        let rendered = src
+            .find("for row in AVATAR_ROWS")
+            .expect("the avatar rows are rendered");
+        assert!(
+            rendered < owner_heading,
+            "the avatar rows moved inside the owner-only block"
+        );
+        let printed: String = AVATAR_ROWS
+            .iter()
+            .map(|r| format!("{}\n{}\n", r.keys, r.action))
+            .collect();
+        for verb in ["take off", "re-seat", "wear"] {
+            assert!(printed.to_lowercase().contains(verb), "{verb}: {printed}");
+        }
+    }
+
+    /// **The sheet names the unstuck command** (#1240 f159). It has no key
+    /// binding — there is no free key that does not collide with movement
+    /// — so the sheet is the only surface that can tell anyone it exists,
+    /// and being unable to move is the failure a cheat-sheet most needs to
+    /// answer.
+    #[test]
+    fn the_global_rows_name_the_way_out_of_being_stuck() {
+        let printed: String = GLOBAL_ROWS
+            .iter()
+            .map(|r| format!("{}\n{}\n", r.keys, r.action))
+            .collect();
+        assert!(printed.contains("Return to spawn"), "{printed}");
     }
 
     /// **The sheet names every global shortcut the app binds** (#1141).

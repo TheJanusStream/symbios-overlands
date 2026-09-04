@@ -541,11 +541,21 @@ fn reset_traits(commands: &mut Commands, entity: Entity) {
 }
 
 fn draw_placement_visualizers(
-    mut gizmos: Gizmos,
+    mut gizmos: Gizmos<crate::editor_gizmo::EditorOverlayGizmos>,
     editor_state: Res<crate::ui::room::RoomEditorState>,
     record: Option<Res<LiveRoomRecord>>,
     heightmap: Option<Res<FinishedHeightMap>>,
+    access: crate::ui::toolbar::RoomEditAccess,
 ) {
+    // The same gate the gizmo and its highlight use (#1237 f142). This
+    // overlay had NEITHER an ownership nor a panel gate: a visitor who
+    // travelled with the Placements tab open and a placement selected
+    // arrived in a stranger's overland to find a glowing green circle
+    // floating over their terrain, indexed into the newly-arrived room's
+    // placements.
+    if !access.can_edit_room() {
+        return;
+    }
     let Some(record) = record else {
         return;
     };

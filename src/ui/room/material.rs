@@ -64,10 +64,30 @@ pub(super) fn draw_material_forge(
 }
 
 fn draw_splat_rule(ui: &mut egui::Ui, rule: &mut SovereignSplatRule, dirty: &mut bool) {
-    fp_slider(ui, "Height min", &mut rule.height_min, 0.0, 1.0, dirty);
-    fp_slider(ui, "Height max", &mut rule.height_max, 0.0, 1.0, dirty);
-    fp_slider(ui, "Slope min", &mut rule.slope_min, 0.0, 1.0, dirty);
-    fp_slider(ui, "Slope max", &mut rule.slope_max, 0.0, 1.0, dirty);
+    // Bounded against each other (#1238 f90). These two pairs are the
+    // WORST of the four: `SovereignSplatRule` has no `Sanitize` impl
+    // anywhere, so an inverted band was never corrected and never
+    // flagged — it simply matched nothing, for good.
+    super::widgets::fp_range_sliders(
+        ui,
+        "Height min",
+        "Height max",
+        &mut rule.height_min,
+        &mut rule.height_max,
+        0.0,
+        1.0,
+        dirty,
+    );
+    super::widgets::fp_range_sliders(
+        ui,
+        "Slope min",
+        "Slope max",
+        &mut rule.slope_min,
+        &mut rule.slope_max,
+        0.0,
+        1.0,
+        dirty,
+    );
     fp_slider(ui, "Sharpness", &mut rule.sharpness, 0.05, 8.0, dirty);
 }
 
