@@ -89,6 +89,23 @@ pub struct WaterVolume;
 #[derive(Resource)]
 pub struct FinishedHeightMap(pub HeightMap);
 
+/// The terrain generation gave an answer that is not a heightmap (#1230
+/// f21), and this is what it said.
+///
+/// The finding described the row as spinning forever. What it actually
+/// does at HEAD is worse and quieter: `poll_terrain_task` removes
+/// [`TerrainTask`] before it matches on the result, and
+/// `start_terrain_generation` re-fires whenever there is no task and no
+/// [`FinishedHeightMap`] — so the failing job restarted every frame, for
+/// the whole session, behind a spinner labelled "working", logging one
+/// `OffloadJobFailed` per pass. This marker turns that into a stated
+/// failure with an explicit retry: the start condition now also requires
+/// its absence, and the loading screen's Retry removes it.
+#[derive(Resource)]
+pub struct TerrainGenFailed {
+    pub reason: String,
+}
+
 /// Live road-network stats for the editor's readout (#888): written by the
 /// road re-mesh on every swap and by the lot layer on inject/strip, zeroed
 /// on sweep / world teardown. `built` distinguishes "no network meshed"
@@ -266,7 +283,11 @@ impl Plugin for TerrainPlugin {
                     heightmap::start_terrain_generation.run_if(
                         resource_exists::<LiveRoomRecord>
                             .and_then(not(resource_exists::<TerrainTask>))
-                            .and_then(not(resource_exists::<FinishedHeightMap>)),
+                            .and_then(not(resource_exists::<FinishedHeightMap>))
+                            // #1230 f21: without this, a job that answers
+                            // with the wrong variant re-dispatches on the
+                            // very next frame, forever and in silence.
+                            .and_then(not(resource_exists::<TerrainGenFailed>)),
                     ),
                     splat::start_texture_tasks.run_if(
                         resource_exists::<LiveRoomRecord>
@@ -369,6 +390,61 @@ impl Plugin for TerrainPlugin {
                             .and_then(resource_exists::<crate::attract::AttractReroll>),
                     ),
             );
+    }
+}
+
+#[cfg(test)]
+mod terrain_failure_tests {
+    use super::*;
+
+    /// #1230 f21. The finding said a failed heightmap "spins working
+    /// forever". What HEAD actually did is quieter and worse:
+    /// `poll_terrain_task` removes [`TerrainTask`] before it matches on the
+    /// result, and `start_terrain_generation` re-fires whenever there is no
+    /// task and no [`FinishedHeightMap`] — so a job answering with the wrong
+    /// variant restarted on the very next frame, every frame, for the whole
+    /// session, behind a spinner labelled "working" and logging one
+    /// `OffloadJobFailed` per pass.
+    ///
+    /// The marker is what breaks that loop, so the condition it guards is
+    /// the thing worth pinning: with the marker present, and with a live
+    /// record and neither a task nor a heightmap in the world, the start
+    /// system must not run.
+    #[test]
+    fn a_failed_terrain_job_does_not_restart_itself_every_frame() {
+        fn should_start(world: &mut World) -> bool {
+            let mut condition = IntoSystem::into_system(
+                resource_exists::<LiveRoomRecord>
+                    .and_then(not(resource_exists::<TerrainTask>))
+                    .and_then(not(resource_exists::<FinishedHeightMap>))
+                    .and_then(not(resource_exists::<TerrainGenFailed>)),
+            );
+            condition.initialize(world);
+            condition
+                .run((), world)
+                .expect("the run condition evaluates")
+        }
+
+        let mut world = World::new();
+        world.insert_resource(LiveRoomRecord(crate::pds::RoomRecord::default_for_did(
+            "did:plc:test",
+        )));
+        assert!(
+            should_start(&mut world),
+            "a record with no terrain yet dispatches a job"
+        );
+
+        world.insert_resource(TerrainGenFailed {
+            reason: "the terrain job returned something that isn't terrain".into(),
+        });
+        assert!(
+            !should_start(&mut world),
+            "a stated failure must not re-dispatch itself"
+        );
+
+        // The loading screen's "Try again" is exactly this removal.
+        world.remove_resource::<TerrainGenFailed>();
+        assert!(should_start(&mut world), "and the retry starts it again");
     }
 }
 

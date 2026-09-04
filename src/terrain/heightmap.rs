@@ -114,18 +114,24 @@ pub(super) fn poll_terrain_task(
                 commands.insert_resource(FinishedHeightMap(heightmap_from_data(data)));
             }
             // A heightmap job only ever yields a heightmap; count an unexpected
-            // variant as an offload error (E-4) and leave the terrain unloaded —
-            // the loading-gate stall rule surfaces it — rather than panicking.
+            // variant as an offload error (E-4) rather than panicking — and
+            // say so on the loading screen (#1230 f21). Marking the failure
+            // is what stops `start_terrain_generation` re-dispatching the
+            // same job on the next frame and every frame after it: the task
+            // resource is already gone by the time this arm runs, so the
+            // start condition was satisfied again immediately.
             _ => {
                 crate::diagnostics::samplers::offload_job_error(&mut metrics);
+                let reason = String::from("the terrain job returned something that isn't terrain");
                 session_log.error(
                     now,
                     crate::diagnostics::event::EventPayload::OffloadJobFailed {
                         job: "heightmap".into(),
-                        reason: "offload job yielded a non-heightmap result".into(),
+                        reason: reason.clone(),
                     },
                 );
                 warn!("heightmap offload job yielded an unexpected result — terrain will not load");
+                commands.insert_resource(super::TerrainGenFailed { reason });
             }
         }
     }

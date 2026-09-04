@@ -213,25 +213,25 @@ pub(super) fn draw_selection_highlight(
     }
 }
 
-/// Merge the world bounds of `root` and every ECS descendant, then draw
-/// one wire box. Entities without a render [`Aabb`] (bare containers,
-/// anchors) contribute nothing; a subtree with no meshes at all draws
-/// nothing rather than a zero box at the origin.
+/// Merge the world bounds of `root` and every ECS descendant into one
+/// `(min, max)` pair, or `None` when the subtree carries no render
+/// [`Aabb`] at all.
 ///
-/// `frame: Some(rotation)` (#871, gizmo in Local mode) folds the corners
-/// in that rotated basis and draws the box oriented to it — a tight OBB
-/// for the instance instead of the world-axis-aligned merge. For a
-/// non-uniformly scaled *rotated* parent chain the extracted rotation is
-/// an approximation (shear is not representable) — the same
-/// approximation the gizmo handles themselves live with.
-fn draw_subtree_box(
-    gizmos: &mut Gizmos,
+/// `frame: Some(rotation)` folds the corners in that rotated basis, so the
+/// caller gets a tight OBB in that frame rather than the world-axis-aligned
+/// merge; the caller is responsible for rotating the result back.
+///
+/// Shared (#1226) with the peer nametag surface, which needs the same
+/// question answered for a different reason: where the top of somebody's
+/// body is, so a name can be hung above it. One walk, one definition of
+/// "the bounds of this thing" — a second copy would drift the moment a
+/// chassis family changed how it nests its meshes.
+pub(crate) fn subtree_world_bounds(
     root: Entity,
-    color: Color,
     frame: Option<Quat>,
     children: &Query<&Children>,
     bounds_query: &Query<(&Aabb, &GlobalTransform)>,
-) {
+) -> Option<(Vec3, Vec3)> {
     let inv = frame.map(|q| q.inverse());
     let mut merged: Option<(Vec3, Vec3)> = None;
     let mut stack = vec![root];
@@ -249,7 +249,29 @@ fn draw_subtree_box(
             stack.extend(kids.iter());
         }
     }
-    let Some((min, max)) = merged else {
+    merged
+}
+
+/// Draw one wire box around [`subtree_world_bounds`]. Entities without a
+/// render [`Aabb`] (bare containers, anchors) contribute nothing; a
+/// subtree with no meshes at all draws nothing rather than a zero box at
+/// the origin.
+///
+/// `frame: Some(rotation)` (#871, gizmo in Local mode) folds the corners
+/// in that rotated basis and draws the box oriented to it — a tight OBB
+/// for the instance instead of the world-axis-aligned merge. For a
+/// non-uniformly scaled *rotated* parent chain the extracted rotation is
+/// an approximation (shear is not representable) — the same
+/// approximation the gizmo handles themselves live with.
+fn draw_subtree_box(
+    gizmos: &mut Gizmos,
+    root: Entity,
+    color: Color,
+    frame: Option<Quat>,
+    children: &Query<&Children>,
+    bounds_query: &Query<(&Aabb, &GlobalTransform)>,
+) {
+    let Some((min, max)) = subtree_world_bounds(root, frame, children, bounds_query) else {
         return;
     };
     let center = (min + max) * 0.5;

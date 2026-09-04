@@ -89,6 +89,10 @@ pub enum FetchStatus {
     DecodeError,
     /// A transient error (DNS / timeout / 5xx) that will be retried.
     TransientError,
+    /// The DID does not resolve to an ATProto account at all (#1230 f22) —
+    /// a mistyped landmark link, or an identity that never existed. Not
+    /// retried: no amount of waiting produces an account.
+    NoSuchIdentity,
     /// The retry budget was exhausted and the default was installed.
     Exhausted,
     /// Best-effort fetch (inventory) fell back without retrying.

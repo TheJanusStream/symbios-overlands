@@ -74,6 +74,28 @@ pub struct CompiledWorld {
 #[derive(Resource, Default)]
 pub struct CompileJob(pub(super) Option<ActiveJob>);
 
+impl CompileJob {
+    /// How far the in-flight compile has got: `(units built, units total)`,
+    /// or `None` when no job is running (#1230 f281).
+    ///
+    /// The loading screen's longest and least legible phase was a bare
+    /// spinner with a warning that it "may pause a few seconds", although
+    /// the job has counted its own work since #351. No new bookkeeping: the
+    /// numbers are `units_built`, the queue length, and the unit currently
+    /// mid-build. What was actually missing is this accessor — every field
+    /// of [`ActiveJob`] is `pub(super)`, so a `Res<CompileJob>` parameter on
+    /// its own could read nothing.
+    ///
+    /// `total` is the size of THIS job, not of the world: an incremental
+    /// re-plan rebuilds only what changed, and reporting "3 of 480" for a
+    /// three-unit diff would be a worse lie than the spinner.
+    pub fn progress(&self) -> Option<(u32, u32)> {
+        let job = self.0.as_ref()?;
+        let remaining = job.queue.len() as u32 + job.cursor.is_some() as u32;
+        Some((job.units_built, job.units_built + remaining))
+    }
+}
+
 /// One placement waiting to be (re)built, with the fingerprint the
 /// rebuild will be committed under.
 pub(super) struct QueuedUnit {
@@ -307,8 +329,56 @@ mod tests {
     //! The fingerprint is the planner's entire decision input, so it
     //! carries the unit coverage; the executor's ECS flow is exercised
     //! by the existing integration suite plus manual smoke tests.
-    use super::{FingerprintPass, unit_fingerprint};
+    use super::{ActiveJob, CompileJob, FingerprintPass, QueuedUnit, unit_fingerprint};
     use crate::pds::{Fp, RoomRecord};
+    use std::collections::VecDeque;
+
+    /// #1230 f281. The loading screen's longest and least legible phase was
+    /// a numberless spinner under a warning that it "may pause a few
+    /// seconds" — although the job has counted `units_built` since #351.
+    /// The finding's refuter was right that the screen could not read them:
+    /// every field of `ActiveJob` is `pub(super)`, so a `Res<CompileJob>`
+    /// parameter alone would have read nothing. This is the accessor that
+    /// was missing.
+    #[test]
+    fn a_running_compile_can_say_how_far_it_has_got() {
+        assert_eq!(
+            CompileJob::default().progress(),
+            None,
+            "no job is not zero progress"
+        );
+
+        let queue: VecDeque<QueuedUnit> = (0..3)
+            .map(|index| QueuedUnit {
+                index,
+                fingerprint: None,
+            })
+            .collect();
+        let mut job = ActiveJob::new(queue, true, None);
+        job.units_built = 2;
+        let running = CompileJob(Some(job));
+        assert_eq!(
+            running.progress(),
+            Some((2, 5)),
+            "two built plus three queued is five units in THIS job"
+        );
+    }
+
+    /// The last slice: an empty queue with everything built reports a
+    /// finished ratio rather than a division by nothing, and the row's own
+    /// `total > 0` filter keeps a not-yet-planned job on the bare spinner.
+    #[test]
+    fn a_job_with_nothing_queued_reports_a_whole_ratio() {
+        let mut job = ActiveJob::new(VecDeque::new(), true, None);
+        job.units_built = 7;
+        assert_eq!(CompileJob(Some(job)).progress(), Some((7, 7)));
+        let empty = ActiveJob::new(VecDeque::new(), true, None);
+        assert_eq!(
+            CompileJob(Some(empty)).progress(),
+            Some((0, 0)),
+            "a job that has planned nothing yet counts nothing"
+        );
+    }
 
     fn fingerprints(record: &RoomRecord) -> Vec<Option<String>> {
         // Same once-per-pass construction the planner uses.

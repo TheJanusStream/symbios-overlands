@@ -162,6 +162,7 @@ mod tests {
                 pds: None,
                 relay: None,
                 autosubmit: false,
+                source: crate::boot_params::BootSource::Cli,
             })
             .insert_resource(DiagDirOverride(Some(dir.clone())))
             .add_plugins(DiagnosticsPlugin);

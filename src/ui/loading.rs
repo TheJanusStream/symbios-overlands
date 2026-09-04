@@ -31,8 +31,8 @@ use crate::diagnostics::anomaly::rules::GATE_STALL_SECS;
 use crate::diagnostics::event::FetchStatus;
 use crate::loading::AmbientHandle;
 use crate::loading::fetch::{
-    LoadedRecord, PendingRecordRetry, RecordFetchOutcomes, RecordFetchTask, is_failure_fallback,
-    spawn_record_fetch,
+    LoadedRecord, PendingRecordRetry, RecordFetchOutcomes, RecordFetchTask, fallback_note,
+    is_failure_fallback, spawn_record_fetch,
 };
 use crate::pds::{AvatarRecord, InventoryRecord, RoomRecord};
 use crate::state::{CurrentRoomDid, LiveAvatarRecord, LiveInventoryRecord, LiveRoomRecord};
@@ -42,6 +42,15 @@ use crate::terrain::FinishedHeightMap;
 /// load"); it turns red at the D-engine critical stall threshold
 /// [`GATE_STALL_SECS`]. A normal login load settles in a few seconds.
 const GATE_WARN_SECS: f64 = 15.0;
+
+/// The escape hatch's label and the cost it now states (#1230 f32).
+///
+/// Named constants because the honesty is the fix: `abort_loading_to_login`
+/// runs the shared logout teardown — token revocation at the user's PDS,
+/// and on wasm the persisted session cleared — and the old "Back to login"
+/// promised a one-click retry instead.
+const ABORT_BUTTON_LABEL: &str = "Cancel and log out";
+const ABORT_BUTTON_NOTE: &str = "You'll need to sign in again.";
 
 /// Row-block width. Wide enough that a retrying row (spinner + label +
 /// countdown + "Retry now") stays on one line — the old 340 px wrapped
@@ -69,17 +78,28 @@ enum RowStatus {
     Done,
     /// The gate resource is present, but only because the fetch fell
     /// back to the default after a FAILURE (decode error / exhausted
-    /// retries) — rendered amber, not as a green success (#840). A 404
-    /// default (fresh account) still counts as [`RowStatus::Done`].
-    Fallback,
+    /// retries / an identity that does not exist) — rendered amber, not
+    /// as a green success (#840). A 404 default (fresh account) still
+    /// counts as [`RowStatus::Done`]. Carries the note naming which of
+    /// them happened (#1230 f22).
+    Fallback(&'static str),
     /// Work is in flight (fetching / generating / baking). Carries the
     /// `(attempt, max)` pair while a retry attempt is in flight, so the
     /// counter stays visible through the marker-despawn gap between a
     /// retry firing and its task resolving (#849).
     Active(Option<(u32, u32)>),
+    /// Work is in flight and counts its own units — the world compile
+    /// (#1230 f281). The longest phase of the gate was a bare spinner
+    /// although the job has counted `units_built` since #351.
+    Progress { done: u32, total: u32 },
     /// Not started because an upstream dependency hasn't landed — shown
     /// as an honest "waiting on …" instead of a fake-busy spinner (#849).
     Blocked(&'static str),
+    /// The work failed and nothing is retrying it (#1230 f21). Three of
+    /// the six rows had no way to say this at all, so the most alarming
+    /// loading failure rendered identically to a slow, healthy load —
+    /// under an elapsed line that actively reassures.
+    Failed(String),
     /// A transient fetch failure is waiting out its backoff window.
     Retrying {
         attempt: u32,
@@ -97,6 +117,9 @@ enum RowAction {
     /// Fire the pending retry immediately instead of waiting out the
     /// backoff window.
     RetryNow,
+    /// Start the failed work again from scratch (#1230 f21) — there is no
+    /// pending retry to short-circuit, because nothing was retrying.
+    RestartFailed,
 }
 
 /// Derive a record row's status from its gate resource, its terminal
@@ -112,10 +135,9 @@ fn record_row<R: LoadedRecord>(
     now: f64,
 ) -> RowStatus {
     if resource_present {
-        return if outcome.is_some_and(is_failure_fallback) {
-            RowStatus::Fallback
-        } else {
-            RowStatus::Done
+        return match outcome.filter(|status| is_failure_fallback(*status)) {
+            Some(status) => RowStatus::Fallback(fallback_note(status)),
+            None => RowStatus::Done,
         };
     }
     if let Some(marker) = retry {
@@ -149,11 +171,29 @@ fn draw_row(ui: &mut egui::Ui, label: &str, status: RowStatus) -> RowAction {
                 );
                 ui.label(label);
             }
-            RowStatus::Fallback => {
+            RowStatus::Fallback(note) => {
                 let amber = crate::ui::theme::current(ui.ctx()).status.warn;
                 ui.colored_label(amber, "⚠");
                 ui.label(label);
-                ui.colored_label(amber, "— using default (stored copy unavailable)");
+                ui.colored_label(amber, note);
+            }
+            RowStatus::Progress { done, total } => {
+                ui.spinner();
+                ui.label(label);
+                ui.colored_label(
+                    crate::ui::theme::current(ui.ctx()).text_weak,
+                    format!("{done} of {total}"),
+                );
+            }
+            RowStatus::Failed(reason) => {
+                let red = crate::ui::theme::current(ui.ctx()).status.error;
+                ui.colored_label(red, crate::ui::affordances::CROSS);
+                ui.label(label);
+                ui.colored_label(red, "— failed");
+                if ui.small_button("Try again").clicked() {
+                    action = RowAction::RestartFailed;
+                }
+                retry_reason = Some(reason);
             }
             RowStatus::Active(attempt) => {
                 ui.spinner();
@@ -216,6 +256,11 @@ pub struct GateState<'w> {
     live_inventory: Option<Res<'w, LiveInventoryRecord>>,
     ambient: Option<Res<'w, AmbientHandle>>,
     world_compiled: Option<Res<'w, crate::world_builder::WorldCompiled>>,
+    /// The in-flight sliced compile, for the progress ratio (#1230 f281).
+    compile_job: Option<Res<'w, crate::world_builder::compile::CompileJob>>,
+    /// Set when the terrain job answered with something that is not a
+    /// heightmap (#1230 f21).
+    terrain_failed: Option<Res<'w, crate::terrain::TerrainGenFailed>>,
 }
 
 /// Per-record retry markers + in-flight tasks, bundled for the same
@@ -293,6 +338,11 @@ pub fn loading_ui(
     // they are honestly *waiting*, not working (#849).
     let terrain_status = if gate.heightmap.is_some() {
         RowStatus::Done
+    } else if let Some(failed) = gate.terrain_failed.as_deref() {
+        // #1230 f21. Until this row existed the failing job re-dispatched
+        // itself every frame behind a spinner labelled "working", for the
+        // whole session.
+        RowStatus::Failed(failed.reason.clone())
     } else if !room_landed {
         RowStatus::Blocked("the world recipe")
     } else {
@@ -312,12 +362,26 @@ pub fn loading_ui(
     } else if gate.heightmap.is_none() {
         RowStatus::Blocked("the terrain heightmap")
     } else {
+        // The job counts its own units (#1230 f281); show them. Before the
+        // first slice has planned a queue there is nothing to count, and a
+        // bare spinner is the honest answer for that handful of frames.
         // Rendered at least one frame before the first compile slice runs
-        // (see `world_builder::WorldCompileArmed`), so this warning is on
-        // screen when the wasm main-thread stall hits.
-        RowStatus::Active(None)
+        // (see `world_builder::WorldCompileArmed`), so the pause warning is
+        // on screen when the wasm main-thread stall hits.
+        match gate
+            .compile_job
+            .as_deref()
+            .and_then(|job| job.progress())
+            .filter(|(_, total)| *total > 0)
+        {
+            Some((done, total)) => RowStatus::Progress { done, total },
+            None => RowStatus::Active(None),
+        }
     };
-    let world_building = matches!(world_status, RowStatus::Active(_));
+    let world_building = matches!(
+        world_status,
+        RowStatus::Active(_) | RowStatus::Progress { .. }
+    );
 
     let any_retrying = [&room_status, &avatar_status, &inventory_status]
         .iter()
@@ -381,7 +445,12 @@ pub fn loading_ui(
                     {
                         retry_now::<RoomRecord>(&mut commands, &rows.room_retries, now);
                     }
-                    draw_row(ui, "Terrain heightmap", terrain_status);
+                    if draw_row(ui, "Terrain heightmap", terrain_status) == RowAction::RestartFailed
+                    {
+                        // Dropping the marker is the whole restart: the
+                        // start condition it blocks re-fires next frame.
+                        commands.remove_resource::<crate::terrain::TerrainGenFailed>();
+                    }
                     if draw_row(ui, "Avatar record", avatar_status) == RowAction::RetryNow {
                         retry_now::<AvatarRecord>(&mut commands, &rows.avatar_retries, now);
                     }
@@ -405,9 +474,18 @@ pub fn loading_ui(
             ui.add_space(16.0);
             // Escape hatch (#849): abort the pass and return to the login
             // form. One click — a dead PDS must not require killing the app.
-            if ui.button("Back to login").clicked() {
+            //
+            // Named for what it does (#1230 f32). `abort_loading_to_login`
+            // runs the shared `logout::cleanup_on_logout`, which fires the
+            // RFC 7009 token revocation at the user's PDS and, on wasm,
+            // clears the persisted session — so "Back to login" promised a
+            // one-click retry and delivered a full re-authentication, to a
+            // user who is by definition already frustrated. The teardown is
+            // correct; only the promise was wrong.
+            if ui.button(ABORT_BUTTON_LABEL).clicked() {
                 commands.insert_resource(crate::loading::AbortLoading);
             }
+            ui.weak(egui::RichText::new(ABORT_BUTTON_NOTE).small());
         });
     });
 }
@@ -415,6 +493,27 @@ pub fn loading_ui(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1230 f32. The sequence: a user waiting out a slow load clicks "Back
+    /// to login" expecting to step back one screen and try again — and
+    /// `abort_loading_to_login` runs the shared `logout::cleanup_on_logout`,
+    /// which fires the RFC 7009 token revocation at their PDS and, on wasm,
+    /// clears the persisted session. The teardown is correct; the label
+    /// promised the cheap thing and delivered a full re-authentication, to
+    /// somebody already frustrated enough to be hunting for an exit. It is
+    /// also the ONLY escape from a stuck load, so the surprise lands on the
+    /// user least able to absorb it.
+    #[test]
+    fn the_only_escape_from_a_stuck_load_says_what_it_costs() {
+        assert!(
+            ABORT_BUTTON_LABEL.to_lowercase().contains("log out"),
+            "{ABORT_BUTTON_LABEL} still promises a step back, not a logout"
+        );
+        assert!(
+            ABORT_BUTTON_NOTE.to_lowercase().contains("sign in again"),
+            "{ABORT_BUTTON_NOTE} does not state the cost"
+        );
+    }
 
     #[test]
     fn gate_elapsed_style_thresholds() {

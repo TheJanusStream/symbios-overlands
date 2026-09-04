@@ -78,6 +78,7 @@ pub(super) fn cleanup_terrain(
     commands.remove_resource::<SplatMaterialHandle>();
     commands.remove_resource::<TextureTasksStarted>();
     commands.remove_resource::<TerrainTask>();
+    commands.remove_resource::<super::TerrainGenFailed>();
     // Drop the interaction CPU terrain mirror with its terrain so the
     // classifier doesn't probe a stale heightmap after logout.
     commands.remove_resource::<TerrainSurfaceQuery>();
@@ -188,6 +189,10 @@ pub(super) fn maybe_regenerate_terrain(
             commands.remove_resource::<SplatMaterialHandle>();
             commands.remove_resource::<TextureTasksStarted>();
             commands.remove_resource::<TerrainTask>();
+            // A new config is a new job, so a previous job's failure is not
+            // about it (#1230 f21) — leaving the marker would refuse to
+            // start the replacement.
+            commands.remove_resource::<super::TerrainGenFailed>();
             *splat_state = TerrainSplatState::default();
             info!("Terrain config changed — regenerating heightmap + splat textures");
         }
@@ -211,6 +216,10 @@ pub(super) fn maybe_regenerate_terrain(
             commands.remove_resource::<SplatMaterialHandle>();
             commands.remove_resource::<TextureTasksStarted>();
             commands.remove_resource::<TerrainTask>();
+            // A new config is a new job, so a previous job's failure is not
+            // about it (#1230 f21) — leaving the marker would refuse to
+            // start the replacement.
+            commands.remove_resource::<super::TerrainGenFailed>();
             // Drop the CPU terrain mirror so the interaction classifier
             // doesn't keep probing a heightmap that no longer exists.
             commands.remove_resource::<TerrainSurfaceQuery>();

@@ -308,7 +308,7 @@ pub enum DeclineReason {
 /// bump: `PROTOCOL_VERSION` covers the bincode variant layout, and this is a
 /// key inside the JSON payload that #1184 introduced precisely so a field
 /// like `reason` would be additive. An older peer sends no `reason` and
-/// [`serde(default)`] supplies `Declined`; an older peer READING this
+/// `#[serde(default)]` supplies `Declined`; an older peer READING this
 /// payload ignores the key it does not know.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(default)]

@@ -244,4 +244,6 @@ pub use types::{
     TransformData, WaterRelation, map_u8_as_string, map_u16_as_string, sorted_string_map,
     u64_as_string,
 };
-pub use xrpc::{DidDocument, DidService, FetchError, resolve_handle, resolve_pds};
+pub use xrpc::{
+    DidDocument, DidService, FetchError, resolve_did_handle, resolve_handle, resolve_pds,
+};

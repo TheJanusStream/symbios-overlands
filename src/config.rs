@@ -1601,6 +1601,54 @@ pub(crate) mod ui {
         pub const MAX_HIGHLIGHT_TRIANGLES: usize = 1500;
     }
 
+    /// Overhead peer nametags (`crate::ui::nametag`, #1226): the only
+    /// in-world identity the product has.
+    ///
+    /// The numbers are a legibility budget, not a taste: a tag has to be
+    /// readable at the distance you would actually decide to mute
+    /// somebody from, and must not turn a busy room into a wall of text.
+    pub mod nametag {
+        /// Past this many metres a peer carries no tag at all. Chosen
+        /// against the chat radius rather than the draw distance: a name
+        /// you cannot act on is noise, and every social action in the
+        /// product is addressed to somebody you can see.
+        pub const MAX_DISTANCE_M: f32 = 60.0;
+
+        /// Where the fade begins. The band between this and
+        /// [`MAX_DISTANCE_M`] exists so a tag thins out as its owner
+        /// walks away instead of blinking off mid-stride — a hard cutoff
+        /// reads as a bug in exactly the frame the user is watching.
+        pub const FADE_START_M: f32 = 35.0;
+
+        /// Least alpha a drawn tag is given, so the fade never bottoms out
+        /// into "present but invisible" — below this the tag is dropped.
+        pub const MIN_ALPHA: f32 = 0.15;
+
+        /// Clearance between the top of a peer's rendered bounds and the
+        /// baseline of their tag, in metres. Enough that a tag does not
+        /// sit on a hat, small enough that it still reads as attached to
+        /// the body rather than floating over the scene.
+        pub const HEAD_CLEARANCE_M: f32 = 0.35;
+
+        /// Height above the chassis origin used when a peer has no
+        /// rendered bounds yet — a body still resolving from the PDS, or
+        /// a chassis whose meshes have not spawned. Roughly a person plus
+        /// the clearance above; the tag is the only thing on screen for
+        /// that peer, so it must not fall to the origin.
+        pub const FALLBACK_HEIGHT_M: f32 = 2.2;
+
+        /// Colour of the wire box drawn around the body of the peer whose
+        /// roster row is under the pointer [R, G, B, A]. The identity
+        /// accent (teal), deliberately NOT the editor's amber selection:
+        /// hovering a person is not selecting an object, and the two
+        /// boxes can be on screen at once.
+        pub const FOCUS_BOX_COLOR: [f32; 4] = [0.18, 0.80, 0.78, 0.85];
+
+        /// Floor on each axis of that box, so a flat or still-empty
+        /// chassis draws a visible sliver rather than nothing.
+        pub const MIN_FOCUS_BOX_EXTENT: f32 = 0.25;
+    }
+
     /// In-scene selection highlight (`crate::editor_gizmo::highlight`,
     /// #822 / W5): wire boxes around what the gizmo will affect.
     pub mod selection_highlight {

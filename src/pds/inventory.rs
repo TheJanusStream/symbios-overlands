@@ -34,7 +34,9 @@ use std::collections::HashMap;
 use super::generator::Generator;
 use super::sanitize::sanitize_generator;
 use super::types::TransformData;
-use super::xrpc::{FetchError, RepoWrite, XrpcError, decode_record_json, resolve_pds};
+use super::xrpc::{
+    FetchError, RepoWrite, XrpcError, decode_record_json, resolve_pds, resolve_pds_outcome,
+};
 use super::{INVENTORY_COLLECTION, INVENTORY_ITEM_COLLECTION};
 use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
@@ -325,9 +327,7 @@ pub async fn fetch_inventory_record(
     client: &reqwest::Client,
     did: &str,
 ) -> Result<Option<InventoryRecord>, FetchError> {
-    let pds = resolve_pds(client, did)
-        .await
-        .ok_or(FetchError::DidResolutionFailed)?;
+    let pds = resolve_pds_outcome(client, did).await?;
 
     let mut record = InventoryRecord::default();
     let mut cursor: Option<String> = None;

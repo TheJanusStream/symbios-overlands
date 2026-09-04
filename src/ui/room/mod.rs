@@ -720,8 +720,24 @@ pub fn room_admin_ui(
                             "You are currently editing the default homeworld. Click below \
                              to overwrite the stored record on your PDS with this default \
                              so the next login loads cleanly. Saving will overwrite the \
-                             stored copy too (you'll be asked first). Logging out and back \
-                             in retries the load.",
+                             stored copy too (you'll be asked first).",
+                        );
+                        // The non-destructive direction, named (#1230 f33).
+                        // Unlike the avatar and inventory banners this is a
+                        // sentence rather than a button: re-reading a room
+                        // record in place regenerates the terrain and
+                        // recompiles the world under the owner's feet with
+                        // no arrival gate — which is the defect #1231 f20
+                        // is about — while travelling out and back already
+                        // does the re-read behind the gate that exists for
+                        // it.
+                        ui.label(
+                            egui::RichText::new(
+                                "If your PDS was only briefly unreachable, travelling out \
+                                 through a gateway and back home reads the stored record \
+                                 again — no logout needed.",
+                            )
+                            .small(),
                         );
                         // Confirmed reset (#840): this button hard-deletes
                         // and replaces the stored record — never on the

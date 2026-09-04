@@ -27,12 +27,17 @@
 //!   session resume task + its drainer.
 //! * [`posts`] — the login-screen Bluesky feed: recent `#Overlands` posts
 //!   fetched unauthenticated via `app.bsky.feed.getAuthorFeed`.
+//! * [`entry`] — the landmark-link entry surface (#1227): the verified
+//!   DID → handle lookup that names the destination, the infrastructure
+//!   override warning, and the copy for the confirmation card that
+//!   replaced the first-frame auto-submit.
 
 mod begin;
 // `pub(crate)`: `install_completed_session` is the login half of the
 // session-scoped resource pair `logout::session_scoped_resources!`
 // declares, and the drift test guarding that pair runs it directly (#1140).
 pub(crate) mod complete;
+pub mod entry;
 mod errors;
 // #1214: the expired-session sentence is needed in-game too — a publish
 // whose token refresh came back `invalid_grant` used to render the raw
@@ -47,6 +52,7 @@ mod wasm_resume;
 
 pub use begin::poll_begin_auth_task;
 pub use complete::poll_complete_auth_task;
+pub use entry::{DestinationLabel, resolve_boot_destination};
 #[cfg(not(target_arch = "wasm32"))]
 pub use native_callback::poll_native_callback;
 pub use posts::{
@@ -150,10 +156,26 @@ pub struct LoginUiLatch {
     /// After that, `BootParams` is ignored so user edits to the form
     /// fields aren't silently overwritten by a re-render.
     pub prefilled: bool,
-    /// Set the first frame the form fires the auto-submit (when
-    /// `BootParams::autosubmit` is set). Latched so a re-render before
-    /// the [`BeginAuthTask`] entity becomes visible doesn't double-fire.
+    /// Set the first frame the form fires the auto-submit. Latched so a
+    /// re-render before the [`BeginAuthTask`] entity becomes visible
+    /// doesn't double-fire.
+    ///
+    /// Also the seat of #1230 f19's fix: [`reset_login_ui_latch`] no
+    /// longer clears it unconditionally. A boot destination that has
+    /// already carried this process into a world
+    /// ([`crate::boot_params::BootEntrySpent`]) starts every later visit
+    /// to the form pre-latched, so the loading screen's abort and Log out
+    /// land on a form that stays put.
     pub autosubmitted: bool,
+    /// Whether this machine has a persisted session, answered once per
+    /// visit to the form rather than once per frame.
+    ///
+    /// `oauth::wasm::load_persisted` reads localStorage and deserialises a
+    /// blob; the entry decision (#1227) needs the answer every frame, and
+    /// asking the browser sixty times a second for a fact that changes at
+    /// most once per visit is not a bargain worth making. Cleared by the
+    /// one thing that changes it mid-visit — "Not you? Sign in differently".
+    pub persisted: Option<bool>,
     /// Set the first frame the idle form gives keyboard focus to the
     /// destination field (#848), so the type-then-Enter reflex works
     /// without a mouse. One-shot so later frames don't steal focus back
@@ -164,10 +186,25 @@ pub struct LoginUiLatch {
 /// Reset the [`LoginUiLatch`] when the app (re)enters
 /// [`crate::state::AppState::Login`]. Fires on initial state entry too,
 /// which is harmless: the resource starts at default already. The
-/// load-bearing case is the *re-entry* after logout — without this,
-/// `BootParams` would never refire `autosubmit` for the second visit.
-pub fn reset_login_ui_latch(mut latch: ResMut<LoginUiLatch>) {
-    *latch = LoginUiLatch::default();
+/// load-bearing case is the *re-entry* after logout — the pre-fill and
+/// the focus one-shot must behave as they would on a fresh page load.
+///
+/// The auto-submit half is the exception (#1230 f19). `AppState::Login`
+/// is re-entered by exactly two escape hatches — the loading screen's
+/// "Back to login" and the toolbar's Log out — and re-arming the
+/// auto-submit there sent a link visitor straight back into the flow they
+/// were escaping, which for a dead destination meant killing the app was
+/// the only exit. Once [`crate::boot_params::BootEntrySpent`] exists the
+/// latch comes back already fired, so the form pre-fills (a retry is still
+/// one click) and stays put.
+pub fn reset_login_ui_latch(
+    mut latch: ResMut<LoginUiLatch>,
+    spent: Option<Res<crate::boot_params::BootEntrySpent>>,
+) {
+    *latch = LoginUiLatch {
+        autosubmitted: spent.is_some(),
+        ..LoginUiLatch::default()
+    };
 }
 
 /// Native-only bundle of the loopback-listener resources [`login_ui`]
@@ -193,6 +230,24 @@ pub struct NativeWaitState<'w> {
 #[derive(SystemParam)]
 pub struct WasmResumeState<'w, 's> {
     resume_tasks: Query<'w, 's, Entity, With<wasm_resume::ResumeAuthTask>>,
+}
+
+/// The two things the login card needs that are neither form state nor a
+/// task, bundled because `login_ui` sits one parameter under Bevy's 16-param
+/// `IntoSystem` ceiling and #1227 and #1234 both wanted that slot.
+///
+/// `label` is the verified name for a landmark link's destination (#1227
+/// f250) and `clipboard` is where "Copy login URL" reports what it actually
+/// did (#1234 f8) — unrelated to each other, related only in that neither
+/// justifies the last free slot on its own.
+#[derive(SystemParam)]
+pub struct LoginCardDeps<'w> {
+    label: Res<'w, entry::DestinationLabel>,
+    /// Native-only: "Copy login URL" is the fallback for a browser that
+    /// would not open, and wasm has no such failure to recover from — the
+    /// tab IS the browser.
+    #[cfg(not(target_arch = "wasm32"))]
+    clipboard: Res<'w, crate::boot_params::ClipboardQueue>,
 }
 
 #[derive(Clone)]
@@ -227,6 +282,7 @@ pub fn login_ui(
     theme: Res<crate::ui::theme::CurrentTheme>,
     attract: Option<Res<crate::attract::AttractScene>>,
     terrain_mesh: Query<(), With<crate::terrain::TerrainMesh>>,
+    card: LoginCardDeps,
     #[cfg(not(target_arch = "wasm32"))] mut native: NativeWaitState,
     #[cfg(target_arch = "wasm32")] wasm: WasmResumeState,
 ) {
@@ -356,6 +412,80 @@ pub fn login_ui(
                 );
                 ui.add_space(10.0);
 
+                // What, if anything, the boot params get to do (#1227
+                // f250/f294, #1230 f19). One pure decision, read here and
+                // acted on in three places: this card, the Advanced fold
+                // below, and the submit at the bottom.
+                //
+                // On WASM a persisted session is preferred over any of it:
+                // `check_wasm_resume` skips the OAuth redirect entirely and
+                // already applies the URL `did=` override, so doing anything
+                // here would spawn a second, competing auth task.
+                #[cfg(target_arch = "wasm32")]
+                let has_persisted = *latch
+                    .persisted
+                    .get_or_insert_with(|| oauth::wasm::load_persisted().is_some());
+                #[cfg(not(target_arch = "wasm32"))]
+                let has_persisted = false;
+                let plan = boot
+                    .as_deref()
+                    .map(|b| {
+                        crate::boot_params::entry_plan(b, latch.autosubmitted, has_persisted)
+                    })
+                    .unwrap_or(crate::boot_params::EntryPlan::Idle);
+                let boot_did = boot.as_deref().and_then(|b| b.target_did.as_deref());
+                // The link's destination, named — and named through the same
+                // ladder the roster row and the chat author tag use, so the
+                // stranger reads "@alice.bsky.social" here and recognises it
+                // everywhere afterwards.
+                let destination_name = boot_did.map(|did| card.label.name(did));
+                let overrides = boot
+                    .as_deref()
+                    .and_then(|b| entry::override_warning(b.pds.as_deref(), b.relay.as_deref()));
+
+                // The confirmation card that replaced the first-frame
+                // auto-submit (#1227 f250). A landmark link's recipient is by
+                // definition somebody who has never seen this app; they were
+                // being sent to an OAuth consent screen before being told
+                // whose world the link points at or what the app is.
+                if matches!(plan, crate::boot_params::EntryPlan::Confirm)
+                    && let (Some(did), Some(name)) = (boot_did, destination_name.as_deref())
+                {
+                    egui::Frame::new()
+                        .fill(theme.0.chart_fill)
+                        .corner_radius(6.0)
+                        .inner_margin(8.0)
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new(entry::destination_line(
+                                    name,
+                                    card.label.is_resolving(did),
+                                ))
+                                .color(theme.0.text_strong),
+                            );
+                            ui.label(
+                                egui::RichText::new(
+                                    "A link chose this destination. Clear the field below                                      to go to your own world instead.",
+                                )
+                                .small()
+                                .color(theme.0.text_weak),
+                            );
+                        });
+                    ui.add_space(8.0);
+                }
+                // The security half (#1227 f294). `pds=` and `relay=` arrive
+                // in the same query string as the destination and are used
+                // verbatim — the first becomes the authorization server the
+                // browser is navigated to, the second carries every chat
+                // line, transform and gift envelope of the session — and
+                // both were rendered inside a fold that is collapsed by
+                // default. Named, in warn amber, above a fold that opens
+                // itself.
+                if let Some(warning) = &overrides {
+                    ui.colored_label(theme.0.status.warn, warning);
+                    ui.add_space(8.0);
+                }
+
                 // Enter-to-submit (#848): a field that just lost focus to the
                 // Enter key reads as "I'm done typing — go".
                 let mut enter_submitted = false;
@@ -380,16 +510,22 @@ pub fn login_ui(
                 // The PDS / relay endpoints are operator plumbing nobody
                 // should touch on a first login — folded away so the first
                 // screen doesn't lead with a bare IP that reads as sketchy.
-                ui.collapsing("Advanced", |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("ATProto PDS:");
-                        track_enter(&ui.text_edit_singleline(&mut form.pds));
+                // Opened by default when the boot params brought an
+                // override with them (#1227 f294) — `default_open`, not
+                // `open`, so the user can still fold it away once they have
+                // read it. Nothing about a plain login changes.
+                egui::CollapsingHeader::new("Advanced")
+                    .default_open(overrides.is_some())
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("ATProto PDS:");
+                            track_enter(&ui.text_edit_singleline(&mut form.pds));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("P2P Relay Host:");
+                            track_enter(&ui.text_edit_singleline(&mut form.relay_host));
+                        });
                     });
-                    ui.horizontal(|ui| {
-                        ui.label("P2P Relay Host:");
-                        track_enter(&ui.text_edit_singleline(&mut form.relay_host));
-                    });
-                });
 
                 ui.add_space(8.0);
 
@@ -409,45 +545,35 @@ pub fn login_ui(
                     // and filled with the identity accent (#855, teal — was
                     // a one-off green) so it reads as *the* thing to do on
                     // the login screen rather than a peer of the text fields.
+                    // The button says whose world it enters when a link
+                    // chose one (#1227 f250): "Enter @alice's overland". The
+                    // decision a link recipient has to make is about a
+                    // person, and the old label named neither.
                     let enter = ui.add_sized(
                         [ui.available_width(), cfg::ENTER_BUTTON_HEIGHT],
                         egui::Button::new(
-                            egui::RichText::new("Enter the Overlands")
-                                .size(cfg::ENTER_BUTTON_TEXT_SIZE)
-                                .strong()
-                                .color(theme.0.accent_fill_text),
+                            egui::RichText::new(entry::enter_button_label(
+                                matches!(plan, crate::boot_params::EntryPlan::Confirm)
+                                    .then_some(destination_name.as_deref())
+                                    .flatten(),
+                            ))
+                            .size(cfg::ENTER_BUTTON_TEXT_SIZE)
+                            .strong()
+                            .color(theme.0.accent_fill_text),
                         )
                         .fill(theme.0.accent_fill),
                     );
                     if enter.clicked() || enter_submitted {
                         begin_now = true;
                     }
-                    // Auto-submit when the URL/CLI supplied a destination DID.
-                    // Latched on `latch.autosubmitted` so we never double-fire
-                    // even if the form re-renders before the BeginAuthTask
-                    // spawns. Only `did` triggers this; `pds` / `relay` alone
-                    // pre-fill but leave the click to the user.
-                    //
-                    // On WASM, a persisted session resume is preferred: it
-                    // skips the OAuth redirect entirely and `check_wasm_resume`
-                    // already applies the URL `did=` override. Autosubmitting
-                    // on top would spawn two competing auth tasks; suppress
-                    // ourselves and let the resume path handle the link.
-                    #[cfg(target_arch = "wasm32")]
-                    let has_persisted = oauth::wasm::load_persisted().is_some();
-                    #[cfg(not(target_arch = "wasm32"))]
-                    let has_persisted = false;
-                    if !latch.autosubmitted
-                        && !has_persisted
-                        && let Some(b) = boot.as_deref()
-                        && b.autosubmit
-                    {
+                    // Auto-submit, now only where a human at this machine
+                    // typed the destination themselves and has not already
+                    // spent it (`entry_plan`). Still latched on
+                    // `latch.autosubmitted` so we never double-fire if the
+                    // form re-renders before the `BeginAuthTask` spawns.
+                    if matches!(plan, crate::boot_params::EntryPlan::Auto) {
                         begin_now = true;
                         latch.autosubmitted = true;
-                    }
-                    if !begin_now {
-                        // Idle state — render nothing extra. The button above
-                        // is the only affordance.
                     }
                 } else if completing {
                     ui.horizontal(|ui| {
@@ -510,7 +636,18 @@ pub fn login_ui(
                                     )
                                     .clicked()
                             {
-                                ui.ctx().copy_text(url.0.clone());
+                                // Through the queue, not `ctx.copy_text`
+                                // (#1234 f8). This button is the documented
+                                // fallback for "Couldn't open your browser
+                                // automatically" — the one moment on this
+                                // screen where the user is already in a
+                                // failure path — and it reported nothing at
+                                // all, success or failure. `ClipboardQueue`
+                                // owns both outcomes; `drain_clipboard_outcomes`
+                                // and `toast_ui` now run in the Login chain
+                                // too, so the answer is on screen.
+                                card.clipboard
+                                    .copy(&url.0, "Login URL copied — paste it into a browser");
                             }
                         });
                     }
@@ -532,6 +669,7 @@ pub fn login_ui(
                                 commands.entity(e).despawn();
                             }
                             latch.autosubmitted = true;
+                            latch.persisted = Some(false);
                             commands.insert_resource(LoginError(None));
                         }
                     }
@@ -752,4 +890,57 @@ fn card_frame(theme: &crate::ui::theme::Theme) -> egui::Frame {
             spread: 0,
             color: egui::Color32::from_black_alpha(80),
         })
+}
+
+#[cfg(test)]
+mod entry_latch_tests {
+    use super::*;
+    use crate::boot_params::BootEntrySpent;
+
+    fn latch_after_entering_login(spent: bool) -> LoginUiLatch {
+        let mut world = World::new();
+        world.insert_resource(LoginUiLatch {
+            prefilled: true,
+            autosubmitted: true,
+            persisted: Some(true),
+            focused: true,
+        });
+        if spent {
+            world.insert_resource(BootEntrySpent);
+        }
+        world
+            .run_system_cached(reset_login_ui_latch)
+            .expect("the latch reset runs");
+        world.remove_resource::<LoginUiLatch>().expect("latch")
+    }
+
+    /// #1230 f19. The sequence: a link visitor's destination is unreachable,
+    /// they press "Back to login" on a loading screen that has been retrying
+    /// for minutes (or Log out from the account chip) — and the form
+    /// auto-submits the same broken destination the instant it renders.
+    /// `AppState::Login` is re-entered by exactly those two escape hatches,
+    /// and this reset is what used to re-arm the flow they were escaping.
+    ///
+    /// Once the boot params have carried somebody into a world, the latch
+    /// comes back already fired.
+    #[test]
+    fn re_entering_login_after_a_completed_login_does_not_rearm_the_auto_submit() {
+        let after = latch_after_entering_login(true);
+        assert!(
+            after.autosubmitted,
+            "the escape hatch must land on a form that stays put"
+        );
+        // Everything else still behaves like a fresh page load — the
+        // pre-fill re-runs, so the destination is one click from a retry.
+        assert!(!after.prefilled);
+        assert!(!after.focused);
+        assert!(after.persisted.is_none());
+    }
+
+    /// A cold start has spent nothing, so a `--did` typed at the shell is
+    /// still allowed to submit itself.
+    #[test]
+    fn a_cold_start_still_arms_the_auto_submit() {
+        assert!(!latch_after_entering_login(false).autosubmitted);
+    }
 }

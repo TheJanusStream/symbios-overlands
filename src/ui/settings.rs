@@ -128,6 +128,21 @@ pub fn settings_ui(
                      choppier, but with no delay."
                 })
                 .changed();
+            // The only in-world identity the product has (#1226 f325). Off
+            // is a real preference — a busy room is a wall of text — so it
+            // is a setting and not a constant, but it defaults on, because
+            // with it off nothing on screen connects a People row to a body
+            // and Mute has to be aimed by trial and error.
+            dirty |= ui
+                .checkbox(&mut s.show_peer_nametags, "Show names over people")
+                .on_hover_text(if s.show_peer_nametags {
+                    "On: each person's name hangs over their body, and hovering \
+                     a row in People outlines the body it belongs to."
+                } else {
+                    "Off: bodies carry no name. You can still tell who is who \
+                     from the People window."
+                })
+                .changed();
 
             ui.add_space(8.0);
             ui.separator();

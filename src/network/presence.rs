@@ -101,6 +101,29 @@ impl PeerLabel {
         }
     }
 
+    /// The stable ordering key for a list of peers (#1226 f325).
+    ///
+    /// The roster sorted on `handle.unwrap_or("~")`, which put every
+    /// handle-less peer under one key: two strangers who had not resolved
+    /// were adjacent, interchangeable and — because a bare query iteration
+    /// re-orders whenever a component lands — liable to swap places between
+    /// frames, under a pointer aiming a durable mute. The label ladder is
+    /// already what the row *renders*, so ordering on the same ladder is
+    /// what makes the list agree with itself: named people first in
+    /// alphabetical order, then identified strangers by DID head, then
+    /// whoever never identified.
+    ///
+    /// The tiers are separated rather than folded into one string because a
+    /// DID head begins with `did:plc:` for everyone: sorted together with
+    /// handles, every stranger would bunch under `d`.
+    pub fn sort_key(&self) -> (u8, String) {
+        match self {
+            Self::Handle(handle) => (0, handle.to_lowercase()),
+            Self::DidHead(head) => (1, head.to_lowercase()),
+            Self::Anonymous => (2, String::new()),
+        }
+    }
+
     /// Whether this is a real, profile-verified name. Surfaces that ask the
     /// user to *judge* the peer — the gift modal above all — must say "we
     /// don't know who this is" rather than print an identifier that reads
@@ -951,7 +974,7 @@ pub(super) fn retire_peer_placeholders(
 /// point at.
 ///
 /// Writes the set rather than calling `mute()` on the sinks, because
-/// [`crate::audio_mute::reconcile_sink_mute`] drives every sink to the master
+/// `audio_mute::reconcile_sink_mute` (private) drives every sink to the master
 /// toggle every frame and would undo a direct call within one frame.
 pub(super) fn sync_mute_audio(
     peers: Query<(Entity, &RemotePeer)>,

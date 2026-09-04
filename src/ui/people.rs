@@ -36,6 +36,32 @@ use crate::state::{
 use crate::ui::chat::AVATAR_ICON_PX;
 use crate::ui::inventory::{PeerDropTarget, PendingGeneratorDrop};
 
+/// Where a peer's row sits in the roster (#844, corrected by #1226 f325).
+///
+/// Pure, because the sort is a claim about identity and the review found it
+/// making a false one: the key was `handle.unwrap_or("~")`, so every peer
+/// whose handle had not resolved shared a single key. Two strangers were
+/// adjacent, tied and interchangeable — and a bare query iteration follows
+/// archetype order, so a tie is resolved by whatever the last component
+/// insert did. A row that can swap places between two frames in which
+/// nothing about anybody changed is a row you cannot aim a durable,
+/// account-scoped mute at.
+///
+/// Three tiers, most-deliberate first: mutuals, then the label ladder the
+/// row actually renders ([`PeerLabel::sort_key`]), then the peer id — which
+/// is unique, stable for the connection's lifetime, and exists precisely so
+/// the previous tiers never have to tie.
+fn roster_sort_key(
+    peer: &RemotePeer,
+    resonance: Option<&SocialResonance>,
+) -> (bool, (u8, String), String) {
+    (
+        !matches!(resonance, Some(SocialResonance::Mutual)),
+        PeerLabel::new(peer.handle.as_deref(), peer.did.as_deref()).sort_key(),
+        peer.peer_id.to_string(),
+    )
+}
+
 /// Why a peer row cannot accept a dropped gift, or `None` when it can
 /// (#1220 f330).
 ///
@@ -116,8 +142,12 @@ pub struct RosterDeps<'w> {
     traveling: Option<Res<'w, crate::state::TravelingTo>>,
     guard: Option<Res<'w, crate::ui::unsaved_guard::UnsavedGuard>>,
     link: Res<'w, crate::network::LinkState>,
-    /// The `⋯` menu's Copy DID (#1223 f291). Interior-mutable, so a `Res`.
+    /// The `…` menu's Copy DID (#1223 f291). Interior-mutable, so a `Res`.
     clipboard: Res<'w, crate::boot_params::ClipboardQueue>,
+    /// The link between this list and the bodies in the room (#1226 f325):
+    /// this window writes `row`, the nametag surface writes `tag`, and each
+    /// reads the other's half.
+    focus: ResMut<'w, crate::ui::nametag::PeerFocus>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -128,7 +158,12 @@ pub fn people_ui(
     session: Option<Res<AtprotoSession>>,
     // `PeerResolve` rides the peer query rather than arriving as its own
     // parameter, for the same ceiling reason `RosterDeps` exists.
-    mut peers: Query<(&mut RemotePeer, Option<&SocialResonance>, &PeerResolve)>,
+    mut peers: Query<(
+        Entity,
+        &mut RemotePeer,
+        Option<&SocialResonance>,
+        &PeerResolve,
+    )>,
     profile_cache: Res<BskyProfileCache>,
     mut pending_drop: ResMut<PendingGeneratorDrop>,
     mut commands: Commands,
@@ -179,6 +214,10 @@ pub fn people_ui(
             }
             ui.separator();
 
+            // Rebuilt from scratch each frame, like `pending_drop.peer_target`
+            // above: a hover is a fact about THIS frame, and a stale one aims
+            // a highlight at a body the user has already moved away from.
+            let mut row_focus: Option<Entity> = None;
             egui::ScrollArea::vertical()
                 .auto_shrink([true, false])
                 .max_height(ui.available_height())
@@ -215,14 +254,18 @@ pub fn people_ui(
                     // then case-insensitive handle — the same deliberate
                     // order the gateway picker uses; a stable list also
                     // de-risks drag-to-gift aim.
+                    //
+                    // Sorted on the LABEL ladder, not on the handle (#1226
+                    // f325): `handle.unwrap_or("~")` gave every handle-less
+                    // peer one key, so two strangers were adjacent and
+                    // interchangeable — and, tied, they took whatever order
+                    // the sort happened to leave them in, under a pointer
+                    // aiming a durable mute. `peer_id` breaks the last tie so
+                    // the list cannot reshuffle between two frames in which
+                    // nothing about anybody changed.
                     let mut rows: Vec<_> = peers.iter_mut().collect();
-                    rows.sort_by_key(|(peer, resonance, _)| {
-                        (
-                            !matches!(resonance, Some(SocialResonance::Mutual)),
-                            peer.handle.as_deref().unwrap_or("~").to_lowercase(),
-                        )
-                    });
-                    for (mut peer, resonance, resolve) in rows {
+                    rows.sort_by_key(|(_, peer, resonance, _)| roster_sort_key(peer, *resonance));
+                    for (entity, mut peer, resonance, resolve) in rows {
                         // The ONE ladder (#1218 f300/f338): a verified handle,
                         // else the authenticated DID's head, else "A traveler".
                         // "identifying…" was a fourth name for a peer who
@@ -545,6 +588,29 @@ pub fn people_ui(
                             );
                         });
                         let row_rect = row.response.rect;
+                        // The world half of the link (#1226 f325): the
+                        // pointer is over this person's nametag out in the
+                        // room, so say which row they are. Painted on top
+                        // with the same translucent accent the gift-drag
+                        // highlight uses, so the two cues read as one idiom.
+                        if deps.focus.tag == Some(entity) {
+                            let a = crate::ui::theme::current(ui.ctx()).accent;
+                            ui.painter().rect_filled(
+                                row_rect,
+                                4.0,
+                                egui::Color32::from_rgba_unmultiplied(a.r(), a.g(), a.b(), 40),
+                            );
+                        }
+                        // ...and the roster half: hovering a row is a
+                        // deliberate "which one is this?", answered by a
+                        // wire box around that body and a brighter tag over
+                        // it (`ui::nametag::draw_focused_peer_highlight`).
+                        // Recorded for ANY hover, not just a drag — aiming a
+                        // mute is the case that matters most and involves no
+                        // drag at all.
+                        if ui.rect_contains_pointer(row_rect) {
+                            row_focus = Some(entity);
+                        }
                         let hovered = drag_active && ui.rect_contains_pointer(row_rect);
                         if hovered && blocked.is_none() {
                             // Soft highlight so the user has visual
@@ -612,7 +678,13 @@ pub fn people_ui(
                         );
                     }
                 });
+            row_focus
         });
+    // A closed or collapsed window hovers nothing, and `show` hands back
+    // `None` for the body in both cases — so the link clears itself without
+    // this needing to know which of the two happened.
+    let row_focus = response.as_ref().and_then(|r| r.inner.flatten());
+    crate::ui::nametag::PeerFocus::set_row(&mut deps.focus, row_focus);
     if let Some(response) = response {
         chrome.remember(crate::ui::layout::UiWindow::People, response.response.rect);
     }
@@ -1027,10 +1099,14 @@ mod gate_tests {
     use super::*;
     use bevy_symbios_multiuser::prelude::PeerId;
 
+    fn peer_id(last: u8) -> PeerId {
+        serde_json::from_str::<PeerId>(&format!("\"00000000-0000-0000-0000-0000000000{last:02}\""))
+            .expect("a well-formed uuid")
+    }
+
     fn peer(did: Option<&str>, muted: bool) -> RemotePeer {
         RemotePeer {
-            peer_id: serde_json::from_str::<PeerId>("\"00000000-0000-0000-0000-000000000001\"")
-                .expect("a well-formed uuid"),
+            peer_id: peer_id(1),
             did: did.map(str::to_owned),
             handle: None,
             muted,
@@ -1038,6 +1114,69 @@ mod gate_tests {
             build: None,
             connected_at: 0.0,
         }
+    }
+
+    fn named(id: u8, handle: Option<&str>, did: Option<&str>) -> RemotePeer {
+        RemotePeer {
+            peer_id: peer_id(id),
+            did: did.map(str::to_owned),
+            handle: handle.map(str::to_owned),
+            muted: false,
+            avatar: None,
+            build: None,
+            connected_at: 0.0,
+        }
+    }
+
+    /// #1226 f325 (the half that survived its refuter: the ROW already
+    /// renders distinct DID heads, but the SORT still put every stranger
+    /// under one key). The sequence: two people join, neither handle has
+    /// resolved, and their rows are tied — so the order between them is
+    /// whatever the last component insert left in archetype order, and it
+    /// can change under a pointer that is on its way to a Mute checkbox.
+    #[test]
+    fn two_unresolved_peers_no_longer_sort_to_the_same_key() {
+        let a = named(1, None, Some("did:plc:aaaaaaaaaaaaaaaa"));
+        let b = named(2, None, Some("did:plc:bbbbbbbbbbbbbbbb"));
+        assert_ne!(roster_sort_key(&a, None), roster_sort_key(&b, None));
+        assert!(
+            roster_sort_key(&a, None) < roster_sort_key(&b, None),
+            "and they order by the DID head the row actually prints"
+        );
+    }
+
+    /// Even two peers who never identified at all — no handle, no DID, the
+    /// same rendered "A traveler" — hold a stable order, because the peer id
+    /// is the last tier and it is unique per connection.
+    #[test]
+    fn two_anonymous_peers_still_hold_a_stable_order() {
+        let a = named(3, None, None);
+        let b = named(4, None, None);
+        assert!(roster_sort_key(&a, None) < roster_sort_key(&b, None));
+    }
+
+    /// The tiers are separated rather than concatenated: every DID head
+    /// begins `did:plc:`, so folded into one string every stranger would
+    /// bunch among the handles beginning with `d` instead of below them.
+    #[test]
+    fn a_named_person_sorts_above_every_stranger() {
+        let named_late = named(5, Some("zoe.bsky.social"), Some("did:plc:zzzzzzzz"));
+        let stranger = named(6, None, Some("did:plc:aaaaaaaa"));
+        let anon = named(7, None, None);
+        assert!(roster_sort_key(&named_late, None) < roster_sort_key(&stranger, None));
+        assert!(roster_sort_key(&stranger, None) < roster_sort_key(&anon, None));
+    }
+
+    /// Mutuals stay first, ahead of the ladder — the deliberate order #844
+    /// established and the gateway picker shares.
+    #[test]
+    fn a_mutual_outranks_an_alphabetically_earlier_stranger() {
+        let mutual = named(8, Some("zoe.bsky.social"), Some("did:plc:zzzzzzzz"));
+        let other = named(9, Some("aaron.bsky.social"), Some("did:plc:aaaaaaaa"));
+        assert!(
+            roster_sort_key(&mutual, Some(&SocialResonance::Mutual))
+                < roster_sort_key(&other, None)
+        );
     }
 
     /// #1220 f330. The sequence: someone joins, you drag a lamp onto their

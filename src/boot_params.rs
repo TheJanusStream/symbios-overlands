@@ -38,6 +38,25 @@ pub struct TargetPos {
     pub z: f32,
 }
 
+/// Where the boot params came from (#1227 f250).
+///
+/// The distinction is the whole of the fix: a `--did` on the command line
+/// was typed by the person sitting at the machine, and submitting it
+/// without asking is doing what they said. A `?did=` in a URL was written
+/// by somebody else and clicked by a stranger who has not yet been told
+/// what this app is or whose world the link points at — and on wasm the
+/// submit is a full-page navigation to an OAuth consent screen, so the
+/// first thing that stranger sees is a third party asking for account
+/// access.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BootSource {
+    /// A URL query string: a link somebody else wrote.
+    #[default]
+    Link,
+    /// argv on this machine: a human at a shell.
+    Cli,
+}
+
 /// Boot-time configuration captured from the URL query string (WASM) or
 /// argv (native). All fields are optional; emptiness is the common case.
 #[derive(Resource, Clone, Debug, Default)]
@@ -47,11 +66,86 @@ pub struct BootParams {
     pub target_yaw_deg: Option<f32>,
     pub pds: Option<String>,
     pub relay: Option<String>,
-    /// True when the boot input contained a `did=` (URL) or `--did` (CLI).
-    /// The login UI uses this to auto-submit on the first frame after the
-    /// form has been pre-filled — `pds=` / `relay=` alone do not trigger
-    /// auto-submit, since they're config without a destination.
+    /// True when the boot input contained a `did=` (URL) or `--did` (CLI):
+    /// a destination was supplied, so the login form has something to say
+    /// about where this session is going. `pds=` / `relay=` alone are
+    /// config without a destination and set nothing here.
+    ///
+    /// This is no longer "submit the form for me" — see [`entry_plan`],
+    /// which decides between asking and submitting.
     pub autosubmit: bool,
+    /// Which door the params came through ([`BootSource`]).
+    pub source: BootSource,
+}
+
+/// What the login form should do about a destination it was handed
+/// (#1227 f250/f294, #1230 f19).
+///
+/// Pure, and the one place the decision lives, because it is the same
+/// decision reached from four directions: a cold page load, a cold
+/// process start, a return to the form after an aborted load, and a
+/// return after a logout. Before this the answer was `b.autosubmit`
+/// alone, which said yes to all four.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EntryPlan {
+    /// Ordinary form. No destination, or one that has already been used.
+    Idle,
+    /// Pre-fill and *name* the destination, but the click is the user's.
+    Confirm,
+    /// Submit without asking.
+    Auto,
+}
+
+/// Set once this session's boot params have actually carried somebody into
+/// a world (#1230 f19).
+///
+/// App-lifetime, like [`BootParams`] itself, and deliberately NOT part of
+/// [`crate::ui::login::LoginUiLatch`]: that latch is reset on
+/// `OnEnter(AppState::Login)` so a re-entry behaves like a fresh page
+/// load, which is exactly what made the loading screen's abort and Log out
+/// re-fire the same flow. Inserted by
+/// [`crate::ui::login::complete::install_completed_session`], never
+/// removed — a logout tears the session down, not the fact that this
+/// process has already spent the link it was started with.
+#[derive(Resource, Default, Debug)]
+pub struct BootEntrySpent;
+
+/// Decide [`EntryPlan`] (#1227 f250/f294, #1230 f19).
+///
+/// * `spent` — this session has already carried somebody into a world on
+///   these params. Set when a login completes and never cleared, because
+///   `AppState::Login` is re-entered by the loading screen's abort and by
+///   Log out, and re-firing the flow there was the entire defect in
+///   #1230 f19: for a link visitor both escape hatches led straight back
+///   into the load they were escaping, so killing the app was the only
+///   exit — and Log out did not log out, because the browser bounced off
+///   a live IdP session back into the same world.
+/// * `has_persisted` — wasm has a saved session; the resume path applies
+///   the `did=` override itself and auto-submitting on top would spawn
+///   two competing auth tasks.
+///
+/// A `pds=` or `relay=` override never auto-submits, whatever the source
+/// (#1227 f294). Those two parameters choose the OAuth authorization
+/// server the browser is navigated to and the relay every chat message,
+/// transform and gift envelope of the session flows through; they arrive
+/// in the same query string as the destination, and they were rendered
+/// inside a collapsed fold. A link that repoints a stranger's
+/// infrastructure must not be able to spend their click for them.
+pub fn entry_plan(params: &BootParams, spent: bool, has_persisted: bool) -> EntryPlan {
+    if !params.autosubmit {
+        return EntryPlan::Idle;
+    }
+    if has_persisted {
+        return EntryPlan::Idle;
+    }
+    let overrides_infrastructure = params.pds.is_some() || params.relay.is_some();
+    if params.source == BootSource::Cli && !spent && !overrides_infrastructure {
+        return EntryPlan::Auto;
+    }
+    // Everything else still NAMES the destination and pre-fills the form —
+    // a spent link is one click from a retry, which is what #1230 f19 asked
+    // to keep. Only the automatic submit is withdrawn.
+    EntryPlan::Confirm
 }
 
 impl BootParams {
@@ -115,24 +209,26 @@ pub fn build_landmark_link(did: &str, pos: Vec3, yaw_deg: f32) -> String {
 // WASM: read window.location.search; scrub our params, preserving code/state
 // ────────────────────────────────────────────────────────────────────────
 
-/// Read the URL query string and pop our params into a `BootParams`. Strips
-/// the consumed params from the URL bar in a single `history.replaceState`
-/// call, leaving any `code=` / `state=` intact for `check_wasm_callback`.
-#[cfg(target_arch = "wasm32")]
-pub fn detect() -> BootParams {
-    let Some(window) = web_sys::window() else {
-        return BootParams::default();
-    };
-    let search = match window.location().search() {
-        Ok(s) => s,
-        Err(_) => return BootParams::default(),
-    };
-    let query = search.trim_start_matches('?');
-    if query.is_empty() {
-        return BootParams::default();
-    }
+/// What one parse of a query string yielded.
+pub struct ParsedQuery {
+    pub params: BootParams,
+    /// At least one of `did` / `pos` / `rot` / `pds` / `relay` was present,
+    /// so the URL bar has something of ours to scrub.
+    pub had_our_param: bool,
+    /// An OAuth `code=` / `state=` pair is riding along and must survive
+    /// the scrub for `check_wasm_callback`.
+    pub had_oauth_passthrough: bool,
+}
 
-    let mut params = BootParams::default();
+/// Parse a URL query string into [`BootParams`]. Pure, and split out of
+/// [`detect`] so the whole of the landmark-link contract — which keys are
+/// ours, which set a destination, what an empty value means — is testable
+/// without a browser (#1227 f250).
+pub fn parse_query(query: &str) -> ParsedQuery {
+    let mut params = BootParams {
+        source: BootSource::Link,
+        ..BootParams::default()
+    };
     let mut had_oauth_passthrough = false;
     let mut had_our_param = false;
 
@@ -175,11 +271,108 @@ pub fn detect() -> BootParams {
         }
     }
 
-    if had_our_param {
-        scrub_our_params(query, had_oauth_passthrough);
+    ParsedQuery {
+        params,
+        had_our_param,
+        had_oauth_passthrough,
     }
+}
 
-    params
+/// Re-encode the params this app owns as a query string, in a fixed key
+/// order so a round trip through [`parse_query`] is stable.
+///
+/// Used to stash the landmark before the URL bar is scrubbed (#1227 f250):
+/// `detect` strips `did=`/`pos=`/`rot=` with `history.replaceState`, and a
+/// denied or errored OAuth callback drops the pending blob too — so the
+/// user landed back on a form that no longer knew where they had been
+/// going, with failure copy that never mentioned the lost landmark.
+pub fn encode_our_params(params: &BootParams) -> String {
+    let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+    if let Some(did) = &params.target_did {
+        serializer.append_pair("did", did);
+    }
+    if let Some(pos) = &params.target_pos {
+        let encoded = match pos.y {
+            Some(y) => format!("{:.2},{:.2},{:.2}", pos.x, y, pos.z),
+            None => format!("{:.2},{:.2}", pos.x, pos.z),
+        };
+        serializer.append_pair("pos", &encoded);
+    }
+    if let Some(yaw) = params.target_yaw_deg {
+        serializer.append_pair("rot", &format!("{yaw:.1}"));
+    }
+    if let Some(pds) = &params.pds {
+        serializer.append_pair("pds", pds);
+    }
+    if let Some(relay) = &params.relay {
+        serializer.append_pair("relay", relay);
+    }
+    serializer.finish()
+}
+
+/// `sessionStorage` key the landmark is stashed under across the OAuth
+/// redirect. Session-scoped by design: the round trip stays in one tab, and
+/// a stash that outlived the tab would resurrect somebody else's
+/// destination on a later visit.
+#[cfg(target_arch = "wasm32")]
+const BOOT_STASH_KEY: &str = "overlands_boot_params";
+
+/// Read the URL query string and pop our params into a `BootParams`. Strips
+/// the consumed params from the URL bar in a single `history.replaceState`
+/// call, leaving any `code=` / `state=` intact for `check_wasm_callback`.
+///
+/// When the URL carries none of ours, the tab's stash is consulted: that is
+/// the OAuth return leg, where the authorization server has replaced our
+/// query string with its own and a denied login would otherwise land on a
+/// blank form (#1227 f250).
+#[cfg(target_arch = "wasm32")]
+pub fn detect() -> BootParams {
+    let Some(window) = web_sys::window() else {
+        return BootParams::default();
+    };
+    let search = window.location().search().unwrap_or_default();
+    let query = search.trim_start_matches('?');
+    let parsed = parse_query(query);
+
+    if parsed.had_our_param {
+        stash_our_params(&parsed.params);
+        scrub_our_params(query, parsed.had_oauth_passthrough);
+        return parsed.params;
+    }
+    // No landmark in the URL. Either a plain visit (the stash is empty and
+    // this is a no-op) or the OAuth return leg, where restoring it is what
+    // lets a denied login say where it had been going.
+    match take_stashed_params() {
+        Some(stashed) => stashed,
+        None => parsed.params,
+    }
+}
+
+/// Write the landmark into `sessionStorage` before the URL bar loses it.
+#[cfg(target_arch = "wasm32")]
+fn stash_our_params(params: &BootParams) {
+    let encoded = encode_our_params(params);
+    if encoded.is_empty() {
+        return;
+    }
+    if let Some(window) = web_sys::window()
+        && let Ok(Some(storage)) = window.session_storage()
+    {
+        let _ = storage.set_item(BOOT_STASH_KEY, &encoded);
+    }
+}
+
+/// Read the stash back. Left in place rather than removed: the wasm app can
+/// re-run `detect` (the boot handoff path reads it before the App exists),
+/// and a stash that vanished on first read would leave the second caller
+/// with nothing. It dies with the tab either way.
+#[cfg(target_arch = "wasm32")]
+fn take_stashed_params() -> Option<BootParams> {
+    let window = web_sys::window()?;
+    let storage = window.session_storage().ok()??;
+    let encoded = storage.get_item(BOOT_STASH_KEY).ok()??;
+    let parsed = parse_query(&encoded);
+    parsed.had_our_param.then_some(parsed.params)
 }
 
 /// Native build: parse argv via clap. The CLI flags mirror the WASM URL
@@ -188,7 +381,10 @@ pub fn detect() -> BootParams {
 pub fn detect() -> BootParams {
     use clap::Parser;
     let args = CliArgs::parse();
-    let mut params = BootParams::default();
+    let mut params = BootParams {
+        source: BootSource::Cli,
+        ..BootParams::default()
+    };
     if let Some(did) = args.did.and_then(non_empty) {
         params.target_did = Some(did);
         params.autosubmit = true;
@@ -484,6 +680,90 @@ pub fn download_text_file(filename: &str, mime: &str, contents: &str) -> Result<
         let _ = web_sys::Url::revoke_object_url(&url);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod landmark_link_tests {
+    use super::*;
+
+    /// #1227 f250. The landmark-link contract, which was untestable while
+    /// it lived inside a `web_sys` call: which keys are ours, which of them
+    /// arms a destination, and what an empty value means.
+    #[test]
+    fn a_landmark_link_yields_a_destination_a_pose_and_a_source() {
+        let parsed = parse_query("did=did%3Aplc%3Afriend&pos=1.50,2.00,3.50&rot=90.0");
+        assert!(parsed.had_our_param);
+        assert!(!parsed.had_oauth_passthrough);
+        assert_eq!(parsed.params.target_did.as_deref(), Some("did:plc:friend"));
+        assert_eq!(
+            parsed.params.target_pos,
+            Some(TargetPos {
+                x: 1.5,
+                y: Some(2.0),
+                z: 3.5
+            })
+        );
+        assert_eq!(parsed.params.target_yaw_deg, Some(90.0));
+        assert!(parsed.params.autosubmit, "a did= is a destination");
+        assert_eq!(
+            parsed.params.source,
+            BootSource::Link,
+            "a query string is somebody else's link, whatever it contains"
+        );
+    }
+
+    /// An empty `did=` is not a destination — it must not arm anything —
+    /// but it is still ours, so it is still scrubbed from the URL bar.
+    #[test]
+    fn an_empty_destination_arms_nothing_and_is_still_ours() {
+        let parsed = parse_query("did=&pds=");
+        assert!(parsed.had_our_param);
+        assert_eq!(parsed.params.target_did, None);
+        assert!(!parsed.params.autosubmit);
+        assert_eq!(parsed.params.pds, None);
+    }
+
+    /// The OAuth return leg: `code=`/`state=` must survive the scrub, and
+    /// none of it is ours.
+    #[test]
+    fn an_oauth_callback_is_recognised_and_owns_none_of_our_keys() {
+        let parsed = parse_query("code=abc&state=xyz");
+        assert!(parsed.had_oauth_passthrough);
+        assert!(!parsed.had_our_param);
+        assert!(!parsed.params.autosubmit);
+    }
+
+    /// #1227 f250, the half the refuter confirmed exactly: `detect` scrubs
+    /// `did=`/`pos=`/`rot=` from the URL bar, and a denied callback drops
+    /// the pending blob — so the user landed back on a form that no longer
+    /// knew where they had been going. The stash is what survives that, and
+    /// it only works if it round-trips.
+    #[test]
+    fn a_stashed_landmark_comes_back_intact() {
+        let original = parse_query(
+            "did=did%3Aplc%3Afriend&pos=10.25,-4.50&rot=-33.5             &pds=https%3A%2F%2Fpds.example&relay=relay.example",
+        )
+        .params;
+        let restored = parse_query(&encode_our_params(&original)).params;
+        assert_eq!(restored.target_did, original.target_did);
+        assert_eq!(restored.target_pos, original.target_pos);
+        assert_eq!(restored.target_yaw_deg, original.target_yaw_deg);
+        assert_eq!(restored.pds, original.pds);
+        assert_eq!(restored.relay, original.relay);
+        assert!(restored.autosubmit);
+        // A drop-pin pose (no y) must not come back as an exact one at y=0:
+        // the height is resolved from the destination's heightmap, and a
+        // literal 0 would park the arrival under the ground.
+        assert_eq!(restored.target_pos.and_then(|p| p.y), None);
+    }
+
+    /// Nothing to stash stays nothing — an empty encode must not write a
+    /// stash that a later plain visit would read back as a destination.
+    #[test]
+    fn an_empty_boot_encodes_to_nothing() {
+        assert!(encode_our_params(&BootParams::default()).is_empty());
+        assert!(!parse_query("").had_our_param);
+    }
 }
 
 #[cfg(test)]

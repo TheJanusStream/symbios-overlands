@@ -296,6 +296,10 @@ pub fn run() {
         .init_resource::<ui::shortcuts::PublishShortcut>()
         .init_resource::<ui::chat::ChatFocusRequest>()
         .init_resource::<ui::toast::Toasts>()
+        // In-world identity (#1226): this frame's overhead nametags, and
+        // the hover link between a People row and the body it names.
+        .init_resource::<ui::nametag::PeerNametags>()
+        .init_resource::<ui::nametag::PeerFocus>()
         .init_resource::<boot_params::ClipboardQueue>()
         .init_resource::<world_builder::grammar_diag::GrammarDiagnostics>()
         .init_resource::<ui::catalogue::CatalogueBrowser>()
@@ -365,10 +369,49 @@ pub fn run() {
                 .after(bevy_egui::EguiPostUpdateSet::EndPass)
                 .run_if(in_state(AppState::InGame)),
         )
+        // In-world identity (#1226). Two systems, and the split is the
+        // point: `EguiPrimaryContextPass` runs inside PostUpdate at
+        // `EguiPostUpdateSet::EndPass` with NO declared order against
+        // `TransformSystems::Propagate`, so projecting a peer's head to
+        // screen space from inside the egui pass reads a `GlobalTransform`
+        // that may be a frame stale — and a name that trails the body it
+        // names is visibly wrong on anybody who is walking. Measuring here,
+        // after propagation and before the pass, pins both to this frame.
+        // The wire box around a hovered peer runs beside it, on the same
+        // retained-free `Gizmos` path the editor's selection highlight uses.
+        .add_systems(
+            PostUpdate,
+            (
+                ui::nametag::measure_peer_nametags,
+                ui::nametag::draw_focused_peer_highlight,
+            )
+                .after(bevy::transform::TransformSystems::Propagate)
+                .before(bevy_egui::EguiPostUpdateSet::EndPass)
+                .run_if(in_state(AppState::InGame)),
+        )
         .add_systems(OnExit(AppState::InGame), ui::undo::clear_history_on_logout)
+        // The landmark-link entry surface (#1227): one verified DID → handle
+        // lookup so the confirmation card can name the destination.
+        .init_resource::<ui::login::DestinationLabel>()
+        .add_systems(
+            Update,
+            ui::login::resolve_boot_destination.run_if(in_state(AppState::Login)),
+        )
         .add_systems(
             EguiPrimaryContextPass,
-            ui::login::login_ui.run_if(in_state(AppState::Login)),
+            (
+                ui::login::login_ui,
+                // The login screen gets the toast surface too (#1234 f8).
+                // "Copy login URL" is the documented fallback when the
+                // browser will not open, and it reported neither success nor
+                // failure because these two systems ran only in the InGame
+                // chain — so routing the copy through `ClipboardQueue` alone
+                // would still have shown nothing here.
+                boot_params::drain_clipboard_outcomes,
+                ui::toast::toast_ui,
+            )
+                .chain()
+                .run_if(in_state(AppState::Login)),
         )
         .add_systems(
             Update,
@@ -458,6 +501,26 @@ pub fn run() {
                 .chain()
                 .run_if(in_state(AppState::Loading)),
         )
+        // The in-place record re-read (#1230 f33). An exhausted fetch used to
+        // leave the owner with only the destructive direction — publish the
+        // default over the stored copy, or log out and back in — because
+        // these polls ran in `Loading` alone, so a task spawned from a
+        // recovery banner would never have been drained. Room is deliberately
+        // absent: installing a room record in place regenerates terrain and
+        // recompiles the world with no arrival gate, which is #1231 f20's
+        // defect, and the refuter established the room case already recovers
+        // through travel.
+        .add_systems(
+            Update,
+            (
+                loading::poll_record_task::<AvatarRecord>,
+                loading::poll_record_task::<InventoryRecord>,
+                loading::fire_pending_record_retries::<AvatarRecord>,
+                loading::fire_pending_record_retries::<InventoryRecord>,
+            )
+                .chain()
+                .run_if(in_state(AppState::InGame)),
+        )
         // In-game ambient re-bake: editor edits (manual re-roll, Reset to
         // default, a direct audio edit) mutate `LiveRoomRecord`'s
         // `ambient_audio`, and this trio re-bakes + hot-swaps the looping
@@ -487,6 +550,11 @@ pub fn run() {
                 // frame. (The egui systems already serialise on the
                 // shared context, so the chain costs no parallelism.)
                 ui::toolbar::toolbar_ui,
+                // Overhead peer names (#1226). After the toolbar, whose
+                // TopBottomPanel is what `ctx.available_rect()` clips the
+                // tags to; before `people_ui`, so a tag hovered this frame
+                // highlights its roster row in the same frame.
+                ui::nametag::peer_nametags_ui,
                 ui::diagnostics::diagnostics_ui,
                 ui::chat::chat_ui,
                 ui::people::people_ui,

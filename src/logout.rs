@@ -594,11 +594,68 @@ mod tests {
 
         let torn_down = session_scoped_resource_names();
         for name in installed {
+            if outlives_a_session(&name).is_some() {
+                continue;
+            }
             assert!(
                 torn_down.contains(&name.as_str()),
                 "login installs {name} but logout never removes it; add it to \
-                 `session_scoped_resources!` or explain in that list why it outlives a session"
+                 `session_scoped_resources!`, or to `OUTLIVES_A_SESSION` with the \
+                 reason it is a fact about the process rather than the session"
             );
+        }
+    }
+
+    /// The deliberate exceptions: resources the login path installs whose
+    /// value is a claim about this PROCESS, not about who is logged in, so
+    /// tearing them down at logout would be the bug rather than the fix.
+    ///
+    /// Kept beside the drift test rather than in `session_scoped_resources!`
+    /// because that macro's whole job is to generate a teardown, and these
+    /// must not have one. Each entry carries its reason; an unexplained
+    /// entry here is a hole in the check the test exists to be.
+    const OUTLIVES_A_SESSION: &[(&str, &str)] = &[(
+        "symbios_overlands::boot_params::BootEntrySpent",
+        "#1230 f19. The marker says the URL/CLI destination this process was \
+         started with has already carried somebody into a world. Logout is one \
+         of the exact two doors that re-enter AppState::Login — the other is \
+         the loading screen's abort — and clearing it there would re-arm the \
+         auto-submit those doors exist to escape, which is the whole defect.",
+    )];
+
+    fn outlives_a_session(name: &str) -> Option<&'static str> {
+        OUTLIVES_A_SESSION
+            .iter()
+            .find(|(candidate, _)| *candidate == name)
+            .map(|(_, reason)| *reason)
+    }
+
+    /// The exception list must name real types. A rename that silently
+    /// turned an entry into dead text would re-open the hole it documents.
+    #[test]
+    fn every_documented_exception_is_a_resource_login_actually_installs() {
+        let mut world = World::new();
+        let before: Vec<String> = resource_names(&world);
+        let mut next_state = NextState::<AppState>::default();
+        with_commands(&mut world, |commands| {
+            crate::ui::login::complete::install_completed_session(
+                commands,
+                &mut next_state,
+                completed_session(),
+                Some(&RelayHost("relay.test".into())),
+            );
+        });
+        let installed: Vec<String> = resource_names(&world)
+            .into_iter()
+            .filter(|name| !before.contains(name))
+            .collect();
+        for (name, reason) in OUTLIVES_A_SESSION {
+            assert!(
+                installed.iter().any(|installed| installed == name),
+                "{name} is listed as outliving a session but login does not \
+                 install it — stale exception"
+            );
+            assert!(!reason.is_empty(), "{name} has no recorded reason");
         }
     }
 

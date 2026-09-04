@@ -46,6 +46,7 @@ use super::super::sanitize::{Sanitize as _, sanitize_avatar_visuals};
 use super::super::types::TransformData;
 use super::super::xrpc::{
     FetchError, RepoWrite, XrpcError, chunk_writes, decode_record_json, record_exists, resolve_pds,
+    resolve_pds_outcome,
 };
 use super::super::{AVATAR_ATTACHMENT_COLLECTION, AVATAR_PROFILE_COLLECTION, WARDROBE_COLLECTION};
 use super::body::{ResolvedAttachment, ResolvedRig, RiggedBody};
@@ -332,9 +333,7 @@ pub async fn fetch_wardrobe_record(
     did: &str,
     rkey: &str,
 ) -> Result<Option<EngineAvatarRecord>, FetchError> {
-    let pds = resolve_pds(client, did)
-        .await
-        .ok_or(FetchError::DidResolutionFailed)?;
+    let pds = resolve_pds_outcome(client, did).await?;
     fetch_wardrobe_record_at(client, &pds, did, rkey).await
 }
 
@@ -373,9 +372,7 @@ pub async fn list_wardrobe(
         value: serde_json::Value,
     }
 
-    let pds = resolve_pds(client, did)
-        .await
-        .ok_or(FetchError::DidResolutionFailed)?;
+    let pds = resolve_pds_outcome(client, did).await?;
     let mut out = Vec::new();
     let mut cursor: Option<String> = None;
     for _ in 0..MAX_WARDROBE_LIST_PAGES {
@@ -447,9 +444,7 @@ pub async fn fetch_avatar_profile(
     client: &reqwest::Client,
     did: &str,
 ) -> Result<Option<EngineProfileRecord>, FetchError> {
-    let pds = resolve_pds(client, did)
-        .await
-        .ok_or(FetchError::DidResolutionFailed)?;
+    let pds = resolve_pds_outcome(client, did).await?;
     fetch_avatar_profile_at(client, &pds, did).await
 }
 
@@ -493,9 +488,7 @@ pub async fn fetch_attachment_record(
     did: &str,
     rkey: &str,
 ) -> Result<Option<AttachmentRecord>, FetchError> {
-    let pds = resolve_pds(client, did)
-        .await
-        .ok_or(FetchError::DidResolutionFailed)?;
+    let pds = resolve_pds_outcome(client, did).await?;
     fetch_attachment_record_at(client, &pds, did, rkey).await
 }
 

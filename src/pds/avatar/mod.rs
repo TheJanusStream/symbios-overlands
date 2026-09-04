@@ -52,7 +52,7 @@ pub use locomotion::{
 pub use wardrobe::{AttachmentRecord, EngineAvatarRecord, EngineProfileRecord};
 
 use super::AVATAR_COLLECTION;
-use super::xrpc::{FetchError, XrpcError, decode_record_json, resolve_pds};
+use super::xrpc::{FetchError, XrpcError, decode_record_json, resolve_pds_outcome};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -209,9 +209,7 @@ pub async fn fetch_avatar_record(
     client: &reqwest::Client,
     did: &str,
 ) -> Result<Option<AvatarRecord>, FetchError> {
-    let pds = resolve_pds(client, did)
-        .await
-        .ok_or(FetchError::DidResolutionFailed)?;
+    let pds = resolve_pds_outcome(client, did).await?;
     let url = format!(
         "{}/xrpc/com.atproto.repo.getRecord?repo={}&collection={}&rkey=self",
         pds, did, AVATAR_COLLECTION

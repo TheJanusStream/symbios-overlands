@@ -112,12 +112,17 @@ pub fn start_attract_scene(
     if !begin_tasks.is_empty() || !complete_tasks.is_empty() {
         return;
     }
-    // An armed autosubmit deep link fires on the first idle frame; only
-    // once it has fired (and possibly failed back to the form) is the
-    // screen genuinely idle.
+    // An armed auto-submit fires on the first idle frame; only once it has
+    // fired (and possibly failed back to the form) is the screen genuinely
+    // idle. Asked through `entry_plan` (#1227): a link's destination no
+    // longer submits itself, so `autosubmit && !autosubmitted` is now a
+    // state the form sits in indefinitely — reading it as "about to fire"
+    // would suppress the backdrop for the whole login.
     if let Some(boot) = boot.as_deref()
-        && boot.autosubmit
-        && !latch.autosubmitted
+        && matches!(
+            crate::boot_params::entry_plan(boot, latch.autosubmitted, false),
+            crate::boot_params::EntryPlan::Auto
+        )
     {
         return;
     }

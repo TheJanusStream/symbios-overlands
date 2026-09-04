@@ -654,6 +654,11 @@ pub fn avatar_ui(
         // `ResMut` would mark UiPanels changed every frame, starving the
         // prefs save debounce — local copy in, write back only on close.
         let mut open = panels.avatar;
+        // #1230 f33: set by the recovery banner's re-read button, acted on
+        // after the closure (the spawn is a `Commands` write, and the
+        // closure's own return value already carries the collapsed/closed
+        // distinction below).
+        let mut reload_avatar = false;
         let response = egui::Window::new("Avatar")
             .open(&mut open)
             .default_pos(pos)
@@ -748,10 +753,26 @@ pub fn avatar_ui(
                             ui.label(
                                 egui::RichText::new(
                                     "Saving will overwrite the stored copy (you'll be asked \
-                                     first). Logging out and back in retries the load.",
+                                     first).",
                                 )
                                 .small(),
                             );
+                            // The non-destructive direction (#1230 f33). The
+                            // failure is almost always transient and has
+                            // usually healed by the time the user reads
+                            // this; the only route back to the real body
+                            // used to be a full logout.
+                            if crate::ui::editable::recovery_reload_button(
+                                ui,
+                                crate::diagnostics::event::RecordKind::Avatar,
+                                stored.as_ref().is_some_and(|s| {
+                                    pds::avatar::avatar_is_dirty(&live_mut.0, &s.0)
+                                }),
+                            )
+                            .clicked()
+                            {
+                                reload_avatar = true;
+                            }
                         });
                     ui.add_space(4.0);
                 }
@@ -1249,6 +1270,20 @@ pub fn avatar_ui(
 
         if live_mut.0 != before {
             widget_changed = true;
+        }
+
+        // #1230 f33: re-read the stored avatar from the PDS.
+        // `poll_record_task` installs it as live AND stored on a clean
+        // resolution and retires the recovery marker, so the banner clears
+        // itself; the button is disabled while dirty, so nothing unsaved is
+        // in its way.
+        if reload_avatar && let Some(s) = session.as_ref() {
+            crate::loading::fetch::spawn_record_fetch::<pds::AvatarRecord>(
+                &mut commands,
+                s.did.clone(),
+                0,
+                time.elapsed_secs_f64(),
+            );
         }
 
         if let Some(response) = response.as_ref() {

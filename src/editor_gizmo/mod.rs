@@ -83,6 +83,9 @@ mod context_menu;
 mod drag;
 mod face_pick;
 mod highlight;
+/// The subtree-bounds walk behind the selection wire box, shared with the
+/// peer nametag surface (#1226) — see [`highlight::subtree_world_bounds`].
+pub(crate) use highlight::subtree_world_bounds;
 mod sync;
 
 pub use blob::BlobEditContext;

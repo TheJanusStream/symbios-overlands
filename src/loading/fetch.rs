@@ -135,11 +135,51 @@ impl RecordFetchOutcomes {
 
 /// Whether a terminal [`FetchStatus`] means "the default was installed
 /// even though a real record may exist" — the clobber hazard (#840).
+///
+/// [`FetchStatus::NoSuchIdentity`] is in the list for a different reason
+/// than the others (#1230 f22): there is no stored copy at risk, because
+/// there is no account. It belongs here because the row must not render a
+/// green tick over a world that belongs to nobody — which is exactly what
+/// a mistyped landmark link produced.
 pub(crate) fn is_failure_fallback(status: FetchStatus) -> bool {
     matches!(
         status,
-        FetchStatus::DecodeError | FetchStatus::Exhausted | FetchStatus::BestEffortFallback
+        FetchStatus::DecodeError
+            | FetchStatus::Exhausted
+            | FetchStatus::BestEffortFallback
+            | FetchStatus::NoSuchIdentity
     )
+}
+
+/// The note a fallback row carries, naming what actually happened (#1230
+/// f22). Pure; the row used to say "using default (stored copy
+/// unavailable)" for every one of them, which is false for the identity
+/// case and vague for the rest.
+pub(crate) fn fallback_note(status: FetchStatus) -> &'static str {
+    match status {
+        FetchStatus::NoSuchIdentity => "— no account with that identifier; showing a default world",
+        FetchStatus::DecodeError => "— the stored copy could not be read; showing a default",
+        FetchStatus::Exhausted | FetchStatus::BestEffortFallback => {
+            "— using default (stored copy unavailable)"
+        }
+        FetchStatus::Ok | FetchStatus::NotFound | FetchStatus::TransientError => "",
+    }
+}
+
+/// Whether a failure means the fetch will never succeed, however long it
+/// is retried (#1230 f22).
+///
+/// The sequence this exists for: a landmark link's DID is mangled badly
+/// enough to survive `validate_destination`'s shape check but name nothing
+/// — the `Did` arm is used verbatim, unlike the `Handle` arm, which
+/// resolves up front. The catch-all `Err(err)` arm treated that exactly
+/// like a dead PDS and spent the full twelve attempts, roughly ten minutes,
+/// under a headline asserting "A record server is unreachable", before
+/// dropping the user into a synthesised world belonging to nobody. A bad
+/// `did=` is an ordinary user error: landmark links are hand-editable and
+/// travel through chat clients that mangle URLs.
+pub(crate) fn is_terminal_failure(err: &FetchError) -> bool {
+    matches!(err, FetchError::NoSuchIdentity)
 }
 
 /// Exponential backoff for transient fetch failures. Without a delay, a
@@ -380,6 +420,32 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                 R::on_unrecoverable(&mut commands, msg);
                 R::default_for(&did)
             }
+            // A destination that does not exist is not a server having a bad
+            // minute (#1230 f22): terminal on the FIRST attempt, with the
+            // right sentence, instead of ten minutes of retries under copy
+            // asserting an outage.
+            Err(err) if is_terminal_failure(&err) => {
+                let elapsed = time.elapsed_secs_f64();
+                session_log.record(
+                    elapsed,
+                    Severity::Error,
+                    EventPayload::RecordFetchCompleted {
+                        record: R::RECORD_KIND,
+                        did: did.clone(),
+                        status: FetchStatus::NoSuchIdentity,
+                        duration_secs: elapsed - spawned_at,
+                    },
+                );
+                warn!(
+                    "{} record fetch: {} does not resolve to an account ({err}) — \
+                     using DID-seeded default",
+                    R::LABEL,
+                    did
+                );
+                outcomes.set(R::RECORD_KIND, FetchStatus::NoSuchIdentity);
+                R::on_unrecoverable(&mut commands, err.to_string());
+                R::default_for(&did)
+            }
             Err(err) => {
                 let next_attempt = prev_attempt.saturating_add(1);
                 let elapsed = time.elapsed_secs_f64();
@@ -402,13 +468,16 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                         },
                     );
                     warn!(
-                        "{} record fetch exhausted {} attempts: {:?} — falling back to default",
+                        "{} record fetch exhausted {} attempts: {err:?} — falling back to default",
                         R::LABEL,
                         R::MAX_ATTEMPTS,
-                        err
                     );
                     outcomes.set(R::RECORD_KIND, status);
-                    R::on_unrecoverable(&mut commands, format!("PDS unreachable: {err:?}"));
+                    // `Display`, not `Debug` (#1230 f22). This string is
+                    // rendered verbatim in the recovery banner and the
+                    // overwrite-confirm sentence; `DidResolutionFailed` is
+                    // not a thing to say to somebody.
+                    R::on_unrecoverable(&mut commands, format!("PDS unreachable — {err}"));
                     R::default_for(&did)
                 } else {
                     let backoff = record_backoff_secs(next_attempt);
@@ -419,7 +488,7 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                             did: did.clone(),
                             attempt: next_attempt,
                             backoff_secs: backoff,
-                            reason: format!("{err:?}"),
+                            reason: err.to_string(),
                         },
                     );
                     warn!(
@@ -433,7 +502,10 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                         did,
                         attempt: next_attempt,
                         fire_at_secs: elapsed + backoff as f64,
-                        reason: format!("{err:?}"),
+                        // The retrying row prints this under the row, so it
+                        // is `Display` (#1230 f22) — the old `Debug` put
+                        // `DidResolutionFailed` on a loading screen.
+                        reason: err.to_string(),
                         _marker: PhantomData,
                     });
                     crate::diagnostics::samplers::record_fetch_retry(&mut metrics);
@@ -492,9 +564,76 @@ pub(crate) fn fire_pending_record_retries<R: LoadedRecord>(
 #[cfg(test)]
 mod tests {
     use super::{
-        RecordFetchOutcomes, is_failure_fallback, record_backoff_secs, terminal_fallback_status,
+        RecordFetchOutcomes, fallback_note, is_failure_fallback, is_terminal_failure,
+        record_backoff_secs, terminal_fallback_status,
     };
     use crate::diagnostics::event::{FetchStatus, RecordKind};
+    use crate::pds::FetchError;
+
+    /// #1230 f22. The sequence: a landmark link's DID is mangled badly
+    /// enough to survive `validate_destination`'s shape check but name
+    /// nothing. The `Did` arm is used verbatim — unlike the `Handle` arm,
+    /// which resolves up front — so the catch-all `Err(err)` arm treated a
+    /// nonexistent account exactly like a dead PDS: twelve attempts, roughly
+    /// ten minutes, under a headline asserting "A record server is
+    /// unreachable", ending in a synthesised world belonging to nobody.
+    #[test]
+    fn a_destination_that_does_not_exist_is_not_a_server_outage() {
+        assert!(is_terminal_failure(&FetchError::NoSuchIdentity));
+        // Everything else keeps its retry budget. A directory that is merely
+        // unreachable must NOT be reported as "no such account" — the safe
+        // direction to be wrong in is "retry".
+        assert!(!is_terminal_failure(&FetchError::DidResolutionFailed));
+        assert!(!is_terminal_failure(&FetchError::Network("dns".into())));
+        assert!(!is_terminal_failure(&FetchError::PdsError(503)));
+    }
+
+    /// The reason strings reach the loading screen and the recovery banner
+    /// verbatim, so every one of them has to be a sentence rather than a
+    /// variant name (`DidResolutionFailed` was what shipped).
+    #[test]
+    fn every_fetch_failure_says_something_a_person_can_read() {
+        for err in [
+            FetchError::NoSuchIdentity,
+            FetchError::DidResolutionFailed,
+            FetchError::Network("connection refused".into()),
+            FetchError::PdsError(500),
+            FetchError::Decode("bad field".into()),
+        ] {
+            let sentence = err.to_string();
+            assert!(!sentence.is_empty());
+            assert!(
+                !sentence.contains("DidResolutionFailed") && !sentence.contains("NoSuchIdentity"),
+                "{sentence} leaks a variant name"
+            );
+        }
+    }
+
+    /// #1230 f22's other half: the row must not present a world that belongs
+    /// to nobody as a clean success, and must not blame a "stored copy" that
+    /// never existed.
+    #[test]
+    fn a_nonexistent_account_reads_as_a_fallback_and_says_which_one() {
+        assert!(is_failure_fallback(FetchStatus::NoSuchIdentity));
+        let note = fallback_note(FetchStatus::NoSuchIdentity);
+        assert!(note.contains("no account"), "{note}");
+        assert!(
+            !note.contains("stored copy"),
+            "there is no stored copy to blame: {note}"
+        );
+        // A healthy resolution carries no note at all.
+        assert!(fallback_note(FetchStatus::Ok).is_empty());
+        assert!(fallback_note(FetchStatus::NotFound).is_empty());
+        // ...and every status the row CAN render as a fallback has one.
+        for status in [
+            FetchStatus::DecodeError,
+            FetchStatus::Exhausted,
+            FetchStatus::BestEffortFallback,
+            FetchStatus::NoSuchIdentity,
+        ] {
+            assert!(!fallback_note(status).is_empty(), "{status:?}");
+        }
+    }
 
     #[test]
     fn backoff_doubles_and_saturates() {

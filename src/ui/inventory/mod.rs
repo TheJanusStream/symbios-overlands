@@ -455,6 +455,9 @@ pub fn inventory_ui(
         .resizable(true)
         .collapsible(true)
         .show(ctx, |ui| {
+            // Deferred out of the closure: the re-read is a `Commands` write
+            // and the banner is deep inside the window body.
+            let mut reload_stash = false;
             // Degraded-session banner (#840): the fetch fell back to an
             // empty default, so this stash is NOT what's on the PDS.
             if let Some(rec) = recovery.as_deref() {
@@ -471,10 +474,24 @@ pub fn inventory_ui(
                         ui.label(
                             egui::RichText::new(
                                 "Saving would overwrite the stored stash (you'll be asked \
-                                 first). Logging out and back in retries the load.",
+                                 first).",
                             )
                             .small(),
                         );
+                        // The non-destructive direction (#1230 f33). The
+                        // failure is almost always transient and has
+                        // usually healed by the time the user reads this;
+                        // the only route back to the real stash used to be
+                        // a full logout.
+                        if crate::ui::editable::recovery_reload_button(
+                            ui,
+                            RecordKind::Inventory,
+                            crate::state::records_differ(&live.0, &stored.0),
+                        )
+                        .clicked()
+                        {
+                            reload_stash = true;
+                        }
                     });
                 ui.add_space(4.0);
             }
@@ -841,7 +858,20 @@ pub fn inventory_ui(
             }
 
             publish_status_line(ui, &feedback.status, now, dirty);
+            reload_stash
         });
+    // #1230 f33: re-read the stored stash from the PDS. `poll_record_task`
+    // installs it as live AND stored on a clean resolution and retires the
+    // recovery marker, so the banner clears itself; the button is disabled
+    // while dirty, so nothing unsaved is in its way.
+    if response.as_ref().and_then(|r| r.inner).unwrap_or(false) {
+        crate::loading::fetch::spawn_record_fetch::<InventoryRecord>(
+            &mut commands,
+            session.did.clone(),
+            0,
+            time.elapsed_secs_f64(),
+        );
+    }
     if let Some(response) = response {
         chrome.remember(
             crate::ui::layout::UiWindow::Inventory,

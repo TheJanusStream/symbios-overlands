@@ -155,14 +155,124 @@ pub(crate) async fn decode_record_json<T: DeserializeOwned>(
 /// cannot pin client memory inside `reqwest::Response::json()`'s
 /// internal buffer with a multi-gigabyte payload.
 async fn fetch_did_json<T: DeserializeOwned>(client: &reqwest::Client, url: &str) -> Option<T> {
-    let bytes = fetch_capped_bytes(client, url, MAX_DID_DOCUMENT_BYTES).await?;
-    serde_json::from_slice(&bytes).ok()
+    match fetch_did_json_outcome(url, client).await {
+        DidFetch::Found(doc) => Some(doc),
+        DidFetch::NoSuchIdentity | DidFetch::Unreachable => None,
+    }
+}
+
+/// The three answers a DID-document fetch can give (#1230 f22).
+///
+/// [`fetch_capped_bytes`] collapses all of them into `None`, which is why a
+/// mistyped `did:plc:` in a landmark link was indistinguishable from
+/// plc.directory having a bad minute — and therefore bought the full
+/// twelve-attempt, ~ten-minute retry budget under copy asserting a server
+/// outage, before dropping the user into a synthesised world belonging to
+/// nobody.
+enum DidFetch<T> {
+    Found(T),
+    /// The directory answered, and it has never heard of this identifier.
+    /// Retrying cannot change that.
+    NoSuchIdentity,
+    /// Transport failure, a server error, an oversized body, or a document
+    /// that would not parse. All retryable, and a malformed document is
+    /// counted here deliberately: a truncated response from a flaky CDN is
+    /// far likelier than a permanently broken DID document, and the safe
+    /// direction to be wrong in is "retry" rather than "this person does
+    /// not exist".
+    Unreachable,
+}
+
+async fn fetch_did_json_outcome<T: DeserializeOwned>(
+    url: &str,
+    client: &reqwest::Client,
+) -> DidFetch<T> {
+    let Ok(resp) = client.get(url).send().await else {
+        return DidFetch::Unreachable;
+    };
+    let status = resp.status();
+    if status == reqwest::StatusCode::NOT_FOUND || status == reqwest::StatusCode::GONE {
+        return DidFetch::NoSuchIdentity;
+    }
+    if !status.is_success() {
+        return DidFetch::Unreachable;
+    }
+    if let Some(len) = resp.content_length()
+        && len as usize > MAX_DID_DOCUMENT_BYTES
+    {
+        return DidFetch::Unreachable;
+    }
+    let Some(bytes) = read_capped_body(resp, MAX_DID_DOCUMENT_BYTES).await else {
+        return DidFetch::Unreachable;
+    };
+    match serde_json::from_slice(&bytes) {
+        Ok(doc) => DidFetch::Found(doc),
+        Err(_) => DidFetch::Unreachable,
+    }
+}
+
+/// The URL a DID's document lives at, or `None` for a method the ATProto
+/// network cannot resolve.
+fn did_document_url(did: &str) -> Option<String> {
+    if did.starts_with(DID_PLC_PREFIX) {
+        Some(format!("https://plc.directory/{}", did))
+    } else {
+        Some(did_web_document_url(did.strip_prefix(DID_WEB_PREFIX)?))
+    }
+}
+
+/// Whether a DID resolves to a usable PDS, and if not, whose fault it is
+/// (#1230 f22).
+///
+/// Split out of [`resolve_pds`], which keeps its `Option` shape for the
+/// dozen call sites that only care whether they have an endpoint.
+pub async fn resolve_pds_outcome(
+    client: &reqwest::Client,
+    did: &str,
+) -> Result<String, FetchError> {
+    if let Some(hit) = cached_pds(did) {
+        return Ok(hit);
+    }
+    let Some(url) = did_document_url(did) else {
+        // A locally-minted method (`did:attract:`, `did:key:`) has no
+        // document anywhere. Nothing to retry.
+        return Err(FetchError::NoSuchIdentity);
+    };
+    let doc: DidDocument = match fetch_did_json_outcome(&url, client).await {
+        DidFetch::Found(doc) => doc,
+        DidFetch::NoSuchIdentity => return Err(FetchError::NoSuchIdentity),
+        DidFetch::Unreachable => return Err(FetchError::DidResolutionFailed),
+    };
+    let endpoint = doc
+        .service
+        .iter()
+        .find(|s| s.id == "#atproto_pds")
+        .map(|s| s.service_endpoint.clone())
+        // A document that resolves but names no ATProto PDS is a DID that is
+        // not an ATProto account. Permanent, like a 404.
+        .ok_or(FetchError::NoSuchIdentity)?;
+    // A DID document is written by whoever controls the DID, and every
+    // record fetch that follows aims at whatever it names (#1127). An
+    // endpoint that is not https, or that points at an address only this
+    // client can reach, is refused here rather than at each of the dozen
+    // call sites downstream.
+    if !crate::pds::sanitize::is_fetchable_endpoint(&endpoint) {
+        bevy::log::warn!("{did} names a PDS endpoint this client will not follow: {endpoint}");
+        return Err(FetchError::NoSuchIdentity);
+    }
+    remember_pds(did, &endpoint);
+    Ok(endpoint)
 }
 
 #[derive(Deserialize)]
 pub struct DidDocument {
     #[serde(default)]
     pub service: Vec<DidService>,
+    /// The handles the DID's controller CLAIMS, as `at://alice.bsky.social`
+    /// URIs. Self-asserted — see [`resolve_did_handle`], which is the only
+    /// thing in this crate allowed to turn one into a name.
+    #[serde(default, rename = "alsoKnownAs")]
+    pub also_known_as: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -223,6 +333,39 @@ pub async fn resolve_handle(client: &reqwest::Client, handle: &str) -> Result<St
     Ok(body.did)
 }
 
+/// The handle a DID is entitled to be called by, or `None` (#1227 f250).
+///
+/// Two round trips, and the second one is the point. A DID document's
+/// `alsoKnownAs` is written by whoever controls the DID, so on its own it
+/// is a *claim*: any account can name `alice.bsky.social` there. The
+/// handle only becomes a fact when resolving it forward comes back to the
+/// same DID — which is precisely the bidirectional check ATProto's
+/// identity model is built on, and precisely what a login-screen "you are
+/// heading to @alice's overland" card must not skip. A card that can be
+/// made to print somebody else's name is worse than one that prints an
+/// identifier, because the whole reason it exists is to let a stranger
+/// judge a link before authorising against it.
+///
+/// `None` for an unresolvable method, an absent or malformed claim, a
+/// claim that does not verify, and every transport failure — all of which
+/// mean the same thing to the caller: keep showing the DID.
+pub async fn resolve_did_handle(client: &reqwest::Client, did: &str) -> Option<String> {
+    if !is_resolvable_did(did) {
+        return None;
+    }
+    let doc: DidDocument = fetch_did_json(client, &did_document_url(did)?).await?;
+    let claimed = doc
+        .also_known_as
+        .iter()
+        .find_map(|aka| aka.strip_prefix("at://"))
+        .map(str::to_ascii_lowercase)
+        .filter(|handle| !handle.is_empty())?;
+    // The verification. `resolve_handle` asks the public AppView, which is
+    // not the party that wrote the claim.
+    let resolved = resolve_handle(client, &claimed).await.ok()?;
+    (resolved == did).then_some(claimed)
+}
+
 /// Prefix of the placeholder DID method used by ATProto's PLC directory.
 const DID_PLC_PREFIX: &str = "did:plc:";
 /// Prefix of the W3C `did:web` method, the other method ATProto identity
@@ -242,32 +385,7 @@ pub fn is_resolvable_did(did: &str) -> bool {
 
 /// Resolve a DID to its ATProto PDS endpoint by fetching the DID document.
 pub async fn resolve_pds(client: &reqwest::Client, did: &str) -> Option<String> {
-    if let Some(hit) = cached_pds(did) {
-        return Some(hit);
-    }
-    let url = if did.starts_with(DID_PLC_PREFIX) {
-        format!("https://plc.directory/{}", did)
-    } else {
-        let rest = did.strip_prefix(DID_WEB_PREFIX)?;
-        did_web_document_url(rest)
-    };
-    let doc: DidDocument = fetch_did_json(client, &url).await?;
-    let endpoint = doc
-        .service
-        .iter()
-        .find(|s| s.id == "#atproto_pds")
-        .map(|s| s.service_endpoint.clone())?;
-    // A DID document is written by whoever controls the DID, and every
-    // record fetch that follows aims at whatever it names (#1127). An
-    // endpoint that is not https, or that points at an address only this
-    // client can reach, is refused here rather than at each of the dozen
-    // call sites downstream.
-    if !crate::pds::sanitize::is_fetchable_endpoint(&endpoint) {
-        bevy::log::warn!("{did} names a PDS endpoint this client will not follow: {endpoint}");
-        return None;
-    }
-    remember_pds(did, &endpoint);
-    Some(endpoint)
+    resolve_pds_outcome(client, did).await.ok()
 }
 
 /// How many DID → PDS resolutions are remembered for the session (#1126).
@@ -341,7 +459,12 @@ fn remember_pds(did: &str, endpoint: &str) {
 /// DNS/timeout/5xx blip.
 #[derive(Debug)]
 pub enum FetchError {
-    /// DID could not be resolved to a PDS endpoint (DID doc missing/invalid).
+    /// The identity itself does not exist, or is not an ATProto account
+    /// (#1230 f22). Terminal: no amount of retrying produces an account.
+    NoSuchIdentity,
+    /// DID could not be resolved to a PDS endpoint right now — the
+    /// directory was unreachable, errored, or answered unreadably.
+    /// Transient, and retried.
     DidResolutionFailed,
     /// Network transport failure (DNS, connection refused, timeout, etc.).
     Network(String),
@@ -361,6 +484,7 @@ pub enum FetchError {
 impl std::fmt::Display for FetchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::NoSuchIdentity => write!(f, "no account with that identifier"),
             Self::DidResolutionFailed => write!(f, "that identity's PDS could not be resolved"),
             Self::Network(detail) => write!(f, "network — {detail}"),
             Self::PdsError(status) => write!(f, "the PDS answered {status}"),

@@ -99,6 +99,15 @@ pub(crate) fn install_completed_session(
         spawn_yaw_deg,
     } = completed;
     info!("Authenticated as {} ({})", session.handle, session.did);
+    // The boot params have now done their job (#1230 f19). `AppState::Login`
+    // is re-entered by the loading screen's abort and by Log out, and until
+    // this marker existed both landed on a form that auto-submitted the same
+    // destination on its first frame — so a link visitor whose destination
+    // was unreachable could not abort, and Log out did not log out (the
+    // browser bounced off a live IdP session straight back into the world).
+    // The destination itself is kept: the field stays pre-filled, so a
+    // deliberate retry is still one click.
+    commands.insert_resource(crate::boot_params::BootEntrySpent);
     commands.insert_resource(CurrentRoomDid(room_did.clone()));
     commands.insert_resource(session);
     commands.insert_resource(refresh_ctx);

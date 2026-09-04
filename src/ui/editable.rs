@@ -681,6 +681,37 @@ pub fn request_overwrite_confirm(
     );
 }
 
+/// The "try loading it again" affordance every recovery banner owes the
+/// user (#1230 f33). Returns `true` when they asked for a re-read.
+///
+/// The failure a recovery marker records is overwhelmingly transient — a
+/// network drop, a PDS restart — and self-heals within seconds of the user
+/// noticing. The app had already committed to the default and offered only
+/// the destructive direction: publish over the stored copy, or log out and
+/// back in. `RecordAction::Load` is not a re-read either, because after a
+/// fallback the stored copy IS the default.
+///
+/// Disabled, with the reason, while the record is dirty. A re-read installs
+/// BOTH live and stored, so running it over unsaved edits would destroy
+/// them — which is the precise class of defect the banner exists to warn
+/// about, and it must not be introduced by the button that fixes it.
+pub fn recovery_reload_button(
+    ui: &mut egui::Ui,
+    record: RecordKind,
+    dirty: bool,
+) -> egui::Response {
+    let noun = recovery_noun(record);
+    ui.add_enabled(!dirty, egui::Button::new("Try loading it again"))
+        .on_hover_text(format!(
+            "Read your stored {noun} from your PDS again. Usually this works \
+             the moment the network is back."
+        ))
+        .on_disabled_hover_text(format!(
+            "Save or revert your changes first — loading the stored {noun} \
+             again replaces what is here."
+        ))
+}
+
 /// Hover text for a publish control that is disabled because it would
 /// write over unread stored copies — one line per blocked record, then
 /// where the confirmed overwrite lives.
@@ -1086,6 +1117,56 @@ pub fn poll_or_expire(
         )));
     }
     None
+}
+
+#[cfg(test)]
+mod recovery_reload_tests {
+    use super::*;
+
+    /// Whether the button rendered for `dirty` was clickable, asked of egui
+    /// itself rather than of our own bookkeeping.
+    fn reload_button_is_enabled(dirty: bool) -> bool {
+        let ctx = egui::Context::default();
+        let mut enabled = false;
+        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+            root.scope(|ui| {
+                // Asked of the `Response` egui built, not of our own copy of
+                // the condition: `add_enabled(false, ..)` is what actually
+                // makes a widget unclickable, and a test that re-derived
+                // `!dirty` would pass even if the call site dropped it.
+                let response = recovery_reload_button(ui, RecordKind::Avatar, dirty);
+                enabled = response.enabled();
+                assert!(!response.clicked(), "nothing was pressed");
+            });
+        });
+        enabled
+    }
+
+    /// #1230 f33. The sequence: your PDS was down for the ten minutes the
+    /// loading screen spent retrying, so you are pushed into a default world
+    /// with a warning that saving would overwrite the real one — and the
+    /// only route back is a full logout. The failure is overwhelmingly
+    /// transient and has usually healed by the time the banner is read.
+    #[test]
+    fn a_recovery_banner_offers_the_non_destructive_direction() {
+        assert!(reload_button_is_enabled(false));
+    }
+
+    /// ...and it must not become a NEW way to lose work. The re-read
+    /// installs both live and stored, so running it over unsaved edits would
+    /// destroy them — the precise defect the banner exists to warn about.
+    #[test]
+    fn the_reload_refuses_while_there_are_unsaved_edits() {
+        assert!(!reload_button_is_enabled(true));
+    }
+
+    /// Every record the banner can appear on has a noun for the sentence.
+    #[test]
+    fn every_record_can_name_itself_in_the_reload_copy() {
+        for record in [RecordKind::Room, RecordKind::Avatar, RecordKind::Inventory] {
+            assert!(!recovery_noun(record).is_empty());
+        }
+    }
 }
 
 #[cfg(test)]

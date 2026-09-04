@@ -8,6 +8,9 @@
 //!   anomaly badges, plus the Session tab (peer roster, mute toggles,
 //!   event log, session-log export).
 //! * [`chat`]         — in-room chat window (Reliable channel).
+//! * [`nametag`]      — in-world identity (#1226): a name over every
+//!   remote body, and the two-way hover link between a People row and the
+//!   body it names.
 //! * [`people`]       — room roster with per-peer mute toggles; peer rows
 //!   double as drop targets for inventory gifts, and `incoming_offer_ui`
 //!   renders the Accept / Decline / Mute & Decline modal for inbound
@@ -77,6 +80,7 @@ pub mod inventory;
 pub mod layout;
 pub mod loading;
 pub mod login;
+pub mod nametag;
 pub mod other_session;
 pub mod people;
 pub mod reauth;

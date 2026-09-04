@@ -75,6 +75,7 @@ mod tests {
             pds: Some("https://pds.example".into()),
             relay: Some("wss://relay.example".into()),
             autosubmit: true,
+            source: crate::boot_params::BootSource::Link,
         }
     }
 

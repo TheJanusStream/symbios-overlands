@@ -30,7 +30,9 @@ use super::{DefaultLanding, Environment, RoomRecord};
 use crate::pds::COLLECTION;
 use crate::pds::contact_effects::ContactEffects;
 use crate::pds::generator::{Generator, Placement};
-use crate::pds::xrpc::{FetchError, RepoWrite, XrpcError, decode_record_json, resolve_pds};
+use crate::pds::xrpc::{
+    FetchError, RepoWrite, XrpcError, decode_record_json, resolve_pds, resolve_pds_outcome,
+};
 
 #[derive(Deserialize)]
 struct GetRecordResponse {
@@ -341,9 +343,7 @@ pub async fn fetch_room_record(
     client: &reqwest::Client,
     did: &str,
 ) -> Result<Option<RoomRecord>, FetchError> {
-    let pds = resolve_pds(client, did)
-        .await
-        .ok_or(FetchError::DidResolutionFailed)?;
+    let pds = resolve_pds_outcome(client, did).await?;
     let url = format!(
         "{}/xrpc/com.atproto.repo.getRecord?repo={}&collection={}&rkey=self",
         pds, did, COLLECTION

@@ -421,6 +421,23 @@ pub fn adopt_owner_mute_list(
 mod tests {
     use super::*;
 
+    /// #1226 f325. The sequence: an existing user updates the app and their
+    /// prefs file predates the nametag setting entirely. `LocalSettings`
+    /// grows only with `serde(default)`-compatible fields, so the missing
+    /// one must come back ON — an upgrade that silently switched off the
+    /// only in-world identity the product has would look like the feature
+    /// never shipped.
+    #[test]
+    fn a_prefs_file_written_before_the_nametag_setting_still_loads() {
+        let older = r#"{"smooth_kinematics":false}"#;
+        let settings: LocalSettings = serde_json::from_str(older).expect("older prefs load");
+        assert!(!settings.smooth_kinematics, "the field it did carry");
+        assert!(
+            settings.show_peer_nametags,
+            "and the one it did not defaults on"
+        );
+    }
+
     #[test]
     fn prefs_round_trip_preserves_both_fields() {
         let panels = UiPanels {
@@ -430,6 +447,9 @@ mod tests {
         };
         let settings = LocalSettings {
             smooth_kinematics: false,
+            // Every non-default field must be spelled out here, or the test
+            // proves only that the DEFAULT survives the wire (#1226 f325).
+            show_peer_nametags: false,
             ..Default::default()
         };
         let mut windows = WindowLayout::default();
@@ -471,7 +491,12 @@ mod tests {
         let restored = back.panels.unwrap();
         assert!(restored.chat);
         assert!(!restored.controls);
-        assert!(!back.settings.unwrap().smooth_kinematics);
+        let restored_settings = back.settings.clone().unwrap();
+        assert!(!restored_settings.smooth_kinematics);
+        assert!(
+            !restored_settings.show_peer_nametags,
+            "a switched-off nametag preference survives the wire (#1226)"
+        );
         assert_eq!(
             back.windows.unwrap().rects["chat"],
             [890.0, 40.0, 380.0, 400.0]

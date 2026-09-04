@@ -491,6 +491,13 @@ pub struct LocalSettings {
     /// f308). The visual counterpart to the app-wide audio mute, and the
     /// accessibility control the app lacked for flashing and motion.
     pub effects_intensity: EffectsIntensity,
+    /// Hang each remote peer's name over their body (#1226 f325). On by
+    /// default: without it there is no in-world identity at all, and every
+    /// social action the product ships — Mute, Visit, drag-to-gift — is
+    /// addressed to a roster row that nothing connects to a body. Off is
+    /// for the user who would rather have an uncluttered view of a busy
+    /// room than a name over everybody in it.
+    pub show_peer_nametags: bool,
 }
 
 /// How much of a room's authored contact effects a visitor accepts
@@ -563,6 +570,7 @@ impl Default for LocalSettings {
             camera_ground_clearance_m: crate::config::camera::TERRAIN_CLEARANCE,
             login_world_backdrop: true,
             effects_intensity: EffectsIntensity::default(),
+            show_peer_nametags: true,
         }
     }
 }
