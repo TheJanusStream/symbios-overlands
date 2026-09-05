@@ -10,9 +10,19 @@ use bevy::prelude::*;
 
 /// Per-`(avatar, recipe index)` time of last emission, for the cooldown
 /// throttle on continuous (`Dwell`) recipes. Keyed by the recipe's *index*
-/// in its registry list (stable for the registry's lifetime; a room
-/// recompile rebuilds both, and stale entries are TTL-pruned anyway), so
-/// renaming a recipe in the editor never resets a live cooldown.
+/// in its registry list, so renaming a recipe in the editor never resets a
+/// live cooldown.
+///
+/// **The index is only stable while the list is** (#1254 f322). This doc
+/// used to claim "a room recompile rebuilds both", and it rebuilt the
+/// registry and not the tables — so deleting a recipe shifted every later
+/// index down by one and transplanted a live throttle onto whichever recipe
+/// inherited the slot, and the sanitiser's name-sort at the 64-recipe cap
+/// could permute them wholesale. It self-healed on the TTL, which is what
+/// made it a transient oddity in the middle of the exact workflow (delete a
+/// recipe, immediately test the survivors) where it is least attributable.
+/// [`clear`](Self::clear) is called from `apply_contact_recipes` now, so the
+/// claim is true.
 pub struct CooldownTable {
     /// Prune horizon (s) — far longer than any sane recipe cooldown, so
     /// pruning never resets a live throttle.
@@ -45,11 +55,37 @@ impl CooldownTable {
         let ttl = self.ttl;
         self.last.retain(|_, &mut t| now - t < ttl);
     }
+
+    /// Forget every throttle. Called when the registry the indices refer to
+    /// is rebuilt (#1254 f322) — losing a live cooldown for one frame is
+    /// nothing; applying it to a different recipe is a bug.
+    pub fn clear(&mut self) {
+        self.last.clear();
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1254 f322, as the sequence: the owner deletes a recipe and the one
+    /// below it goes quiet for a while, then starts working again on its
+    /// own. The index the throttle is keyed by belongs to a list that no
+    /// longer exists.
+    #[test]
+    fn clearing_the_table_is_what_a_registry_rebuild_owes_it() {
+        let mut t = CooldownTable::new(30.0);
+        let victim = (Entity::PLACEHOLDER, 1);
+        t.mark(victim, 10.0);
+        assert!(t.active(victim, 10.1, 5.0), "the throttle is live");
+        // The recipe at index 0 is deleted: index 1's recipe is now index
+        // 0, and index 1 is somebody else's — carrying this mark.
+        t.clear();
+        assert!(
+            !t.active(victim, 10.1, 5.0),
+            "a rebuilt registry must not inherit the old list's throttles"
+        );
+    }
 
     #[test]
     fn cooldown_gates_then_releases() {

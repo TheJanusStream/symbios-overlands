@@ -26,6 +26,7 @@ pub(super) fn draw_lsystem_forge(
     prop_scale: &mut Fp,
     mesh_resolution: &mut u32,
     dirty: &mut bool,
+    assets: &mut super::assets::AssetPanel<'_>,
 ) {
     egui::CollapsingHeader::new("Source code")
         .default_open(true)
@@ -113,6 +114,20 @@ pub(super) fn draw_lsystem_forge(
     egui::CollapsingHeader::new("Material slots")
         .default_open(false)
         .show(ui, |ui| {
+            // The slot table is the bridge between the grammar text and
+            // what you see, and it was a set of numbered colour pickers
+            // whose effect could only be found by trial (#1250 f94). The
+            // sibling Shape forge already explains its own bridge; this is
+            // the same sentence for this one.
+            ui.label(
+                egui::RichText::new(
+                    "A slot number matches the number the grammar passes to \
+                     `Mat(n)`. Branches with no matching slot fall back to a \
+                     default. See docs/lsystem-playbook.md for the tokens.",
+                )
+                .small()
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
+            );
             let mut slot_ids: Vec<u16> = materials.keys().copied().collect();
             slot_ids.sort_unstable();
             let mut to_remove: Option<u16> = None;
@@ -122,10 +137,22 @@ pub(super) fn draw_lsystem_forge(
                 };
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
-                        ui.strong(format!("Slot {}", id));
-                        if crate::ui::affordances::remove_button(ui, "Remove this material slot")
-                            .clicked()
-                        {
+                        ui.strong(format!("Slot {}", id)).on_hover_text(format!(
+                            "Painted on whatever the grammar marks `Mat({id})`."
+                        ));
+                        // Removing a slot the grammar still names changes
+                        // the render with no stated cause (#1250 f94), so
+                        // the button says which case this is.
+                        let referenced = source_code.contains(&format!("Mat({id})"));
+                        let hover = if referenced {
+                            format!(
+                                "Remove slot {id}. The grammar still names `Mat({id})` — \
+                                 those branches will fall back to the default material."
+                            )
+                        } else {
+                            format!("Remove slot {id}. The grammar does not name it.")
+                        };
+                        if crate::ui::affordances::remove_button(ui, &hover).clicked() {
                             to_remove = Some(id);
                         }
                     });
@@ -145,7 +172,7 @@ pub(super) fn draw_lsystem_forge(
                     draw_uv_transform_rows(ui, m, "m", dirty);
 
                     let salt = format!("mat_{}", id);
-                    draw_texture_bridge(ui, &mut m.texture, &salt, dirty);
+                    draw_texture_bridge(ui, &mut m.texture, &salt, dirty, assets);
                 });
             }
             if let Some(id) = to_remove {
@@ -164,15 +191,25 @@ pub(super) fn draw_lsystem_forge(
     egui::CollapsingHeader::new("Prop mappings")
         .default_open(false)
         .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new(
+                    "`~n` is the token the grammar writes to place a prop: this \
+                     table says which shape each one draws. See \
+                     docs/lsystem-playbook.md.",
+                )
+                .small()
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
+            );
             let mut ids: Vec<u16> = prop_mappings.keys().copied().collect();
             ids.sort_unstable();
             let mut to_remove: Option<u16> = None;
             for id in ids {
                 ui.horizontal(|ui| {
-                    ui.label(format!("~{}", id));
+                    ui.label(format!("~{}", id))
+                        .on_hover_text(format!("Drawn wherever the grammar writes `~{id}`."));
                     if let Some(current) = prop_mappings.get_mut(&id) {
                         egui::ComboBox::from_id_salt(format!("prop_map_{}", id))
-                            .selected_text(format!("{:?}", current))
+                            .selected_text(current.label())
                             .show_ui(ui, |ui| {
                                 let types = [
                                     PropMeshType::Leaf,
@@ -183,16 +220,22 @@ pub(super) fn draw_lsystem_forge(
                                     PropMeshType::Cube,
                                 ];
                                 for t in types {
-                                    if ui
-                                        .selectable_value(current, t, format!("{:?}", t))
-                                        .changed()
-                                    {
+                                    if ui.selectable_value(current, t, t.label()).changed() {
                                         *dirty = true;
                                     }
                                 }
                             });
                     }
-                    if crate::ui::affordances::remove_button(ui, "Remove this mapping").clicked() {
+                    let referenced = source_code.contains(&format!("~{id}"));
+                    let hover = if referenced {
+                        format!(
+                            "Remove the `~{id}` mapping. The grammar still writes it — \
+                             those props will fall back to a leaf."
+                        )
+                    } else {
+                        format!("Remove the `~{id}` mapping. The grammar does not write it.")
+                    };
+                    if crate::ui::affordances::remove_button(ui, &hover).clicked() {
                         to_remove = Some(id);
                     }
                 });

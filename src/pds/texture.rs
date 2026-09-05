@@ -1134,7 +1134,11 @@ impl SovereignTextureConfig {
     pub fn label(&self) -> &'static str {
         match self {
             Self::None => "None",
-            Self::Referenced { .. } => "Referenced",
+            // Renamed from "Referenced" (#1251 f354). It was the only
+            // entry in a list of fifty-seven whose behaviour depends on
+            // the network, sitting among plain-English materials like
+            // Brick and Thatch under a word from the record schema.
+            Self::Referenced { .. } => "External image",
             Self::Leaf(_) => "Leaf",
             Self::Twig(_) => "Twig",
             Self::Bark(_) => "Bark",

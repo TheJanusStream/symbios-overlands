@@ -68,10 +68,19 @@ pub enum SurfaceContact {
     ///   query point sits, measured along the plane normal.
     /// - `flow_dir` — world XZ projection of the surface's downhill
     ///   tangent, zero on flat water.
+    /// - `surface_y` — world Y of the water surface at the query point
+    ///   (#1254 f320). Carried because the classifier is the only place
+    ///   that knows it: `depth` is measured from the avatar's BODY BOTTOM
+    ///   (`world_pos.y − total_height/2`), and the sample keeps only the
+    ///   unmodified `world_pos`, so a consumer holding a sample cannot
+    ///   recover the waterline. The decal stamper anchored water contacts
+    ///   at `world_pos` — chassis centre — and laid a flat quad half an
+    ///   avatar above the water it was authored for.
     Water {
         plane_idx: usize,
         depth: f32,
         flow_dir: Vec2,
+        surface_y: f32,
     },
     /// Avatar's body bottom is resting on the splat terrain.
     ///

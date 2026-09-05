@@ -333,6 +333,10 @@ mod glyph_coverage_tests {
         // #1240: `RecoveryReason::toast` and the return-to-spawn refusals
         // are drawn verbatim by the toast stack.
         "src/player/respawn.rs",
+        // #1246: `AssetFetchError::sentence` and `AssetFailure::status_line`
+        // are printed verbatim by every asset field in the room editor, by
+        // the loading screen's ambient row and by the arrival toast.
+        "src/world_builder/asset_failure.rs",
     ];
 
     /// The charmaps of every face the proportional family falls back

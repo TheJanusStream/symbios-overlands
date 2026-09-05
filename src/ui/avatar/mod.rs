@@ -608,6 +608,7 @@ pub fn avatar_ui(
         mut undo_labels,
         mut face_pick,
         movement,
+        mut asset_caches,
     ): (
         Res<bevy_symbios_audio::ui::AudioMonitor>,
         MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
@@ -622,6 +623,11 @@ pub fn avatar_ui(
         ResMut<crate::ui::undo::PendingUndoLabels>,
         ResMut<crate::editor_gizmo::FacePick>,
         Res<crate::ui::modes::LocalMovement>,
+        // The asset caches (#1246): a worn item's Sign faces are fetched
+        // through the same cache the room's are, so the Parts editor gets
+        // the same status lines rather than a second, silent copy of the
+        // tree.
+        crate::ui::room::assets::AssetCaches,
     ),
 ) {
     // `ResMut::deref_mut` unconditionally flips the change tick, so
@@ -643,6 +649,10 @@ pub fn avatar_ui(
     // switching off the Visuals tab drops the gizmo target the same way
     // the room editor's tab bar already does.
     let prev_visuals_selected = editor.has_visuals_selection() || editor.has_attachment_selection();
+
+    // One borrowed view of the asset caches for the frame (#1246); see
+    // `room::assets::AssetPanel`.
+    let mut asset_panel = asset_caches.panel(time.elapsed_secs_f64());
 
     // `.open()` only hides the window *body* — without this gate the
     // whole-record `before` clone below (and the egui Window bookkeeping)
@@ -1151,6 +1161,7 @@ pub fn avatar_ui(
                                     // Single-root: no filter box is drawn.
                                     &mut String::new(),
                                     node_clipboard,
+                                    &mut asset_panel,
                                 );
                                 // The tree's selection IS the gizmo target:
                                 // mirror it (a tree click picks a part; a
@@ -1242,6 +1253,7 @@ pub fn avatar_ui(
                                 &mut None,
                                 &mut String::new(),
                                 node_clipboard,
+                                &mut asset_panel,
                             );
                         });
                     }

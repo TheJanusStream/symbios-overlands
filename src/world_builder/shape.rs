@@ -332,6 +332,9 @@ pub(super) fn spawn_shape_entity(
     ctx: &mut SpawnCtx<'_, '_, '_, '_, '_>,
     kind: &GeneratorKind,
     generator_ref: &str,
+    // This node's path under its root, so its grammar status files under
+    // the node rather than the tree (#1250 f84).
+    path: &[usize],
     transform: Transform,
 ) -> Option<Entity> {
     let GeneratorKind::Shape {
@@ -366,7 +369,7 @@ pub(super) fn spawn_shape_entity(
         // session — still record Ok so a fixed-then-unchanged grammar
         // doesn't leave a stale error in the editor (#829).
         Some(i) => {
-            ctx.record_grammar_status(generator_ref, None);
+            ctx.record_grammar_status(generator_ref, path, None);
             i
         }
         None => {
@@ -384,11 +387,11 @@ pub(super) fn spawn_shape_entity(
                     // success result, and surface the error in the editor's
                     // grammar forge (#829).
                     ctx.shape_mesh_cache.remove(generator_ref);
-                    ctx.record_grammar_status(generator_ref, Some(message));
+                    ctx.record_grammar_status(generator_ref, path, Some(message));
                     return None;
                 }
             };
-            ctx.record_grammar_status(generator_ref, None);
+            ctx.record_grammar_status(generator_ref, path, None);
             let instances: Arc<[ShapeInstance]> = built.into();
             ctx.shape_mesh_cache.insert(
                 generator_ref.to_string(),

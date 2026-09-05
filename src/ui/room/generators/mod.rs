@@ -419,6 +419,9 @@ pub(crate) fn draw_generators_tab(
     filter: &mut String,
     // The editor's one-node clipboard (#1244 f422).
     clipboard: &mut Option<Generator>,
+    // The asset caches + retry channel (#1246): every field naming a
+    // fetched image or sound says what happened to it.
+    assets: &mut super::assets::AssetPanel<'_>,
 ) {
     // Inventory now flows only into the tree panel (for the root-level
     // "+ From Inventory" toolbar, the per-row "+ From Inventory" submenu,
@@ -495,6 +498,7 @@ pub(crate) fn draw_generators_tab(
             label,
             road_stats,
             face_pick,
+            assets,
         );
     });
 

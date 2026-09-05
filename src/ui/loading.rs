@@ -82,7 +82,11 @@ enum RowStatus {
     /// as a green success (#840). A 404 default (fresh account) still
     /// counts as [`RowStatus::Done`]. Carries the note naming which of
     /// them happened (#1230 f22).
-    Fallback(&'static str),
+    ///
+    /// Owned rather than `&'static str` since #1246 f341: the ambient row's
+    /// note names the reason a Referenced soundtrack could not be fetched,
+    /// which is built from the failure and not from a fixed list.
+    Fallback(String),
     /// The fetch succeeded and there is something to say about WHAT it
     /// found (#1232 f28): a 404 at somebody else's DID means they have not
     /// built this yet, and the visitor is standing in a world synthesised
@@ -143,7 +147,7 @@ fn record_row<R: LoadedRecord>(
 ) -> RowStatus {
     if resource_present {
         if let Some(status) = outcome.filter(|status| is_failure_fallback(*status)) {
-            return RowStatus::Fallback(fallback_note(status));
+            return RowStatus::Fallback(fallback_note(status).to_string());
         }
         if outcome == Some(FetchStatus::NotBuiltYet) {
             return RowStatus::DoneWithNote(fallback_note(FetchStatus::NotBuiltYet));
@@ -191,7 +195,7 @@ fn draw_row(ui: &mut egui::Ui, label: &str, status: RowStatus) -> RowAction {
                 let amber = crate::ui::theme::current(ui.ctx()).status.warn;
                 ui.colored_label(amber, "⚠");
                 ui.label(label);
-                ui.colored_label(amber, note);
+                ui.colored_label(amber, &note);
             }
             RowStatus::Progress { done, total } => {
                 ui.spinner();
@@ -271,6 +275,9 @@ pub struct GateState<'w> {
     live_avatar: Option<Res<'w, LiveAvatarRecord>>,
     live_inventory: Option<Res<'w, LiveInventoryRecord>>,
     ambient: Option<Res<'w, AmbientHandle>>,
+    /// Why there is no ambient bed, when the reason is a failure (#1246
+    /// f341).
+    ambient_failed: Option<Res<'w, crate::loading::AmbientResolveFailed>>,
     world_compiled: Option<Res<'w, crate::world_builder::WorldCompiled>>,
     /// The in-flight sliced compile, for the progress ratio (#1230 f281).
     compile_job: Option<Res<'w, crate::world_builder::compile::CompileJob>>,
@@ -364,7 +371,15 @@ pub fn loading_ui(
     } else {
         RowStatus::Active(None)
     };
-    let ambient_status = if gate.ambient.is_some() {
+    // A failed ambient fetch used to be indistinguishable from a
+    // successful bake and from a room with no audio at all, because all
+    // three install `AmbientHandle` and the row asked only whether the
+    // resource existed (#1246 f341). The visitor stood in total silence
+    // under a green check, and so did the owner — the only person who can
+    // fix the URL.
+    let ambient_status = if let Some(failed) = gate.ambient_failed.as_deref() {
+        RowStatus::Fallback(format!("— {}", failed.failure.reason.sentence()))
+    } else if gate.ambient.is_some() {
         RowStatus::Done
     } else if !room_landed {
         RowStatus::Blocked("the world recipe")

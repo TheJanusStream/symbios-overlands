@@ -307,6 +307,10 @@ fn scrape_bevy_diagnostics(
 /// minimal test app) rather than panicking on a missing resource.
 fn scrape_audio_diagnostics(
     voices: Query<&PlaybackSettings, With<AudioPlayer>>,
+    // The one-shot half (#1252 f316). `ContactAudioVoice` exists precisely
+    // for counting — `play_contact_audio` counts it every frame against
+    // `MAX_CONCURRENT_VOICES` — and nothing in the diagnostics suite asked.
+    contact_voices: Query<(), With<crate::interaction::audio::ContactAudioVoice>>,
     bake_cache: Option<Res<crate::world_builder::spatial_audio::BakedAudioCache>>,
     audio_sources: Option<Res<Assets<AudioSource>>>,
     mut reg: ResMut<MetricsRegistry>,
@@ -316,6 +320,10 @@ fn scrape_audio_diagnostics(
         .filter(|s| matches!(s.mode, PlaybackMode::Loop))
         .count();
     reg.observe_gauge(names::AUDIO_SPATIAL_ACTIVE_SINKS, looping as f64);
+    reg.observe_gauge(
+        names::AUDIO_CONTACT_ACTIVE_VOICES,
+        contact_voices.iter().count() as f64,
+    );
 
     if let (Some(cache), Some(sources)) = (bake_cache, audio_sources) {
         let (entries, bytes) = cache.retained_footprint(&sources);

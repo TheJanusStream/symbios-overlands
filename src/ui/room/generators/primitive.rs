@@ -45,12 +45,13 @@ fn add_row_button(ui: &mut egui::Ui, label: &str, len: usize, max: usize) -> boo
         .clicked()
 }
 
-pub(super) fn draw_primitive_cuboid(ui: &mut egui::Ui, size: &mut Fp3, edit: PrimEdit<'_, '_>) {
+pub(super) fn draw_primitive_cuboid(ui: &mut egui::Ui, size: &mut Fp3, edit: PrimEdit<'_, '_, '_>) {
     let PrimEdit {
         common,
         faces,
         salt,
         dirty,
+        assets,
     } = edit;
     ui.horizontal(|ui| {
         ui.label("Size X/Y/Z:");
@@ -66,26 +67,27 @@ pub(super) fn draw_primitive_cuboid(ui: &mut egui::Ui, size: &mut Fp3, edit: Pri
             *dirty = true;
         }
     });
-    draw_common_primitive(ui, common, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty, assets);
 }
 
 pub(super) fn draw_primitive_sphere(
     ui: &mut egui::Ui,
     radius: &mut Fp,
     resolution: &mut u32,
-    edit: PrimEdit<'_, '_>,
+    edit: PrimEdit<'_, '_, '_>,
 ) {
     let PrimEdit {
         common,
         faces,
         salt,
         dirty,
+        assets,
     } = edit;
     ui.horizontal(|ui| {
         fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
         drag_u32(ui, "Ico Res", resolution, 0, 6, dirty);
     });
-    draw_common_primitive(ui, common, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty, assets);
 }
 
 pub(super) fn draw_primitive_cylinder(
@@ -93,20 +95,21 @@ pub(super) fn draw_primitive_cylinder(
     radius: &mut Fp,
     height: &mut Fp,
     resolution: &mut u32,
-    edit: PrimEdit<'_, '_>,
+    edit: PrimEdit<'_, '_, '_>,
 ) {
     let PrimEdit {
         common,
         faces,
         salt,
         dirty,
+        assets,
     } = edit;
     ui.horizontal(|ui| {
         fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, common, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty, assets);
 }
 
 pub(super) fn draw_primitive_capsule(
@@ -115,13 +118,14 @@ pub(super) fn draw_primitive_capsule(
     length: &mut Fp,
     latitudes: &mut u32,
     longitudes: &mut u32,
-    edit: PrimEdit<'_, '_>,
+    edit: PrimEdit<'_, '_, '_>,
 ) {
     let PrimEdit {
         common,
         faces,
         salt,
         dirty,
+        assets,
     } = edit;
     ui.horizontal(|ui| {
         fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
@@ -131,7 +135,7 @@ pub(super) fn draw_primitive_capsule(
         drag_u32(ui, "Lats", latitudes, 2, 64, dirty);
         drag_u32(ui, "Lons", longitudes, 4, 128, dirty);
     });
-    draw_common_primitive(ui, common, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty, assets);
 }
 
 pub(super) fn draw_primitive_cone(
@@ -139,20 +143,21 @@ pub(super) fn draw_primitive_cone(
     radius: &mut Fp,
     height: &mut Fp,
     resolution: &mut u32,
-    edit: PrimEdit<'_, '_>,
+    edit: PrimEdit<'_, '_, '_>,
 ) {
     let PrimEdit {
         common,
         faces,
         salt,
         dirty,
+        assets,
     } = edit;
     ui.horizontal(|ui| {
         fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, common, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty, assets);
 }
 
 pub(super) fn draw_primitive_torus(
@@ -161,13 +166,14 @@ pub(super) fn draw_primitive_torus(
     major_radius: &mut Fp,
     minor_resolution: &mut u32,
     major_resolution: &mut u32,
-    edit: PrimEdit<'_, '_>,
+    edit: PrimEdit<'_, '_, '_>,
 ) {
     let PrimEdit {
         common,
         faces,
         salt,
         dirty,
+        assets,
     } = edit;
     ui.horizontal(|ui| {
         fp_slider(ui, "Minor R", minor_radius, 0.01, 50.0, dirty);
@@ -177,20 +183,21 @@ pub(super) fn draw_primitive_torus(
         drag_u32(ui, "Minor Res", minor_resolution, 3, 64, dirty);
         drag_u32(ui, "Major Res", major_resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, common, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty, assets);
 }
 
 pub(super) fn draw_primitive_plane(
     ui: &mut egui::Ui,
     size: &mut Fp2,
     subdivisions: &mut u32,
-    edit: PrimEdit<'_, '_>,
+    edit: PrimEdit<'_, '_, '_>,
 ) {
     let PrimEdit {
         common,
         faces,
         salt,
         dirty,
+        assets,
     } = edit;
     ui.horizontal(|ui| {
         ui.label("Size X/Z:");
@@ -209,18 +216,23 @@ pub(super) fn draw_primitive_plane(
     });
     // The Plane has no revolve axis — its mesher ignores the topology cuts,
     // so don't offer them.
-    draw_common_primitive(ui, common, faces, salt, false, dirty);
+    draw_common_primitive(ui, common, faces, salt, false, dirty, assets);
 }
 
-pub(super) fn draw_primitive_tetrahedron(ui: &mut egui::Ui, size: &mut Fp, edit: PrimEdit<'_, '_>) {
+pub(super) fn draw_primitive_tetrahedron(
+    ui: &mut egui::Ui,
+    size: &mut Fp,
+    edit: PrimEdit<'_, '_, '_>,
+) {
     let PrimEdit {
         common,
         faces,
         salt,
         dirty,
+        assets,
     } = edit;
     fp_slider(ui, "Size", size, 0.01, 100.0, dirty);
-    draw_common_primitive(ui, common, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty, assets);
 }
 
 pub(super) fn draw_primitive_tube(
@@ -229,13 +241,14 @@ pub(super) fn draw_primitive_tube(
     inner_radius: &mut Fp,
     height: &mut Fp,
     resolution: &mut u32,
-    edit: PrimEdit<'_, '_>,
+    edit: PrimEdit<'_, '_, '_>,
 ) {
     let PrimEdit {
         common,
         faces,
         salt,
         dirty,
+        assets,
     } = edit;
     ui.horizontal(|ui| {
         fp_slider(ui, "Outer R", radius, 0.01, 100.0, dirty);
@@ -245,7 +258,7 @@ pub(super) fn draw_primitive_tube(
         fp_slider(ui, "Height", height, 0.01, 100.0, dirty);
         drag_u32(ui, "Res", resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, common, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty, assets);
 }
 
 pub(super) fn draw_primitive_bevel(
@@ -253,13 +266,14 @@ pub(super) fn draw_primitive_bevel(
     size: &mut Fp3,
     bevel: &mut Fp,
     bevel_segments: &mut u32,
-    edit: PrimEdit<'_, '_>,
+    edit: PrimEdit<'_, '_, '_>,
 ) {
     let PrimEdit {
         common,
         faces,
         salt,
         dirty,
+        assets,
     } = edit;
     ui.horizontal(|ui| {
         ui.label("Size X/Y/Z:");
@@ -279,7 +293,7 @@ pub(super) fn draw_primitive_bevel(
         fp_slider(ui, "Bevel", bevel, 0.0, 50.0, dirty);
         drag_u32(ui, "Segments", bevel_segments, 1, 16, dirty);
     });
-    draw_common_primitive(ui, common, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty, assets);
 }
 
 pub(super) fn draw_primitive_helix(
@@ -289,13 +303,14 @@ pub(super) fn draw_primitive_helix(
     pitch: &mut Fp,
     turns: &mut Fp,
     resolution: &mut u32,
-    edit: PrimEdit<'_, '_>,
+    edit: PrimEdit<'_, '_, '_>,
 ) {
     let PrimEdit {
         common,
         faces,
         salt,
         dirty,
+        assets,
     } = edit;
     ui.horizontal(|ui| {
         fp_slider(ui, "Radius", radius, 0.01, 100.0, dirty);
@@ -306,7 +321,7 @@ pub(super) fn draw_primitive_helix(
         fp_slider(ui, "Turns", turns, 0.05, 16.0, dirty);
         drag_u32(ui, "Res/turn", resolution, 3, 128, dirty);
     });
-    draw_common_primitive(ui, common, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty, assets);
 }
 
 pub(super) fn draw_primitive_superellipsoid(
@@ -316,13 +331,14 @@ pub(super) fn draw_primitive_superellipsoid(
     exponent_ew: &mut Fp,
     latitudes: &mut u32,
     longitudes: &mut u32,
-    edit: PrimEdit<'_, '_>,
+    edit: PrimEdit<'_, '_, '_>,
 ) {
     let PrimEdit {
         common,
         faces,
         salt,
         dirty,
+        assets,
     } = edit;
     ui.horizontal(|ui| {
         ui.label("Half-extents X/Y/Z:");
@@ -348,7 +364,7 @@ pub(super) fn draw_primitive_superellipsoid(
         drag_u32(ui, "Lats", latitudes, 4, 64, dirty);
         drag_u32(ui, "Lons", longitudes, 4, 128, dirty);
     });
-    draw_common_primitive(ui, common, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty, assets);
 }
 
 pub(super) fn draw_primitive_spine(
@@ -356,13 +372,14 @@ pub(super) fn draw_primitive_spine(
     points: &mut Vec<SpinePoint>,
     resolution: &mut u32,
     samples_per_segment: &mut u32,
-    edit: PrimEdit<'_, '_>,
+    edit: PrimEdit<'_, '_, '_>,
 ) {
     let PrimEdit {
         common,
         faces,
         salt,
         dirty,
+        assets,
     } = edit;
     ui.label("Spine points (X/Y/Z, radius):");
     let mut remove: Option<usize> = None;
@@ -425,7 +442,7 @@ pub(super) fn draw_primitive_spine(
         drag_u32(ui, "Ring segs", resolution, 3, 64, dirty);
         drag_u32(ui, "Samples/seg", samples_per_segment, 2, 32, dirty);
     });
-    draw_common_primitive(ui, common, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty, assets);
 }
 
 pub(super) fn draw_primitive_lathe(
@@ -433,13 +450,14 @@ pub(super) fn draw_primitive_lathe(
     points: &mut Vec<LathePoint>,
     resolution: &mut u32,
     smooth: &mut bool,
-    edit: PrimEdit<'_, '_>,
+    edit: PrimEdit<'_, '_, '_>,
 ) {
     let PrimEdit {
         common,
         faces,
         salt,
         dirty,
+        assets,
     } = edit;
     ui.label("Profile (radius, height — bottom to top):");
     let mut remove: Option<usize> = None;
@@ -497,14 +515,14 @@ pub(super) fn draw_primitive_lathe(
             *dirty = true;
         }
     });
-    draw_common_primitive(ui, common, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty, assets);
 }
 
 pub(super) fn draw_primitive_blob_group(
     ui: &mut egui::Ui,
     elements: &mut Vec<BlobElement>,
     resolution: &mut u32,
-    edit: PrimEdit<'_, '_>,
+    edit: PrimEdit<'_, '_, '_>,
     // In-scene edit selection (#705): which element carries the 3D gizmo.
     // Mirrors `editor_gizmo::BlobEditContext::selected_element` — a row
     // click here and a proxy click in the scene land in the same slot.
@@ -515,6 +533,7 @@ pub(super) fn draw_primitive_blob_group(
         faces,
         salt,
         dirty,
+        assets,
     } = edit;
     ui.label("Blob elements (evaluated top to bottom):");
     ui.label(
@@ -701,7 +720,7 @@ pub(super) fn draw_primitive_blob_group(
         *dirty = true;
     }
     drag_u32(ui, "Grid res", resolution, 8, 48, dirty);
-    draw_common_primitive(ui, common, faces, salt, true, dirty);
+    draw_common_primitive(ui, common, faces, salt, true, dirty, assets);
 }
 
 /// The UV projection modes an author can pick, with the hover copy that
@@ -817,7 +836,7 @@ pub(super) fn draw_uv_mapping(
 /// the egui salt and the dirty flag. One parameter, so the fifteen
 /// per-kind editors are `(ui, own knobs…, edit)` and a field added to
 /// [`PrimCommon`] reaches every one of them without a signature moving.
-pub(super) struct PrimEdit<'a, 'u> {
+pub(super) struct PrimEdit<'a, 'u, 'p> {
     /// The prim's shared block — solid, projection, material, faces,
     /// torture — edited in place.
     pub common: &'a mut PrimCommon,
@@ -825,6 +844,9 @@ pub(super) struct PrimEdit<'a, 'u> {
     /// This node's egui ID salt, threaded to every nested widget.
     pub salt: &'a str,
     pub dirty: &'a mut bool,
+    /// The asset caches (#1246): the material panel's texture bridge names
+    /// a fetched image, and a per-face override can name a different one.
+    pub assets: &'a mut super::super::assets::AssetPanel<'p>,
 }
 
 /// Everything the shared Faces panel (#960) needs besides the override
@@ -883,6 +905,7 @@ fn draw_common_primitive(
     salt: &str,
     show_cuts: bool,
     dirty: &mut bool,
+    assets: &mut super::super::assets::AssetPanel<'_>,
 ) {
     // The family default the picker folds to comes from the snapshot,
     // which is the node itself; a faceless kind never reaches here.
@@ -901,12 +924,12 @@ fn draw_common_primitive(
         .id_salt(format!("{}_mat", salt))
         .default_open(false)
         .show(ui, |ui| {
-            draw_universal_material(ui, &mut common.material, salt, dirty);
+            draw_universal_material(ui, &mut common.material, salt, dirty, assets);
         });
     // A new override starts as a copy of the base material, so adding one
     // changes nothing until it is edited (see `draw_face_overrides`).
     let base = common.material.clone();
-    draw_face_overrides(ui, &mut common.faces, faces, &base, salt, dirty);
+    draw_face_overrides(ui, &mut common.faces, faces, &base, salt, dirty, assets);
 }
 
 /// The per-face override list (#960): the SL "select a face, give it its own
@@ -935,6 +958,7 @@ fn draw_face_overrides(
     base: &SovereignMaterialSettings,
     salt: &str,
     dirty: &mut bool,
+    assets: &mut super::super::assets::AssetPanel<'_>,
 ) {
     let FacePanel {
         snapshot,
@@ -1047,7 +1071,7 @@ fn draw_face_overrides(
                         &face_salt,
                         &mut edited,
                     );
-                    draw_universal_material(ui, &mut ov.material, &face_salt, &mut edited);
+                    draw_universal_material(ui, &mut ov.material, &face_salt, &mut edited, assets);
                 });
             }
             if let Some(i) = remove {

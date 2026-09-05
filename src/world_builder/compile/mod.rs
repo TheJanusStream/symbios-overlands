@@ -50,6 +50,14 @@ mod water;
 pub(crate) use census::scatter_census;
 pub(super) use contact_recipes::apply_contact_recipes;
 pub use dispatch::spawn_generator;
+/// The key a node's caches and grammar diagnostics are filed under (#1250
+/// f84) — re-exported so the editor can ask about the SELECTED node rather
+/// than its root.
+pub(crate) use dispatch::synthetic_cache_key;
+/// The cheap-lane repaint signal (#1249 f59) — stamped by the World Editor
+/// every frame a widget changes, so the atmosphere follows a drag while the
+/// broadcast and the recompile keep waiting for the pause.
+pub(crate) use environment::EnvironmentPreview;
 pub(super) use environment::apply_environment_state;
 pub(super) use executor::compile_room_record;
 pub use job::{CompileJob, CompiledWorld};

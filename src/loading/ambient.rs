@@ -21,8 +21,28 @@ use crate::state::LiveRoomRecord;
 /// the world-builder will hand to a Bevy `AudioPlayer` once the InGame
 /// state takes over; `None` is the explicit "no ambient track" signal,
 /// distinct from "still baking".
+///
+/// **`None` is not the same as "it failed" (#1246 f341).** It used to be:
+/// a dead Referenced URL installed `AmbientHandle(None)` and the loading
+/// row, which is computed purely from this resource existing, ticked
+/// "Ambient soundscape" green — the same as a successful bake and the same
+/// as a room with no audio. The distinction now lives in the sibling
+/// [`AmbientResolveFailed`], which is inserted alongside.
 #[derive(Resource, Debug, Clone)]
 pub struct AmbientHandle(pub Option<Handle<bevy::audio::AudioSource>>);
+
+/// Why there is no ambient bed, when the reason is a failure rather than a
+/// choice (#1246 f341).
+///
+/// A sibling marker rather than a payload on [`AmbientHandle`] because
+/// fourteen places read that resource for the handle alone, and widening it
+/// would have made every one of them state a case they do not care about.
+/// Absent means "no failure": a room with no ambient audio, or one whose
+/// bake succeeded.
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct AmbientResolveFailed {
+    pub failure: crate::world_builder::asset_failure::AssetFailure,
+}
 
 /// In-flight ambient-bake task. Carries WAV bytes (mono 16-bit PCM)
 /// produced by the audio crate's [`bake_sequence`](bevy_symbios_audio::bake_sequence)
@@ -351,6 +371,9 @@ pub(crate) fn reset_ambient_bake_state(
     mut pending: ResMut<AmbientRebakePending>,
 ) {
     commands.remove_resource::<AmbientHandle>();
+    // The failure marker is scoped to the handle it explains (#1246 f341):
+    // a stale one would tell the next room its soundtrack is broken.
+    commands.remove_resource::<AmbientResolveFailed>();
     commands.remove_resource::<AmbientBakeStarted>();
     // Forget the previous room's ambient bed and player handle so the next
     // room bakes fresh and the player respawns from its new handle. Also drop
@@ -635,6 +658,29 @@ mod tests {
     //! coverage warrants for an isolated bake helper.
     use super::*;
     use crate::pds::{SovereignAssetReference, SovereignAudioConfig};
+
+    /// #1246 f341's drift risk, as a source walk. `AmbientResolveFailed`
+    /// explains one `AmbientHandle`; a stale one would tell the next room
+    /// its soundtrack is broken. Every site that drops the handle must drop
+    /// the marker in the same breath, and the two live in different files.
+    #[test]
+    fn every_site_that_drops_the_ambient_handle_drops_its_failure_marker() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for path in ["src/loading/ambient.rs", "src/loading/mod.rs"] {
+            let src = std::fs::read_to_string(root.join(path))
+                .unwrap_or_else(|e| panic!("{path} must be readable: {e}"));
+            let drops_handle = src.matches("remove_resource::<AmbientHandle>()").count();
+            let drops_marker = src
+                .matches("remove_resource::<AmbientResolveFailed>()")
+                .count();
+            assert_eq!(
+                drops_handle, drops_marker,
+                "{path} drops the ambient handle {drops_handle} time(s) and its \
+                 failure marker {drops_marker} — a stale marker outlives the room \
+                 it belongs to"
+            );
+        }
+    }
 
     #[test]
     fn none_variant_returns_no_bytes() {

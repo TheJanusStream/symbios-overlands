@@ -48,7 +48,7 @@ pub(crate) use ambient::{
     reset_ambient_bake_state, start_ambient_bake, swap_ambient_player_to_handle,
     tick_ambient_settle,
 };
-pub use ambient::{AmbientHandle, AmbientPlayer};
+pub use ambient::{AmbientHandle, AmbientPlayer, AmbientResolveFailed};
 pub(crate) use fetch::{fire_pending_record_retries, poll_record_task};
 pub(crate) use records::{
     start_avatar_record_fetch, start_inventory_record_fetch, start_room_record_fetch,
@@ -84,6 +84,31 @@ pub(crate) fn toast_fetch_fallbacks(
             if plural { "s" } else { "" },
             fallen.join(", "),
             if plural { "ies" } else { "y" },
+        ),
+        time.elapsed_secs_f64(),
+    );
+}
+
+/// `OnEnter(InGame)`: say once that the room's soundtrack could not be
+/// loaded (#1246 f341).
+///
+/// Separate from [`toast_fetch_fallbacks`] rather than folded into it: that
+/// toast's sentence is about a stored RECORD being replaced by a default and
+/// ends with a warning about overwriting it on save, which is true of the
+/// avatar and false of a soundtrack. What a visitor needs here is the
+/// difference between a broken room and a quiet one.
+pub(crate) fn toast_ambient_failure(
+    failed: Option<Res<AmbientResolveFailed>>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    time: Res<Time>,
+) {
+    let Some(failed) = failed else {
+        return;
+    };
+    toasts.warn(
+        format!(
+            "No soundtrack in this world — {}",
+            failed.failure.reason.sentence()
         ),
         time.elapsed_secs_f64(),
     );
@@ -149,6 +174,7 @@ pub(crate) fn abort_loading_to_login(
         commands.entity(e).despawn();
     }
     commands.remove_resource::<AmbientHandle>();
+    commands.remove_resource::<AmbientResolveFailed>();
     commands.remove_resource::<ambient::AmbientBakeStarted>();
     commands.run_system_cached(crate::logout::cleanup_on_logout);
     next_state.set(AppState::Login);

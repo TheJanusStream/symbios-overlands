@@ -14,8 +14,19 @@
 
 use bevy::prelude::*;
 
-/// Direct HTTPS GET, body streamed and capped at `max_bytes`. Returns
-/// `None` (logged at warn) on connection error, non-success status,
+use super::asset_failure::AssetFetchError;
+
+/// What every fetch in this module answers with: the bytes, or the reason
+/// there are none.
+///
+/// It used to be `Option<Vec<u8>>` with the reason living only in a `warn!`
+/// line (#1246). The reason is the half the owner needs — they are the only
+/// person who can fix a broken source, and on the web build they were
+/// strictly worse informed than a visitor with a console open.
+pub(crate) type FetchedBytes = Result<Vec<u8>, AssetFetchError>;
+
+/// Direct HTTPS GET, body streamed and capped at `max_bytes`. Returns the
+/// reason (also logged at warn) on connection error, non-success status,
 /// oversized body, or read failure. A hostile URL (an infinite stream
 /// like `/dev/zero` over HTTP, or a multi-gigabyte asset) would
 /// otherwise pull the whole response into memory and OOM every guest.
@@ -24,17 +35,17 @@ pub(crate) async fn fetch_url_bytes(
     url: &str,
     max_bytes: usize,
     ctx: &str,
-) -> Option<Vec<u8>> {
+) -> FetchedBytes {
     let resp = match client.get(url).send().await {
         Ok(r) => r,
         Err(e) => {
             warn!("{ctx} URL fetch failed for {url}: {e}");
-            return None;
+            return Err(AssetFetchError::Unreachable);
         }
     };
     if !resp.status().is_success() {
         warn!("{ctx} URL fetch returned {} for {url}", resp.status());
-        return None;
+        return Err(AssetFetchError::HttpStatus(resp.status().as_u16()));
     }
     // Pre-flight: if the server advertises a length already over the
     // cap, don't even start streaming.
@@ -42,7 +53,7 @@ pub(crate) async fn fetch_url_bytes(
         && len as usize > max_bytes
     {
         warn!("{ctx} body too large: Content-Length {len} exceeds {max_bytes} for {url}");
-        return None;
+        return Err(AssetFetchError::TooLarge { limit: max_bytes });
     }
     read_capped_body(resp, url, max_bytes, ctx).await
 }
@@ -53,21 +64,21 @@ async fn read_capped_body(
     url: &str,
     max_bytes: usize,
     ctx: &str,
-) -> Option<Vec<u8>> {
+) -> FetchedBytes {
     let mut buf: Vec<u8> = Vec::new();
     loop {
         match resp.chunk().await {
             Ok(Some(chunk)) => {
                 if buf.len().saturating_add(chunk.len()) > max_bytes {
                     warn!("{ctx} body exceeded cap of {max_bytes} bytes mid-stream for {url}");
-                    return None;
+                    return Err(AssetFetchError::TooLarge { limit: max_bytes });
                 }
                 buf.extend_from_slice(&chunk);
             }
-            Ok(None) => return Some(buf),
+            Ok(None) => return Ok(buf),
             Err(e) => {
                 warn!("{ctx} body read failed for {url}: {e}");
-                return None;
+                return Err(AssetFetchError::ReadFailed);
             }
         }
     }
@@ -84,19 +95,19 @@ async fn read_capped_body(
     url: &str,
     max_bytes: usize,
     ctx: &str,
-) -> Option<Vec<u8>> {
+) -> FetchedBytes {
     let bytes = match resp.bytes().await {
         Ok(b) => b,
         Err(e) => {
             warn!("{ctx} body read failed for {url}: {e}");
-            return None;
+            return Err(AssetFetchError::ReadFailed);
         }
     };
     if bytes.len() > max_bytes {
         warn!("{ctx} body exceeded cap of {max_bytes} bytes (post-fetch) for {url}");
-        return None;
+        return Err(AssetFetchError::TooLarge { limit: max_bytes });
     }
-    Some(bytes.to_vec())
+    Ok(bytes.to_vec())
 }
 
 /// ATProto blob fetch via `com.atproto.sync.getBlob`. Resolves the
@@ -108,12 +119,12 @@ pub(crate) async fn fetch_blob_bytes(
     cid: &str,
     max_bytes: usize,
     ctx: &str,
-) -> Option<Vec<u8>> {
+) -> FetchedBytes {
     let pds = match crate::pds::resolve_pds(client, did).await {
         Some(p) => p,
         None => {
             warn!("{ctx} DID {did} did not resolve to a PDS");
-            return None;
+            return Err(AssetFetchError::NoStorage);
         }
     };
     let blob_url = format!("{pds}/xrpc/com.atproto.sync.getBlob?did={did}&cid={cid}");
@@ -151,8 +162,8 @@ pub(crate) const MAX_IMAGE_AXIS: u32 = 16384;
 /// Decode fetched image bytes after a header-only dimension probe, then
 /// downscale to fit `working_max` on both axes.
 ///
-/// Returns `None` (logged at warn, tagged with `ctx`) when the format can't be
-/// sniffed or the declared frame exceeds [`MAX_IMAGE_PIXELS`] /
+/// Returns the reason (logged at warn, tagged with `ctx`) when the format
+/// can't be sniffed or the declared frame exceeds [`MAX_IMAGE_PIXELS`] /
 /// [`MAX_IMAGE_AXIS`] — the full-frame allocation never happens for a rejected
 /// image. All decode paths for network-supplied image bytes (peer avatars,
 /// sign sources, Referenced splat layers) must come through here rather than
@@ -170,40 +181,46 @@ pub(crate) fn decode_image_capped(
     bytes: &[u8],
     ctx: &str,
     working_max: u32,
-) -> Option<image::DynamicImage> {
+) -> Result<image::DynamicImage, AssetFetchError> {
     let reader = match image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format() {
         Ok(reader) => reader,
         Err(e) => {
             warn!("{ctx} image format probe failed: {e}");
-            return None;
+            return Err(AssetFetchError::Undecodable);
         }
     };
     let (w, h) = match reader.into_dimensions() {
         Ok(dims) => dims,
         Err(e) => {
             warn!("{ctx} image dimension probe failed: {e}");
-            return None;
+            return Err(AssetFetchError::Undecodable);
         }
     };
     if w == 0 || h == 0 || w > MAX_IMAGE_AXIS || h > MAX_IMAGE_AXIS {
         warn!("{ctx} image rejected: {w}×{h} px is outside the {MAX_IMAGE_AXIS} px axis bound");
-        return None;
+        return Err(AssetFetchError::ImageTooBig {
+            width: w,
+            height: h,
+        });
     }
     if u64::from(w) * u64::from(h) > MAX_IMAGE_PIXELS {
         warn!(
             "{ctx} image rejected: {w}×{h} px is {} pixels, over the {MAX_IMAGE_PIXELS}-pixel cap",
             u64::from(w) * u64::from(h)
         );
-        return None;
+        return Err(AssetFetchError::ImageTooBig {
+            width: w,
+            height: h,
+        });
     }
     let img = match image::load_from_memory(bytes) {
         Ok(img) => img,
         Err(e) => {
             warn!("{ctx} image decode failed: {e}");
-            return None;
+            return Err(AssetFetchError::Undecodable);
         }
     };
-    Some(downscale_to_fit(img, working_max))
+    Ok(downscale_to_fit(img, working_max))
 }
 
 /// Shrink `img` so neither axis exceeds `working_max`, preserving aspect
@@ -278,7 +295,15 @@ mod tests {
         // allocation.
         let bomb = png_declaring(30_000, 30_000);
         assert!(bomb.len() < 100, "bomb should be tiny on the wire");
-        assert!(decode_image_capped(&bomb, "test", NO_SHRINK).is_none());
+        // And it says WHY, with the header's own numbers (#1246): a refusal
+        // the owner cannot read is the failure this whole path had.
+        assert_eq!(
+            decode_image_capped(&bomb, "test", NO_SHRINK),
+            Err(AssetFetchError::ImageTooBig {
+                width: 30_000,
+                height: 30_000
+            })
+        );
     }
 
     /// A strip inside the pixel budget but absurd in shape is still refused:
@@ -292,9 +317,9 @@ mod tests {
             u64::from(MAX_IMAGE_AXIS + 1) * 4 < MAX_IMAGE_PIXELS,
             "the strip must be inside the pixel budget for this test to mean anything"
         );
-        assert!(decode_image_capped(&strip, "test", NO_SHRINK).is_none());
+        assert!(decode_image_capped(&strip, "test", NO_SHRINK).is_err());
         assert!(
-            decode_image_capped(&png_declaring(4, MAX_IMAGE_AXIS + 1), "test", NO_SHRINK).is_none()
+            decode_image_capped(&png_declaring(4, MAX_IMAGE_AXIS + 1), "test", NO_SHRINK).is_err()
         );
     }
 
@@ -337,7 +362,7 @@ mod tests {
     #[test]
     fn the_worst_case_decode_is_still_a_4096_square() {
         assert_eq!(MAX_IMAGE_PIXELS, 4096 * 4096);
-        assert!(decode_image_capped(&png_declaring(4097, 4097), "test", NO_SHRINK).is_none());
+        assert!(decode_image_capped(&png_declaring(4097, 4097), "test", NO_SHRINK).is_err());
     }
 
     #[test]
@@ -444,7 +469,7 @@ mod tests {
             ("bmp", bmp),
         ] {
             assert!(
-                decode_image_capped(&bytes, "test", NO_SHRINK).is_none(),
+                decode_image_capped(&bytes, "test", NO_SHRINK).is_err(),
                 "{name} must not decode"
             );
         }
@@ -464,14 +489,14 @@ mod tests {
             img.write_to(&mut std::io::Cursor::new(&mut buf), format)
                 .unwrap_or_else(|e| panic!("{format:?} must encode: {e}"));
             let decoded = decode_image_capped(&buf, "test", NO_SHRINK)
-                .unwrap_or_else(|| panic!("{format:?} must decode"));
+                .unwrap_or_else(|e| panic!("{format:?} must decode: {e:?}"));
             assert_eq!((decoded.width(), decoded.height()), (4, 4));
         }
     }
 
     #[test]
     fn rejects_garbage_bytes() {
-        assert!(decode_image_capped(&[0u8; 16], "test", NO_SHRINK).is_none());
-        assert!(decode_image_capped(&[], "test", NO_SHRINK).is_none());
+        assert!(decode_image_capped(&[0u8; 16], "test", NO_SHRINK).is_err());
+        assert!(decode_image_capped(&[], "test", NO_SHRINK).is_err());
     }
 }

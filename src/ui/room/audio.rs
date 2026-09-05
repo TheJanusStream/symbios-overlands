@@ -150,6 +150,7 @@ pub(super) fn draw_audio_bridge(
     label: &str,
     dirty: &mut bool,
     editor: &mut AudioEditorState,
+    assets: &mut super::assets::AssetPanel<'_>,
 ) {
     // Pick up any committed edit the pop-out editor staged for this slot
     // (it edits a native working copy and writes back here, keyed by
@@ -214,7 +215,18 @@ pub(super) fn draw_audio_bridge(
     match audio {
         SovereignAudioConfig::None | SovereignAudioConfig::Unknown => {}
         SovereignAudioConfig::Referenced { source } => {
-            super::widgets::draw_asset_reference_editor(ui, source, salt, dirty);
+            // The status row inside the reference editor is the whole of
+            // #1246 f349's gap for this slot: Patch and Sequence have a
+            // transport with a live error label, and the ONE variant whose
+            // failure is external and likely had no verification at all.
+            super::widgets::draw_asset_reference_editor(
+                ui,
+                source,
+                salt,
+                dirty,
+                super::widgets::ReferenceClass::Audio,
+                assets,
+            );
         }
         SovereignAudioConfig::Patch { patch } => {
             draw_patch_summary(ui, patch);

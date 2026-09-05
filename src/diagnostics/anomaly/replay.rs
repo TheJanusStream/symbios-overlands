@@ -319,6 +319,7 @@ mod tests {
         assert_eq!(
             ids,
             vec![
+                "asset.fetch_failing",
                 "loading.gate_stall",
                 "loading.record_fetch_exhausted",
                 "net.identity_spoof_burst",

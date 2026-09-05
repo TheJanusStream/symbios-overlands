@@ -207,6 +207,38 @@ pub(super) fn fp_slider(
 /// the current min and the min slider stops at the current max, so an
 /// inverted pair cannot be entered and no sanitiser has to guess what was
 /// meant.
+/// [`fp_slider`] on a logarithmic track (#1254 f317).
+///
+/// For the ranges the record permits and a person almost never wants: a
+/// 0..600 s decal TTL or a 0..1000 m/s trigger speed on a linear track puts
+/// every useful value in the first two pixels. The wide bound has to be
+/// REACHABLE — a legal value the GUI cannot author sends the owner to the
+/// Raw JSON tab — and the low end has to stay tunable.
+pub(super) fn fp_slider_log(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut Fp,
+    lo: f32,
+    hi: f32,
+    dirty: &mut bool,
+) -> egui::Response {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        let mut v = value.0;
+        let response = ui.add(
+            egui::Slider::new(&mut v, lo..=hi)
+                .logarithmic(true)
+                .smallest_positive(0.01),
+        );
+        if response.changed() {
+            *value = Fp(v);
+            *dirty = true;
+        }
+        response
+    })
+    .inner
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn fp_range_sliders(
     ui: &mut egui::Ui,
@@ -256,15 +288,43 @@ pub(super) fn drag_u64(ui: &mut egui::Ui, label: &str, value: &mut u64, dirty: &
     });
 }
 
+/// A colour swatch that shows the colour the world will actually render
+/// (#1249 f58).
+///
+/// **The bug this closes.** `Ui::color_edit_button_rgb` is documented as
+/// taking *linear* RGB, and the record's numbers are read by the world as
+/// sRGB — `Color::srgb(sun[0], …)` for the sun, sky, cloud, fog, extinction,
+/// inscattering, sun glow and water crest. So the same triple meant two
+/// different colours at the two ends: a picked mid-grey showed as 0.5 in the
+/// swatch, stored as 0.21, and lit the world as sRGB 0.21. The Environment
+/// tab's entire job is art direction, and its primary instrument was
+/// systematically darker and more saturated than what it showed.
+///
+/// The conversion lives HERE, at the widget boundary, and nowhere else. What
+/// changes is what the swatch shows; every stored value keeps exactly the
+/// meaning it already had, so no record is migrated and no world re-lights
+/// itself on upgrade.
 pub(super) fn color_picker(ui: &mut egui::Ui, label: &str, value: &mut Fp3, dirty: &mut bool) {
     ui.horizontal(|ui| {
         ui.label(label);
-        let mut rgb = value.0;
-        if ui.color_edit_button_rgb(&mut rgb).changed() {
-            *value = Fp3(rgb);
+        if edit_srgb_rgb(ui, &mut value.0) {
             *dirty = true;
         }
     });
+}
+
+/// The stored sRGB triple, edited through egui's linear-space picker.
+/// Returns whether it changed. Shared by [`color_picker`], the RGBA picker
+/// and the road-appearance override rows, which is the whole set — a
+/// twenty-fifth picker that called egui directly would be a twenty-fifth
+/// swatch telling a different story.
+pub(super) fn edit_srgb_rgb(ui: &mut egui::Ui, value: &mut [f32; 3]) -> bool {
+    let mut linear = value.map(egui::ecolor::linear_from_gamma);
+    if ui.color_edit_button_rgb(&mut linear).changed() {
+        *value = linear.map(egui::ecolor::gamma_from_linear);
+        return true;
+    }
+    false
 }
 
 /// RGBA colour picker — mirrors [`color_picker`] but for [`Fp4`] fields
@@ -274,9 +334,22 @@ pub(super) fn color_picker(ui: &mut egui::Ui, label: &str, value: &mut Fp3, dirt
 pub(super) fn color_picker_rgba(ui: &mut egui::Ui, label: &str, value: &mut Fp4, dirty: &mut bool) {
     ui.horizontal(|ui| {
         ui.label(label);
-        let mut rgba = value.0;
+        // Same conversion as [`color_picker`], on the three colour channels
+        // only: alpha is a coverage fraction in both spaces and gamma is
+        // not applied to it anywhere in the renderer.
+        let mut rgba = [
+            egui::ecolor::linear_from_gamma(value.0[0]),
+            egui::ecolor::linear_from_gamma(value.0[1]),
+            egui::ecolor::linear_from_gamma(value.0[2]),
+            value.0[3],
+        ];
         if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
-            *value = Fp4(rgba);
+            *value = Fp4([
+                egui::ecolor::gamma_from_linear(rgba[0]),
+                egui::ecolor::gamma_from_linear(rgba[1]),
+                egui::ecolor::gamma_from_linear(rgba[2]),
+                rgba[3],
+            ]);
             *dirty = true;
         }
     });
@@ -337,6 +410,49 @@ pub(super) fn generator_combo(
         });
 }
 
+/// The one sentence a forward-compat value gets (#1251).
+///
+/// An open union keeps a newer client's data safe on the wire and becomes a
+/// LIE at the UI layer unless the panel names it: an `Unknown` texture is an
+/// empty body under one word, an unrecognised lot theme reads as the active
+/// selection while the injector ignores it, and picking anything in either
+/// replaces content a newer client could still render.
+///
+/// There were four hand-written spellings of this by the time #1251 was
+/// filed — the asset-reference editor's, the Sign source picker's, #1119's
+/// terrain-algorithm line and the one this collapses them into. Every new
+/// forward-compat arm was a fifth waiting to be written slightly
+/// differently.
+///
+/// `noun` names the thing ("texture", "terrain algorithm"); `meanwhile` says
+/// what the world is doing instead, for the values that are IGNORED rather
+/// than merely unrenderable. Warn-coloured, because the value on screen is
+/// not the value in effect.
+pub(super) fn unrecognised_value_line(ui: &mut egui::Ui, noun: &str, meanwhile: Option<&str>) {
+    let mut text = format!("This {noun} was authored by a newer version of Overlands");
+    match meanwhile {
+        Some(meanwhile) => text.push_str(&format!(" — {meanwhile}.")),
+        None => text.push('.'),
+    }
+    text.push_str(" Picking one above replaces it.");
+    ui.label(
+        egui::RichText::new(text)
+            .small()
+            .color(crate::ui::theme::current(ui.ctx()).status.warn),
+    );
+}
+
+/// The weak line under an asset field naming what this client can load
+/// (#1248 f350). Every one of these caps was enforced firmly and stated
+/// nowhere, so each was discovered as an unexplained blank.
+pub(super) fn caps_line(ui: &mut egui::Ui, caps: &str) {
+    ui.label(
+        egui::RichText::new(caps)
+            .small()
+            .color(crate::ui::theme::current(ui.ctx()).text_weak),
+    );
+}
+
 /// Sub-source picker + per-variant editor for a [`SovereignAssetReference`].
 ///
 /// Shared by the texture-bridge dropdown (when "Referenced" is selected)
@@ -351,7 +467,20 @@ pub(super) fn draw_asset_reference_editor(
     value: &mut SovereignAssetReference,
     salt: &str,
     dirty: &mut bool,
+    // Which cache answers "did this arrive?" for this slot (#1246). The
+    // same three variants are fetched by two different resolvers, and a
+    // texture field asking the audio cache would report "nothing here" over
+    // a source that really did fail.
+    class: ReferenceClass,
+    assets: &mut super::assets::AssetPanel<'_>,
 ) {
+    // A profile picture is not a sound (#1251 f344). The reference type's own
+    // doc says so — "the audio bridge UI should hide this variant from its
+    // sub-picker" — and `AudioReferenceKey::from_reference` returns `None`
+    // for it, so `request_blob_audio` took its early-return no-op path: no
+    // task, no warning, nothing ever played. A control guaranteed to do
+    // nothing, with no disabled state and no tooltip.
+    let allow_did_pfp = class == ReferenceClass::Texture;
     egui::ComboBox::from_id_salt(format!("{}_ref_src", salt))
         .selected_text(value.label())
         .show_ui(ui, |ui| {
@@ -374,6 +503,9 @@ pub(super) fn draw_asset_reference_editor(
                 ),
             ];
             for (label, preset) in presets {
+                if matches!(preset, SovereignAssetReference::DidPfp { .. }) && !allow_did_pfp {
+                    continue;
+                }
                 // Variant-tag comparison: same discriminant → already selected.
                 let selected = std::mem::discriminant(value) == std::mem::discriminant(&preset);
                 if ui.selectable_label(selected, label).clicked() && !selected {
@@ -385,12 +517,34 @@ pub(super) fn draw_asset_reference_editor(
 
     match value {
         SovereignAssetReference::Url { url } => {
+            // The same deferred-commit row the Sign source uses (#1248
+            // f340): this reference goes through `is_fetchable_reference`
+            // by delegation, so a refused URL was blanked here too.
             ui.horizontal(|ui| {
                 ui.label("URL");
-                if ui.text_edit_singleline(url).changed() {
+                let out = text_draft_row(
+                    ui,
+                    (salt, "ref_url"),
+                    url,
+                    240.0,
+                    "The address this slot loads from. Press Enter, or click \
+                     away, to apply it.",
+                    crate::pds::sanitize::refusal_reason,
+                );
+                if let Some(committed) = out.committed {
+                    *url = committed;
                     *dirty = true;
                 }
             });
+            caps_line(
+                ui,
+                &match class {
+                    ReferenceClass::Texture => {
+                        crate::world_builder::asset_failure::image_source_caps()
+                    }
+                    ReferenceClass::Audio => crate::world_builder::asset_failure::audio_clip_caps(),
+                },
+            );
         }
         SovereignAssetReference::AtprotoBlob { did, cid } => {
             ui.horizontal(|ui| {
@@ -413,15 +567,55 @@ pub(super) fn draw_asset_reference_editor(
                     *dirty = true;
                 }
             });
+            // Hiding the option does not remove it from records that already
+            // carry it, so the one slot that can still be holding it says so
+            // rather than staying silently mute.
+            if !allow_did_pfp {
+                ui.label(
+                    egui::RichText::new(
+                        "A profile picture is an image — this slot plays sound, \
+                         so nothing will be loaded. Pick another source above.",
+                    )
+                    .small()
+                    .color(crate::ui::theme::current(ui.ctx()).status.warn),
+                );
+            }
         }
         SovereignAssetReference::Unknown => {
-            ui.label(
-                egui::RichText::new("Unrecognised source — authored by a newer client.")
-                    .small()
-                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
-            );
+            unrecognised_value_line(ui, "source", None);
         }
     }
+
+    // What happened to it. Silence here was the whole of #1246: a
+    // Referenced texture that 404'd rendered the procedural fallback and a
+    // Referenced sound rendered nothing, and both looked exactly like a
+    // slot that had not finished loading.
+    let (status, retry) = match class {
+        ReferenceClass::Texture => (
+            assets.texture_reference(value),
+            super::assets::AssetPanel::texture_retry(value),
+        ),
+        ReferenceClass::Audio => (
+            assets.audio_reference(value),
+            super::assets::AssetPanel::audio_retry(value),
+        ),
+    };
+    if super::assets::asset_status_row(ui, status, assets.now)
+        && let Some(retry) = retry
+    {
+        assets.retry(retry);
+    }
+}
+
+/// Which resolver fetches a [`SovereignAssetReference`] in this slot.
+///
+/// The reference type is shared by the texture bridge and the audio bridge,
+/// and the two are fetched into two different caches — the image cache keys
+/// by source AND sampler filter, the audio cache by source alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ReferenceClass {
+    Texture,
+    Audio,
 }
 
 pub(crate) fn unique_key<T>(map: &std::collections::HashMap<String, T>, prefix: &str) -> String {
@@ -620,6 +814,119 @@ pub(super) fn text_draft_row(
     }
     ui.data_mut(|d| d.insert_temp(id, state));
     outcome
+}
+
+#[cfg(test)]
+mod colour_space_tests {
+    use bevy_egui::egui;
+
+    /// #1249 f58, as arithmetic. The picker is a linear-space widget and
+    /// the world reads the same numbers as sRGB, so the swatch showed a
+    /// mid-grey where the world would render 0.21 — noticeably darker and
+    /// more saturated than what was picked, on every colour on the
+    /// Environment tab.
+    #[test]
+    fn a_mid_grey_swatch_is_a_mid_grey_number() {
+        // What the widget is handed for a stored mid-grey.
+        let linear = egui::ecolor::linear_from_gamma(0.5);
+        assert!(
+            linear < 0.25,
+            "sRGB 0.5 is about 0.21 linear — if this is 0.5 the two spaces \
+             have stopped differing and the whole conversion is moot"
+        );
+        // And the round trip is what keeps every existing record meaning
+        // exactly what it meant before: the conversion changes the swatch,
+        // never the stored value.
+        for stored in [0.0f32, 0.04, 0.18, 0.5, 0.73, 1.0] {
+            let round_tripped =
+                egui::ecolor::gamma_from_linear(egui::ecolor::linear_from_gamma(stored));
+            assert!(
+                (round_tripped - stored).abs() < 1e-4,
+                "{stored} came back as {round_tripped}"
+            );
+        }
+    }
+
+    /// Every colour picker in the editor goes through the shared helper —
+    /// a twenty-fifth that called egui directly would be a twenty-fifth
+    /// swatch telling a different story, which is exactly what
+    /// `detail.rs`'s road-appearance row was.
+    #[test]
+    fn no_editor_surface_calls_the_linear_colour_widget_directly() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui");
+        let mut offenders = Vec::new();
+        let mut walk = vec![root];
+        while let Some(dir) = walk.pop() {
+            for entry in std::fs::read_dir(&dir).expect("src/ui is readable") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    walk.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|e| e != "rs") {
+                    continue;
+                }
+                // The helper itself is the one legitimate caller.
+                if path.ends_with("ui/room/widgets.rs") {
+                    continue;
+                }
+                let src = std::fs::read_to_string(&path).expect("readable");
+                if src.contains("color_edit_button_rgb") {
+                    offenders.push(path.display().to_string());
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "these files edit a stored sRGB colour through egui's LINEAR widget: \
+             {offenders:?} — route them through `widgets::edit_srgb_rgb`"
+        );
+    }
+}
+
+#[cfg(test)]
+mod forward_compat_tests {
+    /// #1251: four hand-written spellings of "this came from a newer build"
+    /// existed across the room editor — the asset-reference editor's, the
+    /// Sign source picker's, #1119's terrain-algorithm line, and whatever
+    /// the next forward-compat arm was going to invent. They are one helper
+    /// now, and this is what keeps a fifth from being written beside it.
+    #[test]
+    fn only_one_place_says_authored_by_a_newer_version() {
+        // The room editor's own surface. `ui::inventory`'s
+        // `UNREADABLE_ITEM_TAG` says something adjacent and deliberately
+        // different (#1207): an item this build cannot decode has nothing
+        // to "pick above", and its sentence has to name the stash it is
+        // blocking instead.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui/room");
+        let mut offenders = Vec::new();
+        let mut walk = vec![root];
+        while let Some(dir) = walk.pop() {
+            for entry in std::fs::read_dir(&dir).expect("src is readable") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    walk.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|e| e != "rs") {
+                    continue;
+                }
+                let src = std::fs::read_to_string(&path).expect("readable");
+                // The helper itself is allowed to say it; nobody else is.
+                if path.ends_with("ui/room/widgets.rs") {
+                    continue;
+                }
+                if src.contains("authored by a newer") || src.contains("from a newer version of") {
+                    offenders.push(path.display().to_string());
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "these files spell the forward-compat sentence themselves instead of \
+             calling `unrecognised_value_line`: {offenders:?}"
+        );
+    }
 }
 
 #[cfg(test)]

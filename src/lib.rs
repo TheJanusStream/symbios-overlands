@@ -480,6 +480,7 @@ pub fn run() {
             (
                 loading::arm_ambient_settle,
                 loading::toast_fetch_fallbacks,
+                loading::toast_ambient_failure,
                 ui::toolbar::flash_owner_controls_once,
             ),
         )

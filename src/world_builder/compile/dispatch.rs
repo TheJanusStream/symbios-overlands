@@ -188,7 +188,7 @@ pub fn spawn_generator(
             // Synthetic cache key matches the L-system convention so a
             // Shape nested at `path=[2,0]` inside a Construct doesn't
             // collide with an unrelated Shape in another branch.
-            spawn_shape_entity(ctx, &generator.kind, &cache_key, transform)
+            spawn_shape_entity(ctx, &generator.kind, &cache_key, path, transform)
         }
         GeneratorKind::LSystem { .. } => {
             // Synthetic cache key keeps a nested L-system distinct from any
@@ -197,7 +197,7 @@ pub fn spawn_generator(
             // Scattering 1000 generator trees each containing the same
             // L-system at path=[0] reuses the same "<base_ref>/0" cache
             // entry — 1 derivation, 999 handle clones.
-            spawn_lsystem_entity(ctx, &generator.kind, &cache_key, transform)
+            spawn_lsystem_entity(ctx, &generator.kind, &cache_key, path, transform)
         }
         GeneratorKind::Portal {
             target_did,
@@ -334,7 +334,11 @@ fn spawn_generator_children(
     }
 }
 
-fn synthetic_cache_key(base_ref: &str, path: &[usize]) -> String {
+/// The key a node's caches — and its grammar diagnostics (#1250 f84) — are
+/// filed under: the root's record key for a root, `<root>/<i>/<j>` for a
+/// child. `pub(crate)` so the editor can ask for the SELECTED node's status
+/// rather than its root's.
+pub(crate) fn synthetic_cache_key(base_ref: &str, path: &[usize]) -> String {
     if path.is_empty() {
         base_ref.to_string()
     } else {

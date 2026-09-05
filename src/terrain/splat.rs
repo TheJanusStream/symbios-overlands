@@ -20,7 +20,7 @@ use crate::pds::{SovereignTerrainConfig, SovereignTextureConfig};
 use crate::splat::SplatTerrainMaterial;
 use crate::state::LiveRoomRecord;
 
-use super::referenced::spawn_splat_layer_fetch;
+use super::referenced::{ReferencedLayerStatus, spawn_splat_layer_fetch};
 use super::{
     FinishedHeightMap, SplatMaterialHandle, TerrainSplatState, TextureLayerIndex,
     TextureTasksStarted,
@@ -46,6 +46,9 @@ pub(super) fn start_texture_tasks(
     record: Res<LiveRoomRecord>,
     time: Res<Time>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
+    mut layer_status: ResMut<ReferencedLayerStatus>,
+    mut splat_state: ResMut<TerrainSplatState>,
+    settings: Res<crate::state::LocalSettings>,
 ) {
     let mat = crate::pds::find_terrain_config(&record.0)
         .map(|c| c.material.clone())
@@ -84,7 +87,20 @@ pub(super) fn start_texture_tasks(
         // bytes arrive — until then the placeholder ground texture is
         // what the splat shader samples.
         if let SovereignTextureConfig::Referenced { source } = layer {
-            spawn_splat_layer_fetch(&mut commands, i, source, texture_size);
+            // Not unconditional any more (#1246 f347 / #1247 f346): a
+            // layer already resolved at this size reuses its handles, one
+            // still inside its failure backoff issues nothing, and only a
+            // genuinely new or due reference reaches the network.
+            spawn_splat_layer_fetch(
+                &mut commands,
+                &mut layer_status,
+                &mut splat_state,
+                i,
+                source,
+                texture_size,
+                spawned_at,
+                settings.load_external_assets,
+            );
         }
     }
 

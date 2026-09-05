@@ -3,10 +3,20 @@
 //! Rendered only when `session.did == current_room.0` (the signed-in user
 //! owns the room they are visiting). Follows the same **Live UX** paradigm
 //! as the avatar editor: every widget mutates the live `ResMut<RoomRecord>`
-//! in place, so the world recompiles and remote peers mirror the edit the
-//! same frame the slider moves — the peer broadcast is driven by the
-//! `network::broadcast_room_state` system watching `Res::is_changed`. Three
-//! explicit buttons drive persistence and discard flows:
+//! in place.
+//!
+//! **How fast an edit reaches the world (#1249 f59).** This header used to
+//! say "the same frame the slider moves", and that has not been true since
+//! the debounce: a widget edit re-arms a 0.25 s timer, and `set_changed()`
+//! — which is what `network::broadcast_room_state`, the world compile and
+//! the terrain rebuild all watch — fires only when it drains. So an edit
+//! burst is one broadcast and one recompile, and a slider being dragged
+//! showed nothing at all until the hand stopped. There are two lanes now:
+//! the expensive consumers keep the debounce, and
+//! [`crate::world_builder::compile::EnvironmentPreview`] is stamped every
+//! frame a widget changes so the atmosphere — light, fog, sky, cloud
+//! uniforms — follows the drag. Three explicit buttons drive persistence
+//! and discard flows:
 //!
 //! - **Save to PDS** publishes the current `RoomRecord` to the owner's PDS
 //!   as a slim manifest plus content-addressed child generator records in
@@ -28,6 +38,7 @@
 //! egui helpers (sliders, colour pickers, transform editor), plus the
 //! ternary-tree L-system preset used when adding a new generator.
 
+pub(crate) mod assets;
 pub mod audio;
 pub(crate) mod caps;
 pub(crate) mod construct;
@@ -441,6 +452,36 @@ pub struct RoomEditorExtras<'w, 's> {
     /// Click-to-pick face selection (#961): shared with the scene click
     /// handler that resolves what the Faces panel armed.
     face_pick: ResMut<'w, crate::editor_gizmo::FacePick>,
+    /// The four asset caches + the retry channel (#1246): every field that
+    /// names a fetched image or sound says what happened to it.
+    asset_caches: assets::AssetCaches<'w>,
+    /// The app-wide mute (#1252 f303): the Effects tab says so, because a
+    /// launch-fresh session is muted by default and an owner's first
+    /// correct cue is otherwise indistinguishable from four kinds of
+    /// broken.
+    audio_muted: ResMut<'w, crate::audio_mute::AudioMuted>,
+    /// The in-flight terrain rebuild (#1249 f63). Present for as long as
+    /// the async heightmap job runs, which for a big grid with erosion on
+    /// is several seconds during which the World Editor said nothing at
+    /// all and the old mesh stayed on screen.
+    terrain_task: Option<Res<'w, crate::terrain::TerrainTask>>,
+}
+
+/// The footer line while a terrain rebuild is in flight (#1249 f63).
+///
+/// A terrain-config change tears the heightmap down and dispatches an async
+/// regeneration, keeping the old mesh up as `OutgoingTerrain` until the new
+/// one lands. The knobs make that job arbitrarily expensive — grid size to
+/// 2048, erosion drops to 500 000 — and the only completion signal was a
+/// session-log event. A knob whose effect is deferred by seconds with no
+/// acknowledgement reads as broken, and the owner drags it again, which
+/// re-queues the job.
+///
+/// Pure so the wording and the arithmetic are testable without egui: the
+/// elapsed seconds come from the task's own dispatch stamp.
+fn terrain_rebuild_line(dispatched_at: f64, now: f64) -> String {
+    let elapsed = (now - dispatched_at).max(0.0);
+    format!("⟳ Rebuilding the landscape… {elapsed:.0}s")
 }
 
 /// How full the room is (#1210, finding 413): the two hard caps every add
@@ -605,12 +646,15 @@ pub fn room_admin_ui(
     time: Res<Time>,
 ) {
     let RoomEditorExtras {
+        mut asset_caches,
         audio_monitor,
         mut audio_requests,
         heightmap,
         mut blob_ctx,
         players,
         gizmo_focus,
+        mut audio_muted,
+        terrain_task,
         mut player_move,
         grammar_diag,
         road_stats,
@@ -686,6 +730,11 @@ pub fn room_admin_ui(
     } = &mut *editor;
 
     let ctx = contexts.ctx_mut().unwrap();
+
+    // One borrowed view of the four asset caches for the whole frame
+    // (#1246). Built here rather than per tab because it holds the retry
+    // channel mutably, and a second one would be a second `&mut`.
+    let mut asset_panel = asset_caches.panel(time.elapsed_secs_f64());
 
     // `ResMut::deref_mut` unconditionally flips the change tick, so any
     // `&mut record.field` access taken while the window is open would mark
@@ -1066,6 +1115,20 @@ pub fn room_admin_ui(
                     // Build from the same hunted seed the readout previewed
                     // — never the raw typed one.
                     if let Some(seed) = effective {
+                        // Said BEFORE the build, because the build is the
+                        // stall (#1249 f270): `default_for_seed` runs the
+                        // whole procedural pipeline inside this frame, and
+                        // a toast queued after it would appear on the far
+                        // side of the freeze it was meant to explain.
+                        let clicked_at = time.elapsed_secs_f64();
+                        toasts.info(
+                            format!("Re-rolling your world from seed {seed}…"),
+                            clicked_at,
+                        );
+                        commands.insert_resource(crate::world_builder::RebuildAnnounce {
+                            what: format!("Re-rolled from seed {seed}"),
+                            since_secs: clicked_at,
+                        });
                         seed_row_state.set_seed(seed);
                         *record_mut = pds::RoomRecord::default_for_seed(seed, &room_did.0);
                         raw.sync_to(&*record_mut);
@@ -1247,6 +1310,18 @@ pub fn room_admin_ui(
                             );
                         }
 
+                        if let Some(task) = terrain_task.as_deref() {
+                            ui.label(
+                                egui::RichText::new(terrain_rebuild_line(task.1, now))
+                                    .small()
+                                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                            )
+                            .on_hover_text(
+                                "The land you are standing on is the previous version; it is \
+                                 replaced when the new one finishes. Editing the terrain again \
+                                 starts the job over.",
+                            );
+                        }
                         live_sync_gauge(ui, *live_sync_bytes);
                         counts_line(ui, record_mut);
                         if let Some(truncated) = compile_truncation.as_deref() {
@@ -1301,6 +1376,8 @@ pub fn room_admin_ui(
                                 &mut record_mut.contact_effects,
                                 selected_effect,
                                 &mut widget_change,
+                                &mut asset_panel,
+                                &mut audio_muted,
                             );
                         });
                     }
@@ -1335,6 +1412,7 @@ pub fn room_admin_ui(
                                 &mut place_root,
                                 generator_filter,
                                 node_clipboard,
+                                &mut asset_panel,
                             );
                         });
                     }
@@ -1351,6 +1429,7 @@ pub fn room_admin_ui(
                                         player_pose,
                                         &mut widget_change,
                                         audio_editor,
+                                        &mut asset_panel,
                                     );
                                 }
                                 EditorTab::Raw => {
@@ -1454,6 +1533,15 @@ pub fn room_admin_ui(
     // `records_differ`, so there is no flag to set here.
     if widget_change {
         *pending_flush_secs = crate::config::ui::editor::MENU_DEBOUNCE_SECS;
+        // The cheap lane (#1249 f59). `set_changed()` below waits for the
+        // debounce, so a slider being dragged showed nothing until the
+        // hand stopped — a hard binary of nothing, then everything, on the
+        // one tab whose whole job is to be tuned by eye. Stamping this
+        // marks only `apply_environment_state`, which re-paints light, fog,
+        // sky and cloud uniforms and is safe at frame rate; the peer
+        // broadcast, the world compile and the terrain rebuild all still
+        // wait for the pause.
+        commands.insert_resource(crate::world_builder::compile::EnvironmentPreview);
         // Coarse per-tab undo label (#865) — only when no site named the
         // edit specifically this burst (latest-wins would otherwise let
         // the generic name clobber "delete of oak_3").
@@ -1491,6 +1579,28 @@ pub fn room_admin_ui(
         // parse; this covers the visual-tab widgets.
         record.bypass_change_detection().0.sanitize();
         record.set_changed();
+    }
+}
+
+#[cfg(test)]
+mod terrain_rebuild_tests {
+    use super::*;
+
+    /// #1249 f63. A terrain edit dispatches an async heightmap job whose
+    /// cost the knobs set (grid to 2048, drops to 500 000) and whose only
+    /// completion signal was a session-log line. The footer now counts the
+    /// wait out loud; this pins the two facts the line has to carry — that
+    /// something is happening, and how long it has been.
+    #[test]
+    fn the_rebuild_line_names_the_work_and_counts_the_wait() {
+        let line = terrain_rebuild_line(10.0, 13.4);
+        assert!(line.contains("Rebuilding"), "{line}");
+        assert!(line.contains('3'), "three seconds in: {line}");
+        // A clock that has not moved reads as zero rather than as
+        // something negative or missing.
+        assert!(terrain_rebuild_line(10.0, 10.0).contains('0'));
+        // And it never goes backwards if the stamp is somehow ahead.
+        assert!(terrain_rebuild_line(10.0, 9.0).contains('0'));
     }
 }
 

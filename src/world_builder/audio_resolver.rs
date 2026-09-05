@@ -41,6 +41,7 @@ use bevy::tasks::{IoTaskPool, Task};
 use crate::config;
 use crate::pds::SovereignAssetReference;
 
+use super::asset_failure::{AssetFailure, AssetFetchError, AssetStatus};
 use super::blob_fetch;
 
 /// Cache key for an audio reference. Mirrors the variant shape of the
@@ -71,6 +72,20 @@ impl AudioReferenceKey {
             _ => None,
         }
     }
+
+    /// The identity a diagnostic line names.
+    pub fn describe(&self) -> String {
+        match self {
+            Self::Url(url) => url.clone(),
+            Self::AtprotoBlob { did, cid } => format!("{did}/{cid}"),
+        }
+    }
+
+    /// Whether following this source means talking to a host somebody else
+    /// chose (#1248 f298). See `SignSourceKey::is_external`.
+    pub fn is_external(&self) -> bool {
+        matches!(self, Self::Url(_))
+    }
 }
 
 /// Where the resolved [`Handle<AudioSource>`] should be delivered.
@@ -97,16 +112,41 @@ pub enum AudioReferenceTarget {
 pub enum AudioReferenceEntry {
     Pending(Vec<AudioReferenceTarget>),
     Ready(Handle<AudioSource>),
+    /// The fetch gave up (#1246). The entry survives so the ambient row
+    /// and the audio bridge can say what happened, and so the next
+    /// requester waits out the doubling instead of re-issuing at once.
+    Failed(AssetFailure),
 }
 
 /// Source-keyed coalescing cache. FIFO-bounded by
 /// [`config::interaction::audio::MAX_CACHE_ENTRIES`] — the same cap
 /// the contact-cue cache uses so the two paths get the same memory
 /// envelope.
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct BlobAudioCache {
     pub by_source: HashMap<AudioReferenceKey, AudioReferenceEntry>,
     insert_order: VecDeque<AudioReferenceKey>,
+    /// `Time::elapsed_secs_f64` as of the last poll tick — the request
+    /// path's clock for the backoff question. Stamped through
+    /// `bypass_change_detection`; see [`super::image_cache::BlobImageCache`]
+    /// for why the clock lives on the cache rather than in a parameter.
+    now: f64,
+    /// The viewer's `LocalSettings::load_external_assets`, stamped by
+    /// `asset_failure::stamp_asset_policy` (#1248 f298).
+    allow_external: bool,
+}
+
+/// Manual for the same reason as [`super::image_cache::BlobImageCache`]'s:
+/// `allow_external` must start TRUE (#1248 f298).
+impl Default for BlobAudioCache {
+    fn default() -> Self {
+        Self {
+            by_source: HashMap::new(),
+            insert_order: VecDeque::new(),
+            now: 0.0,
+            allow_external: true,
+        }
+    }
 }
 
 impl BlobAudioCache {
@@ -141,6 +181,43 @@ impl BlobAudioCache {
         }
         removed
     }
+
+    /// Publish the current elapsed time for the request path's backoff
+    /// question.
+    pub fn stamp_now(&mut self, now: f64) {
+        self.now = now;
+    }
+
+    /// Publish the viewer's external-asset preference.
+    pub fn stamp_external(&mut self, allow: bool) {
+        self.allow_external = allow;
+    }
+
+    /// Whether this cache will follow a bare web address right now.
+    pub fn allows_external(&self) -> bool {
+        self.allow_external
+    }
+
+    /// How this reference stands right now.
+    pub fn status(&self, key: &AudioReferenceKey) -> Option<AssetStatus> {
+        match self.by_source.get(key)? {
+            AudioReferenceEntry::Pending(_) => Some(AssetStatus::Pending),
+            AudioReferenceEntry::Ready(_) => Some(AssetStatus::Ready),
+            AudioReferenceEntry::Failed(failure) => Some(AssetStatus::Failed(*failure)),
+        }
+    }
+
+    /// Drop a failed entry so the next requester starts a fresh attempt.
+    pub fn clear_failure(&mut self, key: &AudioReferenceKey) -> bool {
+        if matches!(
+            self.by_source.get(key),
+            Some(AudioReferenceEntry::Failed(_))
+        ) {
+            self.remove(key);
+            return true;
+        }
+        false
+    }
 }
 
 /// In-flight audio fetch. Attached to a throwaway entity so the task
@@ -148,7 +225,9 @@ impl BlobAudioCache {
 #[derive(Component)]
 pub struct BlobAudioTask {
     pub key: AudioReferenceKey,
-    pub task: Task<Option<Vec<u8>>>,
+    pub task: Task<blob_fetch::FetchedBytes>,
+    /// The failure this attempt retries, so the wait keeps doubling.
+    pub previous: Option<AssetFailure>,
 }
 
 /// Request the bytes for `reference` and deliver the resolved handle
@@ -164,28 +243,69 @@ pub fn request_blob_audio(
     let Some(key) = AudioReferenceKey::from_reference(reference) else {
         return;
     };
+    // The viewer declined to talk to hosts other people chose (#1248 f298).
+    // An ambient target still has to publish its absence or the loading gate
+    // waits forever — but silently, because nothing failed.
+    if key.is_external() && !cache.allow_external {
+        if matches!(target, AudioReferenceTarget::AmbientHandle) {
+            commands.insert_resource(crate::loading::AmbientHandle(None));
+        }
+        return;
+    }
 
-    match cache.by_source.get_mut(&key) {
+    let previous = match cache.by_source.get_mut(&key) {
         // Cache hit — dispatch synchronously.
         Some(AudioReferenceEntry::Ready(handle)) => {
             apply_target(commands, &target, handle.clone());
+            return;
         }
         // Fetch already in flight — enqueue the target.
         Some(AudioReferenceEntry::Pending(list)) => {
             list.push(target);
+            return;
         }
-        // First requester — register pending and spawn the fetch.
-        None => {
-            cache.insert_bounded(key.clone(), AudioReferenceEntry::Pending(vec![target]));
-            let pool = IoTaskPool::get();
-            let source_for_task = key.clone();
-            let task = pool.spawn(async move {
-                let fut = fetch_bytes_for(source_for_task);
-                crate::config::http::run_or(fut, None).await
-            });
-            commands.spawn(BlobAudioTask { key, task });
+        Some(AudioReferenceEntry::Failed(failure)) => {
+            if !failure.may_retry(cache.now) {
+                // Still inside the wait. An ambient target must not be
+                // left hanging on the loading gate, though — the gate
+                // waits on the resource existing, so a failure that is
+                // not retried right now still has to publish its absence.
+                if matches!(target, AudioReferenceTarget::AmbientHandle) {
+                    report_ambient_failure(commands, failure);
+                }
+                return;
+            }
+            Some(*failure)
         }
-    }
+        // First requester.
+        None => None,
+    };
+
+    cache.insert_bounded(key.clone(), AudioReferenceEntry::Pending(vec![target]));
+    let pool = IoTaskPool::get();
+    let source_for_task = key.clone();
+    let task = pool.spawn(async move {
+        let fut = fetch_bytes_for(source_for_task);
+        crate::config::http::run_or(fut, Err(AssetFetchError::TimedOut)).await
+    });
+    commands.spawn(BlobAudioTask {
+        key,
+        task,
+        previous,
+    });
+}
+
+/// Publish "there is no ambient bed, and here is why" (#1246 f341).
+///
+/// The loading gate reads [`crate::loading::AmbientHandle`] for its
+/// "Ambient soundscape" row and computes the row purely from the resource
+/// EXISTING — so `AmbientHandle(None)`, which is what a failed fetch
+/// installs, rendered a green check identical to a successful bake and
+/// identical to a room that authored no audio at all. The sibling marker
+/// is what lets the row tell those apart.
+fn report_ambient_failure(commands: &mut Commands, failure: &AssetFailure) {
+    commands.insert_resource(crate::loading::AmbientHandle(None));
+    commands.insert_resource(crate::loading::AmbientResolveFailed { failure: *failure });
 }
 
 /// Drain finished blob-audio fetches: wrap bytes in [`AudioSource`],
@@ -196,7 +316,12 @@ pub fn poll_blob_audio_tasks(
     mut tasks: Query<(Entity, &mut BlobAudioTask)>,
     mut audio_sources: ResMut<Assets<AudioSource>>,
     mut cache: ResMut<BlobAudioCache>,
+    time: Res<Time>,
+    mut report: super::asset_failure::AssetReport,
 ) {
+    let now = time.elapsed_secs_f64();
+    cache.bypass_change_detection().stamp_now(now);
+    let mut reporter = report.at(now);
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
             futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
@@ -211,25 +336,36 @@ pub fn poll_blob_audio_tasks(
         let pending = match cache.by_source.get_mut(&task.key) {
             Some(AudioReferenceEntry::Pending(list)) => std::mem::take(list),
             Some(AudioReferenceEntry::Ready(_)) => continue, // already promoted
+            // Settled by a duplicate task's failure — one source is one
+            // attempt, however many tasks raced for it.
+            Some(AudioReferenceEntry::Failed(_)) => continue,
             None => continue,
         };
 
-        let Some(bytes) = result else {
-            // Fetch failed. Drop the pending entry so a later
-            // requester gets a fresh attempt instead of being stuck
-            // behind a transient network blip — but walk the pending
-            // list FIRST and dispatch a None to AmbientHandle targets
-            // so the loading gate isn't stranded on a dead URL. Entity
-            // targets get nothing attached (the construct stays silent
-            // — preferable to a default fallback hum the room author
-            // didn't ask for).
-            for target in pending {
-                if matches!(target, AudioReferenceTarget::AmbientHandle) {
-                    commands.insert_resource(crate::loading::AmbientHandle(None));
+        let bytes = match result {
+            Ok(bytes) => bytes,
+            Err(reason) => {
+                // The entry SURVIVES the failure (#1246/#1247), carrying the
+                // reason and the doubling wait. The pending list is still
+                // walked first: an AmbientHandle target must publish its
+                // absence or the loading gate waits forever, and now it
+                // publishes the REASON alongside. Entity targets get
+                // nothing attached (the construct stays silent — preferable
+                // to a default fallback hum the room author didn't ask for).
+                let failure = AssetFailure::after(task.previous.as_ref(), reason, now);
+                for target in pending {
+                    if matches!(target, AudioReferenceTarget::AmbientHandle) {
+                        report_ambient_failure(&mut commands, &failure);
+                    }
                 }
+                reporter.record(
+                    super::asset_failure::AssetClass::Audio,
+                    &task.key.describe(),
+                    reason,
+                );
+                cache.insert_bounded(task.key.clone(), AudioReferenceEntry::Failed(failure));
+                continue;
             }
-            cache.remove(&task.key);
-            continue;
         };
         let handle = audio_sources.add(AudioSource {
             bytes: bytes.into(),
@@ -270,7 +406,7 @@ fn apply_target(
 /// HTTPS GET, AtprotoBlob through `getBlob`. Reuses the shared
 /// `blob_fetch` module so the OOM-guard and wasm/native split match
 /// the image cache exactly.
-async fn fetch_bytes_for(key: AudioReferenceKey) -> Option<Vec<u8>> {
+async fn fetch_bytes_for(key: AudioReferenceKey) -> blob_fetch::FetchedBytes {
     let client = config::http::default_client();
     let max = config::interaction::audio::MAX_CLIP_BYTES;
     match key {

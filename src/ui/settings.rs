@@ -146,6 +146,38 @@ pub fn settings_ui(
 
             ui.add_space(8.0);
             ui.separator();
+            ui.strong("Privacy");
+            // #1248 f298 asked for a policy, not a patch, and this is the
+            // policy: state the exposure, and give the person standing in
+            // somebody else's world a way out of it. A world reached
+            // through a portal or a gateway is a stranger's, its record can
+            // name any web address, and being in the room is what makes
+            // your client fetch from it. #1127 removed the crude half of
+            // that (http, loopback, private ranges); the rest is inherent
+            // to following an address somebody else chose.
+            //
+            // Defaults ON: most authored imagery in the product is a URL,
+            // and defaulting off would make every visited world worse
+            // without the visitor knowing why. Being able to see and change
+            // it is the fix; hiding it was the defect.
+            dirty |= ui
+                .checkbox(
+                    &mut s.load_external_assets,
+                    "Load images and sounds from outside Bluesky",
+                )
+                .on_hover_text(if s.load_external_assets {
+                    "On: worlds can show pictures and play sounds stored anywhere \
+                     on the web. Whoever built the world chooses the address, and \
+                     loading it tells that address you are here."
+                } else {
+                    "Off: only pictures and sounds stored in Bluesky are loaded. \
+                     Anything a world points at elsewhere is left blank, and the \
+                     editor says so."
+                })
+                .changed();
+
+            ui.add_space(8.0);
+            ui.separator();
             ui.strong("Effects");
             ui.label("Contact effects from the room you're in:");
             ui.horizontal(|ui| {

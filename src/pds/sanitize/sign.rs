@@ -66,7 +66,12 @@ pub(crate) fn is_fetchable_endpoint(endpoint: &str) -> bool {
 /// `http://` is accepted only for loopback, and only in a debug build, so
 /// that a locally-served asset still works while developing. Release builds
 /// require `https` unconditionally.
-fn is_fetchable_reference(url: &str) -> bool {
+///
+/// `pub(crate)` since #1248: the rule is enforced by DELETING the URL, so the
+/// only way the owner can ever see it is for the editor to ask the same
+/// question before the sanitiser gets there. [`refusal_reason`] is the
+/// sentence that goes with it.
+pub(crate) fn is_fetchable_reference(url: &str) -> bool {
     let Ok(parsed) = url::Url::parse(url) else {
         // Includes the empty string, which is the Default and means
         // "nothing referenced" rather than a rejection.
@@ -81,6 +86,38 @@ fn is_fetchable_reference(url: &str) -> bool {
         // here that is worth the surface.
         _ => false,
     }
+}
+
+/// Why a typed asset URL will be refused, or `None` if it will be followed
+/// (#1248 f79 / f340).
+///
+/// The refusal is enforced by `url.clear()` in the sanitiser — a policy that
+/// deletes the owner's typed text about a quarter of a second after they type
+/// it, with nothing said. Keeping the *reason* beside the predicate is what
+/// lets the field refuse the draft and explain itself instead, so the text is
+/// never destroyed and the rule becomes legible rather than something to keep
+/// tripping over.
+///
+/// The empty string is not a refusal: it is the default, and means "nothing
+/// referenced".
+pub(crate) fn refusal_reason(url: &str) -> Option<String> {
+    if url.is_empty() || is_fetchable_reference(url) {
+        return None;
+    }
+    let Ok(parsed) = url::Url::parse(url) else {
+        return Some("Not a full web address yet — it needs to start https://".to_string());
+    };
+    if parsed.scheme() != "https" {
+        return Some(format!(
+            "Only https addresses are loaded — {}:// is refused.",
+            parsed.scheme()
+        ));
+    }
+    Some(
+        "Addresses inside a private network are refused — this one would only \
+         work on your own machine."
+            .to_string(),
+    )
 }
 
 /// Whether the host is written as an address rather than a name, and that
@@ -301,5 +338,47 @@ mod reference_url_tests {
         assert!(!is_fetchable_endpoint("http://pds.example.com"));
         assert!(!is_fetchable_endpoint("https://192.168.1.20:2583"));
         assert!(!is_fetchable_endpoint(""));
+    }
+
+    /// #1248 f79 / f340: the rule is enforced by DELETING the owner's typed
+    /// text, so the editor has to be able to ask the same question and get
+    /// a sentence back. The two must agree exactly — a field that refused
+    /// what the sanitiser accepts would block a working URL, and one that
+    /// accepted what the sanitiser refuses would hand the text back to the
+    /// blanking.
+    #[test]
+    fn the_refusal_reason_agrees_with_the_rule_it_explains() {
+        let cases = [
+            "https://cdn.example.org/a.png",
+            "http://example.org/a.png",
+            "https://127.0.0.1/a.png",
+            "https://10.0.0.5/a.png",
+            "file:///etc/passwd",
+            "ftp://example.org/a.png",
+            "https:/",
+            "not a url",
+        ];
+        for url in cases {
+            assert_eq!(
+                refusal_reason(url).is_none(),
+                is_fetchable_reference(url),
+                "{url}: the field and the sanitiser must answer the same"
+            );
+        }
+        // Every refusal says something, and says it about this URL.
+        assert!(
+            refusal_reason("ftp://example.org/a.png").is_some_and(|r| r.contains("ftp")),
+            "the reason names the scheme it refused"
+        );
+        assert!(refusal_reason("https:/").is_some_and(|r| r.contains("https://")));
+        assert!(refusal_reason("https://10.0.0.5/a.png").is_some_and(|r| r.contains("private")));
+    }
+
+    /// The empty string is the default and means "nothing referenced". A
+    /// freshly-added Sign must not open with a refusal printed under it.
+    #[test]
+    fn an_empty_url_is_not_a_refusal() {
+        assert_eq!(refusal_reason(""), None);
+        assert!(!is_fetchable_reference(""), "and it is still not fetchable");
     }
 }

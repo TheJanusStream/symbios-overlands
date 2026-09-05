@@ -98,6 +98,14 @@ pub struct ParticleDispatchState {
 /// recipe cooldown, so pruning never resets a live throttle.
 const COOLDOWN_ENTRY_TTL: f32 = 5.0;
 
+impl ParticleDispatchState {
+    /// Forget every live throttle — the registry whose indices they key on
+    /// has been replaced (#1254 f322).
+    pub fn clear_cooldowns(&mut self) {
+        self.cooldowns.clear();
+    }
+}
+
 impl Default for ParticleDispatchState {
     fn default() -> Self {
         Self {

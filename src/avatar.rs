@@ -436,7 +436,7 @@ fn decode_and_cache_avatar(
     // whatever the owner uploaded. The shrink is `decode_image_capped`'s
     // job now (#1128) so that every fetched-image path has to name a
     // working size, and none can quietly retain a source-sized frame.
-    let Some(dyn_img) = crate::world_builder::blob_fetch::decode_image_capped(
+    let Ok(dyn_img) = crate::world_builder::blob_fetch::decode_image_capped(
         bytes,
         "Avatar image",
         crate::config::network::BSKY_PROFILE_ICON_PX,

@@ -12,6 +12,7 @@ pub(super) fn draw_terrain_forge(
     ui: &mut egui::Ui,
     cfg: &mut SovereignTerrainConfig,
     dirty: &mut bool,
+    assets: &mut super::assets::AssetPanel<'_>,
 ) {
     // README's second sentence tells a new user to edit the terrain
     // (#1233 f264). The path from that promise to a visible change ran
@@ -83,10 +84,13 @@ pub(super) fn draw_terrain_forge(
                 // (#1119) — it has no parameters here to show. The combo
                 // above names it; the Kind picker is the way out.
                 SovereignGeneratorKind::Unknown => {
-                    ui.colored_label(
-                        crate::ui::theme::current(ui.ctx()).status.warn,
-                        "Terrain algorithm from a newer version of Overlands — \
-                         pick a Kind above to replace it.",
+                    // #1119's line, now the shared one (#1251): four
+                    // spellings of this sentence existed and none of them
+                    // was the one the next forward-compat arm would copy.
+                    super::widgets::unrecognised_value_line(
+                        ui,
+                        "terrain algorithm",
+                        Some("the land is built from the default instead"),
                     );
                 }
                 SovereignGeneratorKind::VoronoiTerracing => {
@@ -122,6 +126,15 @@ pub(super) fn draw_terrain_forge(
             if ui.checkbox(&mut cfg.erosion_enabled, "Enabled").changed() {
                 *dirty = true;
             }
+            // Gated on the checkbox (#1249 f65). The knobs stayed live with
+            // erosion off, and each one arms the flush, changes the
+            // serialised terrain fingerprint and therefore makes
+            // `maybe_regenerate_terrain` take its Regenerate branch — a
+            // multi-second heightmap + splat rebuild whose output is
+            // identical, because erosion is off. A control that responds
+            // and produces nothing teaches the owner the section is broken.
+            let erosion_on = cfg.erosion_enabled;
+            ui.add_enabled_ui(erosion_on, |ui| {
             drag_u32(ui, "Drops", &mut cfg.erosion_drops, 0, 500_000, dirty).on_hover_text(
                 "How many raindrops run down the land carving it. More is deeper valleys and a longer build.",
             );
@@ -157,6 +170,7 @@ pub(super) fn draw_terrain_forge(
                 dirty,
             )
             .on_hover_text("How much ground a drop can carry before it starts dropping it again.");
+            });
         });
 
     egui::CollapsingHeader::new("Thermal Erosion")
@@ -165,25 +179,28 @@ pub(super) fn draw_terrain_forge(
             if ui.checkbox(&mut cfg.thermal_enabled, "Enabled").changed() {
                 *dirty = true;
             }
-            drag_u32(ui, "Iterations", &mut cfg.thermal_iterations, 0, 500, dirty)
-                .on_hover_text("How long loose material is allowed to slide downhill.");
-            fp_slider(
-                ui,
-                "Talus angle",
-                &mut cfg.thermal_talus_angle,
-                0.0,
-                0.5,
-                dirty,
-            )
-            .on_hover_text(
-                "The steepest slope that holds. Lower settles the land into gentler scree.",
-            );
+            let thermal_on = cfg.thermal_enabled;
+            ui.add_enabled_ui(thermal_on, |ui| {
+                drag_u32(ui, "Iterations", &mut cfg.thermal_iterations, 0, 500, dirty)
+                    .on_hover_text("How long loose material is allowed to slide downhill.");
+                fp_slider(
+                    ui,
+                    "Talus angle",
+                    &mut cfg.thermal_talus_angle,
+                    0.0,
+                    0.5,
+                    dirty,
+                )
+                .on_hover_text(
+                    "The steepest slope that holds. Lower settles the land into gentler scree.",
+                );
+            });
         });
 
     egui::CollapsingHeader::new("Material")
         .default_open(false)
         .show(ui, |ui| {
-            draw_material_forge(ui, &mut cfg.material, dirty);
+            draw_material_forge(ui, &mut cfg.material, dirty, assets);
         });
 }
 

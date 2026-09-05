@@ -54,6 +54,7 @@ pub(super) fn draw_environment_tab(
     player_pose: Option<PlayerPose>,
     dirty: &mut bool,
     audio_editor: &mut super::audio::AudioEditorState,
+    assets: &mut super::assets::AssetPanel<'_>,
 ) {
     ui.heading("Environment");
     ui.add_space(4.0);
@@ -259,6 +260,7 @@ pub(super) fn draw_environment_tab(
                 "Room ambient",
                 dirty,
                 audio_editor,
+                assets,
             );
         });
 }

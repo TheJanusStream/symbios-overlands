@@ -17,7 +17,11 @@
 //! * **URL** — direct HTTPS GET via the project's shared `reqwest`
 //!   client. CORS is the host's responsibility on web; a server that
 //!   doesn't serve `Access-Control-Allow-Origin: *` produces a fetch
-//!   error logged once and the panel falls back to its tint colour.
+//!   error and the panel falls back to its tint colour. The failure is
+//!   RECORDED, on the entry, as [`BlobImageEntry::Failed`] (#1246): this
+//!   line used to say "logged once", and it was the whole defect — the
+//!   log is a console line the deployed web user never opens, and the
+//!   owner is the only person who can fix a broken source.
 //! * **AtprotoBlob** — resolves the DID's PDS, then calls
 //!   `com.atproto.sync.getBlob?did=…&cid=…`. Same path Portal's avatar
 //!   fetch already uses for WASM, lifted here so any blob CID works,
@@ -39,6 +43,8 @@ use bevy::tasks::{IoTaskPool, Task};
 use std::collections::{HashMap, VecDeque};
 
 use crate::pds::SignSource;
+
+use super::asset_failure::{AssetFailure, AssetFetchError, AssetStatus};
 
 /// Hard cap on the number of bytes a single fetched image body may
 /// contribute to the cache. A hostile [`Sign`](crate::pds::GeneratorKind::Sign)
@@ -167,6 +173,27 @@ impl SignSourceKey {
             _ => None,
         }
     }
+
+    /// Whether following this source means talking to a host somebody else
+    /// chose (#1248 f298).
+    ///
+    /// `AtprotoBlob` and `DidPfp` resolve inside the identity infrastructure
+    /// the session is already using, so they disclose nothing a session does
+    /// not disclose anyway. Only a bare web address hands a third party the
+    /// viewer's presence, which is what the preference is about.
+    pub fn is_external(&self) -> bool {
+        matches!(self, Self::Url(_))
+    }
+
+    /// The identity a diagnostic line names. Not a UI label — the editor
+    /// prints the field the owner typed, which it already has.
+    pub fn describe(&self) -> String {
+        match self {
+            Self::Url(url) => url.clone(),
+            Self::AtprotoBlob { did, cid } => format!("{did}/{cid}"),
+            Self::DidPfp(did) => format!("{did} (profile picture)"),
+        }
+    }
 }
 
 /// Cache entry per [`SignSourceKey`]: either a list of materials waiting
@@ -186,6 +213,16 @@ pub enum BlobImageEntry {
         image: Handle<Image>,
         decoded_bytes: usize,
     },
+    /// The fetch (or the decode) gave up, and this is why and when.
+    ///
+    /// **The entry survives the failure (#1246, #1247).** It used to be
+    /// removed, which meant two things at once: nothing could say what went
+    /// wrong — a pending, a failed and a never-configured Sign were the same
+    /// brown plane — and the next requester took the `None` arm and spawned
+    /// the whole fetch again, so a dead URL was re-requested for as long as
+    /// anything kept asking. Keeping the entry is what gives the status line
+    /// something to read and the backoff somewhere to live.
+    Failed(AssetFailure),
 }
 
 /// Cache key combining a source identity with its sampler filter. Two
@@ -212,7 +249,7 @@ pub struct BlobImageKey {
 /// new entry would breach either bound, the oldest entries are dropped from
 /// both the map and the deque until it fits. Reads do not refresh order
 /// (FIFO, not LRU) — keeping the bookkeeping cheap on the read path.
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct BlobImageCache {
     pub by_source: HashMap<BlobImageKey, BlobImageEntry>,
     insert_order: VecDeque<BlobImageKey>,
@@ -220,6 +257,42 @@ pub struct BlobImageCache {
     /// the three mutators below rather than folded on demand, so the read
     /// path stays free and the invariant has exactly three places to hold.
     decoded_bytes: usize,
+    /// `Time::elapsed_secs_f64` as of the last [`poll_blob_image_tasks`]
+    /// tick, so the request path can ask whether a [`BlobImageEntry::Failed`]
+    /// entry's backoff has elapsed.
+    ///
+    /// A field rather than a `Time` parameter because
+    /// [`request_blob_image_filtered`] is called from inside the world
+    /// compiler's unit builders, which are handed a context struct and not a
+    /// `SystemParam` list; threading a clock through six generator call
+    /// sites to answer one question would have been the wrong shape. The
+    /// poll system stamps it through `bypass_change_detection` — a clock
+    /// that dirtied the resource every frame would defeat every
+    /// `Changed<BlobImageCache>` reader (#879's guarded-dirty rule).
+    now: f64,
+    /// The viewer's `LocalSettings::load_external_assets`, stamped the same
+    /// way and for the same reason (#1248 f298). Held here rather than read
+    /// where the decision is made, because the decision is made inside the
+    /// world compiler's unit builders, which have no `SystemParam` list.
+    allow_external: bool,
+}
+
+/// Manual, because `allow_external` must default to TRUE (#1248 f298).
+///
+/// `stamp_asset_policy` corrects it within a frame, but a `bool`'s own
+/// default is `false`, and a cache that started life refusing every web
+/// address would drop every request issued before that first stamp — which
+/// on a room load is the whole first compile.
+impl Default for BlobImageCache {
+    fn default() -> Self {
+        Self {
+            by_source: HashMap::new(),
+            insert_order: VecDeque::new(),
+            decoded_bytes: 0,
+            now: 0.0,
+            allow_external: true,
+        }
+    }
 }
 
 impl BlobImageCache {
@@ -232,6 +305,55 @@ impl BlobImageCache {
     /// Decoded bytes currently held across all `Ready` entries.
     pub fn decoded_bytes(&self) -> usize {
         self.decoded_bytes
+    }
+
+    /// Publish the current elapsed time for the request path's backoff
+    /// question. See [`Self::now`].
+    pub fn stamp_now(&mut self, now: f64) {
+        self.now = now;
+    }
+
+    /// Publish the viewer's external-asset preference. See
+    /// [`Self::allow_external`].
+    pub fn stamp_external(&mut self, allow: bool) {
+        self.allow_external = allow;
+    }
+
+    /// Whether this cache will follow a bare web address right now.
+    pub fn allows_external(&self) -> bool {
+        self.allow_external
+    }
+
+    /// How this source stands right now — the one question every asset
+    /// surface asks (#1246). `None` when nothing has ever requested it,
+    /// which for a Sign means the source is empty or unrecognised.
+    pub fn status(&self, key: &BlobImageKey) -> Option<AssetStatus> {
+        match self.by_source.get(key)? {
+            BlobImageEntry::Pending(_) => Some(AssetStatus::Pending),
+            BlobImageEntry::Ready { .. } => Some(AssetStatus::Ready),
+            BlobImageEntry::Failed(failure) => Some(AssetStatus::Failed(*failure)),
+        }
+    }
+
+    /// Drop a [`BlobImageEntry::Failed`] entry so the next requester starts
+    /// a fresh attempt — the whole of "Retry now" (#1247 f346). A `Pending`
+    /// or `Ready` entry is left alone: there is nothing to retry, and
+    /// dropping a `Ready` one would re-download a working image.
+    pub fn clear_failure(&mut self, key: &BlobImageKey) -> bool {
+        if matches!(self.by_source.get(key), Some(BlobImageEntry::Failed(_))) {
+            self.remove(key);
+            return true;
+        }
+        false
+    }
+
+    /// Every source that has failed, for the diagnostics gauge and for the
+    /// editor's "N sources could not be loaded" summary.
+    pub fn failures(&self) -> impl Iterator<Item = (&BlobImageKey, &AssetFailure)> {
+        self.by_source.iter().filter_map(|(k, e)| match e {
+            BlobImageEntry::Failed(f) => Some((k, f)),
+            _ => None,
+        })
     }
 
     /// Insert (or replace) `entry` for `key`, first evicting oldest-first
@@ -303,7 +425,7 @@ impl BlobImageCache {
 /// list of material handles and no pixels; only a decoded image counts.
 fn entry_bytes(entry: &BlobImageEntry) -> usize {
     match entry {
-        BlobImageEntry::Pending(_) => 0,
+        BlobImageEntry::Pending(_) | BlobImageEntry::Failed(_) => 0,
         BlobImageEntry::Ready { decoded_bytes, .. } => *decoded_bytes,
     }
 }
@@ -322,8 +444,12 @@ fn entry_bytes(entry: &BlobImageEntry) -> usize {
 #[derive(Component)]
 pub struct BlobImageTask {
     pub key: BlobImageKey,
-    pub task: Task<Option<Vec<u8>>>,
+    pub task: Task<super::blob_fetch::FetchedBytes>,
     pub fetched: Option<Vec<u8>>,
+    /// The failure this attempt is a retry of, if any — the input to the
+    /// next [`AssetFailure::after`] so the wait keeps doubling instead of
+    /// restarting at the base every time (#1247).
+    pub previous: Option<AssetFailure>,
 }
 
 /// Resolve a [`SignSource`] to a `Handle<Image>` painting on
@@ -369,50 +495,82 @@ pub fn request_blob_image_filtered(
         source: source_key,
         filter,
     };
+    // The viewer declined to talk to hosts other people chose (#1248 f298).
+    // No entry is written: nothing failed, and the editor reports
+    // `AssetStatus::Blocked` from the preference itself, so flipping the
+    // setting back on needs no cache surgery.
+    if key.source.is_external() && !cache.allow_external {
+        return;
+    }
 
-    match cache.by_source.get_mut(&key) {
+    // A failure whose backoff has elapsed is carried into the retry so the
+    // wait keeps doubling; one still inside its wait is a HIT, and the
+    // material simply keeps its tint (#1247 f346).
+    let previous = match cache.by_source.get_mut(&key) {
         // Cache hit — paint synchronously.
         Some(BlobImageEntry::Ready { image, .. }) => {
             let img = image.clone();
             if let Some(mut mat) = materials.get_mut(material) {
                 mat.base_color_texture = Some(img);
             }
+            return;
         }
         // Fetch already in flight — enqueue.
         Some(BlobImageEntry::Pending(list)) => {
             list.push(material.clone());
+            return;
         }
-        // First requester for this key — register pending and spawn the
-        // task.
-        None => {
-            cache.insert_bounded(key.clone(), BlobImageEntry::Pending(vec![material.clone()]));
+        Some(BlobImageEntry::Failed(failure)) => {
+            if !failure.may_retry(cache.now) {
+                return;
+            }
+            Some(*failure)
+        }
+        // First requester for this key.
+        None => None,
+    };
 
-            let pool = IoTaskPool::get();
-            let source_for_task = key.source.clone();
-            let task = pool.spawn(async move {
-                let fut = fetch_bytes_for(source_for_task);
-                crate::config::http::run_or(fut, None).await
-            });
-            commands.spawn(BlobImageTask {
-                key,
-                task,
-                fetched: None,
-            });
-        }
-    }
+    cache.insert_bounded(key.clone(), BlobImageEntry::Pending(vec![material.clone()]));
+    spawn_image_fetch(commands, key, previous);
+}
+
+/// Spawn the `IoTaskPool` fetch for `key`, carrying `previous` so the poll
+/// system can continue an existing doubling rather than restarting it.
+fn spawn_image_fetch(commands: &mut Commands, key: BlobImageKey, previous: Option<AssetFailure>) {
+    let pool = IoTaskPool::get();
+    let source_for_task = key.source.clone();
+    let task = pool.spawn(async move {
+        let fut = fetch_bytes_for(source_for_task);
+        crate::config::http::run_or(fut, Err(AssetFetchError::TimedOut)).await
+    });
+    commands.spawn(BlobImageTask {
+        key,
+        task,
+        fetched: None,
+        previous,
+    });
 }
 
 /// Drain finished blob image fetches and paint the resulting texture
-/// onto every material that was waiting on this source. Failed fetches
-/// drop the pending entry so a future request gets a fresh attempt
-/// instead of being permanently stuck on a transient network blip.
+/// onto every material that was waiting on this source. A failed fetch
+/// leaves a [`BlobImageEntry::Failed`] entry carrying the reason and the
+/// doubling wait, so the surface that shows the image can say what
+/// happened and the next requester does not re-issue the fetch
+/// immediately (#1246, #1247).
 pub fn poll_blob_image_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut BlobImageTask)>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut cache: ResMut<BlobImageCache>,
+    time: Res<Time>,
+    mut report: super::asset_failure::AssetReport,
 ) {
+    let now = time.elapsed_secs_f64();
+    // Through the bypass: a clock stamped on the resource itself would mark
+    // `BlobImageCache` changed every single frame.
+    cache.bypass_change_detection().stamp_now(now);
+    let mut reporter = report.at(now);
     // Decodes done this frame. Fetches that land past the budget park their
     // bytes on their own component and are picked up on a later frame — see
     // [`MAX_DECODES_PER_FRAME`] for why the budget counts decodes rather than
@@ -423,8 +581,8 @@ pub fn poll_blob_image_tasks(
         // Bytes already in hand from an earlier frame take precedence over a
         // fresh poll: a parked body must not be able to wait behind a queue
         // that keeps growing, or a busy room would starve its oldest signs.
-        let result = match task.fetched.take() {
-            Some(bytes) => Some(bytes),
+        let result: super::blob_fetch::FetchedBytes = match task.fetched.take() {
+            Some(bytes) => Ok(bytes),
             None => {
                 let Some(result) =
                     futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
@@ -437,8 +595,10 @@ pub fn poll_blob_image_tasks(
 
         // A failed fetch costs nothing to retire, so it is settled below
         // regardless of the budget; only a body that needs decoding waits.
-        if result.is_some() && decoded_this_frame >= MAX_DECODES_PER_FRAME {
-            task.fetched = result;
+        if let Ok(bytes) = &result
+            && decoded_this_frame >= MAX_DECODES_PER_FRAME
+        {
+            task.fetched = Some(bytes.clone());
             continue;
         }
         commands.entity(entity).despawn();
@@ -458,22 +618,34 @@ pub fn poll_blob_image_tasks(
                 // Promoted by a duplicate task — drop this result.
                 continue;
             }
+            // Settled by a duplicate task's failure. Dropping this result
+            // rather than overwriting keeps the attempt count honest: two
+            // tasks for one key are one attempt at that source.
+            Some(BlobImageEntry::Failed(_)) => continue,
             None => continue,
         };
 
-        let Some(bytes) = result else {
-            // Fetch failed. Drop the pending entry so the next requester
-            // for this key gets a fresh attempt rather than stalling
-            // forever behind a transient failure.
-            cache.remove(&task.key);
-            continue;
+        let bytes = match result {
+            Ok(bytes) => bytes,
+            Err(reason) => {
+                // The entry SURVIVES: the reason is what the Sign panel and
+                // the reference editors print, and the wait is what stops
+                // the next requester re-issuing the fetch at once.
+                record_image_failure(&mut cache, &mut reporter, &task, reason, now);
+                continue;
+            }
         };
         decoded_this_frame += 1;
-        let Some(dyn_img) =
-            super::blob_fetch::decode_image_capped(&bytes, "Sign source", SIGN_WORKING_DIMENSION)
-        else {
-            cache.remove(&task.key);
-            continue;
+        let dyn_img = match super::blob_fetch::decode_image_capped(
+            &bytes,
+            "Sign source",
+            SIGN_WORKING_DIMENSION,
+        ) {
+            Ok(img) => img,
+            Err(reason) => {
+                record_image_failure(&mut cache, &mut reporter, &task, reason, now);
+                continue;
+            }
         };
         // Measured off the decoded frame, before `from_dynamic` consumes it:
         // this is the number the cache's byte budget is denominated in, and
@@ -515,6 +687,32 @@ pub fn poll_blob_image_tasks(
             },
         );
     }
+
+    // The budget behind `MAX_CACHE_BYTES` becomes visible (#1246 f353):
+    // `decoded_bytes()` existed and its only callers were its own tests.
+    reporter.gauge_image_cache_bytes(cache.decoded_bytes());
+}
+
+/// Settle a failed attempt: keep the entry, carrying the reason and the
+/// (doubled) wait, and report it once to the diagnostics surface.
+///
+/// The pending material handles are dropped here rather than held: nothing
+/// will paint them, and the next room compile re-requests with fresh
+/// handles anyway.
+fn record_image_failure(
+    cache: &mut BlobImageCache,
+    reporter: &mut super::asset_failure::FailureReporter,
+    task: &BlobImageTask,
+    reason: AssetFetchError,
+    now: f64,
+) {
+    let failure = AssetFailure::after(task.previous.as_ref(), reason, now);
+    reporter.record(
+        super::asset_failure::AssetClass::Image,
+        &task.key.source.describe(),
+        reason,
+    );
+    cache.insert_bounded(task.key.clone(), BlobImageEntry::Failed(failure));
 }
 
 /// Fetch the raw bytes for a source key. Routes by variant: URL hits
@@ -522,7 +720,7 @@ pub fn poll_blob_image_tasks(
 /// `getBlob`, `DidPfp` calls `app.bsky.actor.getProfile` and follows
 /// the avatar URL the way `crate::avatar::fetch_avatar_bytes` already
 /// does for the Portal top face.
-async fn fetch_bytes_for(key: SignSourceKey) -> Option<Vec<u8>> {
+async fn fetch_bytes_for(key: SignSourceKey) -> super::blob_fetch::FetchedBytes {
     let client = crate::config::http::default_client();
     match key {
         SignSourceKey::Url(url) => {
@@ -536,7 +734,16 @@ async fn fetch_bytes_for(key: SignSourceKey) -> Option<Vec<u8>> {
             // bsky/atproto fork — `fetch_avatar_bytes` already handles the
             // wasm-vs-native CDN/CORS split.
             let result = crate::avatar::fetch_avatar_bytes(did).await;
-            result.bytes
+            match result.bytes {
+                Some(bytes) => Ok(bytes),
+                // `failed` is the flag #1217 f326 added for exactly this
+                // distinction: an account with no picture is not a broken
+                // fetch, and telling the owner to check their URL when the
+                // account simply has no avatar would send them hunting for
+                // a fault that is not there.
+                None if result.failed => Err(AssetFetchError::Unreachable),
+                None => Err(AssetFetchError::NoPicture),
+            }
         }
     }
 }
@@ -823,11 +1030,12 @@ mod budget_tests {
         // circuits it — but the component owns one, so it gets a resolved
         // stub rather than a fabricated variant.
         let task = bevy::tasks::IoTaskPool::get_or_init(bevy::tasks::TaskPool::default)
-            .spawn(async { None });
+            .spawn(async { Err(AssetFetchError::Unreachable) });
         app.world_mut().spawn(BlobImageTask {
             key,
             task,
             fetched: Some(tiny_png()),
+            previous: None,
         });
     }
 
@@ -842,8 +1050,186 @@ mod budget_tests {
         .init_asset::<Image>()
         .init_asset::<StandardMaterial>()
         .init_resource::<BlobImageCache>()
+        // The poll stamps the cache's clock and timestamps failures from it
+        // (#1247), so the harness needs a real one.
+        .init_resource::<Time>()
         .add_systems(Update, poll_blob_image_tasks);
         app
+    }
+
+    /// Spawn a task entity whose fetch has already FAILED, so the test
+    /// exercises the failure arm without a network.
+    fn spawn_failed(app: &mut App, key: BlobImageKey, reason: AssetFetchError) {
+        app.world_mut()
+            .resource_mut::<BlobImageCache>()
+            .insert_bounded(key.clone(), BlobImageEntry::Pending(Vec::new()));
+        let task = bevy::tasks::IoTaskPool::get_or_init(bevy::tasks::TaskPool::default)
+            .spawn(async move { Err(reason) });
+        app.world_mut().spawn(BlobImageTask {
+            key,
+            task,
+            fetched: None,
+            previous: None,
+        });
+    }
+
+    /// Run frames until every outstanding fetch task has been polled to
+    /// completion.
+    ///
+    /// `IoTaskPool::spawn` hands the future to a real executor, so a single
+    /// `app.update()` races it — the task is usually but not always ready by
+    /// the first poll. One update was enough most of the time, which is the
+    /// worst kind of test.
+    fn drain_tasks(app: &mut App) {
+        for _ in 0..1000 {
+            if app
+                .world_mut()
+                .query::<&BlobImageTask>()
+                .iter(app.world())
+                .next()
+                .is_none()
+            {
+                return;
+            }
+            app.update();
+        }
+        panic!("a fetch task never resolved");
+    }
+
+    /// Ask the cache for `source` exactly as a Sign unit would, and answer
+    /// how many fetch tasks are outstanding afterwards.
+    fn request_and_count_tasks(app: &mut App, source: SignSource) -> usize {
+        use bevy::ecs::system::RunSystemOnce;
+        app.world_mut()
+            .run_system_once(
+                move |mut commands: Commands,
+                      mut cache: ResMut<BlobImageCache>,
+                      mut materials: ResMut<Assets<StandardMaterial>>| {
+                    let handle = materials.add(StandardMaterial::default());
+                    request_blob_image_filtered(
+                        &mut commands,
+                        &mut cache,
+                        &mut materials,
+                        &handle,
+                        &source,
+                        SamplerFilter::Linear,
+                    );
+                },
+            )
+            .expect("request system runs");
+        app.world_mut()
+            .query::<&BlobImageTask>()
+            .iter(app.world())
+            .count()
+    }
+
+    /// The #1246 sequence: a Sign whose host answers 404.
+    ///
+    /// The entry must SURVIVE, carrying the reason — the panel has nothing
+    /// else to read, and before this the key was removed and a pending, a
+    /// failed and a never-configured Sign were the same brown plane.
+    #[test]
+    fn a_failed_fetch_keeps_the_entry_and_names_the_reason() {
+        let mut app = harness();
+        spawn_failed(&mut app, key(0), AssetFetchError::HttpStatus(404));
+        drain_tasks(&mut app);
+
+        let cache = app.world().resource::<BlobImageCache>();
+        let status = cache.status(&key(0)).expect("the entry must survive");
+        let failure = status.failure().expect("it must be a failure");
+        assert_eq!(failure.reason, AssetFetchError::HttpStatus(404));
+        assert!(
+            failure.status_line(0.0).contains("404"),
+            "the panel has to be able to print the reason"
+        );
+    }
+
+    /// The #1247 f346 sequence: something asks again while the failure is
+    /// still inside its wait. It must NOT issue a second request — that is
+    /// the retry storm, and for a contact cue it ran once per frame.
+    #[test]
+    fn a_request_inside_the_backoff_issues_no_second_fetch() {
+        let mut app = harness();
+        let source = SignSource::Url {
+            url: "https://example.test/sign0".into(),
+        };
+        spawn_failed(&mut app, key(0), AssetFetchError::Unreachable);
+        drain_tasks(&mut app);
+
+        assert_eq!(
+            request_and_count_tasks(&mut app, source.clone()),
+            0,
+            "a request inside the wait must be answered from the cache, not the network"
+        );
+
+        // Once the wait has elapsed, the same request DOES retry — a
+        // negative cache that never lets go would be its own bug.
+        let elapsed = app
+            .world()
+            .resource::<BlobImageCache>()
+            .status(&key(0))
+            .and_then(|s| s.failure().map(|f| f.backoff.wait_secs))
+            .expect("a failure with a wait");
+        app.world_mut()
+            .resource_mut::<BlobImageCache>()
+            .stamp_now(elapsed + 1.0);
+        assert_eq!(
+            request_and_count_tasks(&mut app, source),
+            1,
+            "the wait elapsed and nothing retried"
+        );
+    }
+
+    /// A settled failure never retries on its own, and "Retry now" is the
+    /// escape: dropping the entry is the whole mechanism.
+    #[test]
+    fn clearing_a_failure_is_what_lets_the_next_request_through() {
+        let mut app = harness();
+        let source = SignSource::Url {
+            url: "https://example.test/sign0".into(),
+        };
+        spawn_failed(&mut app, key(0), AssetFetchError::HttpStatus(404));
+        drain_tasks(&mut app);
+
+        // A 404 is settled: no amount of waiting reopens it.
+        app.world_mut()
+            .resource_mut::<BlobImageCache>()
+            .stamp_now(100_000.0);
+        assert_eq!(
+            request_and_count_tasks(&mut app, source.clone()),
+            0,
+            "a permanent failure must not retry on the clock"
+        );
+
+        assert!(
+            app.world_mut()
+                .resource_mut::<BlobImageCache>()
+                .clear_failure(&key(0)),
+            "Retry now must find a failure to clear"
+        );
+        assert_eq!(
+            request_and_count_tasks(&mut app, source),
+            1,
+            "after Retry now the next request must reach the network"
+        );
+    }
+
+    /// `clear_failure` must not be a way to throw away a working image: a
+    /// `Ready` entry is a decoded texture that would have to be re-fetched.
+    #[test]
+    fn clearing_a_failure_leaves_ready_and_pending_entries_alone() {
+        let mut app = harness();
+        spawn_arrived(&mut app, key(0));
+        app.update();
+        let mut cache = app.world_mut().resource_mut::<BlobImageCache>();
+        assert!(!cache.clear_failure(&key(0)));
+        assert!(matches!(
+            cache.status(&key(0)),
+            Some(crate::world_builder::asset_failure::AssetStatus::Ready)
+        ));
+
+        cache.insert_bounded(key(1), BlobImageEntry::Pending(Vec::new()));
+        assert!(!cache.clear_failure(&key(1)));
     }
 
     fn ready_count(app: &App) -> usize {

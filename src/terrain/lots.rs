@@ -66,6 +66,26 @@ const FOUNDATION_SINK_M: f32 = 0.35;
 /// the idempotency key for one layout (survives session restarts inside the
 /// saved record). Network 0 keeps the legacy shape so pre-#895 records
 /// adopt cleanly; later networks are namespaced by child index.
+/// The authored lot theme override (#892) resolved against the roster, or
+/// `None` when the label is empty or names nothing this build knows.
+///
+/// Shared with the editor's Theme combo (#1251 f390). The lenient
+/// case-insensitive match used to live only inside `inject_lot_buildings`,
+/// so the panel printed the raw stored string as its selected text and
+/// asserted a theme that was never growing — the combo said "Steampunk"
+/// while this fell through to the room theme, with no row in its own
+/// dropdown highlighted. One predicate is what stops the two answering
+/// differently.
+pub fn resolve_lot_theme(override_label: &str) -> Option<ThemeArchetype> {
+    let wanted = override_label.trim();
+    if wanted.is_empty() {
+        return None;
+    }
+    ThemeArchetype::ALL
+        .into_iter()
+        .find(|t| t.label().eq_ignore_ascii_case(wanted))
+}
+
 fn net_prefix(base: &str, net: usize, seed: u64) -> String {
     if net == 0 {
         format!("{base}{seed}_")
@@ -128,11 +148,22 @@ enum LotAction {
 }
 
 fn lot_action(populated: bool, session_fp: Option<&str>, current_fp: &str) -> LotAction {
+    // "We derived this layout and it produced nothing" is a terminal state
+    // (#1245 f376). The fingerprint check used to sit BELOW the `populated`
+    // test, so a layout that grows nothing — density 0, a spacing wider than
+    // its own extent, an empty theme pool, a spent placement budget — was
+    // never `populated`, and every unrelated edit to the record therefore
+    // armed another Repopulate whose strip removed nothing and still
+    // dirtied the record: one extra placement-fingerprint pass and one extra
+    // whole-room broadcast to every guest, a third of a second after each
+    // edit, forever.
+    if session_fp.is_some_and(|prev| prev == current_fp) {
+        return LotAction::Skip;
+    }
     if !populated {
         return LotAction::Repopulate;
     }
     match session_fp {
-        Some(prev) if prev == current_fp => LotAction::Skip,
         Some(_) => LotAction::Repopulate,
         None => LotAction::Adopt,
     }
@@ -141,6 +172,19 @@ fn lot_action(populated: bool, session_fp: Option<&str>, current_fp: &str) -> Lo
 /// Whether a placement was planted by either road-derived layer (#1211).
 pub(super) fn is_road_grown(p: &Placement) -> bool {
     refs_lot_building(p) || refs_street_prop(p)
+}
+
+/// Whether a generator key belongs to the road layer's derived namespace
+/// (#1245 f382).
+///
+/// The prefix IS the idempotency key: `strip_lot_buildings` matches on it,
+/// and so does `net_populated`. Rename a grown generator and the strip stops
+/// finding it, `net_populated` reports false, and a complete fresh district
+/// grows through the renamed survivor's placements — interpenetrating the
+/// first. The editor asks this before offering Rename on the very rows it
+/// would corrupt.
+pub fn is_derived_generator_key(key: &str) -> bool {
+    key.starts_with(LOT_PREFIX) || key.starts_with(FURNITURE_PREFIX)
 }
 
 /// What one injection pass did and did not do (#1211). `placed` is the
@@ -185,9 +229,13 @@ fn placement_ref(p: &Placement) -> Option<&str> {
 }
 
 /// Remove every injected lot building (and its placement) from `record`.
-/// Returns whether anything was removed, so the caller only flags the record
-/// dirty when there was stale state to clear.
-fn strip_lot_buildings(record: &mut RoomRecord) -> bool {
+///
+/// Returns how many PLACEMENTS were removed — the number of objects that
+/// visibly disappear — so the caller can both skip dirtying the record when
+/// there was nothing stale (#1245 f376) and say what it replaced (#1245
+/// f378). It used to return a bare `bool`, which answered the first question
+/// and not the second.
+fn strip_lot_buildings(record: &mut RoomRecord) -> usize {
     let names: Vec<String> = record
         .generators
         .keys()
@@ -195,15 +243,16 @@ fn strip_lot_buildings(record: &mut RoomRecord) -> bool {
         .cloned()
         .collect();
     if names.is_empty() {
-        return false;
+        return 0;
     }
     for n in &names {
         record.generators.remove(n);
     }
+    let before = record.placements.len();
     record
         .placements
         .retain(|p| !refs_lot_building(p) && !refs_street_prop(p));
-    true
+    before - record.placements.len()
 }
 
 /// Inject lot buildings into `record`, deterministic in the room DID + the
@@ -223,13 +272,7 @@ fn inject_lot_buildings(
     let scene = SceneCharacter::for_seed(fnv1a_64(did));
     // Authored theme override (#892): a case-insensitive label match against
     // the theme roster; empty / unrecognised falls through to the room theme.
-    let base_theme = ThemeArchetype::ALL
-        .into_iter()
-        .find(|t| {
-            t.label()
-                .eq_ignore_ascii_case(settings.theme_override.trim())
-        })
-        .unwrap_or(scene.theme);
+    let base_theme = resolve_lot_theme(&settings.theme_override).unwrap_or(scene.theme);
     // Fall back to a guaranteed-populated theme if the chosen theme has no
     // landmark entry yet, exactly as the settlement deriver does.
     let theme = if entries_for(base_theme, StructureRole::Landmark)
@@ -503,6 +546,13 @@ pub(super) fn maybe_populate_lots(
     // re-derive on release, not one per tick — the same cadence as the
     // road re-mesh.
     mut due: Local<Option<f64>>,
+    // Whether the armed re-derive was driven by the ground moving rather
+    // than by a layout edit (#1245 f381). The deadline re-asks the pure
+    // question against the current record, and a terrain-driven repopulate
+    // has an unchanged fingerprint by construction, so it would answer
+    // "Skip" and the buildings would stay on the old street plan.
+    mut armed_by_terrain: Local<bool>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
 ) {
     let Some(heightmap) = heightmap else {
         return;
@@ -513,6 +563,21 @@ pub(super) fn maybe_populate_lots(
     // 1 — change detection decides + arms. Sweeps (network gone) stay
     // immediate: a toggle isn't a drag storm and leaving stale buildings
     // up for the debounce window would flash them at the old layout.
+    // A terrain edit moves the ground the lots were extracted FROM (#1245
+    // f381). `layout_fingerprint` carries no terrain term — deliberately,
+    // since ribbon dims must not churn buildings — so a heightmap change
+    // left the fingerprint identical, took the Skip arm, and left every
+    // grown building standing on the previous street plan while
+    // `maybe_rebuild_roads` re-traced the streets onto the new one. The
+    // placements carry `snap_to_terrain`, so their Y re-seats and the
+    // failure is XZ-only, which is what makes it read as a content bug
+    // rather than a staleness one.
+    //
+    // Gated on the session having already decided something: on the FIRST
+    // heightmap of a session there is nothing stale to replace, and forcing
+    // a repopulate there would destroy the buildings a loaded record
+    // carries — which is the whole of the `Adopt` arm.
+    let terrain_moved = heightmap.is_changed() && session_fp.is_some();
     if heightmap.is_changed() || record.is_changed() {
         let configs = active_configs(&record.0);
         if configs.is_empty() {
@@ -527,9 +592,10 @@ pub(super) fn maybe_populate_lots(
                 // Derived write (#862): fold the sweep into the edit that
                 // disabled the network, not a phantom undo entry of its own.
                 undo_signals.derived = true;
-                strip_lot_buildings(&mut record.0);
+                stats.last_replaced = strip_lot_buildings(&mut record.0);
                 stats.buildings = 0;
                 stats.props = 0;
+                stats.pending = false;
             }
             return;
         }
@@ -538,7 +604,12 @@ pub(super) fn maybe_populate_lots(
             &configs.iter().map(|(_, c)| c.clone()).collect::<Vec<_>>(),
         );
         let populated = configs.iter().all(|(i, c)| net_populated(&record.0, *i, c));
-        match lot_action(populated, session_fp.as_deref(), &fp) {
+        let action = if terrain_moved {
+            LotAction::Repopulate
+        } else {
+            lot_action(populated, session_fp.as_deref(), &fp)
+        };
+        match action {
             // Layout matches the standing buildings — also cancels a
             // pending re-derive when an undo walked the edit back.
             LotAction::Skip => *due = None,
@@ -560,7 +631,14 @@ pub(super) fn maybe_populate_lots(
                     .filter(|p| refs_street_prop(p))
                     .count();
             }
-            LotAction::Repopulate => *due = Some(now + super::roads::ROAD_EDIT_DEBOUNCE_SECS),
+            LotAction::Repopulate => {
+                *due = Some(now + super::roads::ROAD_EDIT_DEBOUNCE_SECS);
+                *armed_by_terrain = terrain_moved;
+                // The readout stops asserting the previous layout's numbers
+                // as settled fact from the moment the re-derive is armed
+                // (#1245 f385).
+                stats.pending = true;
+            }
         }
     }
 
@@ -570,8 +648,10 @@ pub(super) fn maybe_populate_lots(
         return;
     }
     *due = None;
+    let armed_by_terrain_now = std::mem::take(&mut *armed_by_terrain);
     let configs = active_configs(&record.0);
     if configs.is_empty() {
+        stats.pending = false;
         return; // the change branch above already swept
     }
     let fp = combined_fingerprint(
@@ -579,17 +659,30 @@ pub(super) fn maybe_populate_lots(
         &configs.iter().map(|(_, c)| c.clone()).collect::<Vec<_>>(),
     );
     let populated = configs.iter().all(|(i, c)| net_populated(&record.0, *i, c));
-    if lot_action(populated, session_fp.as_deref(), &fp) != LotAction::Repopulate {
+    // The deadline re-evaluates against the CURRENT record, so it asks the
+    // pure question again rather than trusting the arming decision — but a
+    // terrain-driven repopulate has to survive that re-ask, and its
+    // fingerprint is by construction unchanged.
+    if !armed_by_terrain_now
+        && lot_action(populated, session_fp.as_deref(), &fp) != LotAction::Repopulate
+    {
+        stats.pending = false;
         return;
     }
 
-    // A changed layout (re-roll, spacing / extent edit) or none yet: clear
-    // stale, then repopulate every active network (#895). Derived write
-    // (#862): the strip + inject below are fallout of the road edit that
-    // changed the layout — fold them into that entry so one undo reverts
-    // the edit and its buildings together.
-    undo_signals.derived = true;
-    strip_lot_buildings(&mut record.0);
+    // A changed layout (re-roll, spacing / extent edit, terrain edit) or
+    // none yet: clear stale, then repopulate every active network (#895).
+    //
+    // Everything below writes through `bypass_change_detection` and the
+    // record is marked changed ONCE, at the end, and only if this pass
+    // actually removed or planted something (#1245 f376). Taking the
+    // `ResMut` DerefMut unconditionally is what made a layout that grows
+    // nothing cost a whole-room broadcast per unrelated edit;
+    // `strip_lot_buildings` already returned the bool that answers it, and
+    // the room editor's own flush (`ui/room/mod.rs`) is the pattern.
+    let record_mut = record.bypass_change_detection();
+    let stripped = strip_lot_buildings(&mut record_mut.0);
+    stats.last_replaced = stripped;
     *session_fp = Some(fp);
     stats.buildings = 0;
     stats.props = 0;
@@ -599,7 +692,7 @@ pub(super) fn maybe_populate_lots(
             let lots = crate::urban::extract_building_lots(&heightmap.0, config);
             if !lots.is_empty() {
                 let report = inject_lot_buildings(
-                    &mut record.0,
+                    &mut record_mut.0,
                     &lots,
                     did_str,
                     config.seed,
@@ -619,7 +712,7 @@ pub(super) fn maybe_populate_lots(
         if config.furniture.enabled {
             let spots = crate::urban::extract_furniture_spots(&heightmap.0, config);
             let report = inject_street_furniture(
-                &mut record.0,
+                &mut record_mut.0,
                 &spots,
                 did_str,
                 config.seed,
@@ -631,6 +724,31 @@ pub(super) fn maybe_populate_lots(
             stats.clamps.props_capped_by_budget |= report.capped_by_budget;
             stats.clamps.generator_cap_skips += report.generator_cap_skips;
         }
+    }
+    stats.pending = false;
+
+    // ONE `set_changed`, and only if this pass actually moved something
+    // (#1245 f376). A layout that grows nothing now costs nothing: no
+    // placement-fingerprint pass, no whole-room broadcast.
+    let planted = stats.buildings + stats.props;
+    if stripped > 0 || planted > 0 {
+        record.set_changed();
+    }
+
+    // Say what was replaced (#1245 f378). The strip runs a third of a
+    // second after the drag ends, when the owner's attention has already
+    // moved on, and it removes every grown building INCLUDING ones they
+    // dragged into place with the gizmo — from a control that reads as
+    // cosmetic. Undo covers it (the derived write folds into the slider's
+    // own entry), but only if they realise in time, and nothing told them.
+    if stripped > 0 {
+        toasts.info(
+            format!(
+                "Re-grew the district: {stripped} grown objects replaced by {planted}. \
+                 Undo restores them with the edit that caused it."
+            ),
+            now,
+        );
     }
 }
 
@@ -698,19 +816,86 @@ mod tests {
         );
     }
 
+    /// #1251 f390: the editor's Theme combo and the injector must agree on
+    /// what a stored label means, or the panel asserts a setting that has no
+    /// effect. This is the predicate both now ask.
+    #[test]
+    fn a_lot_theme_override_resolves_the_same_way_for_the_panel_and_the_injector() {
+        let known = ThemeArchetype::ALL[0].label();
+        assert_eq!(resolve_lot_theme(known), Some(ThemeArchetype::ALL[0]));
+        // Lenient by design (#892): case and surrounding space do not
+        // matter, and the panel must be lenient in exactly the same places.
+        assert_eq!(
+            resolve_lot_theme(&format!("  {}  ", known.to_ascii_uppercase())),
+            Some(ThemeArchetype::ALL[0])
+        );
+        // Empty is "room theme", not a failure — the panel prints no
+        // warning for it.
+        assert_eq!(resolve_lot_theme(""), None);
+        assert_eq!(resolve_lot_theme("   "), None);
+        // A label from a newer build resolves to nothing, which is what the
+        // panel now says out loud instead of showing it as the selection.
+        assert_eq!(resolve_lot_theme("Steampunk Deluxe"), None);
+    }
+
     #[test]
     fn lot_action_contract() {
         let fp = "did|1|170|95|55";
         let other = "did|1|170|105|55";
-        // Nothing built yet → populate, regardless of session state.
+        // Nothing built yet, and nothing derived yet → populate.
         assert_eq!(lot_action(false, None, fp), LotAction::Repopulate);
-        assert_eq!(lot_action(false, Some(fp), fp), LotAction::Repopulate);
+        // Nothing built AND this exact layout already derived → SKIP
+        // (#1245 f376). "We ran this layout and it produced nothing" is a
+        // terminal state: density 0, a spacing wider than its own extent,
+        // an empty theme pool, a spent placement budget. Before this it
+        // returned Repopulate forever, so every unrelated edit to the
+        // record armed another strip-that-removes-nothing and still
+        // dirtied it — one placement-fingerprint pass and one whole-room
+        // broadcast to every guest, a third of a second after each edit.
+        assert_eq!(lot_action(false, Some(fp), fp), LotAction::Skip);
+        // But a DIFFERENT layout that has grown nothing yet still runs.
+        assert_eq!(lot_action(false, Some(other), fp), LotAction::Repopulate);
         // Built + matching session fingerprint → leave alone.
         assert_eq!(lot_action(true, Some(fp), fp), LotAction::Skip);
         // Built + differing fingerprint (spacing edit, same seed) → rebuild.
         assert_eq!(lot_action(true, Some(other), fp), LotAction::Repopulate);
         // Built + fresh session (a load): trust the saved buildings, adopt.
         assert_eq!(lot_action(true, None, fp), LotAction::Adopt);
+    }
+
+    /// #1245 f382. The prefix IS the idempotency key, and the editor now
+    /// asks this before offering Rename — and before letting anyone NAME a
+    /// generator into the namespace, where the next layout edit would
+    /// delete it.
+    #[test]
+    fn the_derived_namespace_is_recognisable_from_the_key_alone() {
+        assert!(is_derived_generator_key(&format!(
+            "{LOT_PREFIX}0_4242_hall"
+        )));
+        assert!(is_derived_generator_key(&format!(
+            "{FURNITURE_PREFIX}0_4242_lamp"
+        )));
+        assert!(!is_derived_generator_key("oak"));
+        assert!(!is_derived_generator_key("my_lot_building"));
+        // And it agrees with the strip, which is the thing it is
+        // protecting: anything the predicate calls derived is exactly what
+        // `strip_lot_buildings` removes.
+        let mut record = RoomRecord::default_for_did(&urban_did());
+        record.generators.clear();
+        record.placements.clear();
+        record.generators.insert(
+            format!("{LOT_PREFIX}0_1_hall"),
+            crate::pds::Generator::default(),
+        );
+        record
+            .generators
+            .insert("oak".to_string(), crate::pds::Generator::default());
+        strip_lot_buildings(&mut record);
+        assert_eq!(
+            record.generators.keys().collect::<Vec<_>>(),
+            vec!["oak"],
+            "the strip removes exactly what the predicate names"
+        );
     }
 
     /// #1211, finding 384. Sequence: a room already carrying most of its
@@ -810,10 +995,23 @@ mod tests {
             "every lot building must carry the layout-seed prefix"
         );
 
-        assert!(strip_lot_buildings(&mut record));
+        // The count is what the toast and the panel print (#1245 f378):
+        // how many objects visibly disappear.
+        let placements_before = record.placements.len();
+        let removed = strip_lot_buildings(&mut record);
+        assert!(removed > 0, "the strip removed nothing");
+        assert_eq!(
+            removed,
+            placements_before - record.placements.len(),
+            "the reported count must be the placements that actually went"
+        );
         assert_eq!(record.generators.len(), before_gens, "strip must be exact");
         assert!(!record.placements.iter().any(refs_lot_building));
-        assert!(!strip_lot_buildings(&mut record), "second strip is a no-op");
+        assert_eq!(
+            strip_lot_buildings(&mut record),
+            0,
+            "second strip is a no-op"
+        );
     }
 
     #[test]

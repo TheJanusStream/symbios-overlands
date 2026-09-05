@@ -32,6 +32,7 @@ pub(super) fn draw_material_forge(
     ui: &mut egui::Ui,
     mat: &mut SovereignMaterialConfig,
     dirty: &mut bool,
+    assets: &mut super::assets::AssetPanel<'_>,
 ) {
     drag_u32(ui, "Texture size", &mut mat.texture_size, 16, 4096, dirty);
     fp_slider(ui, "Tile scale", &mut mat.tile_scale, 1.0, 500.0, dirty);
@@ -58,7 +59,20 @@ pub(super) fn draw_material_forge(
                     &mut mat.layers[i],
                     &format!("terrain_layer_{}", i),
                     dirty,
+                    assets,
                 );
+                // Which of the four layers this is matters to the status
+                // line: a Referenced layer that fails renders a convincing
+                // procedural ground, so "did MY image load" is a question
+                // only the panel can answer (#1246 f347).
+                if let SovereignTextureConfig::Referenced { source } = &mat.layers[i] {
+                    let status = assets.terrain_layer(i, source);
+                    if super::assets::asset_status_row(ui, status, assets.now) {
+                        assets.retry(
+                            crate::world_builder::asset_failure::AssetRetry::TerrainLayer(i),
+                        );
+                    }
+                }
             });
     }
 }
@@ -151,8 +165,9 @@ pub(super) fn draw_texture_bridge(
     texture: &mut SovereignTextureConfig,
     salt: &str,
     dirty: &mut bool,
+    assets: &mut super::assets::AssetPanel<'_>,
 ) {
-    draw_texture_bridge_opts(ui, texture, salt, dirty, true);
+    draw_texture_bridge_opts(ui, texture, salt, dirty, true, assets);
 }
 
 /// Body of [`draw_texture_bridge`] with an `allow_referenced` switch.
@@ -166,16 +181,50 @@ pub(super) fn draw_texture_bridge_opts(
     salt: &str,
     dirty: &mut bool,
     allow_referenced: bool,
+    assets: &mut super::assets::AssetPanel<'_>,
 ) {
+    // The list is 59 entries in a box egui scrolls at ~200 px, so about ten
+    // are visible at a time and the only way to find "Truchet" was to know
+    // where it was (#1250 f93). Two things fix that without moving anything:
+    // a filter, and the headings the source comments have carried all along.
+    let filter_id = ui.id().with((salt, "tex_filter"));
+    let mut filter = ui
+        .data_mut(|d| d.get_temp::<String>(filter_id))
+        .unwrap_or_default();
     egui::ComboBox::from_id_salt(format!("{}_tex_ty", salt))
         .selected_text(texture.label())
         .show_ui(ui, |ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut filter)
+                    .hint_text("Filter…")
+                    .desired_width(160.0),
+            );
+            let needle = filter.trim().to_ascii_lowercase();
+            let filtering = !needle.is_empty();
             macro_rules! opt {
                 ($label:literal, $expr:expr) => {{
-                    let selected = texture.label() == $label;
-                    if ui.selectable_label(selected, $label).clicked() && !selected {
-                        *texture = $expr;
-                        *dirty = true;
+                    let shown = !filtering || $label.to_ascii_lowercase().contains(&needle);
+                    if shown {
+                        let selected = texture.label() == $label;
+                        if ui.selectable_label(selected, $label).clicked() && !selected {
+                            *texture = $expr;
+                            *dirty = true;
+                        }
+                    }
+                }};
+            }
+            // A heading only earns its line when the whole list is showing;
+            // under a filter it would be six labels over three results.
+            macro_rules! group {
+                ($label:literal) => {{
+                    if !filtering {
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new($label)
+                                .small()
+                                .strong()
+                                .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                        );
                     }
                 }};
             }
@@ -185,7 +234,7 @@ pub(super) fn draw_texture_bridge_opts(
             // memory survives the addition.
             if allow_referenced {
                 opt!(
-                    "Referenced",
+                    "External image",
                     SovereignTextureConfig::Referenced {
                         source: Default::default()
                     }
@@ -242,6 +291,7 @@ pub(super) fn draw_texture_bridge_opts(
                 SovereignTextureConfig::Encaustic(Default::default())
             );
             // Particle sprite cards.
+            group!("Particle sprite cards");
             opt!(
                 "Soft Disc",
                 SovereignTextureConfig::SoftDisc(Default::default())
@@ -262,6 +312,7 @@ pub(super) fn draw_texture_bridge_opts(
             opt!("Flame", SovereignTextureConfig::Flame(Default::default()));
             opt!("Flower", SovereignTextureConfig::Flower(Default::default()));
             // Vegetation ground-cover / understory billboard cards.
+            group!("Vegetation cards");
             opt!(
                 "Grass Tuft",
                 SovereignTextureConfig::GrassTuft(Default::default())
@@ -276,6 +327,7 @@ pub(super) fn draw_texture_bridge_opts(
             opt!("Moss", SovereignTextureConfig::Moss(Default::default()));
             opt!("Lichen", SovereignTextureConfig::Lichen(Default::default()));
             // Additional tileable surfaces.
+            group!("More surfaces");
             opt!("Fabric", SovereignTextureConfig::Fabric(Default::default()));
             opt!("Sand", SovereignTextureConfig::Sand(Default::default()));
             opt!("Snow", SovereignTextureConfig::Snow(Default::default()));
@@ -286,6 +338,7 @@ pub(super) fn draw_texture_bridge_opts(
                 SovereignTextureConfig::CactusSkin(Default::default())
             );
             // Terrain surfaces added in bevy_symbios_texture 0.8.
+            group!("Terrain surfaces");
             opt!(
                 "Cracked Earth",
                 SovereignTextureConfig::CrackedEarth(Default::default())
@@ -296,6 +349,7 @@ pub(super) fn draw_texture_bridge_opts(
                 SovereignTextureConfig::ForestFloor(Default::default())
             );
             // Catalogue surfaces added in bevy_symbios_texture 0.8.
+            group!("Catalogue surfaces");
             opt!("Enamel", SovereignTextureConfig::Enamel(Default::default()));
             opt!(
                 "Obsidian",
@@ -315,6 +369,7 @@ pub(super) fn draw_texture_bridge_opts(
                 SovereignTextureConfig::Truchet(Default::default())
             );
             // Alpha-masked mesh cards.
+            group!("Alpha-masked cards");
             opt!(
                 "Chain Link",
                 SovereignTextureConfig::ChainLink(Default::default())
@@ -324,6 +379,8 @@ pub(super) fn draw_texture_bridge_opts(
                 SovereignTextureConfig::LogEnd(Default::default())
             );
         });
+
+    ui.data_mut(|d| d.insert_temp(filter_id, filter));
 
     let id = egui::Id::new(salt);
     macro_rules! run {
@@ -338,12 +395,40 @@ pub(super) fn draw_texture_bridge_opts(
     }
 
     match texture {
-        SovereignTextureConfig::None | SovereignTextureConfig::Unknown => {}
-        // Referenced has its own sub-source editor (URL / AtprotoBlob /
-        // DidPfp) wired up in the asset-reference UI ticket; for now the
-        // variant exists on the type so room records can round-trip it.
+        SovereignTextureConfig::None => {}
+        // #1251 f87: an empty arm under the bare word "Unknown" left the
+        // owner with an unexplained blank panel and, reasonably, a click —
+        // permanently replacing content a newer client could still have
+        // rendered.
+        SovereignTextureConfig::Unknown => {
+            super::widgets::unrecognised_value_line(
+                ui,
+                "texture",
+                Some("the surface shows its flat colour instead"),
+            );
+        }
+        // The one entry in the list whose result arrives over the network
+        // and can silently never arrive (#1251 f354). The caption states
+        // what the flat colour means, so it reads as a state rather than a
+        // mystery; the status row under the field (#1246) says which state.
         SovereignTextureConfig::Referenced { source } => {
-            super::widgets::draw_asset_reference_editor(ui, source, salt, dirty);
+            ui.label(
+                egui::RichText::new(
+                    "The surface shows its flat colour until the image \
+                     loads, and keeps showing it if the image cannot be \
+                     fetched.",
+                )
+                .small()
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
+            );
+            super::widgets::draw_asset_reference_editor(
+                ui,
+                source,
+                salt,
+                dirty,
+                super::widgets::ReferenceClass::Texture,
+                assets,
+            );
         }
         SovereignTextureConfig::Leaf(c) => run!(
             c,

@@ -49,6 +49,14 @@ pub struct DecalStampState {
 /// per-recipe cooldown, so pruning never resets a live throttle.
 const COOLDOWN_ENTRY_TTL: f32 = 30.0;
 
+impl DecalStampState {
+    /// Forget every live throttle — the registry whose indices they key on
+    /// has been replaced (#1254 f322).
+    pub fn clear_cooldowns(&mut self) {
+        self.cooldowns.clear();
+    }
+}
+
 impl Default for DecalStampState {
     fn default() -> Self {
         Self {
@@ -154,8 +162,15 @@ pub fn stamp_decals(
 
             // Anchor: terrain contacts get the exact ground point +
             // surface normal (lies flat) straight off the contact sample —
-            // the classifier already paid for that heightmap read (#659);
-            // any other surface falls back to the contact position, upright.
+            // the classifier already paid for that heightmap read (#659).
+            // Water gets the WATERLINE (#1254 f320): the fallback used
+            // `sample.world_pos`, which is the chassis CENTRE, so an oil
+            // slick authored for water lay flat about half an avatar above
+            // the water — a mark inside the body, reading as a rendering
+            // fault rather than as one of the six surface × kind pairings
+            // the runtime did not implement. Anything else still falls back
+            // to the contact position — which, with only two surfaces
+            // modelled, is currently no arm at all.
             let (anchor, normal) = match sample.surface {
                 SurfaceContact::Terrain {
                     normal, ground_y, ..
@@ -163,7 +178,10 @@ pub fn stamp_decals(
                     Vec3::new(sample.world_pos.x, ground_y, sample.world_pos.z),
                     normal,
                 ),
-                _ => (sample.world_pos, Vec3::Y),
+                SurfaceContact::Water { surface_y, .. } => (
+                    Vec3::new(sample.world_pos.x, surface_y, sample.world_pos.z),
+                    Vec3::Y,
+                ),
             };
             let p = &recipe.params;
             let pos = anchor + normal * p.normal_offset;

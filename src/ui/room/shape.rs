@@ -25,6 +25,7 @@ pub(super) fn draw_shape_forge(
     materials: &mut std::collections::HashMap<String, SovereignMaterialSettings>,
     round_meshes: &mut Vec<String>,
     dirty: &mut bool,
+    assets: &mut super::assets::AssetPanel<'_>,
 ) {
     egui::CollapsingHeader::new("Grammar")
         .default_open(true)
@@ -238,7 +239,7 @@ pub(super) fn draw_shape_forge(
                     draw_uv_transform_rows(ui, m, "m", dirty);
 
                     let salt = format!("shape_mat_{}", name);
-                    draw_texture_bridge(ui, &mut m.texture, &salt, dirty);
+                    draw_texture_bridge(ui, &mut m.texture, &salt, dirty, assets);
                 });
             }
             if let Some(name) = to_remove {

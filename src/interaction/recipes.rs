@@ -621,6 +621,7 @@ mod tests {
                 plane_idx: 0,
                 depth: 1.0,
                 flow_dir: Vec2::ZERO,
+                surface_y: 0.0,
             },
             intensity,
             phase,
@@ -785,6 +786,7 @@ mod tests {
                 plane_idx: 0,
                 depth: 1.0,
                 flow_dir: Vec2::ZERO,
+                surface_y: 0.0,
             },
             ..terrain(ContactPhase::Dwell, 6.0)
         };
@@ -873,6 +875,7 @@ mod tests {
                 plane_idx: 0,
                 depth: 1.0,
                 flow_dir: Vec2::ZERO,
+                surface_y: 0.0,
             },
             intensity: 0.5,
             phase: ContactPhase::Enter,

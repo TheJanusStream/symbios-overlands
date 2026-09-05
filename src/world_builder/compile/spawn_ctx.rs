@@ -285,11 +285,25 @@ impl SpawnCtx<'_, '_, '_, '_, '_> {
     /// business. Queued as a command (the spawn paths have no resource
     /// access — same zero-signature-ripple idiom as the texture-cache
     /// counters), applied when this compile's command buffer drains.
-    pub(crate) fn record_grammar_status(&mut self, generator_ref: &str, error: Option<String>) {
+    pub(crate) fn record_grammar_status(
+        &mut self,
+        generator_ref: &str,
+        path: &[usize],
+        error: Option<String>,
+    ) {
         let key = if !self.avatar_mode {
+            // Already path-qualified: `generator_ref` IS the synthetic
+            // cache key the dispatch built for this node (#1250 f84).
             generator_ref.to_string()
         } else if self.local_avatar_mode {
-            crate::ui::room::generators::AvatarVisualsTreeSource::ROOT_NAME.to_string()
+            // The avatar's base is the synthetic `avatar/<id>` namespace,
+            // which no UI selection matches — so the root segment is
+            // swapped for the editor's own, and the PATH is kept, or every
+            // grammar node in a worn tree would file under one key.
+            super::dispatch::synthetic_cache_key(
+                crate::ui::room::generators::AvatarVisualsTreeSource::ROOT_NAME,
+                path,
+            )
         } else {
             return;
         };

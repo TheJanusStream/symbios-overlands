@@ -721,7 +721,10 @@ mod tests {
             key: crate::world_builder::audio_resolver::AudioReferenceKey::Url(
                 "https://example.invalid/a.ogg".into(),
             ),
-            task: pool.spawn(std::future::pending::<Option<Vec<u8>>>()),
+            task: pool.spawn(std::future::pending::<
+                crate::world_builder::blob_fetch::FetchedBytes,
+            >()),
+            previous: None,
         });
         // Only the task entities — `World::new()` seeds bookkeeping
         // entities of its own.

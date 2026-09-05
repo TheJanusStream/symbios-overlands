@@ -666,6 +666,11 @@ fn render_health_tab(
                         names::AUDIO_SPATIAL_ACTIVE_SINKS,
                     ),
                     (
+                        "Contact cues",
+                        g(names::AUDIO_CONTACT_ACTIVE_VOICES),
+                        names::AUDIO_CONTACT_ACTIVE_VOICES,
+                    ),
+                    (
                         "Voice bake (ms)",
                         h(names::AUDIO_VOICE_BAKE_LATENCY_MS),
                         names::AUDIO_VOICE_BAKE_LATENCY_MS,
@@ -692,9 +697,11 @@ fn render_health_tab(
             // instead of a bare number.
             ui.label(
                 egui::RichText::new(
-                    "Looping voices are the live mixing load — when the overload \
-                     badge is lit, muting confirms whether audio is what's \
-                     dragging the frame.",
+                    "Looping voices and contact cues are the live mixing load — \
+                     the first is ambience and construct hum, the second is \
+                     one-shots fired by people touching things. When the \
+                     overload badge is lit, muting confirms whether audio is \
+                     what's dragging the frame.",
                 )
                 .small()
                 .color(crate::ui::theme::current(ui.ctx()).text_weak),

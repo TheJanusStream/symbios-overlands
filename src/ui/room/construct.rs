@@ -246,6 +246,7 @@ pub(crate) fn draw_universal_material(
     m: &mut SovereignMaterialSettings,
     salt: &str,
     dirty: &mut bool,
+    assets: &mut super::assets::AssetPanel<'_>,
 ) {
     color_picker(ui, "Base color", &mut m.base_color, dirty);
     color_picker(ui, "Emission", &mut m.emission_color, dirty);
@@ -262,7 +263,7 @@ pub(crate) fn draw_universal_material(
     fp_slider(ui, "UV scale", &mut m.uv_scale, 0.1, 10.0, dirty);
     draw_uv_transform_rows(ui, m, "m", dirty);
 
-    draw_texture_bridge(ui, &mut m.texture, salt, dirty);
+    draw_texture_bridge(ui, &mut m.texture, salt, dirty, assets);
 }
 
 /// Vertex-torture editor for the [`TortureParams`] every primitive carries:
@@ -277,7 +278,14 @@ pub(super) fn draw_torture(
     show_cuts: bool,
     dirty: &mut bool,
 ) {
-    ui.label("Vertex torture");
+    // "Vertex torture" is engine language on the most-repeated panel in the
+    // product — it appears on all sixteen primitives in both editors — and
+    // until #1250 f89 it was the only block in the editor with no hover text
+    // at all. The explanations existed, as source comments two lines above
+    // each row; they are the hover copy now, the way `UV_MODES` writes its
+    // description once as data beside the value.
+    ui.label("Deform")
+        .on_hover_text("Bend, taper, twist and cut the shape after it is built.");
     fp_slider(
         ui,
         "Twist (rad)",
@@ -285,11 +293,12 @@ pub(super) fn draw_torture(
         -4.0 * std::f32::consts::PI,
         4.0 * std::f32::consts::PI,
         dirty,
-    );
+    )
+    .on_hover_text("Rotate the top against the base, in radians. A whole turn is about 6.28.");
     // Per-axis taper (X / Z): equal = cone/frustum, unequal = wedge/fin.
     let mut tp = torture.taper.0;
     ui.horizontal(|ui| {
-        ui.label("Taper top (X/Z)");
+        ui.label("Taper top (X/Z)").on_hover_text("Narrow (or widen) the top on each axis. Equal on both is a cone; unequal is a wedge or fin. 0 leaves it alone.");
         for v in tp.iter_mut() {
             if ui
                 .add(egui::DragValue::new(v).speed(0.02).range(-0.99..=0.99))
@@ -304,7 +313,9 @@ pub(super) fn draw_torture(
     // at both ends (lens / spearhead) without upside-down authoring.
     let mut tb = torture.taper_bottom.0;
     ui.horizontal(|ui| {
-        ui.label("Taper bottom (X/Z)");
+        ui.label("Taper bottom (X/Z)").on_hover_text(
+            "The same at the bottom. Tapering both ends gives a lens or a spearhead.",
+        );
         for v in tb.iter_mut() {
             if ui
                 .add(egui::DragValue::new(v).speed(0.02).range(-0.99..=0.99))
@@ -319,7 +330,9 @@ pub(super) fn draw_torture(
     // mid-height — muscle / belly / waist in one slider pair.
     let mut bu = torture.bulge.0;
     ui.horizontal(|ui| {
-        ui.label("Bulge (X/Z)");
+        ui.label("Bulge (X/Z)").on_hover_text(
+            "Swell (+) or pinch (−) the middle, strongest at half height — muscle, belly or waist.",
+        );
         for v in bu.iter_mut() {
             if ui
                 .add(egui::DragValue::new(v).speed(0.02).range(-2.0..=2.0))
@@ -333,7 +346,7 @@ pub(super) fn draw_torture(
     // Three-axis bend (the Y component lengthens / shortens the top).
     let mut b = torture.bend.0;
     ui.horizontal(|ui| {
-        ui.label("Bend (X/Y/Z)");
+        ui.label("Bend (X/Y/Z)").on_hover_text("Lean the top away from the base, in metres of travel. The Y value lengthens or shortens instead.");
         for v in b.iter_mut() {
             if ui
                 .add(egui::DragValue::new(v).speed(0.05).range(-10.0..=10.0))
@@ -347,7 +360,9 @@ pub(super) fn draw_torture(
     // S-bend amplitude (X / Z): a sin(2π·height) serpentine wave.
     let mut s = torture.s_bend.0;
     ui.horizontal(|ui| {
-        ui.label("S-bend (X/Z)");
+        ui.label("S-bend (X/Z)").on_hover_text(
+            "A serpentine wave up the height: the middle goes one way and the top comes back.",
+        );
         for v in s.iter_mut() {
             if ui
                 .add(egui::DragValue::new(v).speed(0.05).range(-10.0..=10.0))
@@ -361,7 +376,9 @@ pub(super) fn draw_torture(
     // Top-shear (X / Z): a linear lateral lean of the top vs the base.
     let mut sh = torture.shear.0;
     ui.horizontal(|ui| {
-        ui.label("Shear (X/Z)");
+        ui.label("Shear (X/Z)").on_hover_text(
+            "Slide the top sideways over the base, keeping the height — a leaning stack.",
+        );
         for v in sh.iter_mut() {
             if ui
                 .add(egui::DragValue::new(v).speed(0.05).range(-10.0..=10.0))
@@ -378,11 +395,12 @@ pub(super) fn draw_torture(
     if !show_cuts {
         return;
     }
-    ui.label("Cuts");
+    ui.label("Cuts")
+        .on_hover_text("Remove part of the shape rather than deforming it.");
     // Path-cut (begin/end, kept angular fraction of the sweep).
     let mut pc = torture.path_cut.0;
     ui.horizontal(|ui| {
-        ui.label("Path-cut (begin/end)");
+        ui.label("Path-cut (begin/end)").on_hover_text("Keep only part of the way around: 0 to 1 is the whole turn. Begin past end keeps nothing.");
         for v in pc.iter_mut() {
             if ui
                 .add(egui::DragValue::new(v).speed(0.01).range(0.0..=1.0))
@@ -396,7 +414,9 @@ pub(super) fn draw_torture(
     // Profile-cut / dimple (begin/end, kept latitude band on a revolved profile).
     let mut prc = torture.profile_cut.0;
     ui.horizontal(|ui| {
-        ui.label("Profile-cut (begin/end)");
+        ui.label("Profile-cut (begin/end)").on_hover_text(
+            "Keep only a band of the profile from bottom (0) to top (1) — a dimple or a bowl.",
+        );
         for v in prc.iter_mut() {
             if ui
                 .add(egui::DragValue::new(v).speed(0.01).range(0.0..=1.0))
@@ -408,7 +428,9 @@ pub(super) fn draw_torture(
     });
     torture.profile_cut = Fp2(prc);
     // Hollow (bore as a fraction of the outer radius).
-    fp_slider(ui, "Hollow", &mut torture.hollow, 0.0, 0.95, dirty);
+    fp_slider(ui, "Hollow", &mut torture.hollow, 0.0, 0.95, dirty).on_hover_text(
+        "Bore the middle out, as a fraction of the outer size. 0.5 leaves walls half as thick as the radius.",
+    );
 }
 
 #[cfg(test)]

@@ -387,6 +387,16 @@ pub enum EventPayload {
         rkey: String,
         reason: String,
     },
+    /// A room asset — an image, a sound, a terrain layer — could not be
+    /// fetched (#1246 f353). `asset` is the class, `source` the identity
+    /// that failed (elided), `reason` the short tag from
+    /// `AssetFetchError::tag`. Emitted once per attempt, so a captured log
+    /// shows the doubling rather than a single line.
+    AssetFetchFailed {
+        asset: String,
+        source: String,
+        reason: String,
+    },
     RoomStateRejected {
         sender_did: String,
         reason: String,
@@ -606,6 +616,7 @@ impl EventPayload {
             | AvatarFetchFailed { .. }
             | WardrobeResolved { .. }
             | AttachmentFetchFailed { .. }
+            | AssetFetchFailed { .. }
             | AvatarStateDecodeFailed { .. }
             | RoomStateRejected { .. }
             | RoomStateDecodeFailed { .. }
@@ -682,6 +693,12 @@ impl EventPayload {
             | AttachmentFetchFailed { .. }
             | AvatarStateDecodeFailed { .. }
             | PeerMuteToggled { .. } => Category::Peer,
+
+            // The one payload that finally uses `Category::Asset` (#1246):
+            // a room's images, sounds and terrain layers are neither a peer
+            // fact nor a record fetch, and the analyzer already had a
+            // section standing empty for them.
+            AssetFetchFailed { .. } => Category::Asset,
 
             LinkLost
             | LinkRestored { .. }
@@ -895,6 +912,11 @@ impl EventPayload {
             AttachmentFetchFailed { did, rkey, reason } => {
                 format!("attachment {rkey} FAILED for {did} ({reason})")
             }
+            AssetFetchFailed {
+                asset,
+                source,
+                reason,
+            } => format!("{asset} asset FAILED: {source} ({reason})"),
             AvatarStateDecodeFailed { peer, reason } => {
                 format!("avatar state decode failed [{peer}]: {reason}")
             }

@@ -29,6 +29,7 @@ pub fn register_builtins(reg: &mut InvariantRegistry) {
     reg.register(RelayConnectionRejected);
     reg.register(RelayTokenRefreshFailing);
     reg.register(WardrobeUnresolved);
+    reg.register(AssetFetchFailing);
     // D-3 ECS-state (live-only) rules.
     super::rules_ecs::register_ecs_rules(reg);
 }
@@ -105,6 +106,58 @@ impl Rule for WardrobeUnresolved {
                     "{did} resolved no wardrobe record — rendered as a bare chassis"
                 ))),
                 _ => None,
+            })
+            .collect()
+    }
+}
+
+// --- AssetFetchFailing ------------------------------------------------------
+/// How many asset failures in one session are worth a verdict.
+///
+/// Not one: a single dead source in a room somebody else authored is
+/// ordinary, and a rule that fires on it would light the toolbar dot in
+/// every second room. Three is the point at which the pattern is the room
+/// rather than the asset — a host that is down, a whole batch of references
+/// pointing at a moved bucket, or a client whose network is gone.
+const ASSET_FAILURE_VERDICT_THRESHOLD: usize = 3;
+
+struct AssetFetchFailing;
+const ASSET_FETCH_FAILING: RuleHeader = RuleHeader {
+    id: "asset.fetch_failing",
+    subsystem: Subsystem::Network,
+    severity: Severity::Warn,
+    debounce: DebouncePolicy::OncePerCondition,
+    description: "room assets are failing to fetch — images, sounds or terrain layers are missing",
+    when_state: None,
+};
+impl Rule for AssetFetchFailing {
+    fn header(&self) -> &RuleHeader {
+        &ASSET_FETCH_FAILING
+    }
+    fn is_replayable(&self) -> bool {
+        true
+    }
+    /// Replay-only, like [`WardrobeUnresolved`] and for the same reason: the
+    /// live signal is a discrete per-source event, and the question ("why did
+    /// this room have no pictures") is asked afterwards.
+    ///
+    /// Before #1246 there was no signal at all — a grep for `metrics` or
+    /// `diagnostics` across the five asset fetch paths returned nothing, so
+    /// the app's designated "something is wrong" channel was blind to the one
+    /// surface that fails silently by construction and depends entirely on
+    /// third-party hosts.
+    fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
+        let mut by_class: std::collections::BTreeMap<&str, usize> = Default::default();
+        for event in events {
+            if let EventPayload::AssetFetchFailed { asset, .. } = &event.payload {
+                *by_class.entry(asset.as_str()).or_default() += 1;
+            }
+        }
+        by_class
+            .into_iter()
+            .filter(|(_, count)| *count >= ASSET_FAILURE_VERDICT_THRESHOLD)
+            .map(|(class, count)| {
+                Verdict::violated(format!("{count} {class} assets could not be fetched"))
             })
             .collect()
     }

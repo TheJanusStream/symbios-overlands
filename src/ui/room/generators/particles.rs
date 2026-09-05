@@ -23,6 +23,7 @@ pub(super) fn draw_generator_particles(
     p: &mut ParticleParams,
     salt: &str,
     dirty: &mut bool,
+    assets: &mut super::super::assets::AssetPanel<'_>,
 ) {
     // Destructured once so the section closures below borrow fields
     // disjointly (a bare `p.x` in every closure would fight the borrow
@@ -193,6 +194,7 @@ pub(super) fn draw_generator_particles(
                 procedural_texture,
                 salt,
                 dirty,
+                assets,
             );
         });
 
@@ -251,6 +253,7 @@ fn draw_particle_texture(
     procedural_texture: &mut SovereignTextureConfig,
     salt: &str,
     dirty: &mut bool,
+    assets: &mut super::super::assets::AssetPanel<'_>,
 ) {
     // --- Procedural sprite (baked locally) ---------------------------------
     // The full generator dropdown + sub-editor, minus the `Referenced`
@@ -264,6 +267,7 @@ fn draw_particle_texture(
         &format!("{}_pe_proc", salt),
         dirty,
         false,
+        assets,
     );
     let has_procedural = !matches!(
         procedural_texture,
@@ -300,7 +304,14 @@ fn draw_particle_texture(
     }
 
     if let Some(source) = texture {
-        draw_sign_source(ui, source, &format!("{}_pe_texsrc", salt), dirty);
+        draw_sign_source(
+            ui,
+            source,
+            &format!("{}_pe_texsrc", salt),
+            dirty,
+            crate::world_builder::image_cache::SamplerFilter::from_record(texture_filter),
+            assets,
+        );
         ui.add_space(4.0);
 
         // Manual atlas only applies to a fetched sprite sheet; the

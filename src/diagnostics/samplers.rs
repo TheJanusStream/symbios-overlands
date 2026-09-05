@@ -69,6 +69,26 @@ pub fn attachment_fetch_failed(m: &mut MetricsRegistry) {
     m.incr(names::NET_ATTACHMENT_FETCH_FAIL_COUNT);
 }
 
+/// One room-asset fetch failed. `class` picks the counter so the HUD can
+/// tell an unreachable image from an unreachable sound (#1246 f353).
+pub fn asset_fetch_failed(
+    m: &mut MetricsRegistry,
+    class: crate::world_builder::asset_failure::AssetClass,
+) {
+    use crate::world_builder::asset_failure::AssetClass;
+    m.incr(match class {
+        AssetClass::Image => names::ASSET_IMAGE_FETCH_FAIL_COUNT,
+        AssetClass::Audio => names::ASSET_AUDIO_FETCH_FAIL_COUNT,
+        AssetClass::TerrainLayer => names::ASSET_TERRAIN_LAYER_FETCH_FAIL_COUNT,
+    });
+}
+
+/// Decoded bytes held by the blob image cache, against
+/// `image_cache::MAX_CACHE_BYTES`.
+pub fn asset_image_cache_bytes(m: &mut MetricsRegistry, bytes: usize) {
+    m.observe_gauge(names::ASSET_IMAGE_CACHE_BYTES, bytes as f64);
+}
+
 /// The local user accepted an incoming item offer.
 pub fn offer_accepted(m: &mut MetricsRegistry) {
     m.incr(names::NET_OFFER_ACCEPTED_COUNT);

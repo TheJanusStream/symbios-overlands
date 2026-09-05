@@ -34,3 +34,22 @@ pub enum PropMeshType {
     #[serde(other, skip_serializing)]
     Unknown,
 }
+
+impl PropMeshType {
+    /// Human-readable name for the prop-mapping picker (#1250 f94).
+    ///
+    /// The picker printed `format!("{:?}", current)` — the Rust debug
+    /// spelling — which is how "Unknown" reached a dropdown as if it were a
+    /// shape somebody could choose.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Leaf => "Leaf",
+            Self::Twig => "Twig",
+            Self::Sphere => "Sphere",
+            Self::Cone => "Cone",
+            Self::Cylinder => "Cylinder",
+            Self::Cube => "Cube",
+            Self::Unknown => "From a newer version (draws as a leaf)",
+        }
+    }
+}

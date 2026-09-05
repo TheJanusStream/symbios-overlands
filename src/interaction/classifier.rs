@@ -159,6 +159,10 @@ pub(crate) fn probe_water(
         plane_idx: q.surface_idx,
         depth: q.depth.max(0.0),
         flow_dir: Vec2::new(q.flow_dir.x, q.flow_dir.z),
+        // The waterline, from the only point that has it: the probe was
+        // taken at the body bottom, so the surface is that Y plus the
+        // signed depth (#1254 f320).
+        surface_y: body_bottom.y + q.depth,
     })
 }
 
@@ -491,6 +495,7 @@ mod tests {
             plane_idx,
             depth,
             flow_dir: Vec2::ZERO,
+            surface_y: depth,
         }
     }
 

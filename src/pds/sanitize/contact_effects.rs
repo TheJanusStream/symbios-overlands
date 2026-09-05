@@ -144,7 +144,20 @@ impl Sanitize for AudioParams {
             0.0,
         );
         match &mut self.source {
-            AudioClipSource::Url { url } => truncate_chars(url, limits::MAX_CONTACT_AUDIO_URL),
+            AudioClipSource::Url { url } => {
+                truncate_chars(url, limits::MAX_CONTACT_AUDIO_URL);
+                // The one asset reference #1127's rule never saw (#1248
+                // f345). Every other URL-carrying reference goes through
+                // it — `SignSource` directly, and the `Referenced` texture
+                // and audio arms by delegation — while a contact cue, which
+                // fires when a VISITOR's own avatar touches geometry and is
+                // therefore the most reliable presence beacon of the three,
+                // was length-truncated and otherwise followed anywhere the
+                // author named.
+                if !super::is_fetchable_reference(url) {
+                    url.clear();
+                }
+            }
             AudioClipSource::AtprotoBlob { did, cid } => {
                 truncate_chars(did, limits::MAX_CONTACT_AUDIO_ID);
                 truncate_chars(cid, limits::MAX_CONTACT_AUDIO_ID);
@@ -404,7 +417,58 @@ mod tests {
         assert!(a.pitch_jitter.0 <= limits::MAX_CONTACT_AUDIO_PITCH_JITTER);
         match a.source {
             AudioClipSource::Url { url } => {
-                assert_eq!(url.chars().count(), limits::MAX_CONTACT_AUDIO_URL);
+                // Truncated AND refused (#1248 f345): `"h"` repeated is not
+                // a URL at all, and a contact cue is now held to the same
+                // rule as every other asset reference.
+                assert!(url.is_empty(), "an unfollowable clip URL must be cleared");
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    /// #1248 f345, as the sequence it protects: a room author names an
+    /// `http://` beacon, or an address that only exists inside the
+    /// visitor's own network, as a footstep sound. Contact cues fire on the
+    /// visitor's own avatar touching geometry, so this was the most
+    /// reliable presence beacon in the product and the one reference the
+    /// sanitiser never gated.
+    #[test]
+    fn a_contact_clip_url_is_held_to_the_same_rule_as_every_other_reference() {
+        for refused in [
+            "http://beacon.example/ping.ogg",
+            "https://192.168.1.4/step.ogg",
+            "https://127.0.0.1/step.ogg",
+            "file:///etc/passwd",
+            "not a url at all",
+        ] {
+            let mut params = AudioParams {
+                source: AudioClipSource::Url {
+                    url: refused.to_string(),
+                },
+                ..Default::default()
+            };
+            params.sanitize();
+            match params.source {
+                AudioClipSource::Url { url } => assert!(
+                    url.is_empty(),
+                    "{refused} must be refused the way a Sign source is"
+                ),
+                _ => unreachable!(),
+            }
+        }
+
+        // And the ordinary case still survives, or the rule would just be
+        // a way to delete everybody's sounds.
+        let mut params = AudioParams {
+            source: AudioClipSource::Url {
+                url: "https://cdn.example.org/step.ogg".to_string(),
+            },
+            ..Default::default()
+        };
+        params.sanitize();
+        match params.source {
+            AudioClipSource::Url { url } => {
+                assert_eq!(url, "https://cdn.example.org/step.ogg");
             }
             _ => unreachable!(),
         }

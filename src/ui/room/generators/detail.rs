@@ -56,6 +56,8 @@ pub(super) fn draw_detail_panel(
     // Click-to-pick face selection (#961): the shared arm flag plus the
     // pick channel, resolved against THIS node's id below.
     face_pick: &mut crate::editor_gizmo::FacePick,
+    // The asset caches (#1246), for every field naming a fetched asset.
+    assets: &mut super::super::assets::AssetPanel<'_>,
 ) {
     let Some(id) = current_id(selected_generator, selected_prim_path) else {
         ui.vertical_centered(|ui| {
@@ -75,9 +77,17 @@ pub(super) fn draw_detail_panel(
     };
 
     let is_root = id.path.is_empty();
-    // Grammar compile status is keyed by the ROOT name — the spawn path
-    // records one outcome per generator tree (#829).
-    let grammar_status = grammar_diag.get(&id.root);
+    // This NODE's grammar compile outcome (#1250 f84).
+    //
+    // The spawn path always filed per node — `record_grammar_status` is
+    // handed the synthetic cache key, which is `<root>/<i>/<j>` for a child
+    // — but the panel looked up the ROOT name, so a tree with two grammar
+    // nodes showed the root's line-numbered error under both, and a child's
+    // own failure was never shown at all. The read now asks the same
+    // question the write answered.
+    let grammar_status = grammar_diag.get(&crate::world_builder::compile::synthetic_cache_key(
+        &id.root, &id.path,
+    ));
     // Snapshot the kind tag and choose the kind-picker vocabulary up
     // front so the immutable borrow used for the header is released
     // before we re-enter the source mutably for the editor body.
@@ -234,6 +244,7 @@ pub(super) fn draw_detail_panel(
                         resolvable: source_resolves_face_picks,
                         pick: face_pick,
                     },
+                    assets,
                 );
 
                 // Per-construct audio slot (#314). The bridge writes back
@@ -262,6 +273,7 @@ pub(super) fn draw_detail_panel(
                     &label,
                     dirty,
                     audio_editor,
+                    assets,
                 );
             });
     }
@@ -388,6 +400,27 @@ pub(crate) fn lot_clamp_lines(
     lines
 }
 
+/// The sentence over the layout controls naming what changing them
+/// replaces (#1245 f378). Pure so the arithmetic and the plural are
+/// testable without egui.
+fn regrow_warning(buildings: usize, props: usize) -> String {
+    let mut what = Vec::new();
+    if buildings > 0 {
+        what.push(format!(
+            "{buildings} building{}",
+            if buildings == 1 { "" } else { "s" }
+        ));
+    }
+    if props > 0 {
+        what.push(format!("{props} prop{}", if props == 1 { "" } else { "s" }));
+    }
+    format!(
+        "Changing the layout below re-grows the district, replacing the {} \
+         standing here — including any you have moved.",
+        what.join(" and "),
+    )
+}
+
 fn draw_road_editor(
     ui: &mut egui::Ui,
     config: &mut crate::pds::generator::RoadConfig,
@@ -420,6 +453,14 @@ fn draw_road_editor(
             if stats.props > 0 {
                 text.push_str(&format!(" · {} props", stats.props));
             }
+            // Marked stale rather than reported as settled fact (#1245
+            // f385): these are the PREVIOUS layout's numbers for the whole
+            // debounce-plus-build window after an edit, which is long
+            // enough for an owner to read them, believe them, and tune
+            // against the wrong number.
+            if stats.pending {
+                text.push_str(" · rebuilding…");
+            }
             let heavy = stats.vertices > ROAD_HEAVY_VERTS;
             let color = if heavy {
                 theme.status.warn
@@ -450,6 +491,33 @@ fn draw_road_editor(
                     .color(theme.text_weak),
             );
         }
+    }
+    // What a layout edit costs, said BEFORE the slider moves (#1245 f378).
+    //
+    // Any Layout or Lots control changes the fingerprint, and a third of a
+    // second later `strip_lot_buildings` removes every grown generator and
+    // placement — including ones the owner dragged into place with the
+    // gizmo, which is the most expensive work they do. Undo covers it (the
+    // derived write folds into the slider's own entry) but only if they
+    // realise inside the 32-step ring, and nothing told them: the buildings
+    // vanish after the drag ends, when attention has already moved on.
+    //
+    // A confirm is not available here — the strip happens in a system with
+    // no UI, a debounce later — so the honest surface is the sentence
+    // before the gesture and the toast after it.
+    if let Some(stats) = road_stats
+        && stats.built
+        && stats.buildings + stats.props > 0
+    {
+        ui.label(
+            egui::RichText::new(regrow_warning(stats.buildings, stats.props))
+                .small()
+                .color(crate::ui::theme::current(ui.ctx()).status.warn),
+        )
+        .on_hover_text(
+            "Undo restores them together with the edit that replaced them, but \
+             only within the last 32 steps.",
+        );
     }
     ui.add_space(4.0);
     // Editable seed row (#885): type a layout number to reproduce/share a
@@ -679,8 +747,11 @@ fn draw_road_editor(
                         undo_label.set(format!("road {label} override"));
                         *dirty = true;
                     }
+                    // Through the shared helper, not egui directly (#1249
+                    // f58): this row is the twenty-fifth picker in the
+                    // editor and the only one that bypassed it.
                     if let Some(c) = slot
-                        && ui.color_edit_button_rgb(&mut c.0).changed()
+                        && super::super::widgets::edit_srgb_rgb(ui, &mut c.0)
                     {
                         undo_label.set(format!("road {label}"));
                         *dirty = true;
@@ -734,6 +805,43 @@ fn draw_road_editor(
             }
         });
 
+    // Its own section, not a row inside "Lots" (#1245 f380). The Lots body
+    // early-returns when "Grow buildings on lots" is unticked, and the
+    // furniture checkbox was drawn after that point — so unticking
+    // buildings removed the ONLY control over a layer the injector treats
+    // as independent (`active_configs` accepts a config on
+    // `populate_lots || furniture.enabled`), while up to 160 props kept
+    // being derived, written into the record and published, with no way to
+    // turn them off short of deleting the whole network.
+    egui::CollapsingHeader::new("Street furniture")
+        .default_open(false)
+        .show(ui, |ui| {
+            if ui
+                .checkbox(&mut config.furniture.enabled, "Plant street props")
+                .on_hover_text(
+                    "Plant theme props (lamps, signs, clutter) along the streets, \
+                     just outside the curbs, sides alternating. Independent of the \
+                     buildings — this layer grows with or without them.",
+                )
+                .changed()
+            {
+                undo_label.set("street furniture toggle".to_string());
+                *dirty = true;
+            }
+            ui.add_enabled_ui(config.furniture.enabled, |ui| {
+                if ui
+                    .add(
+                        egui::Slider::new(&mut config.furniture.spacing.0, 8.0..=200.0)
+                            .text("Prop spacing (m)"),
+                    )
+                    .changed()
+                {
+                    undo_label.set("street furniture spacing".to_string());
+                    *dirty = true;
+                }
+            });
+        });
+
     egui::CollapsingHeader::new("Lots")
         .default_open(true)
         .show(ui, |ui| {
@@ -762,9 +870,17 @@ fn draw_road_editor(
             }
             // Building-theme override (#892): "Room theme" or an explicit
             // archetype, stored as a lenient label string.
+            // #1251 f390: the combo used to print the raw stored string as
+            // its selected text, so a label this build does not know read as
+            // the ACTIVE theme while `maybe_populate_lots` matched it
+            // case-insensitively against the roster and fell through to the
+            // room theme. The panel asserted a setting with no effect and no
+            // row in its own dropdown highlighted.
+            let unrecognised_theme = !lots.theme_override.trim().is_empty()
+                && crate::terrain::resolve_lot_theme(&lots.theme_override).is_none();
             ui.horizontal(|ui| {
                 ui.label("Theme:");
-                let current = if lots.theme_override.trim().is_empty() {
+                let current = if lots.theme_override.trim().is_empty() || unrecognised_theme {
                     "Room theme".to_string()
                 } else {
                     lots.theme_override.clone()
@@ -798,6 +914,13 @@ fn draw_road_editor(
                         }
                     });
             });
+            if unrecognised_theme {
+                super::super::widgets::unrecognised_value_line(
+                    ui,
+                    "building theme",
+                    Some("the room's own theme is growing instead"),
+                );
+            }
             ui.horizontal(|ui| {
                 ui.label("Mix:");
                 for (value, label, tip) in crate::pds::generator::LotTierBias::pickers() {
@@ -813,29 +936,6 @@ fn draw_road_editor(
                     }
                 }
             });
-            ui.separator();
-            if ui
-                .checkbox(&mut config.furniture.enabled, "Street furniture")
-                .on_hover_text(
-                    "Plant theme props (lamps, signs, clutter) along the streets, \
-                     just outside the curbs, sides alternating.",
-                )
-                .changed()
-            {
-                undo_label.set("street furniture toggle".to_string());
-                *dirty = true;
-            }
-            if config.furniture.enabled
-                && ui
-                    .add(
-                        egui::Slider::new(&mut config.furniture.spacing.0, 8.0..=200.0)
-                            .text("Prop spacing (m)"),
-                    )
-                    .changed()
-            {
-                undo_label.set("street furniture spacing".to_string());
-                *dirty = true;
-            }
             ui.separator();
             let lots = &mut config.lots;
             ui.horizontal(|ui| {
@@ -872,26 +972,81 @@ fn draw_road_editor(
 }
 
 /// Inline editor for a [`GeneratorKind::Portal`]: the destination room's
-/// DID plus the world-space exit position in that room.
+/// identifier plus the world-space exit position in that room.
+///
+/// The identifier field is a deferred-commit row validated against the same
+/// shape check the login form uses (#1251 f92), so a typo is refused where it
+/// is typed instead of at walk-in. The exit-position drags carry the ranges
+/// the sanitiser clamps them to — they were unbounded in the UI and clamped
+/// on the wire, which is the worst of both.
 fn draw_portal_editor(
     ui: &mut egui::Ui,
     target_did: &mut String,
     target_pos: &mut crate::pds::Fp3,
     dirty: &mut bool,
+    undo_label: &mut crate::ui::undo::LabelSlot,
 ) {
-    ui.label("Target DID (destination room)");
-    if ui
-        .add(egui::TextEdit::singleline(target_did).hint_text("did:plc:…"))
-        .changed()
-    {
+    ui.label("Where it leads");
+    let out = super::super::widgets::text_draft_row(
+        ui,
+        "portal_target_did",
+        target_did,
+        260.0,
+        "The identifier of the person whose world this portal opens into. \
+         Press Enter, or click away, to apply it.",
+        |draft| match crate::ui::login::validation::validate_destination(draft) {
+            // Home is what a blank field means on the login form; here it
+            // would be a portal that leads nowhere.
+            Ok(crate::ui::login::validation::Destination::Home) => None,
+            Ok(crate::ui::login::validation::Destination::Did(_)) => None,
+            // A handle is a reasonable thing to type and the field cannot
+            // take one yet, so say which of the two this is rather than
+            // calling it malformed.
+            Ok(crate::ui::login::validation::Destination::Handle(_)) => Some(
+                "This field needs the did:… identifier, not an @handle. You can \
+                 find it on the person's profile."
+                    .to_string(),
+            ),
+            Err(reason) => Some(reason),
+        },
+    );
+    if let Some(committed) = out.committed {
+        *target_did = committed;
+        undo_label.set("portal destination".to_string());
         *dirty = true;
     }
+    ui.label(
+        egui::RichText::new(
+            "Leave it blank for a portal that goes nowhere yet — walking into \
+             one always shows the destination's name first.",
+        )
+        .small()
+        .color(crate::ui::theme::current(ui.ctx()).text_weak),
+    );
+
     ui.add_space(4.0);
     ui.label("Exit position (world space in the target room)");
     ui.horizontal(|ui| {
-        for (label, axis) in ["X", "Y", "Z"].iter().zip(target_pos.0.iter_mut()) {
+        // The ranges the sanitiser already enforces (`pds::sanitize`'s
+        // Portal arm): ±10 km horizontally, −1 km to 10 km vertically. The
+        // drags were unbounded, so a number typed past them was silently
+        // rewritten on the next flush.
+        let ranges = [
+            -10_000.0..=10_000.0,
+            -1_000.0..=10_000.0,
+            -10_000.0..=10_000.0,
+        ];
+        for ((label, axis), range) in ["X", "Y", "Z"]
+            .iter()
+            .zip(target_pos.0.iter_mut())
+            .zip(ranges)
+        {
             ui.label(*label);
-            if ui.add(egui::DragValue::new(axis).speed(0.1)).changed() {
+            if ui
+                .add(egui::DragValue::new(axis).speed(0.1).range(range))
+                .changed()
+            {
+                undo_label.set("portal exit position".to_string());
                 *dirty = true;
             }
         }
@@ -942,6 +1097,9 @@ fn draw_generator_detail(
     // Click-to-pick channel (#961), already narrowed to this node by the
     // caller: the arm flag plus any face a scene click resolved here.
     pick: FacePickUi<'_>,
+    // The asset caches, for every field that names a fetched image, sound
+    // or terrain layer (#1246).
+    assets: &mut super::super::assets::AssetPanel<'_>,
 ) {
     // Snapshot taken before the match's mutable borrow: the per-face panel
     // (#960) needs the WHOLE kind — which faces the current cut state emits,
@@ -973,11 +1131,12 @@ fn draw_generator_detail(
                 },
                 salt,
                 dirty: &mut *dirty,
+                assets: &mut *assets,
             }
         };
     }
     match kind {
-        GeneratorKind::Terrain(cfg) => draw_terrain_forge(ui, cfg, dirty),
+        GeneratorKind::Terrain(cfg) => draw_terrain_forge(ui, cfg, dirty, assets),
         GeneratorKind::Water { surface } => {
             draw_water_editor(ui, surface, dirty);
         }
@@ -1016,6 +1175,7 @@ fn draw_generator_detail(
             prop_scale,
             mesh_resolution,
             dirty,
+            assets,
         ),
         GeneratorKind::Shape {
             grammar_source,
@@ -1034,11 +1194,12 @@ fn draw_generator_detail(
             materials,
             round_meshes,
             dirty,
+            assets,
         ),
         GeneratorKind::Portal {
             target_did,
             target_pos,
-        } => draw_portal_editor(ui, target_did, target_pos, dirty),
+        } => draw_portal_editor(ui, target_did, target_pos, dirty, undo_label),
         GeneratorKind::Gateway { size } => draw_gateway_editor(ui, size, dirty),
         GeneratorKind::Cuboid { size, common, .. } => {
             draw_primitive_cuboid(ui, size, edit!(common))
@@ -1196,14 +1357,81 @@ fn draw_generator_detail(
             texture_filter,
             salt,
             dirty,
+            assets,
         ),
-        GeneratorKind::ParticleSystem(params) => draw_generator_particles(ui, params, salt, dirty),
+        GeneratorKind::ParticleSystem(params) => {
+            draw_generator_particles(ui, params, salt, dirty, assets)
+        }
         GeneratorKind::Unknown => {
             ui.colored_label(
                 crate::ui::theme::current(ui.ctx()).status.warn,
                 "Unknown generator type — editable only via the Raw JSON tab.",
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod regrow_warning_tests {
+    use super::regrow_warning;
+
+    /// #1245 f378. The sentence has to name the real scope before the
+    /// slider moves, because the destruction happens a debounce later in a
+    /// system with no UI — there is no frame in which a confirm could ask.
+    #[test]
+    fn the_warning_names_what_is_standing_and_that_moves_are_included() {
+        let both = regrow_warning(312, 40);
+        assert!(both.contains("312 buildings"), "{both}");
+        assert!(both.contains("40 props"), "{both}");
+        assert!(
+            both.contains("moved"),
+            "the expensive work is named: {both}"
+        );
+
+        // One of each reads as one of each.
+        let one = regrow_warning(1, 1);
+        assert!(one.contains("1 building and 1 prop"), "{one}");
+        assert!(!one.contains("buildings"), "{one}");
+
+        // A layer that grew nothing is not mentioned at all.
+        let buildings_only = regrow_warning(5, 0);
+        assert!(!buildings_only.contains("prop"), "{buildings_only}");
+        let props_only = regrow_warning(0, 5);
+        assert!(!props_only.contains("building"), "{props_only}");
+    }
+}
+
+#[cfg(test)]
+mod grammar_key_tests {
+    use crate::world_builder::compile::synthetic_cache_key;
+
+    /// #1250 f84. The spawn path files a grammar outcome under the node's
+    /// synthetic cache key; the panel used to look up the ROOT name. For a
+    /// tree with two grammar nodes that painted one node's line-numbered
+    /// error under the other, and a child's own failure was never shown at
+    /// all — the author edits the wrong file looking for a line number that
+    /// is not there, and the genuinely broken node reads as healthy.
+    ///
+    /// The read and the write have to build the same string, and they are in
+    /// different crates' worth of module apart, so this is the contract.
+    #[test]
+    fn the_panel_looks_a_grammar_status_up_under_the_key_the_spawn_path_wrote() {
+        // A root grammar node: the key is the record key, unchanged.
+        assert_eq!(synthetic_cache_key("oak", &[]), "oak");
+        // A child: root plus its path, which is what `spawn_generator`
+        // passes to `record_grammar_status` for every nested node.
+        assert_eq!(synthetic_cache_key("oak", &[0]), "oak/0");
+        assert_eq!(synthetic_cache_key("oak", &[2, 1, 3]), "oak/2/1/3");
+        // Two siblings are two keys — the whole point.
+        assert_ne!(
+            synthetic_cache_key("oak", &[0]),
+            synthetic_cache_key("oak", &[1])
+        );
+        // And neither is the root's.
+        assert_ne!(
+            synthetic_cache_key("oak", &[0]),
+            synthetic_cache_key("oak", &[])
+        );
     }
 }
 

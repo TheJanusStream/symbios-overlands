@@ -80,6 +80,7 @@
 //!   derivation failure surfaces in the editor instead of a `warn!` nobody
 //!   reads.
 
+pub mod asset_failure;
 pub mod audio_resolver;
 pub mod avatar_spawn;
 pub(crate) mod blob_fetch;
@@ -238,6 +239,61 @@ impl PlacementUnit {
 #[derive(Resource)]
 pub struct WorldCompiled;
 
+/// A world rebuild the owner asked for and is waiting on (#1249 f270).
+///
+/// Re-roll is the headline creative gesture of a seeded world and it was the
+/// app's worst feedback desert: `default_for_seed` runs the whole nine-deriver
+/// procedural pipeline synchronously inside the egui frame — a hard
+/// main-thread stall, worse on wasm, which is single-threaded — and the record
+/// swap then triggers a flat despawn and a sliced respawn of the entire room.
+/// Nothing on that path wrote a toast, set a status line or showed a spinner,
+/// so the only available interpretation of the world blinking out and
+/// reassembling was "something crashed".
+///
+/// Inserted by the editor on the click, consumed by
+/// [`announce_world_rebuilt`] when the compile that follows completes.
+#[derive(Resource)]
+pub struct RebuildAnnounce {
+    /// What the owner asked for, in their words — the second toast repeats
+    /// it so a re-roll and a Load-from-PDS do not read identically.
+    pub what: String,
+    /// `Time::elapsed_secs_f64` at the click, so a rebuild that never
+    /// completes cannot leave a marker that fires on somebody else's
+    /// compile an hour later.
+    pub since_secs: f64,
+}
+
+/// How long a [`RebuildAnnounce`] waits for its compile before giving up on
+/// saying anything. Generously past the worst observed re-roll; the point is
+/// only that the marker cannot outlive the gesture it belongs to.
+const REBUILD_ANNOUNCE_DEADLINE_SECS: f64 = 120.0;
+
+/// Say that the rebuild the owner asked for has finished (#1249 f270).
+///
+/// `WorldCompiled` is (re)inserted at the end of every compile job — and on
+/// an edit that turns out to need no rebuild at all — so the marker is what
+/// scopes the toast to the gesture that asked for one.
+pub fn announce_world_rebuilt(
+    mut commands: Commands,
+    announce: Option<Res<RebuildAnnounce>>,
+    compiled: Option<Res<WorldCompiled>>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    time: Res<Time>,
+) {
+    let Some(announce) = announce else {
+        return;
+    };
+    let now = time.elapsed_secs_f64();
+    if now - announce.since_secs > REBUILD_ANNOUNCE_DEADLINE_SECS {
+        commands.remove_resource::<RebuildAnnounce>();
+        return;
+    }
+    if compiled.is_some_and(|c| c.is_changed()) {
+        toasts.success(format!("{} — your world is ready.", announce.what), now);
+        commands.remove_resource::<RebuildAnnounce>();
+    }
+}
+
 /// The last compile hit [`compile::MAX_ROOM_ENTITIES`] and abandoned the
 /// rest of its placement queue (#1211). Inserted at job completion when
 /// that happened, removed by a completion that did not, and swept on
@@ -385,6 +441,7 @@ impl Plugin for WorldBuilderPlugin {
             .init_resource::<WaterSurfaces>()
             .init_resource::<image_cache::BlobImageCache>()
             .init_resource::<audio_resolver::BlobAudioCache>()
+            .init_resource::<asset_failure::AssetRetryRequests>()
             .init_resource::<spatial_audio::BakedAudioCache>()
             .init_resource::<particles::ParticleQuadMesh>()
             .init_resource::<particles::ParticleAtlasMeshes>()
@@ -423,6 +480,15 @@ impl Plugin for WorldBuilderPlugin {
                     compile::apply_environment_state,
                     compile::apply_contact_recipes,
                     image_cache::poll_blob_image_tasks,
+                    // Say when a re-roll's world has finished rebuilding
+                    // (#1249 f270).
+                    announce_world_rebuilt,
+                    // The editor's "Retry now" (#1247): drops a settled
+                    // failure so the next request re-attempts it.
+                    asset_failure::apply_asset_retries,
+                    // The viewer's external-asset preference (#1248 f298),
+                    // published where the request path can read it.
+                    asset_failure::stamp_asset_policy,
                     spatial_audio::poll_spatial_audio_tasks,
                     // Offloaded surface bakes (#807) — populated only on wasm
                     // (native dispatches through the upstream patch system);

@@ -49,7 +49,7 @@ mod heightmap;
 pub(crate) use heightmap::heightmap_params;
 mod lifecycle;
 mod lots;
-mod referenced;
+pub mod referenced;
 mod roads;
 mod splat;
 
@@ -63,8 +63,12 @@ use crate::state::{AppState, LiveRoomRecord};
 /// Marker inserted once the texture-layer spawn step has run, so the
 /// Loading-phase scheduler doesn't kick the same four tasks twice while
 /// waiting for the texture polls to drain.
+///
+/// `pub(crate)` since #1247: the asset "Retry now" click removes it, which
+/// is the only way to re-dispatch a `Referenced` layer fetch that has
+/// settled.
 #[derive(Resource)]
-struct TextureTasksStarted;
+pub(crate) struct TextureTasksStarted;
 
 /// Marker on the root terrain entity — the static rigid body carrying the
 /// heightfield collider, with the textured terrain mesh as its child.
@@ -121,6 +125,16 @@ pub struct RoadPanelStats {
     pub props: usize,
     /// What the lot layer's clamps dropped on the last inject (#1211).
     pub clamps: LotClamps,
+    /// A re-mesh or a re-derive is armed or running, so the counts above
+    /// describe the PREVIOUS layout (#1245 f385). The readout used to
+    /// report them as settled fact for the whole debounce-plus-build
+    /// window, which is long enough for an owner to read the old number,
+    /// believe it and tune against it.
+    pub pending: bool,
+    /// How many grown objects the last strip removed (#1245 f378) — what
+    /// "re-growing the district" actually costs, in the panel and in the
+    /// toast that says it happened.
+    pub last_replaced: usize,
 }
 
 /// The four silent drops in the lot injector, counted (#1211): density
@@ -154,7 +168,9 @@ pub fn is_road_grown(placement: &crate::pds::Placement) -> bool {
     lots::is_road_grown(placement)
 }
 
-pub(crate) use lots::{MAX_FURNITURE_PROPS, MAX_LOT_BUILDINGS};
+pub(crate) use lots::{
+    MAX_FURNITURE_PROPS, MAX_LOT_BUILDINGS, is_derived_generator_key, resolve_lot_theme,
+};
 
 impl FinishedHeightMap {
     /// Terrain height at **world** coordinates: the heightmap's own frame
@@ -267,6 +283,7 @@ impl Plugin for TerrainPlugin {
         app.add_plugins(SymbiosTexturePlugin::default())
             .add_plugins(MaterialPlugin::<SplatTerrainMaterial>::default())
             .init_resource::<TerrainSplatState>()
+            .init_resource::<referenced::ReferencedLayerStatus>()
             .init_resource::<LastTerrainConfigJson>()
             .init_resource::<PendingTerrainConfigJson>()
             .init_resource::<roads::RoadRebuild>()

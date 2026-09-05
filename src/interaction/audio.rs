@@ -30,6 +30,7 @@ use bevy::tasks::{IoTaskPool, Task};
 use crate::config::interaction::audio as vcfg;
 use crate::pds::AudioClipSource;
 use crate::state::AppState;
+use crate::world_builder::asset_failure::{AssetFailure, AssetFetchError, AssetStatus};
 use crate::world_builder::blob_fetch;
 
 use super::contact::AvatarContacts;
@@ -59,6 +60,22 @@ impl AudioClipKey {
             _ => None,
         }
     }
+
+    /// The identity a diagnostic line names.
+    pub fn describe(&self) -> String {
+        match self {
+            Self::Url(url) => url.clone(),
+            Self::AtprotoBlob { did, cid } => format!("{did}/{cid}"),
+        }
+    }
+
+    /// Whether following this clip means talking to a host somebody else
+    /// chose (#1248 f298). A contact cue is the sharpest case of the
+    /// exposure: it fires when the visitor's own avatar touches geometry,
+    /// so it reports arrival and departure, not just presence.
+    pub fn is_external(&self) -> bool {
+        matches!(self, Self::Url(_))
+    }
 }
 
 enum AudioClipEntry {
@@ -68,6 +85,17 @@ enum AudioClipEntry {
     Pending,
     /// Decoded and asset-resident — plays synchronously.
     Ready(Handle<AudioSource>),
+    /// The fetch gave up, and this is why and when it may be tried again.
+    ///
+    /// **This is the entry that used to be removed (#1247 f309).** A dwell
+    /// recipe at cooldown 0 produces one contact sample per frame, and a
+    /// removed entry meant the next frame took the miss arm and spawned
+    /// another `IoTaskPool` task and another HTTP request — an unbounded
+    /// outbound loop from every visitor's client, aimed at a host named in
+    /// somebody else's record, invisible at both ends. In the browser this
+    /// is the COMMON case, not the pathological one: a cross-origin clip
+    /// that plays fine on native fails on every web visitor.
+    Failed(AssetFailure),
 }
 
 /// Source-keyed clip cache. FIFO-bounded by
@@ -106,6 +134,25 @@ impl AudioClipCache {
         self.map.clear();
         self.order.clear();
     }
+
+    /// How this clip stands — the answer the contact-effects editor's
+    /// status line prints (#1252).
+    pub fn status(&self, key: &AudioClipKey) -> Option<AssetStatus> {
+        match self.map.get(key)? {
+            AudioClipEntry::Pending => Some(AssetStatus::Pending),
+            AudioClipEntry::Ready(_) => Some(AssetStatus::Ready),
+            AudioClipEntry::Failed(failure) => Some(AssetStatus::Failed(*failure)),
+        }
+    }
+
+    /// Drop a failed entry so the next contact re-attempts — "Retry now".
+    pub fn clear_failure(&mut self, key: &AudioClipKey) -> bool {
+        if matches!(self.map.get(key), Some(AudioClipEntry::Failed(_))) {
+            self.remove(key);
+            return true;
+        }
+        false
+    }
 }
 
 /// In-flight clip fetch, parked on a throwaway entity so it survives
@@ -113,7 +160,9 @@ impl AudioClipCache {
 #[derive(Component)]
 pub struct AudioClipTask {
     key: AudioClipKey,
-    task: Task<Option<Vec<u8>>>,
+    task: Task<blob_fetch::FetchedBytes>,
+    /// The failure this attempt retries, so the wait keeps doubling.
+    previous: Option<AssetFailure>,
 }
 
 /// Per-`(avatar, audio-recipe index)` cooldown state — a shared
@@ -127,6 +176,14 @@ pub struct AudioCueState {
 /// Drop cooldown entries older than this (s) — far longer than any sane
 /// per-recipe cooldown, so pruning never resets a live throttle.
 const COOLDOWN_ENTRY_TTL: f32 = 30.0;
+
+impl AudioCueState {
+    /// Forget every live throttle — the registry whose indices they key on
+    /// has been replaced (#1254 f322).
+    pub fn clear_cooldowns(&mut self) {
+        self.cooldowns.clear();
+    }
+}
 
 impl Default for AudioCueState {
     fn default() -> Self {
@@ -156,7 +213,7 @@ fn hash_unit(a: u64, b: u64, c: u64) -> f32 {
 /// Spawn the IoTaskPool fetch for an uncached clip. Mirrors
 /// `image_cache`'s task shape (block a current-thread tokio runtime on
 /// native; await directly on wasm).
-fn spawn_fetch(commands: &mut Commands, key: AudioClipKey) {
+fn spawn_fetch(commands: &mut Commands, key: AudioClipKey, previous: Option<AssetFailure>) {
     let pool = IoTaskPool::get();
     let key_for_task = key.clone();
     let task = pool.spawn(async move {
@@ -179,9 +236,13 @@ fn spawn_fetch(commands: &mut Commands, key: AudioClipKey) {
                 }
             }
         };
-        crate::config::http::run_or(fut, None).await
+        crate::config::http::run_or(fut, Err(AssetFetchError::TimedOut)).await
     });
-    commands.spawn(AudioClipTask { key, task });
+    commands.spawn(AudioClipTask {
+        key,
+        task,
+        previous,
+    });
 }
 
 /// Phase-4 consumer: `AvatarContacts × audio cues` → one-shot
@@ -227,14 +288,32 @@ pub fn play_contact_audio(
             let Some(clip_key) = AudioClipKey::from_source(&recipe.params.source) else {
                 continue; // Unknown / empty source — nothing to play.
             };
+            // The viewer declined to talk to hosts other people chose
+            // (#1248 f298).
+            if clip_key.is_external() && !settings.load_external_assets {
+                continue;
+            }
 
             // Resolve the clip; prime the cache on first sight.
             let handle = match cache.map.get(&clip_key) {
                 Some(AudioClipEntry::Ready(h)) => h.clone(),
                 Some(AudioClipEntry::Pending) => continue, // still loading
+                // A failure inside its wait is a HIT: the cue stays silent
+                // and no request is issued. Once the wait elapses (and the
+                // reason is one that can change) the retry carries the
+                // previous backoff so it keeps doubling.
+                Some(AudioClipEntry::Failed(failure)) => {
+                    if !failure.may_retry(now as f64) {
+                        continue;
+                    }
+                    let previous = *failure;
+                    cache.insert_bounded(clip_key.clone(), AudioClipEntry::Pending);
+                    spawn_fetch(&mut commands, clip_key, Some(previous));
+                    continue;
+                }
                 None => {
                     cache.insert_bounded(clip_key.clone(), AudioClipEntry::Pending);
-                    spawn_fetch(&mut commands, clip_key);
+                    spawn_fetch(&mut commands, clip_key, None);
                     continue;
                 }
             };
@@ -281,15 +360,20 @@ pub fn play_contact_audio(
 }
 
 /// Drain finished clip fetches: wrap the bytes in an [`AudioSource`]
-/// asset and promote the cache entry to `Ready`. A failed fetch drops
-/// the entry so a later trigger re-attempts instead of staying silent
-/// forever behind a transient blip.
+/// asset and promote the cache entry to `Ready`. A failed fetch leaves a
+/// [`AudioClipEntry::Failed`] entry carrying the reason and the doubling
+/// wait, so the cue goes quiet instead of re-requesting on the next
+/// contact sample (#1247 f309).
 pub fn poll_audio_clip_tasks(
     mut commands: Commands,
     mut tasks: Query<(Entity, &mut AudioClipTask)>,
     mut assets: ResMut<Assets<AudioSource>>,
     mut cache: ResMut<AudioClipCache>,
+    time: Res<Time>,
+    mut report: crate::world_builder::asset_failure::AssetReport,
 ) {
+    let now = time.elapsed_secs_f64();
+    let mut reporter = report.at(now);
     for (entity, mut task) in tasks.iter_mut() {
         let Some(result) =
             futures_lite::future::block_on(futures_lite::future::poll_once(&mut task.task))
@@ -299,15 +383,20 @@ pub fn poll_audio_clip_tasks(
         commands.entity(entity).despawn();
 
         match result {
-            Some(bytes) => {
+            Ok(bytes) => {
                 let handle = assets.add(AudioSource {
                     bytes: bytes.into(),
                 });
                 cache.insert_bounded(task.key.clone(), AudioClipEntry::Ready(handle));
             }
-            None => {
-                // Fetch failed — drop so the next trigger retries.
-                cache.remove(&task.key);
+            Err(reason) => {
+                let failure = AssetFailure::after(task.previous.as_ref(), reason, now);
+                reporter.record(
+                    crate::world_builder::asset_failure::AssetClass::Audio,
+                    &task.key.describe(),
+                    reason,
+                );
+                cache.insert_bounded(task.key.clone(), AudioClipEntry::Failed(failure));
             }
         }
     }
@@ -379,6 +468,56 @@ mod tests {
             None
         );
         assert_eq!(AudioClipKey::from_source(&AudioClipSource::Unknown), None);
+    }
+
+    /// The #1247 f309 sequence, at the cache boundary: a dwelling avatar
+    /// produces one contact sample per frame, and the entry the failure
+    /// leaves behind is the only thing standing between that and one HTTP
+    /// request per frame, forever, aimed at a host named in somebody else's
+    /// record.
+    #[test]
+    fn a_failed_clip_stays_a_hit_until_its_wait_elapses() {
+        let mut cache = AudioClipCache::default();
+        let key = AudioClipKey::Url("https://x.test/dead.ogg".into());
+        let failure = AssetFailure::after(None, AssetFetchError::Unreachable, 10.0);
+        cache.insert_bounded(key.clone(), AudioClipEntry::Failed(failure));
+
+        // `play_contact_audio` asks exactly this question on every sample.
+        assert!(!failure.may_retry(10.0), "the frame after the failure");
+        assert!(!failure.may_retry(11.9), "still inside the wait");
+        assert!(failure.may_retry(12.0), "the wait elapsed");
+
+        assert!(matches!(
+            cache.status(&key),
+            Some(crate::world_builder::asset_failure::AssetStatus::Failed(_))
+        ));
+        assert!(cache.clear_failure(&key), "Retry now clears it");
+        assert!(
+            cache.status(&key).is_none(),
+            "and the next contact re-fetches"
+        );
+    }
+
+    /// A settled clip goes quiet for the rest of the room rather than
+    /// knocking for the whole session — the attempt ceiling f309 asked for.
+    #[test]
+    fn a_settled_clip_never_asks_again_on_its_own() {
+        let mut failure = AssetFailure::after(None, AssetFetchError::Unreachable, 0.0);
+        let mut now = 0.0;
+        for _ in 1..crate::world_builder::asset_failure::GIVE_UP_ATTEMPTS {
+            now += failure.backoff.wait_secs;
+            assert!(
+                failure.may_retry(now),
+                "attempt {} was due",
+                failure.backoff.attempts
+            );
+            failure = AssetFailure::after(Some(&failure), AssetFetchError::Unreachable, now);
+        }
+        assert!(failure.settled());
+        assert!(
+            !failure.may_retry(now + 86_400.0),
+            "a day later, still quiet"
+        );
     }
 
     #[test]

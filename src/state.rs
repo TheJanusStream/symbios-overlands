@@ -535,6 +535,24 @@ pub struct LocalSettings {
     /// for the user who would rather have an uncluttered view of a busy
     /// room than a name over everybody in it.
     pub show_peer_nametags: bool,
+    /// Follow `Url` asset references — images and sounds a record names by
+    /// web address — as opposed to the ATProto ones (`AtprotoBlob`,
+    /// `DidPfp`), which stay inside Bluesky infrastructure (#1248 f298).
+    ///
+    /// **What this is really about.** A room reached through a portal or a
+    /// gateway is a stranger's, and its record can name any host it likes.
+    /// Standing in it makes your client fetch from that host, which discloses
+    /// your IP address, roughly where you are, and — for a contact cue, which
+    /// fires on touch — when you arrived and when you left. #1127 removed the
+    /// crude half of that (http, loopback, private ranges); what remains is
+    /// inherent to following an address somebody else chose, and until now it
+    /// was neither disclosed nor refusable.
+    ///
+    /// On by default, because most authored imagery in the product is a URL
+    /// and defaulting off would make every visited world worse without the
+    /// visitor understanding why. The point is that the choice exists and is
+    /// stated.
+    pub load_external_assets: bool,
 }
 
 /// How much of a room's authored contact effects a visitor accepts
@@ -608,6 +626,7 @@ impl Default for LocalSettings {
             login_world_backdrop: true,
             effects_intensity: EffectsIntensity::default(),
             show_peer_nametags: true,
+            load_external_assets: true,
         }
     }
 }

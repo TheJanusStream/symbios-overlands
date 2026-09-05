@@ -436,6 +436,12 @@ mod tests {
             settings.show_peer_nametags,
             "and the one it did not defaults on"
         );
+        assert!(
+            settings.load_external_assets,
+            "and so does external-asset loading (#1248 f298) — an upgrade that \
+             silently stopped following URL references would blank most of the \
+             imagery in the product with no explanation"
+        );
     }
 
     #[test]
@@ -450,6 +456,7 @@ mod tests {
             // Every non-default field must be spelled out here, or the test
             // proves only that the DEFAULT survives the wire (#1226 f325).
             show_peer_nametags: false,
+            load_external_assets: false,
             ..Default::default()
         };
         let mut windows = WindowLayout::default();
@@ -496,6 +503,10 @@ mod tests {
         assert!(
             !restored_settings.show_peer_nametags,
             "a switched-off nametag preference survives the wire (#1226)"
+        );
+        assert!(
+            !restored_settings.load_external_assets,
+            "and so does a switched-off external-asset preference (#1248 f298)"
         );
         assert_eq!(
             back.windows.unwrap().rects["chat"],

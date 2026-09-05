@@ -557,9 +557,25 @@ fn build_tree_node(
             *pending.borrow_mut() = Some(PendingAction::PasteChild(menu_id.clone()));
             ui.close();
         }
-        if menu_is_root && menu_allow_rename && ui.button("Rename").clicked() {
-            *pending.borrow_mut() = Some(PendingAction::Rename(menu_root.clone()));
-            ui.close();
+        if menu_is_root && menu_allow_rename {
+            // Refused on the derived namespace (#1245 f382). The
+            // `lot_building_` / `street_prop_` prefix is the whole
+            // idempotency key: renaming one makes the strip miss it,
+            // `net_populated` report false, and a second identical district
+            // grow on top of the first. The affordance was offered on
+            // exactly the rows it corrupts.
+            let derived = crate::terrain::is_derived_generator_key(&menu_root);
+            let button = ui.add_enabled(!derived, egui::Button::new("Rename"));
+            if derived {
+                button.on_disabled_hover_text(
+                    "Grown by the road layer. Its name is how the layer finds it \
+                     again — renaming it would grow a second district on top of \
+                     this one.",
+                );
+            } else if button.clicked() {
+                *pending.borrow_mut() = Some(PendingAction::Rename(menu_root.clone()));
+                ui.close();
+            }
         }
         // Cap-gated (#841): "Save to Inventory" used to insert
         // unconditionally, blowing past the 50-item cap the gift-accept

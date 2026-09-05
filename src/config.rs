@@ -1186,6 +1186,25 @@ pub(crate) mod avatar {
 // ---------------------------------------------------------------------------
 // HTTP client defaults (lib.rs, avatar.rs, social.rs, ui/login/, ui/room/)
 // ---------------------------------------------------------------------------
+/// Retry policy for room ASSET fetches — sign images, referenced textures,
+/// terrain splat layers, ambient beds and contact audio cues (#1247).
+///
+/// Separate constants from [`network::PEER_FETCH_RETRY_BASE_SECS`] even
+/// though the numbers currently match, because what each protects is
+/// different. A peer fetch is aimed at that peer's own PDS and is the price
+/// of them being in the room; an asset fetch is aimed at a third-party host
+/// named in somebody else's record, from every visitor's client at once, and
+/// the person causing the traffic is not the person who authored it. If the
+/// two ever have to diverge, this is the seam.
+pub(crate) mod asset {
+    /// First wait after a failed asset fetch. Short enough that a blip
+    /// during a room load is invisible.
+    pub const FETCH_RETRY_BASE_SECS: f64 = 2.0;
+    /// Ceiling for the doubling. A dead source therefore settles into one
+    /// request a minute rather than one per contact sample.
+    pub const FETCH_RETRY_MAX_SECS: f64 = 60.0;
+}
+
 pub(crate) mod http {
     use std::time::Duration;
     /// Maximum time to wait for a TCP + TLS handshake. A tarpit peer that

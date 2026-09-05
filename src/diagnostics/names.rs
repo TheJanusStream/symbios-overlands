@@ -194,6 +194,23 @@ pub const NET_AVATAR_FETCH_FAIL_COUNT: &str = "net.avatar_fetch.fail_count";
 /// chain gifting (#1108) made cross-owner and therefore the one most likely
 /// to fail partially.
 pub const NET_ATTACHMENT_FETCH_FAIL_COUNT: &str = "net.attachment_fetch.fail_count";
+/// Room ASSET fetches that failed, by class (#1246 f353). Distinct from the
+/// two record-fetch counters above: those count a peer's PDS records, these
+/// count the images, sounds and terrain layers a room names — which live on
+/// third-party hosts, are fetched by every visitor at once, and until #1246
+/// produced no signal of any kind.
+pub const ASSET_IMAGE_FETCH_FAIL_COUNT: &str = "asset.image_fetch.fail_count";
+/// Audio asset fetches that failed — ambient beds, construct audio, contact
+/// cues.
+pub const ASSET_AUDIO_FETCH_FAIL_COUNT: &str = "asset.audio_fetch.fail_count";
+/// `Referenced` terrain splat layers that failed to fetch. Counted apart
+/// from images because the fallback is a convincing procedural ground rather
+/// than a blank, so a failure here is the one that looks most like success.
+pub const ASSET_TERRAIN_LAYER_FETCH_FAIL_COUNT: &str = "asset.terrain_layer_fetch.fail_count";
+/// Decoded bytes currently held by the blob image cache. The budget behind
+/// it is `image_cache::MAX_CACHE_BYTES`; before #1246 the accessor feeding
+/// this had no caller outside its own tests.
+pub const ASSET_IMAGE_CACHE_BYTES: &str = "asset.image_cache.bytes";
 /// Item offers the local user accepted.
 pub const NET_OFFER_ACCEPTED_COUNT: &str = "net.offer.accepted_count";
 /// Item offers the local user declined.
@@ -284,6 +301,12 @@ pub const OFFLOAD_JOB_ERROR_COUNT: &str = "offload.job.error_count";
 /// for sustained vehicle-scene lag (as opposed to a one-off spawn hitch).
 pub const AUDIO_SPATIAL_ACTIVE_SINKS: &str = "audio.spatial.active_sinks";
 /// Retained baked-audio cache entries (distinct voice / construct patches).
+/// One-shot contact-cue voices currently mixing (#1252 f316). Counted apart
+/// from the looping gauge because they are the subsystem a careless or
+/// hostile room saturates, and they spawn `PlaybackMode::Despawn` — so the
+/// looping gauge read 0 while 24 of them mixed, which is worse than no
+/// gauge: it actively rules out the correct diagnosis.
+pub const AUDIO_CONTACT_ACTIVE_VOICES: &str = "audio.contact.active_voices";
 pub const AUDIO_BAKE_CACHE_ENTRIES: &str = "audio.bake.cache_entries";
 /// Total bytes of retained baked-audio buffers — the cache's memory footprint.
 pub const AUDIO_BAKE_CACHE_BYTES: &str = "audio.bake.cache_bytes";
@@ -340,6 +363,11 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (NET_AVATAR_FETCH_SUCCESS_COUNT, MetricKind::Counter),
     (NET_AVATAR_FETCH_FAIL_COUNT, MetricKind::Counter),
     (NET_ATTACHMENT_FETCH_FAIL_COUNT, MetricKind::Counter),
+    // asset
+    (ASSET_IMAGE_FETCH_FAIL_COUNT, MetricKind::Counter),
+    (ASSET_AUDIO_FETCH_FAIL_COUNT, MetricKind::Counter),
+    (ASSET_TERRAIN_LAYER_FETCH_FAIL_COUNT, MetricKind::Counter),
+    (ASSET_IMAGE_CACHE_BYTES, MetricKind::Gauge),
     (NET_OFFER_ACCEPTED_COUNT, MetricKind::Counter),
     (NET_OFFER_DECLINED_COUNT, MetricKind::Counter),
     (NET_OFFER_AUTO_DECLINED_BUSY_COUNT, MetricKind::Counter),
@@ -369,6 +397,7 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (OFFLOAD_JOB_ERROR_COUNT, MetricKind::Counter),
     // spatial audio (#802)
     (AUDIO_SPATIAL_ACTIVE_SINKS, MetricKind::Gauge),
+    (AUDIO_CONTACT_ACTIVE_VOICES, MetricKind::Gauge),
     (AUDIO_BAKE_CACHE_ENTRIES, MetricKind::Gauge),
     (AUDIO_BAKE_CACHE_BYTES, MetricKind::Gauge),
     (AUDIO_VOICE_BAKE_LATENCY_MS, MetricKind::Histogram),
@@ -394,7 +423,7 @@ mod tests {
             assert!(
                 matches!(
                     segs[0],
-                    "runtime" | "net" | "loading" | "offload" | "record" | "audio"
+                    "runtime" | "net" | "loading" | "offload" | "record" | "audio" | "asset"
                 ),
                 "name {name} has unknown subsystem prefix"
             );

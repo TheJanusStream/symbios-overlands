@@ -157,7 +157,8 @@ pub(super) fn apply_pending(
                 // cap, which is not why.
                 if !source.allow_multiple_roots() {
                     toasts.warn(
-                        "This tree holds one top-level item — duplicate a part                          inside it instead.",
+                        "This tree holds one top-level item — duplicate a part \
+                         inside it instead.",
                         now,
                     );
                     return;

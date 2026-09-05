@@ -292,6 +292,17 @@ pub fn validate_new_key(
     if trimmed != old && is_taken(trimmed) {
         return Err(format!("\"{trimmed}\" is already taken."));
     }
+    // The road layer's derived namespace is reserved (#1245 f382). Its
+    // prefix is an idempotency key, not a name: anything wearing it is
+    // deleted and regrown by the next layout edit, so a generator the owner
+    // named into it would silently disappear.
+    if crate::terrain::is_derived_generator_key(trimmed) {
+        return Err(
+            "Names starting with \"lot_building_\" or \"street_prop_\" belong to \
+             the road layer — it deletes and regrows whatever wears them."
+                .to_owned(),
+        );
+    }
     Ok(())
 }
 

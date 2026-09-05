@@ -26,8 +26,10 @@ pub(super) fn draw_generator_sign(
     texture_filter: &mut crate::pds::TextureFilter,
     salt: &str,
     dirty: &mut bool,
+    assets: &mut super::super::assets::AssetPanel<'_>,
 ) {
-    draw_sign_source(ui, source, salt, dirty);
+    let filter = crate::world_builder::image_cache::SamplerFilter::from_record(texture_filter);
+    draw_sign_source(ui, source, salt, dirty, filter, assets);
     // Sampler filter for the fetched image (#663): Nearest keeps
     // pixel-art signage crisp; Linear (default) smooths photos.
     super::particles::draw_texture_filter(ui, texture_filter, salt, dirty);
@@ -92,12 +94,20 @@ pub(super) fn draw_generator_sign(
             // it never tiles.
             ui.add(egui::Label::new(
                 egui::RichText::new(
-                    "Image placement — scale 1 spans the panel; above 1                      crops toward the near corner (the image never tiles).",
+                    "Image placement — scale 1 spans the panel; above 1 \
+                     crops toward the near corner (the image never tiles).",
                 )
                 .small()
                 .color(crate::ui::theme::current(ui.ctx()).text_weak),
             ));
-            fp_slider(ui, "UV scale (spans)", &mut material.uv_scale, 0.05, 10.0, dirty);
+            fp_slider(
+                ui,
+                "UV scale (spans)",
+                &mut material.uv_scale,
+                0.05,
+                10.0,
+                dirty,
+            );
             super::super::material::draw_uv_transform_rows(ui, material, "spans", dirty);
         });
 }
@@ -113,6 +123,11 @@ pub(super) fn draw_sign_source(
     source: &mut SignSource,
     salt: &str,
     dirty: &mut bool,
+    // The sampler filter this slot fetches at: the same URL at Linear and
+    // at Nearest are two GPU images and two cache entries, so a panel must
+    // ask about the one it is actually showing (#1246 f342).
+    filter: crate::world_builder::image_cache::SamplerFilter,
+    assets: &mut super::super::assets::AssetPanel<'_>,
 ) {
     let current = match source {
         SignSource::Url { .. } => "URL",
@@ -156,15 +171,34 @@ pub(super) fn draw_sign_source(
 
     match source {
         SignSource::Url { url } => {
+            // A deferred-commit row with the refusal rule as its closure
+            // (#1248 f79 / f340). The field used to be a bare `TextEdit`
+            // writing every keystroke into the record, and the editor's own
+            // debounce sanitize ran `url.clear()` on anything
+            // `is_fetchable_reference` refuses about a quarter second later
+            // — so a pause while typing emptied the box under the cursor,
+            // in the same session, with nothing said. Refusing the DRAFT
+            // keeps the text and states the rule instead.
             ui.horizontal(|ui| {
                 ui.label("URL:");
-                if ui
-                    .add(egui::TextEdit::singleline(url).hint_text("https://…"))
-                    .changed()
-                {
+                let out = super::super::widgets::text_draft_row(
+                    ui,
+                    (salt, "sign_url"),
+                    url,
+                    260.0,
+                    "The address of the image this panel shows. Press Enter, \
+                     or click away, to apply it.",
+                    crate::pds::sanitize::refusal_reason,
+                );
+                if let Some(committed) = out.committed {
+                    *url = committed;
                     *dirty = true;
                 }
             });
+            super::super::widgets::caps_line(
+                ui,
+                &crate::world_builder::asset_failure::image_source_caps(),
+            );
         }
         SignSource::AtprotoBlob { did, cid } => {
             ui.horizontal(|ui| {
@@ -198,11 +232,20 @@ pub(super) fn draw_sign_source(
             });
         }
         SignSource::Unknown => {
-            ui.colored_label(
-                crate::ui::theme::current(ui.ctx()).status.warn,
-                "Unknown source variant — pick one above to replace it.",
-            );
+            super::super::widgets::unrecognised_value_line(ui, "source", None);
         }
+    }
+
+    // Whether the image arrived, and if not, why (#1246 f342). A pending,
+    // a failed and a never-configured Sign used to be the same brown
+    // plane: `spawn_sign_entity` builds the material with no texture and
+    // only a tint, so there was nothing on the panel OR in the editor to
+    // tell them apart, and the only record of a failure was a console line
+    // the deployed web user never opens.
+    if super::super::assets::asset_status_row(ui, assets.sign_image(source, filter), assets.now)
+        && let Some(retry) = super::super::assets::AssetPanel::sign_retry(source, filter)
+    {
+        assets.retry(retry);
     }
 }
 

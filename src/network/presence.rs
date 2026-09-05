@@ -320,13 +320,25 @@ impl RetryBackoff {
     /// The backoff to record after a failure, doubling whatever the previous
     /// one waited.
     pub fn after_failure(previous: Option<&Self>, now: f64) -> Self {
+        Self::after_failure_with(
+            previous,
+            now,
+            config::network::PEER_FETCH_RETRY_BASE_SECS,
+            config::network::PEER_FETCH_RETRY_MAX_SECS,
+        )
+    }
+
+    /// [`Self::after_failure`] against a caller's own two numbers.
+    ///
+    /// The peer-side fetches share one pair; the asset fetches (#1247) wait
+    /// on the same doubling with theirs, because what is being protected is
+    /// a stranger's host rather than a stranger's PDS. Keeping the shape
+    /// here rather than copying six lines is what stops a fifth backoff
+    /// from meaning a fifth thing.
+    pub fn after_failure_with(previous: Option<&Self>, now: f64, base: f64, max: f64) -> Self {
         Self {
             attempts: previous.map_or(1, |b| b.attempts.saturating_add(1)),
-            wait_secs: next_wait_secs(
-                previous.map(|b| b.wait_secs),
-                config::network::PEER_FETCH_RETRY_BASE_SECS,
-                config::network::PEER_FETCH_RETRY_MAX_SECS,
-            ),
+            wait_secs: next_wait_secs(previous.map(|b| b.wait_secs), base, max),
             failed_at: now,
         }
     }

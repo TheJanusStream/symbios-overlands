@@ -68,7 +68,11 @@ fn referenced_label_is_distinct() {
     let r = SovereignTextureConfig::Referenced {
         source: SovereignAssetReference::default(),
     };
-    assert_eq!(r.label(), "Referenced");
+    // Renamed for the picker (#1251 f354): "Referenced" was schema
+    // vocabulary sitting among fifty-seven plain-English materials, on the
+    // one entry whose result arrives over the network. The WIRE tag is
+    // untouched — this is `label()`, which exists for combo boxes.
+    assert_eq!(r.label(), "External image");
     // Sanity-check against neighbouring variants so the new arm doesn't
     // accidentally re-use an existing label.
     assert_ne!(r.label(), SovereignTextureConfig::None.label());

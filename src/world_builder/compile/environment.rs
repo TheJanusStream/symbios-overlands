@@ -11,6 +11,24 @@ use crate::clouds::{CloudLayer, CloudMaterial};
 use crate::pds::{Fp3, Fp4};
 use crate::state::LiveRoomRecord;
 
+/// A request to re-paint the atmosphere from the LIVE record right now,
+/// without waiting for the editor's debounce (#1249 f59).
+///
+/// **The lane this opens.** Every widget edit re-arms the 0.25 s flush, and
+/// `set_changed()` fires only when that timer drains — so during a
+/// continuous drag the record is never marked changed, and colour and
+/// atmosphere sliders, which are tuned by eye, showed nothing at all until
+/// the hand stopped. The debounce is right for the two expensive consumers
+/// (the peer broadcast and the world compile / terrain rebuild) and wrong
+/// for this one, which patches light, fog, sky and cloud uniforms and is
+/// safe at frame rate.
+///
+/// A resource rather than a flag on the record because the record's change
+/// tick IS the debounce signal; a second signal is the only way to say
+/// "cheap consumers only".
+#[derive(Resource, Default)]
+pub struct EnvironmentPreview;
+
 /// Apply the active `RoomRecord`'s `Environment` to every atmospheric
 /// resource in the scene — sun, ambient, sky cuboid, clear colour, and
 /// distance fog. Runs on every `RoomRecord` change so an editor slider
@@ -39,11 +57,16 @@ pub(crate) fn apply_environment_state(
     mut cloud_materials: ResMut<Assets<CloudMaterial>>,
     mut water_materials: ResMut<Assets<crate::water::WaterMaterial>>,
     vegetation_wind: Option<ResMut<crate::wind::VegetationWind>>,
+    // The cheap lane (#1249 f59): the editor stamps this every frame a
+    // widget changes, so a drag repaints continuously while the broadcast
+    // and the recompile still wait for the pause.
+    preview: Option<Res<EnvironmentPreview>>,
 ) {
     let Some(record) = record else {
         return;
     };
-    if !record.is_changed() {
+    let previewing = preview.is_some_and(|p| p.is_changed());
+    if !record.is_changed() && !previewing {
         return;
     }
     let record = &record.0;
