@@ -1642,19 +1642,33 @@ pub(crate) mod ui {
         /// Foreground layer.
         pub const MAX_TEXT_CHARS: usize = 240;
 
-        /// Anchor offset from the screen's BOTTOM-right corner: clear of
-        /// both window edges.
+        /// How far below the panel-free rect's TOP edge the toast stack
+        /// begins, centred horizontally (#1286).
         ///
-        /// Moved off the top-right by #1261 f43. Every right-anchored
-        /// window in `ui::layout` — Chat, People, Inventory, Controls,
-        /// Settings — opens at `avail.top() + MARGIN` in that same
+        /// **Why not a corner at all.** #1261 f43 moved the stack off the
+        /// top-RIGHT because every right-anchored window in `ui::layout`
+        /// — Chat, People, Inventory, Controls, Settings — opens in that
         /// corner, and the toast area is a real pointer area at
-        /// `Order::Foreground`, so a stack of up to `MAX_VISIBLE` rows
-        /// covered their title bars and ate clicks on them for the
-        /// toast's full life. The bottom strip is claimed by nothing in
-        /// `UiWindow::slot()`; only the transient gateway chip and
-        /// portal prompt live down there, and both are centred.
-        pub const ANCHOR_OFFSET: [f32; 2] = [-12.0, -12.0];
+        /// `Order::Foreground`, so a stack of up to [`MAX_VISIBLE`] rows
+        /// covered their title bars and ate clicks for the toast's full
+        /// life. The bottom-right corner it moved to has no such
+        /// neighbour, but it turned out to be **easy to miss on a large
+        /// display**: the eye is on the middle of the screen and the
+        /// feedback was in the far corner of a 5760-wide desktop.
+        ///
+        /// Centre-top is where a user is already looking and no window
+        /// slot claims it — `SlotAnchor` is Left, Right or CenterLeft,
+        /// and a CenterLeft editor's title bar starts well left of centre.
+        ///
+        /// 44 and not 8: `ui::modes`' movement-mode banner sits at the
+        /// panel-free top + 8 with a popup frame, and it is a standing
+        /// state cue that a transient message should not sit on top of.
+        /// Measured from the PANEL-FREE rect, not `content_rect` — an
+        /// anchored `Area` aligns within `content_rect`, which INCLUDES
+        /// the toolbar panel, which is why anything anchored `CENTER_TOP`
+        /// lands underneath it (the same trap `ui::layout`'s header
+        /// records for windows).
+        pub const TOP_OFFSET: f32 = 44.0;
     }
 
     /// Drag-to-place drop preview (`crate::ui::inventory::drop`, #831):

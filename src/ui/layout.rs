@@ -40,7 +40,7 @@ use std::collections::HashMap;
 
 /// Lay a window's fixed footer against its bottom edge, so the
 /// scrollable body above it can be given **exactly** what is left
-/// (#1280). Pair with [`fill_above`], which the closure calls last.
+/// (#1280). Call this FIRST, then [`fill_above`] for the body.
 ///
 /// # The bug this exists to make unwriteable
 ///
@@ -73,67 +73,71 @@ use std::collections::HashMap;
 /// the screen edge. That is #1280 — Chat filled the viewport in under a
 /// second once #1141 and #1213 had each added a line below its input row.
 ///
-/// # Why the replacement is a fixed point
+/// # Why it is a bottom panel, after two attempts that were not
 ///
-/// The footer is laid out FIRST, in a bottom-up `Ui`, so its height is
-/// *measured*; [`fill_above`] then hands the body a `Ui` whose available
-/// height is the true remainder. A `ScrollArea` with
-/// `auto_shrink([true, false])` and **no `max_height`** fills exactly
-/// that, so content height == available height on every frame and
-/// `desired_size.max(..)` is a no-op.
+/// The first two versions of this ran the footer inside a **bottom-up
+/// `Ui`** so its height would be measured rather than guessed. That
+/// measures correctly and anchors wrongly, and #1285 is what wrongly
+/// looks like: `Ui::with_layout` hands its child the parent's whole
+/// available rect, so a top-down child of a bottom-up parent draws from
+/// the TOP of the window while the parent merely *accounts* for its
+/// height at the bottom. Chat and the Inventory drew their footer over
+/// their own scrollback at the top of the window with a dead half below,
+/// and the growth guard could not see it because the window's total size
+/// was right the whole time. Writing the footer straight into the
+/// bottom-up `Ui` anchors correctly but emits it bottom-first, which is
+/// how the Inventory's status line ended up above the Save row it
+/// reports on (#1282).
 ///
-/// The closure wraps its footer in [`footer`] — which restores ordinary
-/// reading order inside it — and ends with [`fill_above`]:
+/// `egui::Panel::bottom` is the tool that does both: it measures its
+/// content, reserves that height against the parent's bottom edge, lays
+/// the content out top-down in ordinary reading order, and shrinks
+/// `available_rect` for everything after it. It also draws the dividing
+/// line, so [`fill_above`] no longer needs a separator of its own.
+///
+/// `id_salt` is hashed with the calling `Ui`'s id, so two windows using
+/// this cannot collide; `Frame::NONE` because a panel's default frame
+/// paints `panel_fill`, which inside a window is a differently-coloured
+/// strip along the bottom.
 ///
 /// ```ignore
-/// layout::bottom_anchored(ui, |ui| {
-///     layout::footer(ui, |ui| {
-///         // in ordinary reading order, top to bottom
-///         if let Some(note) = .. { ui.label(note); }
-///         ui.horizontal(|ui| { .. });  // the input row
-///         ui.small(hint_line());
-///     });
-///     layout::fill_above(ui, |ui| {
-///         egui::ScrollArea::vertical()
-///             .auto_shrink([true, false])
-///             .show(ui, |ui| { .. });
-///     });
+/// layout::footer(ui, "chat_footer", |ui| {
+///     // in ordinary reading order, top to bottom
+///     if let Some(note) = .. { ui.label(note); }
+///     ui.horizontal(|ui| { .. });  // the input row
+///     ui.small(hint_line());
+/// });
+/// layout::fill_above(ui, |ui| {
+///     egui::ScrollArea::vertical()
+///         .auto_shrink([true, false])
+///         .show(ui, |ui| { .. });
 /// });
 /// ```
 ///
-/// Splitting this into two calls rather than taking `body` and `footer`
-/// closures together is deliberate: the two halves of a chat window
-/// touch the same state (the footer sends a message, the body renders
-/// the history), and two closures alive at once cannot both borrow it.
-pub fn bottom_anchored<R>(
+/// Two calls rather than one taking both closures: the two halves of a
+/// chat window touch the same state (the footer sends a message, the
+/// body renders the history), and two closures alive at once cannot both
+/// borrow it.
+pub fn footer<R>(
     ui: &mut egui::Ui,
-    footer_then_body: impl FnOnce(&mut egui::Ui) -> R,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
+    contents: impl FnOnce(&mut egui::Ui) -> R,
 ) -> R {
-    ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), footer_then_body)
+    egui::Panel::bottom(ui.id().with(id_salt))
+        .frame(egui::Frame::NONE)
+        .show(ui, contents)
         .inner
 }
 
-/// The footer itself, in ordinary reading order (#1282).
-///
-/// [`bottom_anchored`] stacks upward, so a footer written straight into
-/// it comes out bottom-first — the Inventory's status line ended up
-/// *above* the Save row it reports on. Wrapping the whole footer in one
-/// top-down child puts the block at the bottom and leaves its insides
-/// reading normally, which also means a caller never has to reason
-/// about the direction at all.
-pub fn footer<R>(ui: &mut egui::Ui, contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    ui.with_layout(egui::Layout::top_down(egui::Align::Min), contents)
-        .inner
-}
-
-/// The scrollable remainder above a [`bottom_anchored`] footer: draws
-/// the separator that divides them, then runs `body` in a normal
-/// top-down `Ui` sized to whatever the footer left.
+/// The scrollable remainder above a [`footer`], as a normal top-down
+/// `Ui` sized to exactly what the footer left.
 ///
 /// **Do not set `max_height` on a scroll area inside `body`** — that is
-/// the guess this pair exists to delete (see [`bottom_anchored`]).
+/// the guess this pair exists to delete (see [`footer`]).
 pub fn fill_above<R>(ui: &mut egui::Ui, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    ui.separator();
+    // No separator here: the bottom panel draws the dividing line
+    // itself, and a second one left a doubled rule (#1285).
+    //
     // The remainder, claimed as a FIXED rect (#1282). `with_layout`
     // advances the parent's cursor by the CHILD's `min_rect`, so a body
     // that reports more than the space it was handed — a `ScrollArea`
@@ -522,7 +526,7 @@ fn resolve_overlaps(
 /// and two lines were added under it; the Inventory's was 80 pt with a
 /// wrapping error line one failure away from breaking it.
 ///
-/// [`bottom_anchored`] + [`fill_above`] measure the footer instead, so
+/// [`footer`] + [`fill_above`] measure the footer instead, so
 /// there is a supported way to do this and the scan can be strict.
 #[cfg(test)]
 mod reserve_scan {
@@ -578,7 +582,7 @@ mod reserve_scan {
         assert!(
             offenders.is_empty(),
             "a guessed footer reserve grows its window without bound (#1280) — \
-             measure the footer with `layout::bottom_anchored` + \
+             measure the footer with `layout::footer` + \
              `layout::fill_above` instead:\n  {}",
             offenders.join("\n  ")
         );
@@ -692,11 +696,9 @@ mod growth {
     #[test]
     fn an_oversized_body_cannot_grow_the_window() {
         let greedy = |ui: &mut egui::Ui| {
-            super::bottom_anchored(ui, |ui| {
-                footer(ui);
-                super::fill_above(ui, |ui| {
-                    ui.allocate_space(egui::vec2(50.0, SCREEN * 4.0));
-                });
+            super::footer(ui, "greedy_footer", footer);
+            super::fill_above(ui, |ui| {
+                ui.allocate_space(egui::vec2(50.0, SCREEN * 4.0));
             });
         };
         let early = settle(4, greedy);
@@ -717,14 +719,12 @@ mod growth {
     #[test]
     fn a_measured_footer_does_not_grow_the_window() {
         let measured = |ui: &mut egui::Ui| {
-            super::bottom_anchored(ui, |ui| {
-                footer(ui);
-                super::fill_above(ui, |ui| {
-                    egui::ScrollArea::vertical()
-                        .id_salt("measured")
-                        .auto_shrink([true, false])
-                        .show(ui, body);
-                });
+            super::footer(ui, "measured_footer", footer);
+            super::fill_above(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("measured")
+                    .auto_shrink([true, false])
+                    .show(ui, body);
             });
         };
         let early = settle(4, measured);
@@ -920,18 +920,22 @@ mod tests {
     /// The toast area is a real pointer area at `Order::Foreground` —
     /// deliberately, so a click on a toast cannot fall through to the 3D
     /// scene — which also means it eats clicks on whatever is under it.
-    /// It used to be anchored `RIGHT_TOP`, which is where all five of
-    /// these windows open, so for the toast's full life it covered their
-    /// title bars and swallowed clicks on them.
+    /// It was anchored `RIGHT_TOP` once, which is where all five of these
+    /// windows open, so for the toast's full life it covered their title
+    /// bars and swallowed clicks on them (#1261 f43).
     ///
-    /// This asserts the STRUCTURE rather than a pixel overlap, because
-    /// the stack's height depends on how many toasts are up and how far
-    /// each wraps: the five windows open against the top edge, and the
-    /// toast offset is measured from the opposite one.
+    /// The stack is centred at the top now (#1286), which is a different
+    /// question with the same answer: it shares the windows' vertical
+    /// band, so what has to hold is HORIZONTAL separation. Checked at the
+    /// smallest supported width, because that is where a centred band of
+    /// [`MAX_WIDTH`](crate::config::ui::toast::MAX_WIDTH) and a
+    /// right-hand column come closest.
     #[test]
     fn the_toast_stack_does_not_open_in_the_window_column() {
         use crate::config::ui::toast as toast_cfg;
         let avail = default_avail();
+
+        let mut leftmost_window_edge = f32::INFINITY;
         for id in [
             UiWindow::Chat,
             UiWindow::People,
@@ -943,19 +947,29 @@ mod tests {
             assert_eq!(
                 pos.y,
                 avail.top() + MARGIN,
-                "{id:?} does not open against the top edge any more — recheck the toast corner"
+                "{id:?} does not open against the top edge any more — recheck the toast band"
             );
             assert_eq!(pos.x, avail.right() - size.x - MARGIN, "{id:?}");
+            leftmost_window_edge = leftmost_window_edge.min(pos.x);
         }
-        // Both offsets are measured from the bottom-right corner, so
-        // both must be negative — a positive y puts the stack straight
-        // back on top of the window column. `const` block because clippy
-        // is right that this is a compile-time fact; it is still the fact
-        // the test exists to hold.
+
+        // The stack is centred and at most `MAX_WIDTH` wide, so its right
+        // edge is the half-width past centre. It must stop short of the
+        // nearest window in that column.
+        let stack_right = avail.center().x + toast_cfg::MAX_WIDTH / 2.0;
+        assert!(
+            stack_right < leftmost_window_edge,
+            "a centred toast stack reaches {stack_right:.0} and the window column \
+             starts at {leftmost_window_edge:.0} — it would eat their title-bar clicks"
+        );
+
+        // And it starts below the toolbar, not under it: the offset is
+        // measured from the PANEL-FREE top, which is what `default_avail`
+        // models by starting at y=30.
         const {
             assert!(
-                toast_cfg::ANCHOR_OFFSET[1] < 0.0 && toast_cfg::ANCHOR_OFFSET[0] < 0.0,
-                "the toast anchor moved off the bottom-right corner"
+                toast_cfg::TOP_OFFSET > 0.0,
+                "the stack must sit below the panel-free top edge, not on it"
             )
         };
     }
@@ -1000,5 +1014,175 @@ mod tests {
         let newer: WindowLayout =
             serde_json::from_str(r#"{"rects":{"holo_deck":[1.0,2.0,3.0,4.0]}}"#).unwrap();
         assert_eq!(newer.rects["holo_deck"], [1.0, 2.0, 3.0, 4.0]);
+    }
+}
+
+#[cfg(test)]
+mod placement {
+    use bevy_egui::egui;
+
+    const SCREEN: egui::Vec2 = egui::vec2(400.0, 600.0);
+    const WINDOW: egui::Vec2 = egui::vec2(300.0, 350.0);
+
+    /// Where the footer and the body actually landed, in screen space.
+    struct Landed {
+        window: egui::Rect,
+        content: egui::Rect,
+        footer: egui::Rect,
+        body: egui::Rect,
+    }
+
+    /// Run the real pair in a real window for `passes` frames and report
+    /// the last frame's geometry. Several passes because a panel's size
+    /// is not known until it has been laid out once.
+    fn run(passes: usize) -> Landed {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, SCREEN);
+        let mut landed = None;
+        for _ in 0..passes {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                let shown = egui::Window::new("placement")
+                    .default_pos(egui::Pos2::ZERO)
+                    .default_size(WINDOW)
+                    .constrain_to(screen)
+                    .resizable(true)
+                    .show(ui.ctx(), |ui| {
+                        let content = ui.max_rect();
+                        let footer = super::footer(ui, "probe_footer", |ui| {
+                            ui.label("a composer note");
+                            ui.label("the input row");
+                            ui.label("a hint line");
+                            ui.min_rect()
+                        });
+                        let body = super::fill_above(ui, |ui| {
+                            ui.label("scrollback");
+                            ui.max_rect()
+                        });
+                        (content, footer, body)
+                    });
+                if let Some(shown) = shown
+                    && let Some((content, footer, body)) = shown.inner
+                {
+                    landed = Some(Landed {
+                        window: shown.response.rect,
+                        content,
+                        footer,
+                        body,
+                    });
+                }
+            });
+        }
+        landed.expect("the window was shown")
+    }
+
+    /// #1285: the footer sits against the window's BOTTOM edge, and the
+    /// body gets everything above it.
+    ///
+    /// This is the guard the first two attempts did not have. Both of
+    /// them measured the footer correctly and the growth tests passed —
+    /// the window's total size was right the whole time — while the
+    /// footer was drawn at the TOP of the window over the scrollback,
+    /// with the bottom half of the window dead. Total size cannot see
+    /// where anything is, so something has to ask.
+    #[test]
+    fn the_footer_sits_at_the_bottom_and_the_body_fills_above_it() {
+        let l = run(4);
+
+        assert!(
+            (l.footer.bottom() - l.content.bottom()).abs() < 1.0,
+            "the footer is not against the window's bottom edge: footer {:?} in content {:?}",
+            l.footer,
+            l.content
+        );
+        assert!(
+            (l.body.top() - l.content.top()).abs() < 1.0,
+            "the body does not start at the top of the window: body {:?} in content {:?}",
+            l.body,
+            l.content
+        );
+        assert!(
+            l.body.bottom() <= l.footer.top() + 1.0,
+            "the body overlaps the footer: body {:?}, footer {:?}",
+            l.body,
+            l.footer
+        );
+
+        // And between them they account for the whole window, so there is
+        // no dead band — the visible half of #1285 was a window whose
+        // lower two thirds were empty.
+        let used = l.body.height() + l.footer.height();
+        assert!(
+            (used - l.content.height()).abs() < 6.0,
+            "{:.0} pt of the window's {:.0} is unaccounted for",
+            l.content.height() - used,
+            l.content.height()
+        );
+
+        // The footer is a real, measured height, not a sliver: three
+        // labels cannot come to nothing.
+        assert!(
+            l.footer.height() > 20.0,
+            "footer height {}",
+            l.footer.height()
+        );
+        assert!(
+            l.window.height() <= WINDOW.y + 1.0,
+            "the window grew: {}",
+            l.window.height()
+        );
+    }
+
+    /// The control: the pre-#1285 idiom really did put the footer at the
+    /// top, so the assertions above are not describing a coincidence.
+    ///
+    /// Reproduces the old shape — a top-down child of a bottom-up parent
+    /// — and asserts the failure. `Ui::with_layout` hands that child the
+    /// parent's whole available rect, so it draws from the rect's top
+    /// while the parent accounts for its height at the bottom.
+    #[test]
+    fn the_old_bottom_up_idiom_drew_the_footer_at_the_top() {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, SCREEN);
+        let mut seen = None;
+        for _ in 0..4 {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                egui::Window::new("old")
+                    .default_pos(egui::Pos2::ZERO)
+                    .default_size(WINDOW)
+                    .constrain_to(screen)
+                    .resizable(true)
+                    .show(ui.ctx(), |ui| {
+                        let content = ui.max_rect();
+                        let footer = ui
+                            .with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                                ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                                    ui.label("a composer note");
+                                    ui.label("the input row");
+                                    ui.label("a hint line");
+                                    ui.min_rect()
+                                })
+                                .inner
+                            })
+                            .inner;
+                        seen = Some((content, footer));
+                    });
+            });
+        }
+        let (content, footer) = seen.expect("shown");
+        assert!(
+            (footer.top() - content.top()).abs() < 1.0,
+            "the old idiom is supposed to fail by drawing at the TOP; it put the \
+             footer at {:?} in {:?}",
+            footer,
+            content
+        );
     }
 }

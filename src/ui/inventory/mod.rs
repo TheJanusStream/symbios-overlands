@@ -541,8 +541,7 @@ pub fn inventory_ui(
             // frame reaches the Save row's dirty check on the next one — a
             // single frame of lag on an indicator, against a window that
             // could climb off the screen.
-            crate::ui::layout::bottom_anchored(ui, |ui| {
-                crate::ui::layout::footer(ui, |ui| {
+            crate::ui::layout::footer(ui, "inventory_footer", |ui| {
                     // Shared Save / Load / Reset row + status line
                     // (`ui::editable`), identical to the World and Avatar
                     // editors. Dirty is derived (a serialized diff against the stored
@@ -665,9 +664,9 @@ pub fn inventory_ui(
                     }
 
                     publish_status_line(ui, &feedback.status, now, dirty);
-                });
+            });
 
-                crate::ui::layout::fill_above(ui, |ui| {
+            crate::ui::layout::fill_above(ui, |ui| {
                     egui::ScrollArea::vertical()
                         .auto_shrink([true, false])
                         .show(ui, |ui| {
@@ -871,9 +870,8 @@ pub fn inventory_ui(
                                 }
                             }
                         });
-                });
-                reload_stash
-            })
+            });
+            reload_stash
         });
     // #1230 f33: re-read the stored stash from the PDS. `poll_record_task`
     // installs it as live AND stored on a clean resolution and retires the

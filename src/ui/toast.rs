@@ -2,13 +2,26 @@
 //!
 //! The single app-wide channel for "something just happened" feedback:
 //! any system pushes a [`Toast`] into the [`Toasts`] resource and
-//! [`toast_ui`] renders the queue as a stack of small framed rows
-//! anchored to the BOTTOM-right of the screen, each expiring after
-//! [`crate::config::ui::toast::DURATION_SECS`] or on its ✕ button. The
-//! corner matters: the area is a real pointer area at
-//! `Order::Foreground`, so wherever it sits it eats clicks — and the
-//! top-right it used to occupy is where all five right-anchored windows
-//! open (#1261 f43).
+//! [`toast_ui`] renders the queue as a stack of small framed rows at the
+//! TOP-CENTRE of the panel-free rect, each expiring after
+//! [`crate::config::ui::toast::DURATION_SECS`] or on its ✕ button.
+//!
+//! **Where it sits has moved twice and both moves were about attention.**
+//! The area is a real pointer area at `Order::Foreground`, so wherever it
+//! sits it eats clicks: the top-RIGHT it started in is where all five
+//! right-anchored windows open, and a stack of rows covered their title
+//! bars for its full life (#1261 f43). The bottom-right it moved to has
+//! no such neighbour but is easy to miss on a large display — the eye is
+//! in the middle of the screen and the feedback was in a far corner
+//! (#1286). Centre-top is where the user is already looking and no
+//! `SlotAnchor` claims it.
+//!
+//! Two centred neighbours share that band and neither is a window:
+//! `ui::modes`' movement-mode banner, which the offset clears, and the
+//! travel overlay's card, which it does not — a tall stack will overlap
+//! that card, including its Cancel button, while both are up. Travel is
+//! brief and Cancel is an escape hatch rather than the main path, so
+//! that is the accepted cost of being seen at all.
 //!
 //! Before this existed every surface hand-rolled its own transient
 //! status (`Local<Option<(String, f64)>>` pairs in the Diagnostics
@@ -180,7 +193,12 @@ impl Toasts {
 /// window; the anchored [`egui::Area`] is still a real pointer area, so
 /// world-click consumers' existing `is_pointer_over_area()` checks keep
 /// clicks on a toast from leaking into the 3D scene.
-pub fn toast_ui(mut contexts: EguiContexts, mut toasts: ResMut<Toasts>, time: Res<Time>) {
+pub fn toast_ui(
+    mut contexts: EguiContexts,
+    mut toasts: ResMut<Toasts>,
+    time: Res<Time>,
+    free: Res<crate::ui::layout::PanelFreeRect>,
+) {
     let now = time.elapsed_secs_f64();
     toasts.prune(now);
     if toasts.queue.is_empty() {
@@ -190,18 +208,30 @@ pub fn toast_ui(mut contexts: EguiContexts, mut toasts: ResMut<Toasts>, time: Re
         return;
     };
 
+    // Placed from the PANEL-FREE rect rather than anchored (#1286): an
+    // anchored `Area` aligns within `content_rect`, which includes the
+    // toolbar panel, so `CENTER_TOP` would put the stack underneath it.
+    // `fixed_pos` + `pivot` is the idiom `ui::modes`' banner already uses
+    // for the same reason.
+    let free_rect = free.0.unwrap_or_else(|| ctx.content_rect());
+    let top_centre = egui::pos2(free_rect.center().x, free_rect.top() + cfg::TOP_OFFSET);
+
     let mut dismissed: Option<u64> = None;
     egui::Area::new(egui::Id::new("overlands-toasts"))
-        .anchor(egui::Align2::RIGHT_BOTTOM, cfg::ANCHOR_OFFSET)
+        .fixed_pos(top_centre)
+        .pivot(egui::Align2::CENTER_TOP)
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
             ui.set_max_width(cfg::MAX_WIDTH);
-            // Oldest first, so the NEWEST row sits against the corner
-            // (#1261 f43). With a bottom anchor the stack grows upward,
-            // so this keeps fresh feedback at a fixed spot and pushes
-            // the older rows away from it — the other order would move
-            // the newest toast every time one arrived.
-            for toast in toasts.queue.iter() {
+            // NEWEST first, because the stack now grows DOWNWARD from a
+            // fixed top edge (#1286) — so the first row drawn is the one
+            // that never moves, and fresh feedback stays at one spot
+            // while older rows are pushed away from it. Under the old
+            // bottom anchor the stack grew upward and this order was
+            // exactly reversed (#1261 f43); the rule is the same one,
+            // which is why it is written as a rule: the newest toast
+            // goes against the anchored edge.
+            for toast in toasts.queue.iter().rev() {
                 egui::Frame::window(&ui.ctx().global_style()).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         let colour = toast.kind.color(&crate::ui::theme::current(ui.ctx()));
@@ -290,6 +320,56 @@ mod tests {
             toasts.queue.last().unwrap().text,
             format!("t{}", cfg::MAX_VISIBLE + 2)
         );
+    }
+
+    /// The newest toast sits against the anchored edge, so a fixed spot
+    /// carries the fresh message and older rows are pushed away from it
+    /// (#1286).
+    ///
+    /// The rule survived a move but its DIRECTION did not: under the old
+    /// bottom anchor the stack grew upward and the render iterated
+    /// oldest-first to put the newest at the bottom; from a fixed top
+    /// edge it grows downward and the same rule needs `.rev()`. Getting
+    /// this wrong is not a crash — it is the newest toast jumping down
+    /// the screen every time another arrives, which is precisely what
+    /// makes a stack unreadable during a burst.
+    #[test]
+    fn the_newest_toast_is_drawn_first_so_it_never_moves() {
+        let mut toasts = Toasts::default();
+        for i in 0..4 {
+            toasts.info(format!("t{i}"), 0.0);
+        }
+        // The queue is oldest-first; the RENDER order is what is asserted.
+        let drawn: Vec<&str> = toasts.queue.iter().rev().map(|t| t.text.as_str()).collect();
+        assert_eq!(drawn, ["t3", "t2", "t1", "t0"]);
+
+        // And it holds as the queue changes: a new arrival takes the
+        // first slot rather than displacing everything above it.
+        toasts.info("t4", 0.0);
+        let first = toasts.queue.iter().rev().map(|t| t.text.as_str()).next();
+        assert_eq!(first, Some("t4"));
+    }
+
+    /// The stack clears the movement-mode banner it shares the centre
+    /// band with (#1286).
+    ///
+    /// `ui::modes` draws at the panel-free top + 8 inside a popup frame;
+    /// a transient message must not sit on a standing state cue. Asserted
+    /// against the neighbour's own constant rather than a remembered
+    /// number, so moving the banner fails here instead of silently
+    /// putting the two back on top of each other.
+    #[test]
+    fn the_stack_clears_the_movement_mode_banner() {
+        // A `const` block, because both sides are constants and clippy is
+        // right that this is a compile-time fact. No format arguments for
+        // the same reason — const context cannot run `format!` — so the
+        // message names the two constants instead of printing them.
+        const {
+            assert!(
+                cfg::TOP_OFFSET > crate::ui::modes::BANNER_TOP_OFFSET,
+                "toast::TOP_OFFSET must clear modes::BANNER_TOP_OFFSET"
+            )
+        };
     }
 
     #[test]

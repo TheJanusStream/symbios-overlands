@@ -190,7 +190,7 @@ pub fn movement_mode_ui(
     egui::Area::new(egui::Id::new("movement-mode-banner"))
         .order(egui::Order::Background)
         .interactable(false)
-        .fixed_pos(egui::pos2(rect.center().x, rect.top() + 8.0))
+        .fixed_pos(egui::pos2(rect.center().x, rect.top() + BANNER_TOP_OFFSET))
         .pivot(egui::Align2::CENTER_TOP)
         .show(ctx, |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
@@ -198,6 +198,14 @@ pub fn movement_mode_ui(
             });
         });
 }
+
+/// How far below the panel-free rect's top edge the banner sits.
+///
+/// Named because it is not only this file's business: the toast stack
+/// shares the centre band and has to start below it, and
+/// `toast::the_stack_clears_the_movement_mode_banner` reads this rather
+/// than a remembered number (#1286).
+pub const BANNER_TOP_OFFSET: f32 = 8.0;
 
 /// Marker query alias: "this chassis has SOME locomotion preset".
 ///

@@ -230,277 +230,270 @@ pub fn chat_ui(
             // ran taller than the window every frame, and egui's `Resize`
             // never shrinks on its own: the window climbed to the full
             // screen height within a second of being opened (#1280). The
-            // footer keeps ordinary reading order inside `layout::footer`;
-            // only the block as a whole is bottom-anchored (#1282).
-            crate::ui::layout::bottom_anchored(ui, |ui| {
-                crate::ui::layout::footer(ui, |ui| {
-                    // Right-to-left layout: Send first (pinned to the right edge),
-                    // then the TextEdit whose `desired_width` is set to whatever
-                    // horizontal space remains — so widening the window stretches
-                    // the field instead of leaving dead space beside it.
-                    ui.horizontal(|ui| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let send = ui.button("Send");
-                            // The rest of what mute cannot reach (#1219 f130): a
-                            // history that only rolls off after 500 entries, which in
-                            // a quiet room is a very long time to sit with something
-                            // you did not want to read.
-                            if ui
-                                .button("Clear")
-                                .on_hover_text("Empty this window. Nobody else is affected.")
-                                .clicked()
+            // footer keeps ordinary reading order and is anchored by an
+            // `egui::Panel::bottom` (#1282, #1285).
+            crate::ui::layout::footer(ui, "chat_footer", |ui| {
+                // Right-to-left layout: Send first (pinned to the right edge),
+                // then the TextEdit whose `desired_width` is set to whatever
+                // horizontal space remains — so widening the window stretches
+                // the field instead of leaving dead space beside it.
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let send = ui.button("Send");
+                        // The rest of what mute cannot reach (#1219 f130): a
+                        // history that only rolls off after 500 entries, which in
+                        // a quiet room is a very long time to sit with something
+                        // you did not want to read.
+                        if ui
+                            .button("Clear")
+                            .on_hover_text("Empty this window. Nobody else is affected.")
+                            .clicked()
+                        {
+                            cleared = true;
+                        }
+                        // The remaining-length readout (#1264 f362),
+                        // between Clear and the field so it sits
+                        // against the right-hand controls. Silent
+                        // until the limit is close enough to matter —
+                        // a counter on every message would be noise
+                        // on the 99% of lines nowhere near it — and
+                        // tinted once there is nothing left.
+                        if let Some(count) = composer_counter(&input) {
+                            let th = crate::ui::theme::current(ui.ctx());
+                            let colour = if input.chars().count() >= cfg::MAX_MESSAGE_CHARS {
+                                th.status.warn
+                            } else {
+                                th.text_weak
+                            };
+                            ui.colored_label(colour, count);
+                        }
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut input)
+                                // The limit made visible before it is
+                                // hit, rather than as an amputation
+                                // after Send (#1264 f362).
+                                .char_limit(cfg::MAX_MESSAGE_CHARS)
+                                .desired_width(ui.available_width()),
+                        );
+                        // Global Enter shortcut (#836): consume the one-shot
+                        // focus request so typing starts immediately.
+                        if focus_request.0 {
+                            response.request_focus();
+                            focus_request.0 = false;
+                        }
+                        // Enter through the shared IME guard (#1263
+                        // f372): under an input method the first
+                        // Enter accepts the candidate, and this room
+                        // has no edit and no delete for what it
+                        // would otherwise have sent.
+                        let submit =
+                            send.clicked() || crate::ui::shortcuts::enter_submitted(ui, &response);
+
+                        if submit && !input.trim().is_empty() {
+                            // Enforce a strict per-message length cap *before*
+                            // the text is broadcast. Otherwise a peer could
+                            // paste an 800 KiB junk string (well under the 1
+                            // MiB packet limit) and every guest would try to
+                            // word-wrap it in egui on every frame — an instant
+                            // room-wide DoS.
+                            //
+                            // CHARACTERS, not bytes (#1264 f362): the
+                            // old cap gave a CJK writer a third of
+                            // everyone else's message length. The
+                            // field's `char_limit` below means this
+                            // clip cannot fire on anything a person
+                            // typed or pasted into it; it stays as
+                            // the invariant's enforcement, because
+                            // what is broadcast must be what the
+                            // limit says however the draft got here.
+                            let trimmed = input.trim();
+                            let clipped: String =
+                                trimmed.chars().take(cfg::MAX_MESSAGE_CHARS).collect();
+                            // Strip ASCII control characters (newlines,
+                            // carriage returns, form feeds, …) before either
+                            // pushing to our own HUD or broadcasting. The
+                            // receiver runs the same filter defensively, so
+                            // skipping it here previously left the local
+                            // sender's row showing a multi-line paste while
+                            // every remote peer saw a single-line version —
+                            // a permanent visual desync on the sender's HUD.
+                            let text: String = clipped
+                                .chars()
+                                .map(|c| if c.is_control() && c != '\t' { ' ' } else { c })
+                                .collect();
+                            input.clear();
+                            response.request_focus();
+
+                            let (did, author) = match session.as_ref() {
+                                Some(s) => (Some(s.did.clone()), s.handle.clone()),
+                                None => (None, "me".to_owned()),
+                            };
+                            // Capped + wall-clock-stamped (#846): local sends
+                            // used to push uncapped with a session-relative
+                            // stamp.
+                            // Stamped with the delivery outcome resolved above
+                            // (#1213) — the sender's HUD used to render a
+                            // message that reached nobody exactly like one that
+                            // was delivered.
+                            chat.push_sent(did, author, text.clone(), delivery);
+
+                            // Chat-keyword emotes (#1068): my own body plays what
+                            // I just said, exactly as every peer's does. Without
+                            // this the sender is the one person in the room who
+                            // never sees their own gesture, which reads as the
+                            // feature being broken rather than as an omission.
+                            // Same `request_for` the inbound path uses, so the two
+                            // cannot drift.
+                            if let Ok(chassis) = local.single()
+                                && let Some(request) =
+                                    crate::player::emote::request_for(chassis, &text)
                             {
-                                cleared = true;
+                                emotes.write(request);
                             }
-                            // The remaining-length readout (#1264 f362),
-                            // between Clear and the field so it sits
-                            // against the right-hand controls. Silent
-                            // until the limit is close enough to matter —
-                            // a counter on every message would be noise
-                            // on the 99% of lines nowhere near it — and
-                            // tinted once there is nothing left.
-                            if let Some(count) = composer_counter(&input) {
-                                let th = crate::ui::theme::current(ui.ctx());
-                                let colour = if input.chars().count() >= cfg::MAX_MESSAGE_CHARS {
-                                    th.status.warn
-                                } else {
-                                    th.text_weak
-                                };
-                                ui.colored_label(colour, count);
-                            }
-                            let response = ui.add(
-                                egui::TextEdit::singleline(&mut input)
-                                    // The limit made visible before it is
-                                    // hit, rather than as an amputation
-                                    // after Send (#1264 f362).
-                                    .char_limit(cfg::MAX_MESSAGE_CHARS)
-                                    .desired_width(ui.available_width()),
-                            );
-                            // Global Enter shortcut (#836): consume the one-shot
-                            // focus request so typing starts immediately.
-                            if focus_request.0 {
-                                response.request_focus();
-                                focus_request.0 = false;
-                            }
-                            // Enter through the shared IME guard (#1263
-                            // f372): under an input method the first
-                            // Enter accepts the candidate, and this room
-                            // has no edit and no delete for what it
-                            // would otherwise have sent.
-                            let submit = send.clicked()
-                                || crate::ui::shortcuts::enter_submitted(ui, &response);
 
-                            if submit && !input.trim().is_empty() {
-                                // Enforce a strict per-message length cap *before*
-                                // the text is broadcast. Otherwise a peer could
-                                // paste an 800 KiB junk string (well under the 1
-                                // MiB packet limit) and every guest would try to
-                                // word-wrap it in egui on every frame — an instant
-                                // room-wide DoS.
-                                //
-                                // CHARACTERS, not bytes (#1264 f362): the
-                                // old cap gave a CJK writer a third of
-                                // everyone else's message length. The
-                                // field's `char_limit` below means this
-                                // clip cannot fire on anything a person
-                                // typed or pasted into it; it stays as
-                                // the invariant's enforcement, because
-                                // what is broadcast must be what the
-                                // limit says however the draft got here.
-                                let trimmed = input.trim();
-                                let clipped: String =
-                                    trimmed.chars().take(cfg::MAX_MESSAGE_CHARS).collect();
-                                // Strip ASCII control characters (newlines,
-                                // carriage returns, form feeds, …) before either
-                                // pushing to our own HUD or broadcasting. The
-                                // receiver runs the same filter defensively, so
-                                // skipping it here previously left the local
-                                // sender's row showing a multi-line paste while
-                                // every remote peer saw a single-line version —
-                                // a permanent visual desync on the sender's HUD.
-                                let text: String = clipped
-                                    .chars()
-                                    .map(|c| if c.is_control() && c != '\t' { ' ' } else { c })
-                                    .collect();
-                                input.clear();
-                                response.request_focus();
-
-                                let (did, author) = match session.as_ref() {
-                                    Some(s) => (Some(s.did.clone()), s.handle.clone()),
-                                    None => (None, "me".to_owned()),
-                                };
-                                // Capped + wall-clock-stamped (#846): local sends
-                                // used to push uncapped with a session-relative
-                                // stamp.
-                                // Stamped with the delivery outcome resolved above
-                                // (#1213) — the sender's HUD used to render a
-                                // message that reached nobody exactly like one that
-                                // was delivered.
-                                chat.push_sent(did, author, text.clone(), delivery);
-
-                                // Chat-keyword emotes (#1068): my own body plays what
-                                // I just said, exactly as every peer's does. Without
-                                // this the sender is the one person in the room who
-                                // never sees their own gesture, which reads as the
-                                // feature being broken rather than as an omission.
-                                // Same `request_for` the inbound path uses, so the two
-                                // cannot drift.
-                                if let Ok(chassis) = local.single()
-                                    && let Some(request) =
-                                        crate::player::emote::request_for(chassis, &text)
-                                {
-                                    emotes.write(request);
-                                }
-
-                                writer.write(Broadcast {
-                                    payload: OverlandsMessage::Chat { text },
-                                    channel: ChannelKind::Reliable,
-                                });
-                            }
-                        });
+                            writer.write(Broadcast {
+                                payload: OverlandsMessage::Chat { text },
+                                channel: ChannelKind::Reliable,
+                            });
+                        }
                     });
-
-                    // The persistent "this is going nowhere" note (#1213). Above
-                    // the input, not a toast: it is a standing condition, and the
-                    // moment it matters is the moment before the user types.
-                    if let Some(note) = deps.link.composer_note(peer_count) {
-                        ui.colored_label(crate::ui::theme::current(ui.ctx()).status.warn, note);
-                    }
-
-                    // The keyword emotes have no command syntax to discover and,
-                    // until this line, no surface anywhere in the UI (#1141) —
-                    // #1068 shipped a feature findable only by typing one of its
-                    // words by accident. Sourced from the keyword table so the
-                    // examples cannot name a word that no longer gestures.
-                    ui.small(crate::player::emote::Emote::hint_line());
                 });
 
-                crate::ui::layout::fill_above(ui, |ui| {
-                    // No `max_height`: `fill_above` already handed us
-                    // exactly the space the footer left, and setting one
-                    // here is what put the guess back (#1280).
-                    egui::ScrollArea::vertical()
-                        .id_salt("chat_scroll")
-                        .auto_shrink([true, false])
-                        .stick_to_bottom(true)
-                        .show(ui, |ui| {
-                            for entry in &chat.messages {
-                                if entry
+                // The persistent "this is going nowhere" note (#1213). Above
+                // the input, not a toast: it is a standing condition, and the
+                // moment it matters is the moment before the user types.
+                if let Some(note) = deps.link.composer_note(peer_count) {
+                    ui.colored_label(crate::ui::theme::current(ui.ctx()).status.warn, note);
+                }
+
+                // The keyword emotes have no command syntax to discover and,
+                // until this line, no surface anywhere in the UI (#1141) —
+                // #1068 shipped a feature findable only by typing one of its
+                // words by accident. Sourced from the keyword table so the
+                // examples cannot name a word that no longer gestures.
+                ui.small(crate::player::emote::Emote::hint_line());
+            });
+
+            crate::ui::layout::fill_above(ui, |ui| {
+                // No `max_height`: `fill_above` already handed us
+                // exactly the space the footer left, and setting one
+                // here is what put the guess back (#1280).
+                egui::ScrollArea::vertical()
+                    .id_salt("chat_scroll")
+                    .auto_shrink([true, false])
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        for entry in &chat.messages {
+                            if entry
+                                .did
+                                .as_deref()
+                                .is_some_and(|did| is_muted(did, &muted_here, &deps.muted_dids))
+                            {
+                                continue;
+                            }
+                            ui.horizontal_wrapped(|ui| {
+                                // Local wall-clock HH:MM (#846) — the old stamp
+                                // was minutes-since-app-launch, meaningless
+                                // across peers and sessions.
+                                ui.colored_label(
+                                    crate::ui::theme::current(ui.ctx()).text_weak,
+                                    format!("[{}]", crate::state::clock_hhmm(entry.at_epoch_secs)),
+                                );
+                                let author = author_now(entry, &names);
+                                // Profile icon by DID, or a same-sized tile
+                                // carrying the author's initial (#1225 f351) so
+                                // the row layout doesn't shift between
+                                // cache-miss and cache-hit frames AND the miss
+                                // still says whose row this is.
+                                draw_avatar_icon(
+                                    ui,
+                                    entry.did.as_deref(),
+                                    Some(author),
+                                    &deps.profile_cache,
+                                    AVATAR_ICON_PX,
+                                );
+                                let is_mutual = entry
                                     .did
                                     .as_deref()
-                                    .is_some_and(|did| is_muted(did, &muted_here, &deps.muted_dids))
-                                {
-                                    continue;
-                                }
-                                ui.horizontal_wrapped(|ui| {
-                                    // Local wall-clock HH:MM (#846) — the old stamp
-                                    // was minutes-since-app-launch, meaningless
-                                    // across peers and sessions.
-                                    ui.colored_label(
-                                        crate::ui::theme::current(ui.ctx()).text_weak,
-                                        format!(
-                                            "[{}]",
-                                            crate::state::clock_hhmm(entry.at_epoch_secs)
-                                        ),
-                                    );
-                                    let author = author_now(entry, &names);
-                                    // Profile icon by DID, or a same-sized tile
-                                    // carrying the author's initial (#1225 f351) so
-                                    // the row layout doesn't shift between
-                                    // cache-miss and cache-hit frames AND the miss
-                                    // still says whose row this is.
-                                    draw_avatar_icon(
-                                        ui,
-                                        entry.did.as_deref(),
-                                        Some(author),
-                                        &deps.profile_cache,
-                                        AVATAR_ICON_PX,
-                                    );
-                                    let is_mutual = entry
-                                        .did
-                                        .as_deref()
-                                        .is_some_and(|d| mutual_dids.contains(d));
-                                    // Accent star for mutuals, info-blue author
-                                    // tag (#856) — same roles the People window
-                                    // uses, formerly bespoke config golds/blues.
-                                    let th = crate::ui::theme::current(ui.ctx());
-                                    let unknown = entry
-                                        .did
-                                        .as_deref()
-                                        .is_some_and(|d| unknown_dids.contains(d));
-                                    let (tag_color, tag_text) = if is_mutual {
-                                        (th.accent, format!("★ [{author}]"))
-                                    } else if unknown {
-                                        (th.status.info, format!("? [{author}]"))
+                                    .is_some_and(|d| mutual_dids.contains(d));
+                                // Accent star for mutuals, info-blue author
+                                // tag (#856) — same roles the People window
+                                // uses, formerly bespoke config golds/blues.
+                                let th = crate::ui::theme::current(ui.ctx());
+                                let unknown = entry
+                                    .did
+                                    .as_deref()
+                                    .is_some_and(|d| unknown_dids.contains(d));
+                                let (tag_color, tag_text) = if is_mutual {
+                                    (th.accent, format!("★ [{author}]"))
+                                } else if unknown {
+                                    (th.status.info, format!("? [{author}]"))
+                                } else {
+                                    (th.status.info, format!("[{author}]"))
+                                };
+                                // The author tag is the mute affordance (#1222
+                                // f296). The remedy for a flood used to be two
+                                // windows away — leave the chat, open People,
+                                // find the row among a dozen, tick a box — and it
+                                // arrived after the damage was permanent. The
+                                // action belongs on the message in front of you.
+                                // Own lines are not offered it: you are not a
+                                // peer, and muting yourself is not a thing.
+                                let can_mute = entry.did.as_deref().is_some_and(|did| {
+                                    session.as_deref().is_none_or(|s| s.did != did)
+                                });
+                                let tag = ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(tag_text).color(tag_color),
+                                    )
+                                    .sense(if can_mute {
+                                        egui::Sense::click()
                                     } else {
-                                        (th.status.info, format!("[{author}]"))
-                                    };
-                                    // The author tag is the mute affordance (#1222
-                                    // f296). The remedy for a flood used to be two
-                                    // windows away — leave the chat, open People,
-                                    // find the row among a dozen, tick a box — and it
-                                    // arrived after the damage was permanent. The
-                                    // action belongs on the message in front of you.
-                                    // Own lines are not offered it: you are not a
-                                    // peer, and muting yourself is not a thing.
-                                    let can_mute = entry.did.as_deref().is_some_and(|did| {
-                                        session.as_deref().is_none_or(|s| s.did != did)
-                                    });
-                                    let tag = ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(tag_text).color(tag_color),
-                                        )
-                                        .sense(
-                                            if can_mute {
-                                                egui::Sense::click()
-                                            } else {
-                                                egui::Sense::hover()
-                                            },
-                                        ),
-                                    );
-                                    let tag = if is_mutual {
-                                        tag.on_hover_text("You and this peer follow each other")
-                                    } else if unknown {
-                                        tag.on_hover_text(
-                                            "Couldn't check whether you follow each other. \
+                                        egui::Sense::hover()
+                                    }),
+                                );
+                                let tag = if is_mutual {
+                                    tag.on_hover_text("You and this peer follow each other")
+                                } else if unknown {
+                                    tag.on_hover_text(
+                                        "Couldn't check whether you follow each other. \
                                              Trying again shortly.",
-                                        )
-                                    } else if can_mute {
-                                        tag.on_hover_text("Right-click to mute this person")
-                                    } else {
-                                        tag
-                                    };
-                                    if can_mute {
-                                        tag.context_menu(|ui| {
-                                            if ui
-                                                .button(format!("Mute {author}"))
-                                                .on_hover_text(
-                                                    "Hides their avatar, chat, audio and gift \
+                                    )
+                                } else if can_mute {
+                                    tag.on_hover_text("Right-click to mute this person")
+                                } else {
+                                    tag
+                                };
+                                if can_mute {
+                                    tag.context_menu(|ui| {
+                                        if ui
+                                            .button(format!("Mute {author}"))
+                                            .on_hover_text(
+                                                "Hides their avatar, chat, audio and gift \
                                                      offers — including what they have already \
                                                      said. Persists across sessions.",
-                                                )
-                                                .clicked()
-                                                && let Some(did) = entry.did.clone()
-                                            {
-                                                mute_request = Some(did);
-                                                ui.close();
-                                            }
-                                        });
-                                    }
-                                    ui.label(&entry.text);
-                                    // A line of ours that reached nobody says so,
-                                    // in weak text so a normal conversation is not
-                                    // visually noisy (#1213).
-                                    if let Some(suffix) = entry.delivery.suffix() {
-                                        ui.colored_label(
-                                            crate::ui::theme::current(ui.ctx()).text_weak,
-                                            suffix,
-                                        );
-                                    }
-                                });
-                            }
-                        });
-                });
+                                            )
+                                            .clicked()
+                                            && let Some(did) = entry.did.clone()
+                                        {
+                                            mute_request = Some(did);
+                                            ui.close();
+                                        }
+                                    });
+                                }
+                                ui.label(&entry.text);
+                                // A line of ours that reached nobody says so,
+                                // in weak text so a normal conversation is not
+                                // visually noisy (#1213).
+                                if let Some(suffix) = entry.delivery.suffix() {
+                                    ui.colored_label(
+                                        crate::ui::theme::current(ui.ctx()).text_weak,
+                                        suffix,
+                                    );
+                                }
+                            });
+                        }
+                    });
             });
         });
     if chat.draft != input {
