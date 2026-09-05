@@ -76,8 +76,27 @@ pub fn classify(bytes: usize) -> SizeClass {
 /// `putRecord` body. `None` when serialization fails, which no record type
 /// can practically hit (plain data structs), but the UI readout must render
 /// a dash rather than panic if it ever does.
+///
+/// Counts into a sink instead of building the JSON (#1270 f417). Every
+/// caller wants the LENGTH and throws the bytes away, and for a full room
+/// those bytes are hundreds of KiB — allocated, filled and dropped, on a
+/// wasm heap that never gives memory back. `serde_json` streams into any
+/// `io::Write`, so the buffer was never needed.
 pub fn serialized_record_bytes<T: Serialize>(record: &T) -> Option<usize> {
-    serde_json::to_vec(record).ok().map(|v| v.len())
+    /// An `io::Write` that keeps the count and discards the bytes.
+    struct CountingSink(usize);
+    impl std::io::Write for CountingSink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0 += buf.len();
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut sink = CountingSink(0);
+    serde_json::to_writer(&mut sink, record).ok()?;
+    Some(sink.0)
 }
 
 /// What the size readout beside "Save" knows about one editor's

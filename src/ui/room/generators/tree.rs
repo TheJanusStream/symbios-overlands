@@ -173,8 +173,8 @@ pub(super) fn draw_tree_panel(
     // The tree itself. Roots are sorted by the source for stable
     // presentation — HashMap iteration order would otherwise reshuffle
     // every frame as the layout cache rebuilds.
-    let all_roots: Vec<String> = source.root_names();
-    let root_names: Vec<String> = matching_roots(&all_roots, if multi_root { filter } else { "" });
+    let all_roots: Vec<&str> = source.root_names();
+    let root_names: Vec<&str> = matching_roots(&all_roots, if multi_root { filter } else { "" });
     // Authored asset names are in the live room record, which changes on
     // every frame of a gizmo drag — so the font detector deliberately does
     // not scan it, and the names reach it from here instead (#1262 f359).
@@ -369,7 +369,7 @@ fn sync_selection_fields(
 /// Pure, so the one behaviour that matters — that filtering never drops a
 /// root the user has selected out from under them without saying so — is
 /// testable without egui.
-pub(super) fn matching_roots(roots: &[String], filter: &str) -> Vec<String> {
+pub(super) fn matching_roots<'a>(roots: &[&'a str], filter: &str) -> Vec<&'a str> {
     let needle = filter.trim().to_lowercase();
     if needle.is_empty() {
         return roots.to_vec();
@@ -377,8 +377,20 @@ pub(super) fn matching_roots(roots: &[String], filter: &str) -> Vec<String> {
     roots
         .iter()
         .filter(|name| name.to_lowercase().contains(&needle))
-        .cloned()
+        .copied()
         .collect()
+}
+
+// Rows `build_tree_node` has built on this thread — the instrument for
+// #1270 f419, since there is no way to time a frame in a test and the
+// thing the fix is about is a COUNT.
+//
+// Thread-local and not a global: `cargo test --lib` runs the suite in one
+// process on many threads, and a process-global counter is the shared
+// state that idiom cannot see (#1147, #1189).
+#[cfg(test)]
+thread_local! {
+    static NODES_BUILT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Recursively add `node` and its children to the tree-view builder. The
@@ -412,6 +424,8 @@ fn build_tree_node(
     // Whether the editor's clipboard holds anything to paste (#1244 f422).
     has_clipboard: bool,
 ) {
+    #[cfg(test)]
+    NODES_BUILT.with(|n| n.set(n.get() + 1));
     let id = GenNodeId::child(root_name, path.clone());
     let label = if is_root {
         format!("{}  ({})", root_name, node.kind_tag())
@@ -628,30 +642,50 @@ fn build_tree_node(
     // (`default_open(false)`); the in-world pick path re-opens a picked
     // node's ancestors so its row stays visible.
     if is_container && !node.children.is_empty() {
-        builder.node(
+        // `TreeViewBuilder::node` RETURNS the directory's open state, which
+        // is what makes this cheap (#1270 f419). The widget short-circuits
+        // a collapsed branch internally — `current_branch_expanded()` — so
+        // everything below used to be built and thrown away: a
+        // `GenNodeId` (a String plus a Vec), a `format!` label, two more
+        // clones for the menu captures, a `path.clone()` per child, and a
+        // boxed context-menu closure, PER NODE, for every node of every
+        // root whether or not anything was expanded. At the record's own
+        // caps — 256 roots of up to 1024 nodes — that is a quarter of a
+        // million heap allocations per frame to draw a collapsed list.
+        //
+        // Skipping the recursion is safe because nothing reaches a row
+        // inside a collapsed parent without opening the parent first: both
+        // reveal paths (`editor_gizmo`'s scene pick and `RoomEditorState`'s
+        // undo restore) walk the path and `set_openness(.., true)` on every
+        // ancestor before the tree next draws.
+        let open = builder.node(
             NodeBuilder::dir(id)
                 .label(label)
                 .default_open(false)
                 .context_menu(context_menu),
         );
-        for (i, child) in node.children.iter().enumerate() {
-            let mut child_path = path.clone();
-            child_path.push(i);
-            build_tree_node(
-                builder,
-                root_name,
-                child,
-                child_path,
-                false,
-                allowed_child_kinds,
-                allow_rename,
-                pending,
-                inventory,
-                root_nodes,
-                owner_did,
-                has_clipboard,
-            );
+        if open {
+            for (i, child) in node.children.iter().enumerate() {
+                let mut child_path = path.clone();
+                child_path.push(i);
+                build_tree_node(
+                    builder,
+                    root_name,
+                    child,
+                    child_path,
+                    false,
+                    allowed_child_kinds,
+                    allow_rename,
+                    pending,
+                    inventory,
+                    root_nodes,
+                    owner_did,
+                    has_clipboard,
+                );
+            }
         }
+        // Unconditional: `node()` pushed a `DirectoryState` whether or not
+        // the branch is expanded, and `close_dir` is what pops it.
         builder.close_dir();
     } else {
         // Leaf row (no triangle). Two cases collapse here: no-children kinds
@@ -696,6 +730,164 @@ pub(super) fn node_salt(id: &GenNodeId) -> String {
 mod tests {
     use super::*;
 
+    /// A container node with `children` children, each with `grandchildren`
+    /// leaves.
+    fn nested(children: usize, grandchildren: usize) -> Generator {
+        let leaf = || Generator {
+            kind: crate::ui::room::construct::make_default_for_kind("Cuboid"),
+            ..Default::default()
+        };
+        Generator {
+            kind: crate::ui::room::construct::make_default_for_kind("Cuboid"),
+            children: (0..children)
+                .map(|_| Generator {
+                    kind: crate::ui::room::construct::make_default_for_kind("Cuboid"),
+                    children: (0..grandchildren).map(|_| leaf()).collect(),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    /// Build one root through a real `TreeView` in a headless context and
+    /// return how many rows `build_tree_node` was asked to construct.
+    fn rows_built(root: &Generator, state: &mut TreeViewState) -> usize {
+        let ctx = egui::Context::default();
+        NODES_BUILT.with(|n| n.set(0));
+        let pending: RefCell<Option<PendingAction>> = RefCell::new(None);
+        let _ = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(400.0, 600.0),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                TreeView::new(ui.make_persistent_id("count_probe")).show_state(
+                    ui,
+                    state,
+                    |builder| {
+                        build_tree_node(
+                            builder,
+                            "oak",
+                            root,
+                            Vec::new(),
+                            true,
+                            &["Cuboid"],
+                            true,
+                            &pending,
+                            None,
+                            crate::ui::room::caps::node_count(root),
+                            "did:plc:counter",
+                            false,
+                        );
+                    },
+                );
+            },
+        );
+        NODES_BUILT.with(|n| n.get())
+    }
+
+    /// A collapsed tree costs what it SHOWS, not what it contains
+    /// (#1270 f419).
+    ///
+    /// `build_tree_node` recursed into `node.children` unconditionally, and
+    /// every visit allocated whether or not the row could be seen: a
+    /// `GenNodeId` (a `String` plus a `Vec`), a `format!` label, two more
+    /// clones for the menu captures, a `path.clone()` per child, and a
+    /// boxed context-menu closure. `TreeViewBuilder` throws all of it away
+    /// inside a collapsed branch — `current_branch_expanded()` — so at the
+    /// record's own caps (256 roots × up to 1024 nodes) that was a quarter
+    /// of a million heap allocations per frame to draw a list of one-line
+    /// rows.
+    ///
+    /// The pairing is the same tree in two states. The shape being
+    /// replaced built all 41 rows in BOTH, so a test that only checked the
+    /// open case would have passed on it unchanged — the #87 rule: ask
+    /// what the failing case looks like.
+    #[test]
+    fn a_collapsed_tree_builds_only_the_rows_it_shows() {
+        let root = nested(8, 4);
+        let total = 1 + 8 + 8 * 4;
+        assert_eq!(
+            crate::ui::room::caps::node_count(&root),
+            total,
+            "the fixture is the size the counts below assume"
+        );
+
+        // Collapsed — the default. One row: the root itself.
+        let mut collapsed = TreeViewState::default();
+        assert_eq!(
+            rows_built(&root, &mut collapsed),
+            1,
+            "a collapsed root shows one row and must build one row"
+        );
+
+        // The root opened, its children still closed.
+        let mut one_level = TreeViewState::default();
+        one_level.set_openness(GenNodeId::root("oak".to_string()), true);
+        assert_eq!(
+            rows_built(&root, &mut one_level),
+            1 + 8,
+            "opening the root reveals its children and nothing deeper"
+        );
+
+        // Everything opened — this is what the OLD code built in every
+        // state, including the collapsed one above.
+        let mut all_open = TreeViewState::default();
+        all_open.set_openness(GenNodeId::root("oak".to_string()), true);
+        for i in 0..8 {
+            all_open.set_openness(GenNodeId::child("oak", vec![i]), true);
+        }
+        assert_eq!(
+            rows_built(&root, &mut all_open),
+            total,
+            "and a fully expanded tree still builds every row — the fix skips \
+             what is hidden, not what is shown"
+        );
+    }
+
+    /// The reveal paths that make the skip safe (#1270 f419).
+    ///
+    /// Nothing may select a row inside a collapsed parent, because the
+    /// tree no longer builds one. Both paths that reveal a row — the
+    /// `editor_gizmo` scene pick and `RoomEditorState::restore_selection`
+    /// — walk the path and open EVERY ancestor, not just the immediate
+    /// parent. This pins that opening only the immediate parent is not
+    /// enough, which is the mistake the two-line version of either loop
+    /// would be.
+    #[test]
+    fn revealing_a_deep_row_needs_every_ancestor_open() {
+        let root = nested(3, 3);
+
+        // Only the leaf's immediate parent opened: the root is still
+        // closed, so nothing below it is built at all.
+        let mut parent_only = TreeViewState::default();
+        parent_only.set_openness(GenNodeId::child("oak", vec![1]), true);
+        assert_eq!(
+            rows_built(&root, &mut parent_only),
+            1,
+            "an open node inside a closed root reveals nothing"
+        );
+
+        // Every ancestor of `oak/1/2`, which is what both reveal paths do.
+        let mut ancestors = TreeViewState::default();
+        let target = GenNodeId::child("oak", vec![1, 2]);
+        for depth in 0..target.path.len() {
+            ancestors.set_openness(
+                GenNodeId::child(target.root.clone(), target.path[..depth].to_vec()),
+                true,
+            );
+        }
+        assert_eq!(
+            rows_built(&root, &mut ancestors),
+            1 + 3 + 3,
+            "the root and the picked branch, and no sibling branch"
+        );
+    }
+
     /// #828: selection sync mirrors the tree into the gizmo-read fields —
     /// and, by construction (no `dirty` parameter), can never arm the
     /// debounce that recompiles + broadcasts the record.
@@ -735,10 +927,7 @@ mod tests {
     /// `cuboid_2`, … — and the only affordance was scrolling.
     #[test]
     fn the_tree_filter_is_a_case_insensitive_substring() {
-        let roots: Vec<String> = ["oak_17", "Oak_2", "cuboid", "cuboid_1"]
-            .iter()
-            .map(|s| (*s).to_string())
-            .collect();
+        let roots: Vec<&str> = vec!["oak_17", "Oak_2", "cuboid", "cuboid_1"];
         assert_eq!(matching_roots(&roots, ""), roots, "no filter, no change");
         assert_eq!(matching_roots(&roots, "   "), roots, "blank is no filter");
         assert_eq!(matching_roots(&roots, "oak"), vec!["oak_17", "Oak_2"]);

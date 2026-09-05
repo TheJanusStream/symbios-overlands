@@ -124,16 +124,26 @@ pub fn undo_redo_buttons<R, S>(
     kind: EditorKind,
     shortcut: &mut UndoShortcut,
 ) where
-    R: Send + Sync + 'static,
+    R: serde::Serialize + Send + Sync + 'static,
     S: Send + Sync + 'static,
 {
+    // The byte budget can shorten the ring on a very large world
+    // (#1270 f417), and a history that is quietly two steps deep instead
+    // of thirty-two is worth saying out loud BEFORE the owner reaches the
+    // end of it. Silent in the ordinary case, which is every case where
+    // nothing has been trimmed.
+    let depth_note = history.depth_note();
+    let with_note = |text: String| match &depth_note {
+        Some(note) => format!("{text}\n{note}"),
+        None => text,
+    };
     let undo = ui
         .add_enabled(history.can_undo(), egui::Button::new("Undo"))
-        .on_hover_text(match history.undo_label() {
+        .on_hover_text(with_note(match history.undo_label() {
             Some(label) => format!("Undo {label} (Ctrl+Z)"),
             None => "Undo (Ctrl+Z)".to_string(),
-        })
-        .on_disabled_hover_text("Nothing to undo (Ctrl+Z)");
+        }))
+        .on_disabled_hover_text(with_note("Nothing to undo (Ctrl+Z)".to_string()));
     if undo.clicked() {
         shortcut.request(Some(kind), StepKind::Undo);
     }

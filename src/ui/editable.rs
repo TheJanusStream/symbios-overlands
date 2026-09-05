@@ -435,12 +435,25 @@ fn size_readout(ui: &mut egui::Ui, kind: RecordKind, size: &SizeReadout) {
 /// cadence — at worst the readout (and its publish hard-block) lags an edit
 /// by half a second, and the pre-flight guard in
 /// `crate::pds::record_size::preflight` backstops that window.
+///
+/// `changed` is the second gate (#1270 f418): half a second is a throttle,
+/// not a reason, and a record nobody has touched measures the same as it
+/// did last time. An editor left open on a full room otherwise pays a
+/// whole-record encode twice a second forever — for the room that is the
+/// manifest plus all 256 generators. Callers that cannot cheaply answer
+/// the question pass `true` and keep the old behaviour; the first
+/// measurement is taken regardless, because there is nothing to compare a
+/// missing reading against.
 pub fn refresh_size_readout<R: Send + Sync + 'static, T>(
     feedback: &mut crate::state::PublishFeedback<R>,
     live: &T,
     now: f64,
+    changed: bool,
     measure: impl FnOnce(&T) -> SizeReadout,
 ) -> bool {
+    if feedback.live_bytes_at.is_some() && !changed {
+        return false;
+    }
     if feedback
         .live_bytes_at
         .is_none_or(|at| now - at >= crate::config::ui::editor::SIZE_READOUT_REFRESH_SECS)

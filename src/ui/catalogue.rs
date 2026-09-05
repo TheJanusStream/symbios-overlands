@@ -364,6 +364,9 @@ pub(crate) fn catalogue_ui(
         return;
     };
 
+    // Guarded-dirty (#879): `.open(&mut panels.catalogue)` through the
+    // `ResMut` would mark UiPanels changed every frame, starving the
+    // prefs save debounce — local copy in, write back only on close.
     let mut open = panels.catalogue;
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Catalogue, ctx);
     let response = egui::Window::new("Catalogue")
@@ -540,7 +543,9 @@ pub(crate) fn catalogue_ui(
                 );
             });
         });
-    panels.catalogue = open;
+    if panels.catalogue && !open {
+        panels.catalogue = false;
+    }
     if let Some(response) = response {
         chrome.remember(
             crate::ui::layout::UiWindow::Catalogue,

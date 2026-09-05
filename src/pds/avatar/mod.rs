@@ -171,15 +171,48 @@ impl AvatarRecord {
 /// `stored` is whatever the comparison is against — the last published
 /// record for a dirty check, the seeded default for "is Reset meaningful?".
 pub fn avatar_is_dirty(live: &AvatarRecord, stored: &AvatarRecord) -> bool {
-    if crate::state::records_differ(live, stored) {
+    avatar_dirty_against(
+        live,
+        &serde_json::to_value(live).ok(),
+        stored,
+        &serde_json::to_value(stored).ok(),
+    )
+}
+
+/// [`avatar_is_dirty`] with both wire forms supplied by the caller
+/// (#1270 f273).
+///
+/// The editor asks this question three times a frame — for the Save row,
+/// for "would Reset change anything?", and for the recovery banner's
+/// reload button — against two baselines that change far less often than
+/// once a frame. Serialising all six records per frame is what the
+/// finding was; the editor caches the live value on its change tick and
+/// the two baselines on theirs, and this is the shape that lets it.
+///
+/// The values must be `serde_json::to_value(record).ok()` of the records
+/// beside them, which is what `crate::state::records_differ` compares —
+/// `the_cached_and_uncached_dirty_checks_agree` pins that the two entry
+/// points answer identically.
+///
+/// The resolution half compares by REFERENCE. It used to clone both
+/// `ResolvedRig`s — a whole `symbios_avatar::AvatarRecord` plus every
+/// resolved attachment, twice, per call — to compare them and drop them
+/// again.
+pub fn avatar_dirty_against(
+    live: &AvatarRecord,
+    live_value: &Option<serde_json::Value>,
+    stored: &AvatarRecord,
+    stored_value: &Option<serde_json::Value>,
+) -> bool {
+    if live_value != stored_value {
         return true;
     }
-    let resolved = |record: &AvatarRecord| {
+    fn resolved(record: &AvatarRecord) -> Option<&super::avatar::body::ResolvedRig> {
         record
             .body
             .rigged_ref()
-            .and_then(|rig| rig.resolved.clone())
-    };
+            .and_then(|rig| rig.resolved.as_ref())
+    }
     resolved(live) != resolved(stored)
 }
 
@@ -354,6 +387,68 @@ mod tests {
             "a sculpted body is unsaved work"
         );
         assert!(!avatar_is_dirty(&saved, &saved.clone()));
+    }
+
+    /// The cached entry point answers exactly what the uncached one does
+    /// (#1270 f273).
+    ///
+    /// The editor stopped calling `avatar_is_dirty` per frame and started
+    /// handing `avatar_dirty_against` cached wire forms; Ctrl+S and the
+    /// unsaved-edits guard still call the plain one. Two derivations of
+    /// "avatar dirty" is the exact defect #1138 was filed for, so the fact
+    /// that matters is that these two remain one — including on the
+    /// serde-skipped resolution half, which no cached `Value` can see.
+    #[test]
+    fn the_cached_and_uncached_dirty_checks_agree() {
+        let mut saved = AvatarRecord::wearing("3jzfcijpj2z2a");
+        if let Some(rig) = saved.body.rigged_mut() {
+            rig.resolved = Some(body::ResolvedRig {
+                body: wardrobe::engine_default_for_did("did:plc:cached-test"),
+                attachments: Vec::new(),
+            });
+        }
+        // A sculpt (invisible to the wire), a wire edit, and no edit at
+        // all — the three shapes the two entry points have to agree on.
+        let mut sculpted = saved.clone();
+        if let Some(resolved) = sculpted
+            .body
+            .rigged_mut()
+            .and_then(|rig| rig.resolved.as_mut())
+        {
+            resolved.body.composites.femininity += 0.25;
+        }
+        let mut reworn = saved.clone();
+        if let Some(rig) = reworn.body.rigged_mut() {
+            rig.attachments.push(String::from("3jzfcijpj2z2b"));
+        }
+        let unchanged = saved.clone();
+
+        for (what, live) in [
+            ("a sculpt", &sculpted),
+            ("a wire edit", &reworn),
+            ("no edit", &unchanged),
+        ] {
+            let cached = avatar_dirty_against(
+                live,
+                &serde_json::to_value(live).ok(),
+                &saved,
+                &serde_json::to_value(&saved).ok(),
+            );
+            assert_eq!(
+                cached,
+                avatar_is_dirty(live, &saved),
+                "the two entry points disagree on {what}"
+            );
+        }
+        assert!(
+            avatar_is_dirty(&sculpted, &saved),
+            "and the sculpt is dirty"
+        );
+        assert!(
+            avatar_is_dirty(&reworn, &saved),
+            "and the wire edit is dirty"
+        );
+        assert!(!avatar_is_dirty(&unchanged, &saved), "and no edit is clean");
     }
 
     #[test]

@@ -102,7 +102,7 @@ pub fn step_avatar(
 /// history borrow before the caller starts writing resources.
 fn take_step<R, S>(kind: StepKind, history: &mut UndoHistory<R, S>) -> Option<(R, S, String)>
 where
-    R: Clone + Send + Sync + 'static,
+    R: Clone + serde::Serialize + Send + Sync + 'static,
     S: Clone + Send + Sync + 'static,
 {
     let (entry, label) = match kind {

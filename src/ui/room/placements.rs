@@ -265,6 +265,17 @@ fn new_grid_placement(target: String, anchor: [f32; 2]) -> Placement {
     }
 }
 
+// Rows the placement list was asked to DRAW on this thread — the
+// instrument for #1270 f420. The fix is about a count, not a duration,
+// and this repo has no way to assert on a frame time.
+//
+// Thread-local and not a global: `cargo test --lib` runs the suite in one
+// process on many threads (#1147, #1189).
+#[cfg(test)]
+thread_local! {
+    static ROWS_DRAWN: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_placements_tab(
     ui: &mut egui::Ui,
@@ -482,24 +493,39 @@ pub(super) fn draw_placements_tab(
 
             let mut to_remove: Option<usize> = None;
             let (shift, ctrl) = ui.input(|i| (i.modifiers.shift, i.modifiers.command));
-            egui::ScrollArea::vertical()
+            let scroll = egui::ScrollArea::vertical()
                 .id_salt("placements_list")
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    if record.placements.is_empty() {
-                        ui.label(
-                            egui::RichText::new("(no placements — click + Absolute above)")
-                                .small()
-                                .color(crate::ui::theme::current(ui.ctx()).text_weak),
-                        );
-                    } else if rows.is_empty() {
-                        ui.label(
-                            egui::RichText::new("(no rows match the filter)")
-                                .small()
-                                .color(crate::ui::theme::current(ui.ctx()).text_weak),
-                        );
-                    }
-                    for i in &rows {
+                .auto_shrink([false, false]);
+            if rows.is_empty() {
+                scroll.show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new(if record.placements.is_empty() {
+                            "(no placements — click + Absolute above)"
+                        } else {
+                            "(no rows match the filter)"
+                        })
+                        .small()
+                        .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                    );
+                });
+            } else {
+                // Virtualised (#1270 f420). The body used to iterate the
+                // WHOLE list: at `MAX_PLACEMENTS` = 1024 that is 1024
+                // `format!`s, ~2048 widget layouts and 2048 text galleys
+                // per frame to show the twenty rows that fit. #1244 gave
+                // this list a filter and a sort, which is how to find a
+                // row — not a reason to lay out the ones nobody can see.
+                //
+                // Every row is one `ui.horizontal` of a `selectable_label`
+                // and a `remove_button`, so the height is uniform and
+                // `show_rows` applies exactly. It reports the visible
+                // range and reserves the rest as blank space, so the
+                // scrollbar still measures the full list.
+                let row_height = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+                scroll.show_rows(ui, row_height, rows.len(), |ui, range| {
+                    #[cfg(test)]
+                    ROWS_DRAWN.with(|n| n.set(n.get() + range.len()));
+                    for i in &rows[range] {
                         let i = *i;
                         let p = &record.placements[i];
                         ui.horizontal(|ui| {
@@ -532,6 +558,7 @@ pub(super) fn draw_placements_tab(
                         });
                     }
                 });
+            }
 
             if let Some(target) = retarget {
                 selection = selected_rows(*selected, list.extra);
@@ -1265,6 +1292,101 @@ mod tests {
         // placement's identity to the gizmo, the visualiser and the
         // delete path, so display order and storage order stay separate.
         assert_eq!(placements.len(), 4);
+    }
+
+    /// A long list costs what it SHOWS, not what it holds (#1270 f420).
+    ///
+    /// The body was a plain `ScrollArea::vertical().show(..)` whose closure
+    /// walked the entire `rows` vector. Each iteration built a fresh
+    /// `String` through `placement_label`, then laid out a `ui.horizontal`
+    /// holding a `selectable_label` and a `remove_button` — two widgets,
+    /// each allocating an egui id and a text galley. At `MAX_PLACEMENTS` =
+    /// 1024 that is 1024 string formats and ~2048 galleys per frame to
+    /// display roughly twenty rows.
+    ///
+    /// The pairing is the count against the list length. `show_rows` asks
+    /// for a bounded window; the shape being replaced asked for all 1024
+    /// on the same viewport, so this assertion separates them by two
+    /// orders of magnitude. The lower bound matters as much as the upper:
+    /// a virtualisation bug that draws NOTHING would satisfy "fewer than
+    /// 1024" forever.
+    #[test]
+    fn a_long_placement_list_draws_only_what_fits() {
+        let mut record = RoomRecord::default_for_did("did:plc:rows");
+        record.generators.clear();
+        record
+            .generators
+            .insert(String::from("oak"), crate::pds::Generator::default_cuboid());
+        record.placements = (0..crate::pds::sanitize::limits::MAX_PLACEMENTS)
+            .map(|i| Placement::Absolute {
+                generator_ref: String::from("oak"),
+                transform: crate::pds::TransformData {
+                    translation: [i as f32, 0.0, 0.0].into(),
+                    ..Default::default()
+                },
+                snap_to_terrain: false,
+                avoid_water: false,
+                avoid_water_clearance: 0.0.into(),
+            })
+            .collect();
+        let total = record.placements.len();
+        assert_eq!(total, 1024, "the fixture is the record's own cap");
+
+        // A viewport the height of a tall editor window, which is the
+        // most rows anybody can be looking at.
+        const VIEWPORT_HEIGHT: f32 = 600.0;
+        let ctx = egui::Context::default();
+        ROWS_DRAWN.with(|n| n.set(0));
+        let mut selected: Option<usize> = None;
+        let mut dirty = false;
+        let mut labels = crate::ui::undo::PendingUndoLabels::default();
+        let mut filter = String::new();
+        let mut sort = crate::ui::room::PlacementSort::Order;
+        let mut extra: Vec<usize> = Vec::new();
+        let mut bulk = crate::ui::confirm::ConfirmState::default();
+        let _ = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900.0, VIEWPORT_HEIGHT),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                draw_placements_tab(
+                    ui,
+                    &mut record,
+                    &mut selected,
+                    None,
+                    None,
+                    &mut dirty,
+                    &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
+                    PlacementList {
+                        filter: &mut filter,
+                        sort: &mut sort,
+                        extra: &mut extra,
+                        bulk_delete: &mut bulk,
+                    },
+                );
+            },
+        );
+
+        let drawn = ROWS_DRAWN.with(|n| n.get());
+        // A row is at least `interact_size.y` tall (egui's default is 18
+        // pt), so a 600 pt viewport cannot honestly need more than this
+        // many even before the header and the filter row take their cut.
+        let ceiling = (VIEWPORT_HEIGHT / 18.0).ceil() as usize + 4;
+        assert!(
+            drawn > 0,
+            "nothing was drawn at all — a list that shows no rows passes every \
+             'fewer than 1024' assertion and is a worse bug than the one being fixed"
+        );
+        assert!(
+            drawn <= ceiling,
+            "the list drew {drawn} of {total} rows into a {VIEWPORT_HEIGHT} pt \
+             viewport; at most {ceiling} can be visible. The shape this replaced \
+             drew all {total}."
+        );
     }
 
     /// #1244 f415. Sequence: select forty placements and delete them. The

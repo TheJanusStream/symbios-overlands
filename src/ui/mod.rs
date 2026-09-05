@@ -72,6 +72,10 @@
 //! * [`undo`]         — bounded whole-record undo/redo rings for the room
 //!   and avatar editors (#862), captured off the editors' existing commit
 //!   ticks in `PostUpdate`.
+//! * [`perf`]         — the per-frame costs that scaled with authored
+//!   content (#1270) and the rule the guards on them follow: count the
+//!   work, do not time it. Holds `LiveValueCache`, the tick-and-flag
+//!   record cache the room and avatar editors share.
 
 pub mod affordances;
 pub mod avatar;
@@ -91,6 +95,7 @@ pub mod nametag;
 pub mod num;
 pub mod other_session;
 pub mod people;
+pub mod perf;
 pub mod reauth;
 pub mod room;
 pub mod settings;

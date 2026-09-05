@@ -77,7 +77,7 @@ pub(crate) trait GeneratorTreeSource {
     /// Names of every top-level root, in display order. The room source
     /// returns its HashMap keys sorted; an avatar source returns a single
     /// fixed name.
-    fn root_names(&self) -> Vec<String>;
+    fn root_names(&self) -> Vec<&str>;
     fn get_root(&self, name: &str) -> Option<&Generator>;
     fn get_root_mut(&mut self, name: &str) -> Option<&mut Generator>;
     /// `true` when the source can hold more than one root. Drives the "+
@@ -187,9 +187,13 @@ impl GeneratorTreeSource for RoomTreeSource<'_> {
     fn instances_through_placements(&self) -> bool {
         true
     }
-    fn root_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.record.generators.keys().cloned().collect();
-        names.sort();
+    fn root_names(&self) -> Vec<&str> {
+        // Borrowed, not cloned (#1270 f419). The room's map holds up to
+        // 256 keys and this runs twice a frame — once for the tree, once
+        // for `detail`'s road scan — so cloning every key was ~512 heap
+        // allocations per frame to produce a list that is only read.
+        let mut names: Vec<&str> = self.record.generators.keys().map(String::as_str).collect();
+        names.sort_unstable();
         names
     }
     fn get_root(&self, name: &str) -> Option<&Generator> {
@@ -270,8 +274,8 @@ impl<'a> AvatarVisualsTreeSource<'a> {
 }
 
 impl GeneratorTreeSource for AvatarVisualsTreeSource<'_> {
-    fn root_names(&self) -> Vec<String> {
-        vec![Self::ROOT_NAME.to_string()]
+    fn root_names(&self) -> Vec<&str> {
+        vec![Self::ROOT_NAME]
     }
     fn get_root(&self, name: &str) -> Option<&Generator> {
         if name == Self::ROOT_NAME {
@@ -342,8 +346,8 @@ impl GeneratorTreeSource for AttachmentTreeSource<'_> {
     fn resolves_face_picks(&self) -> bool {
         false
     }
-    fn root_names(&self) -> Vec<String> {
-        vec![self.rkey.clone()]
+    fn root_names(&self) -> Vec<&str> {
+        vec![&self.rkey]
     }
     fn get_root(&self, name: &str) -> Option<&Generator> {
         (name == self.rkey).then_some(&*self.item)

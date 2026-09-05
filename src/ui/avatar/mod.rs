@@ -173,7 +173,30 @@ pub struct AvatarEditorState {
     /// `AvatarRecord::default_for_did` runs the full part-composition pipeline,
     /// so build it once per session rather than every frame the editor is open;
     /// invalidated when the session DID changes.
-    default_cache: Option<(String, AvatarRecord)>,
+    /// The third element is the record's serialized form, pre-baked for
+    /// the per-frame `can_reset` comparison — the room editor's #674
+    /// idiom, which #1135's doc comment claimed had reached this editor
+    /// and which #1270 f273 found had not.
+    default_cache: Option<(String, AvatarRecord, Option<serde_json::Value>)>,
+    /// Serialized form of the stored record for the per-frame dirty check
+    /// (#1270 f273), recomputed only when the stored resource changes.
+    /// Keyed by `last_changed()` rather than `is_changed()` for the same
+    /// reason as the room's: the change flag is consumed on frames where
+    /// this system early-returns (a closed panel, a body-less session),
+    /// which would otherwise leave a stale baseline behind.
+    stored_baseline: Option<(bevy::ecs::change_detection::Tick, Option<serde_json::Value>)>,
+    /// Serialized form of the LIVE record, rebuilt only when the record
+    /// could have changed (#1270 f273). Before this the editor asked
+    /// `avatar_is_dirty` three times a frame, each of which serialised
+    /// BOTH sides — six whole-record `Value` trees per frame on the
+    /// surface where the owner spends the longest continuous stretch of
+    /// fine-grained interaction, and the one editor #674's caching never
+    /// reached.
+    live_baseline: crate::ui::perf::LiveValueCache,
+    /// [`Self::live_baseline`]'s rebuild count as of the last size
+    /// measurement, so the 0.5 s readout can skip a record that has not
+    /// changed since it last looked (#1270 f418's gate).
+    size_readout_generation: Option<u64>,
     /// Mirror of this frame's "Avatar window is open and un-collapsed"
     /// state, written by [`avatar_ui`] so non-UI systems can read it
     /// without reaching into egui. Since #1103 the freeze gates no longer
@@ -702,27 +725,31 @@ pub fn avatar_ui(
     // after this block still runs: collapse-deselect sees `false` here, and
     // a debounce flush pending from just before the panel closed still
     // drains and broadcasts.
-    let window_visible_with_body = if !panels.avatar {
-        false
-    } else {
-        let live_mut = live.bypass_change_detection();
-        let before = live_mut.0.clone();
+    let window_visible_with_body =
+        if !panels.avatar {
+            false
+        } else {
+            // Taken before the bypassing reborrow: the tick of the last real
+            // `set_changed()`, i.e. every edit that reached the record from
+            // outside this editor (#1270 f273).
+            let live_tick = live.last_changed();
+            let live_mut = live.bypass_change_detection();
 
-        let ctx = contexts.ctx_mut().unwrap();
-        // Width only from the layout slot — the Avatar window auto-heights
-        // to its content, and forcing the persisted height back on it
-        // would pad the shorter Locomotion tab with dead space.
-        let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Avatar, ctx);
-        // Guarded-dirty (#879): `.open(&mut panels.avatar)` through the
-        // `ResMut` would mark UiPanels changed every frame, starving the
-        // prefs save debounce — local copy in, write back only on close.
-        let mut open = panels.avatar;
-        // #1230 f33: set by the recovery banner's re-read button, acted on
-        // after the closure (the spawn is a `Commands` write, and the
-        // closure's own return value already carries the collapsed/closed
-        // distinction below).
-        let mut reload_avatar = false;
-        let response = egui::Window::new("Avatar")
+            let ctx = contexts.ctx_mut().unwrap();
+            // Width only from the layout slot — the Avatar window auto-heights
+            // to its content, and forcing the persisted height back on it
+            // would pad the shorter Locomotion tab with dead space.
+            let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Avatar, ctx);
+            // Guarded-dirty (#879): `.open(&mut panels.avatar)` through the
+            // `ResMut` would mark UiPanels changed every frame, starving the
+            // prefs save debounce — local copy in, write back only on close.
+            let mut open = panels.avatar;
+            // #1230 f33: set by the recovery banner's re-read button, acted on
+            // after the closure (the spawn is a `Commands` write, and the
+            // closure's own return value already carries the collapsed/closed
+            // distinction below).
+            let mut reload_avatar = false;
+            let response = egui::Window::new("Avatar")
             .open(&mut open)
             .default_pos(pos)
             .default_width(size.x)
@@ -802,6 +829,9 @@ pub fn avatar_ui(
                     publish_guard,
                     tree_confirms,
                     default_cache,
+                    stored_baseline,
+                    live_baseline,
+                    size_readout_generation,
                     pending_tree_focus,
                     wardrobe,
                     attachments: attachments_state,
@@ -817,6 +847,52 @@ pub fn avatar_ui(
                     node_clipboard,
                     ..
                 } = &mut *editor;
+
+                // --- The three comparison baselines (#1270 f273) --------
+                // This editor asks "is the avatar dirty?" three times a
+                // frame — the Save row, "would Reset change anything?",
+                // and the recovery banner's reload button — and every one
+                // of them used to serialise BOTH sides. Six whole-record
+                // `Value` trees per frame, on the surface where the owner
+                // spends the longest continuous stretch of fine-grained
+                // interaction. #674 fixed this for the room editor and
+                // #1135's doc comment claimed it had reached here too; it
+                // had not.
+                //
+                // Each of the three sides is now cached on the thing that
+                // makes it stale, and they are maintained HERE rather than
+                // in the footer so the banner above reads the same
+                // baselines the row below does.
+                //
+                // The seeded default: rebuilt only when the session DID
+                // changes (#637 — it is a full part-composition build),
+                // with its serialized form riding along.
+                match session.as_ref() {
+                    Some(s) if default_cache.as_ref().is_none_or(|(d, _, _)| d != &s.did) => {
+                        let record = AvatarRecord::default_for_did(&s.did);
+                        let value = serde_json::to_value(&record).ok();
+                        *default_cache = Some((s.did.clone(), record, value));
+                    }
+                    None => *default_cache = None,
+                    _ => {}
+                }
+                let default_record = default_cache.as_ref().map(|(_, r, _)| r);
+                // The stored side: re-serialised only when the resource
+                // changes. Keyed on `last_changed()` and not
+                // `is_changed()`, because the flag is consumed on frames
+                // where this system early-returns.
+                match stored.as_ref() {
+                    Some(s)
+                        if stored_baseline
+                            .as_ref()
+                            .is_none_or(|(tick, _)| *tick != s.last_changed()) =>
+                    {
+                        *stored_baseline =
+                            Some((s.last_changed(), serde_json::to_value(&s.0).ok()));
+                    }
+                    None => *stored_baseline = None,
+                    _ => {}
+                }
 
                 // Recovery banner (#840) — the stored record could not be
                 // loaded and this editor holds the DID default. Same idiom
@@ -851,9 +927,17 @@ pub fn avatar_ui(
                             if crate::ui::editable::recovery_reload_button(
                                 ui,
                                 crate::diagnostics::event::RecordKind::Avatar,
-                                stored.as_ref().is_some_and(|s| {
-                                    pds::avatar::avatar_is_dirty(&live_mut.0, &s.0)
-                                }),
+                                match (stored.as_ref(), stored_baseline.as_ref()) {
+                                    (Some(s), Some((_, baseline))) => {
+                                        pds::avatar::avatar_dirty_against(
+                                            &live_mut.0,
+                                            live_baseline.value(live_tick, &live_mut.0),
+                                            &s.0,
+                                            baseline,
+                                        )
+                                    }
+                                    _ => false,
+                                },
                             )
                             .clicked()
                             {
@@ -966,6 +1050,7 @@ pub fn avatar_ui(
                         if let Some(seed) = effective {
                             seed_row_state.set_seed(seed);
                             live_mut.0 = AvatarRecord::default_for_seed(seed);
+                            widget_changed = true;
                             undo_labels.set_avatar(format!("seed re-roll ({seed})"));
                             session_log.info(
                                 time.elapsed_secs_f64(),
@@ -1015,35 +1100,51 @@ pub fn avatar_ui(
                         // derivation this row, Ctrl+S and the unsaved-edits
                         // guard all ask (#1138).
 
-                        let dirty = stored
-                            .as_ref()
-                            .is_some_and(|s| pds::avatar::avatar_is_dirty(&live_mut.0, &s.0));
                         let can_publish = session.is_some() && refresh_ctx.is_some();
-                        // Rebuild the seeded default only when the session DID
-                        // changes, not every frame (#637) — full
-                        // part-composition build.
-                        match session.as_ref() {
-                            Some(s) if default_cache.as_ref().is_none_or(|(d, _)| d != &s.did) => {
-                                *default_cache =
-                                    Some((s.did.clone(), AvatarRecord::default_for_did(&s.did)));
-                            }
-                            None => *default_cache = None,
-                            _ => {}
-                        }
-                        let default_record = default_cache.as_ref().map(|(_, r)| r);
-                        // Same question, different baseline: "would Reset
-                        // change anything?" is live-vs-default.
-                        let can_reset = default_record
-                            .is_some_and(|d| pds::avatar::avatar_is_dirty(&live_mut.0, d));
+                        // Both questions below read the baselines cached
+                        // above and ONE live serialisation between them,
+                        // rebuilt only on a frame after an edit — instead
+                        // of six whole-record `Value` trees per frame
+                        // (#1270 f273).
+                        let generation = live_baseline.recomputes();
+                        let (dirty, can_reset) = {
+                            let live_value = live_baseline.value(live_tick, &live_mut.0);
+                            let dirty = match (stored.as_ref(), stored_baseline.as_ref()) {
+                                (Some(s), Some((_, baseline))) => pds::avatar::avatar_dirty_against(
+                                    &live_mut.0,
+                                    live_value,
+                                    &s.0,
+                                    baseline,
+                                ),
+                                _ => false,
+                            };
+                            // Same question, different baseline: "would
+                            // Reset change anything?" is live-vs-default.
+                            let can_reset = match (default_record, default_cache.as_ref()) {
+                                (Some(d), Some((_, _, value))) => pds::avatar::avatar_dirty_against(
+                                    &live_mut.0,
+                                    live_value,
+                                    d,
+                                    value,
+                                ),
+                                _ => false,
+                            };
+                            (dirty, can_reset)
+                        };
 
                         // The bundle a save writes, not the reference-only
-                        // record (#1207).
-                        crate::ui::editable::refresh_size_readout(
+                        // record (#1207). Skipped entirely while the record
+                        // has not changed since it was last measured
+                        // (#1270 f418's gate, on the same cache).
+                        if crate::ui::editable::refresh_size_readout(
                             &mut *feedback,
                             &live_mut.0,
                             time.elapsed_secs_f64(),
+                            *size_readout_generation != Some(generation),
                             pds::avatar::wardrobe::measure_publish,
-                        );
+                        ) {
+                            *size_readout_generation = Some(generation);
+                        }
                         let size = feedback.live_size.clone();
                         let ctrl_s =
                             publish_shortcut.take(crate::ui::shortcuts::EditorKind::Avatar);
@@ -1087,12 +1188,14 @@ pub fn avatar_ui(
                             RecordAction::Load => {
                                 if let Some(stored) = &stored {
                                     live_mut.0 = stored.0.clone();
+                                    widget_changed = true;
                                     undo_labels.set_avatar("revert to saved");
                                 }
                             }
                             RecordAction::Reset => {
                                 if let Some(default_record) = default_record {
                                     live_mut.0 = default_record.clone();
+                                    widget_changed = true;
                                     undo_labels.set_avatar("reset to default");
                                 }
                             }
@@ -1420,40 +1523,46 @@ pub fn avatar_ui(
                 }
             });
 
-        if live_mut.0 != before {
-            widget_changed = true;
-        }
+            // The whole-record clone this used to compare against is gone
+            // (#1270 f273). It was a deep clone of the `AvatarRecord` at the
+            // top of every frame plus a derived `PartialEq` walk at the
+            // bottom, and it existed as a backstop for edit sites that did not
+            // report. Every site reports now — the four `draw_*` handoffs
+            // always took `&mut widget_changed`, and the three direct
+            // assignments (seed re-roll, Revert, Reset) say so themselves.
+            // `avatar_edits_report_themselves` is what keeps a fourth from
+            // being written silently.
 
-        // #1230 f33: re-read the stored avatar from the PDS.
-        // `poll_record_task` installs it as live AND stored on a clean
-        // resolution and retires the recovery marker, so the banner clears
-        // itself; the button is disabled while dirty, so nothing unsaved is
-        // in its way.
-        if reload_avatar && let Some(s) = session.as_ref() {
-            crate::loading::fetch::spawn_record_fetch::<pds::AvatarRecord>(
-                &mut commands,
-                s.did.clone(),
-                0,
-                time.elapsed_secs_f64(),
-            );
-        }
+            // #1230 f33: re-read the stored avatar from the PDS.
+            // `poll_record_task` installs it as live AND stored on a clean
+            // resolution and retires the recovery marker, so the banner clears
+            // itself; the button is disabled while dirty, so nothing unsaved is
+            // in its way.
+            if reload_avatar && let Some(s) = session.as_ref() {
+                crate::loading::fetch::spawn_record_fetch::<pds::AvatarRecord>(
+                    &mut commands,
+                    s.did.clone(),
+                    0,
+                    time.elapsed_secs_f64(),
+                );
+            }
 
-        if let Some(response) = response.as_ref() {
-            chrome.remember(crate::ui::layout::UiWindow::Avatar, response.response.rect);
-        }
-        if panels.avatar && !open {
-            panels.avatar = false;
-        }
+            if let Some(response) = response.as_ref() {
+                chrome.remember(crate::ui::layout::UiWindow::Avatar, response.response.rect);
+            }
+            if panels.avatar && !open {
+                panels.avatar = false;
+            }
 
-        // `Window::show` returns `Some(InnerResponse { inner: None, .. })`
-        // when the window is rendered but collapsed (the closure does not
-        // fire). `Some(InnerResponse { inner: Some(_), .. })` means the
-        // body ran. `None` means the window is closed entirely. Treat
-        // collapsed *and* closed identically: the user can no longer see
-        // the selection in the panel, so the gizmo should detach and the
-        // mutex against the room editor should release.
-        response.as_ref().is_some_and(|r| r.inner.is_some())
-    };
+            // `Window::show` returns `Some(InnerResponse { inner: None, .. })`
+            // when the window is rendered but collapsed (the closure does not
+            // fire). `Some(InnerResponse { inner: Some(_), .. })` means the
+            // body ran. `None` means the window is closed entirely. Treat
+            // collapsed *and* closed identically: the user can no longer see
+            // the selection in the panel, so the gizmo should detach and the
+            // mutex against the room editor should release.
+            response.as_ref().is_some_and(|r| r.inner.is_some())
+        };
     // Publish the window state for non-UI readers (the gait pause, #741)
     // every frame this system runs — including the `!panels.avatar` arm,
     // so closing the window un-pauses without a stale frame.
@@ -1497,6 +1606,14 @@ pub fn avatar_ui(
     }
 
     if widget_changed {
+        // The live record changed through `bypass_change_detection`, so no
+        // tick moved and the cached wire form is stale (#1270 f273). Done
+        // once here, at the end of the frame, rather than at each of the
+        // seven edit sites: the next frame's first `value()` call rebuilds
+        // and every later one that frame reuses it, which is the same
+        // one-frame latency the tab bodies always had (they draw after the
+        // footer that reads the answer).
+        editor.live_baseline.touch();
         editor.pending_flush_secs = crate::config::ui::editor::MENU_DEBOUNCE_SECS;
         // Coarse per-tab undo label (#865) when no site named the edit.
         if !undo_labels.avatar_pending() {
@@ -1768,6 +1885,99 @@ pub fn poll_publish_avatar_tasks(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every edit this editor makes to the live record reports itself
+    /// (#1270 f273).
+    ///
+    /// `avatar_ui` used to deep-clone the whole `AvatarRecord` at the top
+    /// of every frame and run a derived `PartialEq` over it at the bottom,
+    /// purely as a backstop for edit sites that might not set
+    /// `widget_changed`. That is a whole-record clone plus a whole-record
+    /// walk, sixty times a second, on the editor with the least frame
+    /// budget to spare — paid on every frame including the overwhelming
+    /// majority where nothing happened at all.
+    ///
+    /// The clone is gone, so the reports have to be real. The four `draw_*`
+    /// handoffs each take `&mut widget_changed` or return an `outcome`
+    /// whose `changed` is ORed in, and the compiler holds those. What
+    /// nothing held is a bare `live_mut.0 = …` — the seed re-roll, Revert
+    /// and Reset all replace the record wholesale, and all three were
+    /// silent. This is the check that a fourth cannot be.
+    ///
+    /// It reads the source rather than driving the editor because
+    /// `avatar_ui` is a sixteen-parameter system over a live egui context,
+    /// a session and a PDS; the fact being pinned is a property of the
+    /// code, and the repo's other "a helper nobody is obliged to call"
+    /// guards (`ui::num`, `ui::affordances`) are the same shape.
+    #[test]
+    fn avatar_edits_report_themselves() {
+        /// Assignments to the whole live record, as `(line, reports)`.
+        fn record_assignments(source: &str) -> Vec<(usize, bool)> {
+            const WINDOW: usize = 6;
+            let lines: Vec<&str> = source.lines().collect();
+            let mut out = Vec::new();
+            for (n, line) in lines.iter().enumerate() {
+                let code = line.split("//").next().unwrap_or("");
+                // `live_mut.0 = …`, but not `live_mut.0 == …` and not a
+                // read like `&live_mut.0`.
+                let Some(at) = code.find("live_mut.0") else {
+                    continue;
+                };
+                let tail = code[at + "live_mut.0".len()..].trim_start();
+                if !tail.starts_with('=') || tail.starts_with("==") {
+                    continue;
+                }
+                let reports = lines[n..(n + WINDOW).min(lines.len())]
+                    .iter()
+                    .any(|l| l.contains("widget_changed = true"));
+                out.push((n + 1, reports));
+            }
+            out
+        }
+
+        // Controls, both ways round.
+        assert_eq!(
+            record_assignments("    live_mut.0 = stored.0.clone();\n"),
+            vec![(1, false)],
+            "a silent assignment is what this has to be able to see"
+        );
+        assert_eq!(
+            record_assignments("    live_mut.0 = stored.0.clone();\n    widget_changed = true;\n"),
+            vec![(1, true)]
+        );
+        assert!(
+            record_assignments("    if live_mut.0 == before {\n").is_empty(),
+            "a comparison is not an assignment"
+        );
+        assert!(
+            record_assignments("    let rigged = &live_mut.0;\n").is_empty(),
+            "a read is not an assignment"
+        );
+
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui/avatar/mod.rs"),
+        )
+        .expect("this file is readable");
+        let source = crate::ui::fonts::glyph_coverage_tests::non_test_source(&source);
+        let found = record_assignments(source);
+        assert!(
+            found.len() >= 3,
+            "the scan found {} record assignments — it has gone blind (the seed \
+             re-roll, Revert and Reset are all still there)",
+            found.len()
+        );
+        let silent: Vec<usize> = found
+            .iter()
+            .filter(|(_, reports)| !reports)
+            .map(|(line, _)| *line)
+            .collect();
+        assert!(
+            silent.is_empty(),
+            "src/ui/avatar/mod.rs replaces the live record at {silent:?} without setting \
+             `widget_changed = true` — the edit will not arm the debounce, so the body \
+             will not rebuild and no peer will see it until something else is touched"
+        );
+    }
 
     /// #1236 f139. Sequence: right-click your hat → "Edit …", the body
     /// freezes under the gizmo, press Esc. The Esc back-out ladder tested

@@ -1489,6 +1489,209 @@ pub(crate) mod glyph_coverage_tests {
         );
     }
 
+    // -- The guarded-dirty scan (#1270 f121) ------------------------------
+
+    /// A `let mut <local> = panels.<field>;` binding, as
+    /// `(line, local, field)`.
+    fn panel_flag_bindings(source: &str) -> Vec<(usize, String, String)> {
+        let mut out = Vec::new();
+        for (n, line) in source.lines().enumerate() {
+            let code = line.split("//").next().unwrap_or("");
+            let Some(rest) = code.trim_start().strip_prefix("let mut ") else {
+                continue;
+            };
+            let Some((local, tail)) = rest.split_once(" = panels.") else {
+                continue;
+            };
+            let field = ident_at(tail);
+            if field.is_empty() || !tail[field.len()..].starts_with(';') {
+                continue;
+            }
+            out.push((n + 1, local.trim().to_string(), field));
+        }
+        out
+    }
+
+    /// Every `panels.<field> = <rhs>;` assignment, as `(line, field, rhs)`.
+    ///
+    /// A `==` comparison is not a write, and neither is the `panels.x` on
+    /// the right of a `let` — both are excluded by requiring a single `=`
+    /// immediately after the field name.
+    fn panel_flag_writes(source: &str) -> Vec<(usize, String, String)> {
+        let mut out = Vec::new();
+        for (n, line) in source.lines().enumerate() {
+            let code = line.split("//").next().unwrap_or("");
+            let mut from = 0;
+            while let Some(at) = code[from..].find("panels.") {
+                let at = from + at;
+                from = at + "panels.".len();
+                // `ui_panels.` is a different binding, not this one.
+                if code[..at]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+                {
+                    continue;
+                }
+                let field = ident_at(&code[from..]);
+                if field.is_empty() {
+                    continue;
+                }
+                let tail = code[from + field.len()..].trim_start();
+                let Some(rhs) = tail.strip_prefix('=') else {
+                    continue;
+                };
+                if rhs.starts_with('=') {
+                    continue;
+                }
+                let rhs = rhs.trim().trim_end_matches([';', ',']).trim();
+                out.push((n + 1, field, rhs.to_string()));
+            }
+        }
+        out
+    }
+
+    /// Lines that hand a `UiPanels` field straight to a widget as `&mut`.
+    fn direct_panel_opens(source: &str) -> Vec<usize> {
+        source
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| {
+                line.split("//")
+                    .next()
+                    .unwrap_or("")
+                    .contains("&mut panels.")
+            })
+            .map(|(n, _)| n + 1)
+            .collect()
+    }
+
+    /// The leading Rust identifier of `s`, or `""`.
+    fn ident_at(s: &str) -> String {
+        s.chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect()
+    }
+
+    /// Every window's open flag is written on the CLOSING EDGE, never per
+    /// frame (#1270 f121, the #879 guarded-dirty rule).
+    ///
+    /// `UiPanels` is a `Resource`, so any `ResMut::deref_mut` stamps its
+    /// change tick — and `prefs::save_prefs_when_changed` ORs
+    /// `panels.is_changed()` into a 1.0 s trailing debounce. A resource
+    /// that is never quiet therefore produces a full prefs
+    /// serialise-and-write about once a second, forever: `std::fs::write`
+    /// on native, a synchronous `localStorage.setItem` of the whole blob
+    /// on wasm, and it starves the debounce for every OTHER pref too.
+    ///
+    /// The Catalogue was the one window that wrote `panels.catalogue =
+    /// open;` unconditionally, and one line was enough to defeat the whole
+    /// programme app-wide. Eight sibling windows carried a `#879` comment
+    /// explaining the idiom and nothing enforced it, which is how the ninth
+    /// got written. Three rules, all cheap:
+    ///
+    /// **No `&mut panels.…`.** `egui::Window::open` takes `&mut bool`;
+    /// pointed at the resource directly it dirties every frame the window
+    /// draws.
+    ///
+    /// **A write's right-hand side is a bool literal.** Every legitimate
+    /// write in the tree opens or closes a window at a known moment
+    /// (`shortcuts.rs`' Esc arms, `editable.rs`' "take me there" buttons).
+    /// `panels.x = some_local` is the defect shape: a value that came out
+    /// of the resource going straight back into it, every frame.
+    ///
+    /// **A binding implies its guard.** A file that takes `let mut open =
+    /// panels.x;` must also contain `if panels.x && !open`, the closing
+    /// edge. This is the positive half: rule two alone is satisfied by a
+    /// window that reads the flag and never writes it back at all, which
+    /// would leave the close button inert.
+    ///
+    /// What this does NOT catch is a bool-literal write placed on a path
+    /// that runs every frame. Nothing in the tree looks like that and no
+    /// syntactic rule could tell it from `shortcuts.rs`' keypress arms; the
+    /// change-tick pairing in `ui::perf` is what measures the behaviour
+    /// itself.
+    #[test]
+    fn every_panel_flag_write_is_guarded() {
+        let sources = rust_sources_under("src/ui");
+        assert!(sources.len() > 20, "the walk found no sources to scan");
+
+        // Controls, both ways round: the shape that shipped and the shape
+        // that replaced it. A scan that cannot see what it bans passes
+        // forever.
+        let shipped = "    let mut open = panels.catalogue;\n    panels.catalogue = open;\n";
+        assert_eq!(
+            panel_flag_bindings(shipped),
+            vec![(1, "open".to_string(), "catalogue".to_string())]
+        );
+        assert_eq!(
+            panel_flag_writes(shipped),
+            vec![(2, "catalogue".to_string(), "open".to_string())],
+            "the unconditional write-back is what f121 was"
+        );
+        let guarded = "    let mut open = panels.catalogue;\n    if panels.catalogue && !open {\n        panels.catalogue = false;\n    }\n";
+        assert_eq!(
+            panel_flag_writes(guarded)
+                .iter()
+                .map(|(_, _, rhs)| rhs.as_str())
+                .collect::<Vec<_>>(),
+            vec!["false"],
+            "the guarded form writes a literal on the edge"
+        );
+        assert_eq!(panel_flag_writes("if panels.chat == open {").len(), 0);
+        assert_eq!(direct_panel_opens(".open(&mut panels.chat)").len(), 1);
+        assert_eq!(
+            direct_panel_opens("// `.open(&mut panels.chat)` would dirty it").len(),
+            0,
+            "a mention in a comment is not a call site"
+        );
+
+        let mut faults = Vec::new();
+        let mut guards_seen = 0usize;
+        for path in sources {
+            let source = std::fs::read_to_string(&path).expect("source is readable");
+            let code = non_test_source(&source);
+            for line in direct_panel_opens(code) {
+                faults.push(format!(
+                    "{}:{line}: `&mut panels.…` hands the resource to a widget; take a \
+                     local copy and write back on the closing edge",
+                    short(&path)
+                ));
+            }
+            for (line, field, rhs) in panel_flag_writes(code) {
+                if rhs != "true" && rhs != "false" {
+                    faults.push(format!(
+                        "{}:{line}: `panels.{field} = {rhs};` writes a non-literal — if \
+                         that is the window's own open flag it runs every frame",
+                        short(&path)
+                    ));
+                }
+            }
+            for (line, local, field) in panel_flag_bindings(code) {
+                let guard = format!("if panels.{field} && !{local}");
+                if code.contains(&guard) {
+                    guards_seen += 1;
+                } else {
+                    faults.push(format!(
+                        "{}:{line}: binds `panels.{field}` into `{local}` but never closes \
+                         the window — expected `{guard} {{ panels.{field} = false; }}`",
+                        short(&path)
+                    ));
+                }
+            }
+        }
+        assert!(
+            faults.is_empty(),
+            "UiPanels writes that dirty the resource per frame and starve the prefs \
+             save debounce (#879, #1270 f121):\n  {}",
+            faults.join("\n  ")
+        );
+        assert!(
+            guards_seen >= 8,
+            "only {guards_seen} guarded windows found — the binding scan has gone blind"
+        );
+    }
+
     /// UI copy uses one spelling of the words this product says most
     /// (#1264 f225).
     ///

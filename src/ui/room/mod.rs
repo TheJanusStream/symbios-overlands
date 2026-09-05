@@ -282,6 +282,26 @@ pub struct RoomEditorState {
     /// early-returns (visiting another room, mid-Loading), which would
     /// otherwise leave a stale baseline after a room transition.
     stored_baseline: Option<(bevy::ecs::change_detection::Tick, Option<serde_json::Value>)>,
+    /// Serialized form of the LIVE record, rebuilt only when the record
+    /// could have changed (#1270 f418). #674 cached both comparison
+    /// BASELINES and left this one running per frame, saying so out loud:
+    /// "an open panel pays for ONE live-record serialization per frame".
+    /// At the record's own caps — 256 generators of up to 1024 nodes, with
+    /// 16 KiB of L-system and 16 KiB of shape source each — that one is a
+    /// multi-megabyte `Value` tree allocated, deep-compared and dropped
+    /// sixty times a second, and it gets worse the more the owner has
+    /// built. See [`crate::ui::perf::LiveValueCache`] for why the key is a
+    /// tick AND a flag: this editor writes through
+    /// `bypass_change_detection` on purpose, so the tick alone would miss
+    /// a slider drag entirely.
+    live_baseline: crate::ui::perf::LiveValueCache,
+    /// [`Self::live_baseline`]'s rebuild count as of the last size
+    /// measurement, so the two 0.5 s readouts below can skip a record that
+    /// has not changed since they last looked (#1270 f418). Each of them
+    /// is a whole-record encode — `max_publish_record_bytes` serializes
+    /// the manifest and every one of the 256 generators; the live-sync
+    /// gauge bincodes the entire room.
+    size_readout_generation: Option<u64>,
     /// Serialized size of the whole-room live-sync broadcast, refreshed on
     /// the same throttle as the per-record gauge (#1123). Cached rather
     /// than measured per frame because it costs a full bincode encode of
@@ -778,6 +798,8 @@ pub fn room_admin_ui(
         publish_guard,
         default_cache,
         stored_baseline,
+        live_baseline,
+        size_readout_generation,
         live_sync_bytes,
         ..
     } = &mut *editor;
@@ -804,6 +826,12 @@ pub fn room_admin_ui(
     let mut place_root: Option<String> = None;
 
     {
+        // Taken before the bypassing reborrow below, which is what makes
+        // this readable at all: it is the tick of the last real
+        // `set_changed()`, i.e. every edit that reached the record from
+        // OUTSIDE this editor (the 3D gizmo, an inventory drop, a peer's
+        // live-sync update, an undo restore, a fresh fetch). #1270 f418.
+        let record_tick = record.last_changed();
         let record_mut: &mut RoomRecord = &mut record.bypass_change_detection().0;
 
         // Rename dialog — the shared modal (#838): keeps itself open on an
@@ -1263,12 +1291,23 @@ pub fn room_admin_ui(
                             None => *stored_baseline = None,
                             _ => {}
                         }
-                        let live_value = serde_json::to_value(&*record_mut).ok();
-                        let dirty = match stored_baseline.as_ref() {
-                            Some((_, baseline)) => *baseline != live_value,
-                            None => true,
+                        // …and the LIVE side is cached too now (#1270
+                        // f418). `record_tick` covers every edit from
+                        // outside this editor; the `touch()` at the bottom
+                        // of this system covers this editor's own widgets,
+                        // which write through `bypass_change_detection` and
+                        // so move no tick at all until the ~0.25 s debounce
+                        // drains. Without that second half a dragged slider
+                        // would leave the Save row reading "no unsaved
+                        // changes" for the whole drag.
+                        let (dirty, can_reset) = {
+                            let live_value = live_baseline.value(record_tick, &*record_mut);
+                            let dirty = match stored_baseline.as_ref() {
+                                Some((_, baseline)) => baseline != live_value,
+                                None => true,
+                            };
+                            (dirty, default_value != live_value)
                         };
-                        let can_reset = *default_value != live_value;
                         // `session` + `refresh_ctx` are guaranteed present
                         // (the early return at the top bails otherwise), so
                         // the PDS write can always be attempted while dirty.
@@ -1278,12 +1317,24 @@ pub fn room_admin_ui(
                         // the in-memory monolith. Same throttled cache as
                         // the other editors.
                         let now = time.elapsed_secs_f64();
+                        // …and skip it entirely on a record that has not
+                        // changed since it was last measured (#1270 f418).
+                        // Both encodes below are whole-record: the readout
+                        // serializes the manifest AND every one of the 256
+                        // generators, the gauge bincodes the entire room.
+                        // The rebuild count is a conservative content
+                        // generation — a rebuild that happens to produce
+                        // identical bytes re-measures, which costs a
+                        // measurement and never a stale number.
+                        let generation = live_baseline.recomputes();
                         if crate::ui::editable::refresh_size_readout(
                             &mut *publish_feedback,
                             &*record_mut,
                             now,
+                            *size_readout_generation != Some(generation),
                             pds::room::measure_publish,
                         ) {
+                            *size_readout_generation = Some(generation);
                             // Second measurement on the same throttle
                             // (#1123): what the live-sync broadcast puts on
                             // the wire, which is the WHOLE room in one
@@ -1602,6 +1653,14 @@ pub fn room_admin_ui(
     // A widget edit only arms the broadcast/recompile debounce now —
     // the Publish/Load row's dirty state is derived from
     // `records_differ`, so there is no flag to set here.
+    if widget_change || needs_broadcast {
+        // The record changed through `bypass_change_detection`, so no tick
+        // moved and the cached wire form is stale (#1270 f418). One place,
+        // at the end of the frame — the tab bodies draw after the footer
+        // that reads the answer, so the one-frame latency is the one they
+        // always had.
+        live_baseline.touch();
+    }
     if widget_change {
         *pending_flush_secs = crate::config::ui::editor::MENU_DEBOUNCE_SECS;
         // The cheap lane (#1249 f59). `set_changed()` below waits for the

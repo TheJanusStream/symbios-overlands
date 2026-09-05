@@ -287,7 +287,7 @@ pub(super) fn draw_detail_panel(
 /// misplaced-node warning.
 fn active_road_node_ids(source: &dyn GeneratorTreeSource) -> Vec<GenNodeId> {
     for name in source.root_names() {
-        let Some(root) = source.get_root(&name) else {
+        let Some(root) = source.get_root(name) else {
             continue;
         };
         if matches!(root.kind, GeneratorKind::Terrain(_)) {
@@ -297,7 +297,7 @@ fn active_road_node_ids(source: &dyn GeneratorTreeSource) -> Vec<GenNodeId> {
                 .enumerate()
                 .filter(|(_, c)| matches!(c.kind, GeneratorKind::RoadNetwork(_)))
                 .take(crate::pds::room::MAX_ROAD_NETWORKS)
-                .map(|(i, _)| GenNodeId::child(name.clone(), vec![i]))
+                .map(|(i, _)| GenNodeId::child(name, vec![i]))
                 .collect();
         }
     }

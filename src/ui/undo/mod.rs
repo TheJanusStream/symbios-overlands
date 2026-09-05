@@ -5,10 +5,34 @@
 //! `PrimMarker { generator_ref, path }`), so an index shift from a
 //! structural edit would silently retarget a delta. A `Clone` of the
 //! in-memory record is strictly cheaper than the `serde_json::to_value`
-//! the open editor already pays per frame for its derived dirty check,
-//! and typical records sit under the 100 KiB publish soft budget, so a
+//! the open editor pays for its derived dirty check.
+//!
+//! # The depth is not the bound; the bytes are (#1270 f417)
+//!
+//! This paragraph used to argue that "typical records sit under the
+//! 100 KiB publish soft budget, so a
 //! [`crate::config::ui::editor::UNDO_DEPTH`]-entry ring is a few MiB
-//! worst case.
+//! worst case". That reasoning was wrong, and
+//! [`crate::pds::record_size`] spends thirty lines on the same mistake:
+//! `SOFT_RECORD_BUDGET_BYTES` measures the largest SINGLE PUBLISHED
+//! record after the manifest/child split (#697), not the assembled
+//! in-memory room this ring stores. GothicHorror's seeded default is
+//! 348.6 KiB assembled against 53.9 KiB largest published — a factor of
+//! six, before the owner authors anything, and in memory it is larger
+//! still (`String`s, `Vec`s, a `HashMap`, boxed enum payloads). A room
+//! may hold 256 generators of up to 1024 nodes each, plus 16 KiB of
+//! L-system and 16 KiB of shape source per generator.
+//!
+//! So the ring is bounded by BYTES as well as by depth
+//! ([`crate::config::ui::editor::UNDO_RING_BUDGET_BYTES`]): every entry
+//! is measured on push and the oldest are evicted until the total fits,
+//! independently of `UNDO_DEPTH`. On an ordinary room nothing changes —
+//! 33 entries sit well inside the budget. On a big one the history gets
+//! SHORTER, which is the degradation this wanted: the failure mode it
+//! replaces is a browser tab OOM, and a tab that dies takes with it
+//! exactly the unsaved edits undo exists to protect. `depth_note` puts
+//! the shortened depth on the Undo button, so a ring that has been
+//! trimmed says so rather than just running out early.
 //!
 //! Capture rides the records' existing commit contract instead of
 //! instrumenting every widget: the editors flush widget bursts into a
@@ -100,6 +124,14 @@ pub struct UndoEntry<R, S> {
     pub record: R,
     pub selection: S,
     pub label: String,
+    /// Serialized size of `record`, measured once on push (#1270 f417).
+    /// A lower bound on what the entry costs in memory — the in-memory
+    /// form carries pointers, capacity slack and a `HashMap`'s table on
+    /// top — which is the right direction for a budget to be wrong in.
+    /// `None` when the record does not serialize, which no record type
+    /// can practically hit; such an entry counts as free rather than as
+    /// infinite, so an unmeasurable record cannot empty the ring.
+    pub bytes: Option<usize>,
 }
 
 /// What the capture system saw a record tick mean. Computed from the
@@ -137,6 +169,14 @@ where
     /// One-shot: the next observed tick is an internal restore write
     /// (#863) — consume it instead of recording it.
     suppress_capture: bool,
+    /// Sum of every entry's `bytes` (#1270 f417). Maintained
+    /// incrementally, so the budget check is an integer compare and never
+    /// a walk of the ring.
+    total_bytes: usize,
+    /// How many entries the byte budget has evicted over this ring's
+    /// life. Non-zero means the depth on offer is shorter than
+    /// `UNDO_DEPTH`, which is what [`Self::depth_note`] tells the owner.
+    evicted_for_size: usize,
 }
 
 impl<R, S> Default for UndoHistory<R, S>
@@ -150,6 +190,8 @@ where
             cursor: 0,
             key: None,
             suppress_capture: false,
+            total_bytes: 0,
+            evicted_for_size: 0,
         }
     }
 }
@@ -159,7 +201,7 @@ pub type AvatarUndoHistory = UndoHistory<AvatarRecord, AvatarSelection>;
 
 impl<R, S> UndoHistory<R, S>
 where
-    R: Send + Sync + 'static,
+    R: serde::Serialize + Send + Sync + 'static,
     S: Send + Sync + 'static,
 {
     /// Route one observed record tick into the ring. `record` /
@@ -189,8 +231,18 @@ where
                 // undoing the triggering edit also undoes its fallout and
                 // redo replays both as one step.
                 if let Some(entry) = self.entries.get_mut(self.cursor) {
-                    entry.record = record();
+                    let record = record();
+                    let bytes = crate::pds::record_size::serialized_record_bytes(&record);
+                    // The entry is REPLACED, so its old size leaves the
+                    // total with it (#1270 f417). Lot auto-population can
+                    // add hundreds of generators, so a fold that only ever
+                    // added would drift the total upward without bound.
+                    self.total_bytes -= entry.bytes.unwrap_or(0);
+                    self.total_bytes += bytes.unwrap_or(0);
+                    entry.record = record;
+                    entry.bytes = bytes;
                 }
+                self.evict();
             }
             Observation::Edit(label) => self.push(record(), selection(), label),
         }
@@ -199,10 +251,15 @@ where
     /// Drop everything and seed a fresh baseline for `key`'s content.
     pub fn reset(&mut self, key: Option<&str>, record: R, selection: S) {
         self.entries.clear();
+        self.total_bytes = 0;
+        self.evicted_for_size = 0;
+        let bytes = crate::pds::record_size::serialized_record_bytes(&record);
+        self.total_bytes += bytes.unwrap_or(0);
         self.entries.push_back(UndoEntry {
             record,
             selection,
             label: GENERIC_LABEL.to_string(),
+            bytes,
         });
         self.cursor = 0;
         self.key = key.map(str::to_owned);
@@ -215,22 +272,94 @@ where
         self.cursor = 0;
         self.key = None;
         self.suppress_capture = false;
+        self.total_bytes = 0;
+        self.evicted_for_size = 0;
     }
 
     fn push(&mut self, record: R, selection: S, label: String) {
         // A fresh edit invalidates the redo branch (linear history).
-        self.entries.truncate(self.cursor + 1);
+        for dropped in self.entries.drain(self.cursor + 1..) {
+            self.total_bytes -= dropped.bytes.unwrap_or(0);
+        }
+        // Measured here and nowhere else (#1270 f417): a push happens at
+        // most once per debounced edit burst — a quarter of a second
+        // apart at the very fastest — and it already deep-clones the
+        // whole record, so a streamed byte count beside that clone is the
+        // same order of cost. `serialized_record_bytes` counts into a
+        // sink rather than building the JSON, so this allocates nothing.
+        let bytes = crate::pds::record_size::serialized_record_bytes(&record);
+        self.total_bytes += bytes.unwrap_or(0);
         self.entries.push_back(UndoEntry {
             record,
             selection,
             label,
+            bytes,
         });
         self.cursor += 1;
-        // Baseline + UNDO_DEPTH undoable steps; evict the oldest beyond.
-        while self.entries.len() > crate::config::ui::editor::UNDO_DEPTH + 1 {
-            self.entries.pop_front();
-            self.cursor -= 1;
+        self.evict();
+    }
+
+    /// Trim the ring to both bounds: at most `UNDO_DEPTH` undoable steps
+    /// beyond the baseline, and at most `UNDO_RING_BUDGET_BYTES` of
+    /// serialized record (#1270 f417).
+    ///
+    /// The floor is what makes the byte bound safe. `entries[cursor]` is
+    /// the record's CURRENT state and must never be evicted, and a ring
+    /// offering zero undoable steps would be a silent removal of the
+    /// feature — so a single record larger than the whole budget keeps
+    /// `MIN_UNDO_DEPTH` steps and reports the shortfall through
+    /// [`Self::depth_note`] rather than emptying itself.
+    fn evict(&mut self) {
+        use crate::config::ui::editor::{MIN_UNDO_DEPTH, UNDO_DEPTH, UNDO_RING_BUDGET_BYTES};
+        // Both loops are gated on the CURSOR, not on the length. The
+        // front entry is only droppable while something ahead of it is
+        // the current state — after an undo the cursor sits behind a redo
+        // branch, so `entries.len()` can be large while `entries[0]` IS
+        // what the record currently holds. Evicting that would swap the
+        // world out from under the owner.
+        while self.cursor > 0 && self.entries.len() > UNDO_DEPTH + 1 {
+            self.drop_oldest(false);
         }
+        while self.cursor > MIN_UNDO_DEPTH && self.total_bytes > UNDO_RING_BUDGET_BYTES {
+            self.drop_oldest(true);
+        }
+    }
+
+    /// Pop the front entry, keeping `total_bytes` and `cursor` honest.
+    /// Only ever called with `cursor > 0` — see [`Self::evict`].
+    fn drop_oldest(&mut self, for_size: bool) {
+        if let Some(dropped) = self.entries.pop_front() {
+            self.total_bytes -= dropped.bytes.unwrap_or(0);
+            self.cursor -= 1;
+            if for_size {
+                self.evicted_for_size += 1;
+            }
+        }
+    }
+
+    /// Serialized bytes the ring is currently holding (#1270 f417).
+    /// Diagnostics and the guards; never rendered as a number.
+    pub fn bytes(&self) -> usize {
+        self.total_bytes
+    }
+
+    /// A sentence for the Undo button's hover when the byte budget has
+    /// shortened the history, or `None` when it has not (#1270 f417).
+    ///
+    /// Silence is the common case and the right one: on an ordinary room
+    /// the full depth is available and there is nothing to say. It speaks
+    /// only once the ring has actually been trimmed, because "your undo
+    /// history is shorter than usual" is the thing an owner needs to know
+    /// BEFORE reaching the end of it.
+    pub fn depth_note(&self) -> Option<String> {
+        (self.evicted_for_size > 0).then(|| {
+            format!(
+                "This world is large, so the history is holding {} step{} instead of {}.",
+                self.cursor,
+                if self.cursor == 1 { "" } else { "s" },
+                crate::config::ui::editor::UNDO_DEPTH,
+            )
+        })
     }
 
     /// Step back one entry. Returns `(entry to restore, label of the
@@ -479,6 +608,17 @@ mod tests {
         h
     }
 
+    /// Push `state` as an edit labelled by `sel`, for the byte-budget
+    /// tests where the state itself is the payload being measured.
+    fn edit_with(h: &mut H, state: &str, sel: u32) {
+        h.observe(
+            Some("did:test:room"),
+            Observation::Edit(format!("edit {sel}")),
+            || state.to_string(),
+            || sel,
+        );
+    }
+
     fn edit(h: &mut H, state: &str, sel: u32) {
         h.observe(
             Some("did:test:room"),
@@ -486,6 +626,208 @@ mod tests {
             || state.to_string(),
             || sel,
         );
+    }
+
+    /// The ring is bounded by BYTES, not only by depth (#1270 f417).
+    ///
+    /// The pairing is the two bounds on the same ring. With small
+    /// records the depth bound bites first and nothing changes — 33
+    /// entries, no eviction for size, no note on the button. With
+    /// records big enough that thirty-three of them would be hundreds of
+    /// megabytes, the byte bound bites first and the history gets
+    /// shorter. The shape being replaced kept 33 in BOTH cases, which is
+    /// the failure this separates: it is not that the ring was too deep,
+    /// it is that depth was never a memory bound at all.
+    #[test]
+    fn the_ring_is_bounded_by_bytes_as_well_as_depth() {
+        use crate::config::ui::editor::{MIN_UNDO_DEPTH, UNDO_DEPTH, UNDO_RING_BUDGET_BYTES};
+
+        // Small records: the depth bound is the one that bites.
+        let mut small = seeded();
+        for i in 0..100 {
+            edit(&mut small, &format!("state {i}"), i);
+        }
+        assert_eq!(
+            small.len(),
+            UNDO_DEPTH + 1,
+            "baseline plus UNDO_DEPTH undoable steps, as before"
+        );
+        assert!(
+            small.bytes() < UNDO_RING_BUDGET_BYTES,
+            "and well inside the byte budget, so nothing else applies"
+        );
+        assert_eq!(
+            small.depth_note(),
+            None,
+            "an untrimmed ring says nothing — silence is the common case"
+        );
+
+        // Records a quarter of the budget each. The old ring would hold
+        // 33 of these; that is a little over 8x the budget.
+        let big = "x".repeat(UNDO_RING_BUDGET_BYTES / 4);
+        let mut heavy = H::default();
+        heavy.reset(Some("did:test:room"), big.clone(), 0);
+        for i in 0..20 {
+            edit_with(&mut heavy, &big, i);
+        }
+        assert!(
+            heavy.len() < UNDO_DEPTH + 1,
+            "the byte budget shortened the ring below the depth bound — it held \
+             {} entries",
+            heavy.len()
+        );
+        assert!(
+            heavy.bytes() <= UNDO_RING_BUDGET_BYTES,
+            "and the total is inside the budget: {} bytes",
+            heavy.bytes()
+        );
+        assert!(
+            heavy.can_undo(),
+            "a shortened ring is still an undo ring — the degradation is fewer \
+             steps, never zero"
+        );
+        let note = heavy.depth_note().expect("a trimmed ring says so");
+        assert!(
+            note.contains(&heavy.cursor.to_string()) && note.contains("32"),
+            "the note names the depth on offer and the depth expected: {note}"
+        );
+
+        // The floor: one record bigger than the whole budget. Every step
+        // evicts, and the ring must still offer undo rather than
+        // silently removing the feature in the world that most needs it.
+        let enormous = "y".repeat(UNDO_RING_BUDGET_BYTES * 2);
+        let mut giant = H::default();
+        giant.reset(Some("did:test:room"), enormous.clone(), 0);
+        for i in 0..5 {
+            edit_with(&mut giant, &enormous, i);
+        }
+        assert_eq!(
+            giant.len(),
+            MIN_UNDO_DEPTH + 1,
+            "the floor holds even when a single entry exceeds the whole budget"
+        );
+        assert!(giant.can_undo());
+    }
+
+    /// Eviction never drops the entry the record currently holds
+    /// (#1270 f417).
+    ///
+    /// The trap: after an undo the cursor sits BEHIND a redo branch, so
+    /// `entries.len()` can be large while `entries[0]` is the live state.
+    /// A byte budget that trimmed on length alone would evict the world
+    /// out from under the owner and leave the cursor pointing at a
+    /// different one. Both eviction loops are gated on the CURSOR for
+    /// exactly this, and the price is that a ring can sit over budget
+    /// when there is nothing it is allowed to drop — which is the right
+    /// trade: the next edit truncates the redo branch and the budget
+    /// applies again.
+    #[test]
+    fn eviction_never_drops_the_current_state() {
+        use crate::config::ui::editor::UNDO_RING_BUDGET_BYTES;
+
+        // Small edits, so the ring is intact and the baseline survives.
+        let mut h = seeded();
+        for i in 0..4 {
+            edit(&mut h, &format!("state {i}"), i);
+        }
+        // Walk all the way back, leaving a redo branch ahead of the
+        // cursor.
+        while h.can_undo() {
+            h.undo();
+        }
+        h.suppress_capture = false;
+        assert_eq!(h.cursor, 0);
+        assert_eq!(h.len(), 5, "and four entries ahead of it");
+
+        // Now a derived write folds a record bigger than the whole budget
+        // into the current entry. Over budget, five entries present,
+        // cursor at zero: there is nothing droppable.
+        let big = "b".repeat(UNDO_RING_BUDGET_BYTES + 1);
+        h.observe(
+            Some("did:test:room"),
+            Observation::Derived,
+            || big.clone(),
+            || 0,
+        );
+
+        assert_eq!(h.cursor, 0, "the cursor did not move");
+        assert_eq!(h.len(), 5, "and nothing was evicted");
+        assert_eq!(
+            h.entries[h.cursor].record.len(),
+            big.len(),
+            "the fold replaced the current entry, which is what Derived means"
+        );
+        assert!(
+            h.bytes() > UNDO_RING_BUDGET_BYTES,
+            "so the ring sits over budget rather than evicting the live state"
+        );
+        assert!(h.can_redo(), "and the redo branch survived intact");
+
+        // The next real edit truncates that branch, and the budget bites
+        // again — the over-budget window is bounded by one edit.
+        edit(&mut h, "a new branch", 42);
+        assert!(
+            h.bytes() <= UNDO_RING_BUDGET_BYTES || h.cursor <= 2,
+            "held {} bytes at cursor {}",
+            h.bytes(),
+            h.cursor
+        );
+    }
+
+    /// Eviction keeps the running total honest — the property every
+    /// other assertion above rests on (#1270 f417).
+    ///
+    /// `total_bytes` is maintained incrementally so the budget check is
+    /// an integer compare, and an incremental total is a total that can
+    /// drift. Three paths change it: a push, a redo-branch truncation,
+    /// and the `Derived` fold, which REPLACES an entry and so has to
+    /// subtract the old size before adding the new one. A drift there
+    /// would show as a ring that trims itself for no reason, or one that
+    /// never trims at all.
+    #[test]
+    fn the_running_byte_total_matches_the_entries() {
+        fn sum(h: &H) -> usize {
+            h.entries.iter().filter_map(|e| e.bytes).sum()
+        }
+
+        let mut h = seeded();
+        assert_eq!(h.bytes(), sum(&h));
+
+        for i in 0..40 {
+            edit(&mut h, &format!("state {i}"), i);
+            assert_eq!(h.bytes(), sum(&h), "after push {i}");
+        }
+
+        // Undo twice, then edit: the redo branch is truncated.
+        h.undo();
+        h.undo();
+        // `undo` armed the suppression twice; drain it so the edit below
+        // is seen as one.
+        h.suppress_capture = false;
+        edit(&mut h, "a new branch", 99);
+        assert_eq!(h.bytes(), sum(&h), "after the redo branch was dropped");
+
+        // A derived fold replaces the current entry with a much larger
+        // one — lot auto-population adding hundreds of generators.
+        h.observe(
+            Some("did:test:room"),
+            Observation::Derived,
+            || "z".repeat(50_000),
+            || 0,
+        );
+        assert_eq!(h.bytes(), sum(&h), "after a derived fold grew the entry");
+
+        // …and with a much smaller one.
+        h.observe(
+            Some("did:test:room"),
+            Observation::Derived,
+            || String::from("tiny"),
+            || 0,
+        );
+        assert_eq!(h.bytes(), sum(&h), "after a derived fold shrank the entry");
+
+        h.clear();
+        assert_eq!(h.bytes(), 0, "and a cleared ring holds nothing");
     }
 
     #[test]

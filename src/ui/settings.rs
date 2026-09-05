@@ -47,6 +47,9 @@ pub fn settings_ui(
         return;
     };
 
+    // Guarded-dirty (#879): `.open(&mut panels.settings)` through the
+    // `ResMut` would mark UiPanels changed every frame, starving the
+    // prefs save debounce — local copy in, write back only on close.
     let mut open = panels.settings;
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Settings, ctx);
     let response = egui::Window::new("Settings")
@@ -316,7 +319,11 @@ pub fn settings_ui(
             response.response.rect,
         );
     }
-    if !open {
+    // The early return above already established `panels.settings`, so the
+    // first half of this is a no-op here — spelled the sibling windows' way
+    // anyway, because one idiom with one spelling is what
+    // `every_panel_flag_write_is_guarded` can enforce (#1270 f121).
+    if panels.settings && !open {
         panels.settings = false;
     }
 }

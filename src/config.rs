@@ -1610,10 +1610,42 @@ pub(crate) mod ui {
 
         /// Undoable steps each editor's history ring holds beyond the
         /// baseline (#862; decision 2026-07-18). Each entry is a whole
-        /// record clone — typically under the 100 KiB publish soft
-        /// budget — so 32 bounds a ring at a few MiB even on wasm,
-        /// where the heap never shrinks.
+        /// record clone.
+        ///
+        /// This used to say "typically under the 100 KiB publish soft
+        /// budget — so 32 bounds a ring at a few MiB". It does not:
+        /// [`crate::pds::record_size::SOFT_RECORD_BUDGET_BYTES`] measures
+        /// the largest single PUBLISHED record after the manifest/child
+        /// split (#697), while the ring stores the ASSEMBLED in-memory
+        /// room. GothicHorror's seeded default is 348.6 KiB assembled
+        /// against 53.9 KiB largest published, before anything is
+        /// authored. So depth alone was never a memory bound and
+        /// [`UNDO_RING_BUDGET_BYTES`] is the one that is (#1270 f417).
         pub const UNDO_DEPTH: usize = 32;
+
+        /// Serialized bytes an editor's history ring may hold before the
+        /// oldest entries are evicted, independently of [`UNDO_DEPTH`]
+        /// (#1270 f417).
+        ///
+        /// 8 MiB. The heaviest seeded default assembles to 348.6 KiB, so
+        /// this holds a little over twenty of the worst case the
+        /// catalogue can produce and all 33 of anything ordinary — the
+        /// bound only bites on a room far bigger than anything shipped,
+        /// which is exactly when it needs to.
+        ///
+        /// Measured on the SERIALIZED form, which is a lower bound on the
+        /// in-memory cost (`String`s, `Vec` capacity slack, a `HashMap`'s
+        /// table). Wrong in the safe direction, and it matters most on
+        /// wasm, where a transient high-water mark is permanent — the
+        /// linear heap never gives memory back.
+        pub const UNDO_RING_BUDGET_BYTES: usize = 8 * 1024 * 1024;
+
+        /// Undoable steps the byte budget may never trim below (#1270
+        /// f417). A single record larger than [`UNDO_RING_BUDGET_BYTES`]
+        /// on its own would otherwise evict the ring down to the
+        /// baseline, which is a silent removal of undo — and undo matters
+        /// most in exactly the enormous world that would trigger it.
+        pub const MIN_UNDO_DEPTH: usize = 2;
     }
 
     /// Transient toast notifications (`crate::ui::toast`, #819).

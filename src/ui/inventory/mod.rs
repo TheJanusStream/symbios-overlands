@@ -70,9 +70,16 @@ pub struct InventoryEditorState {
     /// built three whole `Value` trees of the stash every frame. The stash
     /// holds up to `MAX_INVENTORY_ITEMS` generator trees, each allowed the
     /// full 100 KiB record budget, and a decorating session parks this panel
-    /// open for minutes at a time. #674 fixed exactly this for the room and
-    /// avatar editors and said the pattern applied here too; inventory was
+    /// open for minutes at a time. #674 fixed exactly this for the room
+    /// editor and said the pattern applied elsewhere too; inventory was
     /// left behind.
+    ///
+    /// The original wording of this comment said "the room and avatar
+    /// editors", and that was wrong: the avatar editor had a cache for the
+    /// default RECORD and no serialized baseline on either side, so it
+    /// went on paying six whole-record `Value` trees a frame until #1270
+    /// f273. Corrected rather than deleted, because a comment asserting a
+    /// fix that does not exist is how the gap survived two tranches.
     ///
     /// Keyed by the resource's `last_changed` tick rather than
     /// `is_changed()`, for the reason #674 records: the change flag is
@@ -596,6 +603,11 @@ pub fn inventory_ui(
                     &mut *feedback,
                     &live.0,
                     now,
+                    // Unconditional: the stash is capped small (#841) and
+                    // has no live-value cache to answer the question from.
+                    // #1270 f418 was about the room, whose readout encodes
+                    // 256 generator records.
+                    true,
                     crate::pds::inventory::measure_publish,
                 );
                 let size = feedback.live_size.clone();
