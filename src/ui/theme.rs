@@ -250,6 +250,21 @@ pub struct Theme {
     pub widget_text: WidgetText,
     /// Window and separator strokes.
     pub border: egui::Color32,
+    /// The edge a CONTROL draws around itself — a resting text field, a
+    /// button, a combo box (#1283).
+    ///
+    /// Separate from [`Self::border`], which is window chrome, because
+    /// the two draw on different grounds and one value cannot serve both.
+    /// In Dark they were the same value by accident and that accident is
+    /// the whole history of this role: `border` is `from_gray(60)`, which
+    /// is *exactly* the stock dark button fill, so the edge #1258 f233
+    /// gave every control was invisible on every button in the default
+    /// palette while being perfectly visible on the text field beside it.
+    ///
+    /// Held to **3:1 against the surface it encloses** —
+    /// `every_palette_gives_a_resting_control_a_visible_edge` — which is
+    /// WCAG 1.4.11's floor for a non-text boundary.
+    pub control_border: egui::Color32,
     /// Login-screen backdrop gradient, top edge (zenith). Painted as a
     /// full-screen vertical gradient behind the login cards so the
     /// pre-world screen reads as a sky, not a flat clear-colour void.
@@ -370,6 +385,17 @@ impl Theme {
                 open: egui::Color32::from_gray(210),
             },
             border: egui::Color32::from_gray(60),
+            // 105 and not `border`'s 60: 60 IS the stock dark button
+            // fill, so it draws nothing at all on a button and 1.80:1 on
+            // a field. 105 clears 3:1 on both grounds a control has —
+            // 3.61:1 on the field's `from_gray(10)` interior and 3.14:1
+            // on the `from_gray(27)` window — while staying quiet enough
+            // that the #857-validated dark look is not turned into an
+            // outlined-control theme (#1283). The first attempt here was
+            // 95, which cleared the field at 3.30:1 and missed the window
+            // at 2.70:1: the interior is the darker of the two grounds,
+            // so checking only the field is checking the easy one.
+            control_border: egui::Color32::from_gray(105),
             // Night-sky slate falling toward a teal-tinged horizon — the
             // horizon hue is a desaturated cousin of the accent so the
             // backdrop and the CTA read as one family.
@@ -450,6 +476,9 @@ impl Theme {
             // 1.4.11's 3:1 boundary against BOTH the window (3.11:1)
             // and a field's white interior (3.36:1).
             border: egui::Color32::from_gray(140),
+            // The same value serves here: 3.36:1 on the white field and
+            // 3.08:1 against the window behind a button (#1283).
+            control_border: egui::Color32::from_gray(140),
             // Daylight sky falling to a pale near-white horizon.
             backdrop_top: egui::Color32::from_rgb(128, 168, 198),
             backdrop_bottom: egui::Color32::from_rgb(233, 240, 244),
@@ -518,6 +547,10 @@ impl Theme {
                 open: egui::Color32::from_gray(240),
             },
             border: egui::Color32::from_gray(170),
+            // 7.32:1 on the field and 8.52:1 against the window — this is
+            // the palette where a control that cannot be found is the
+            // whole problem (#1283).
+            control_border: egui::Color32::from_gray(170),
             // Near-flat and near-black: a decorative gradient would cost
             // contrast, which is this palette's whole reason to exist.
             backdrop_top: egui::Color32::from_gray(0),
@@ -714,24 +747,46 @@ pub fn visuals_for(theme: &Theme) -> egui::Visuals {
     // `from_gray(10)` window — a field at 1.00:1, invisible on the
     // palette written for people who cannot see faint ones.
     //
-    // **It gets no BORDER here, and that is a reversal (#1281).**
-    // #1258 also set `widgets.inactive.bg_stroke`, which is the stroke
-    // egui gives a resting `TextEdit` — and which every button shares.
-    // `Style::button_style` computes
-    // `inner_margin = button_padding - bg_stroke.width`, so that margin
-    // plus stroke stays constant and a widget does not resize as its
-    // state changes; but `Button::show` throws the frame away for an
-    // unselected `toggle_value` or `selectable_label`, keeping the
-    // shrunken margin and losing the stroke that paid for it. Every
-    // unselected toggle in the app came out 2 pt narrower at rest than
-    // under the pointer, so the toolbar, every editor tab bar and the
-    // gizmo World/Local pair shoved their neighbours about on hover.
-    // Stock egui is safe only because that stroke is `NONE` there.
+    // **And it gets a BORDER, on the second attempt (#1283).** #1258 f233
+    // gave the resting tier a stroke and #1281 took it straight back out,
+    // because `Style::button_style` computes
     //
-    // The border a text field is still owed has to come from the
-    // field's OWN frame rather than a shared widget tier: #1283.
+    //   inner_margin = button_padding + expansion - bg_stroke.width
+    //   outer_margin = -expansion
+    //
+    // so that a framed widget's total size is `2*button_padding +
+    // content` whatever the stroke — while `Button::show` throws the
+    // frame away for an unselected `toggle_value`/`selectable_label`,
+    // keeping the shrunken inner margin and losing both the stroke and
+    // the negative outer margin that paid for it. The unframed size is
+    // then `2*(button_padding + expansion - stroke_width) + content`, so
+    // every unselected toggle in the app sat 2 pt narrower at rest than
+    // under the pointer and hovering one shoved its neighbours.
+    //
+    // The two expressions agree exactly when **expansion == stroke
+    // width**, which is not a trick: it is the relationship egui's own
+    // `hovered` tier already ships (expansion 1.0, stroke width 1.0), and
+    // the resting tier was the odd one out at 0 and 0. Setting both to
+    // 1.0 restores stock geometry to the pixel — `2*button_padding +
+    // content`, framed or not — and
+    // `hovering_a_widget_does_not_move_the_one_after_it` is what proves
+    // it rather than this paragraph.
+    //
+    // `hovered`/`active` go to 2.0 so the *painted* rect still grows
+    // under the pointer. Without that the resting and hovered rects
+    // coincide and hover would be signalled by colour alone, which this
+    // tranche has already refused once (#1259 f247).
+    //
+    // The colour is `control_border`, not `border`: window chrome and a
+    // control's edge draw on different grounds, and in Dark they were the
+    // same value only by accident — see the field's doc.
     visuals.extreme_bg_color = theme.field_fill;
     visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, theme.border);
+    visuals.widgets.inactive.bg_stroke =
+        egui::Stroke::new(CONTROL_EDGE_WIDTH, theme.control_border);
+    visuals.widgets.inactive.expansion = CONTROL_EDGE_WIDTH;
+    visuals.widgets.hovered.expansion = CONTROL_EDGE_WIDTH + 1.0;
+    visuals.widgets.active.expansion = CONTROL_EDGE_WIDTH + 1.0;
     // Widget label colours, from the PALETTE and for every base (#1258
     // f232/f238). This used to run only under `egui::Theme::Light`,
     // pulling all five tiers onto `text_strong` — which left the
@@ -752,6 +807,18 @@ pub fn visuals_for(theme: &Theme) -> egui::Visuals {
     }
     visuals
 }
+
+/// Width of a resting control's own edge, in points (#1283).
+///
+/// A whole number on purpose. `button_style` and `TextEdit`'s frame both
+/// fold this into an `i8` `Margin` — `(expansion - stroke.width).round()`
+/// in the field's case — so a fractional width rounds in one place and
+/// not the other, and the geometry that
+/// `hovering_a_widget_does_not_move_the_one_after_it` holds stops being
+/// exact. The high-contrast palette widens its WINDOW chrome
+/// (`border_stroke_width` 1.5) and deliberately does not widen this: a
+/// window edge is one line per window, a control edge is one per control.
+const CONTROL_EDGE_WIDTH: f32 = 1.0;
 
 pub fn apply_theme(ctx: &egui::Context, theme: &Theme) {
     ctx.data_mut(|d| {
@@ -1041,24 +1108,27 @@ mod tests {
         }
     }
 
-    /// #1258 f233 / #1281: the palette owns a text field's interior, and
-    /// **no widget tier carries a resting stroke**.
+    /// #1258 f233 / #1281 / #1283: the palette owns a text field's
+    /// interior, and a resting control has an edge that costs no
+    /// geometry.
     ///
-    /// Two halves, and the second is the one with teeth. egui never
-    /// wrote `extreme_bg_color`, so a `TextEdit` inherited the base's
+    /// Three attempts, and the arithmetic is why. egui never wrote
+    /// `extreme_bg_color`, so a `TextEdit` inherited the base's
     /// `from_gray(10)` under high contrast's `from_gray(10)` window —
-    /// 1.00:1. That half stands.
+    /// 1.00:1. That half has stood since #1258.
     ///
-    /// The other half was giving `widgets.inactive.bg_stroke` a width,
-    /// and it is reverted: `Style::button_style` subtracts the stroke
-    /// width from `button_padding` so that margin plus stroke is
-    /// constant, and `Button::show` then discards the frame for an
-    /// unselected `toggle_value`/`selectable_label` — keeping the
-    /// shrunken margin without the stroke that paid for it. So this
-    /// asserts the ABSENCE, which is what a future palette edit could
-    /// reintroduce without anything looking like a layout change.
+    /// The border took two goes. #1258 gave the resting tier a stroke
+    /// and #1281 reverted it, because `button_style`'s
+    /// `inner_margin = button_padding + expansion - bg_stroke.width`
+    /// is only paid back by the stroke and the negative outer margin a
+    /// FRAMED widget draws, and `Button::show` discards the frame for an
+    /// unselected toggle. The two agree exactly when `expansion ==
+    /// stroke.width`, which is what the `hovered` tier has always
+    /// shipped; the invariant is asserted here and the geometry it buys
+    /// is measured by
+    /// [`hovering_a_widget_does_not_move_the_one_after_it`].
     #[test]
-    fn the_palette_owns_the_field_fill_and_no_resting_stroke() {
+    fn the_palette_owns_the_field_fill_and_the_resting_edge_is_free() {
         for (palette, t) in all_palettes() {
             let v = visuals_for(&t);
             assert_eq!(
@@ -1067,10 +1137,134 @@ mod tests {
                 "{palette}: the palette does not own the field's fill"
             );
             assert_eq!(
-                v.widgets.inactive.bg_stroke.width, 0.0,
-                "{palette}: a resting widget stroke resizes every unselected toggle \
-                 on hover (#1281) — a field's border belongs to the field's own \
-                 frame (#1283)"
+                v.widgets.inactive.bg_stroke.color, t.control_border,
+                "{palette}: a resting control's edge is the palette's to choose"
+            );
+            assert!(
+                v.widgets.inactive.bg_stroke.width > 0.0,
+                "{palette}: a resting field and button have no edge at all (#1283)"
+            );
+            // THE invariant. Break it and every unselected toggle in the
+            // app changes width under the pointer (#1281) — from a
+            // palette edit, which is not a thing that looks like a layout
+            // change to anyone reading the diff.
+            assert_eq!(
+                v.widgets.inactive.expansion, v.widgets.inactive.bg_stroke.width,
+                "{palette}: a resting stroke must be paid for by an equal expansion"
+            );
+            // And hover still costs something a user can see in the
+            // geometry, not only in the colour (#1259 f247).
+            assert!(
+                v.widgets.hovered.expansion > v.widgets.inactive.expansion,
+                "{palette}: hover has stopped growing the widget"
+            );
+        }
+    }
+
+    /// #1283: a resting control is distinguishable from what it sits on.
+    ///
+    /// WCAG 1.4.11's floor for a non-text boundary is 3:1, and the edge
+    /// has two neighbours that matter: the interior it encloses (a text
+    /// field's fill) and the ground it sits on (the window behind a
+    /// button). Measured with `contrast_ratio`, not `dist` — this is a
+    /// legibility question, and the module's rule is that `dist` answers
+    /// "could these be confused" and nothing else.
+    ///
+    /// Dark's button interior is the one pair NOT asserted, and the
+    /// omission is deliberate: stock dark's button fill is
+    /// `from_gray(60)` on a `from_gray(27)` window, already 1.56:1 before
+    /// any edge, so an edge that cleared 3:1 against BOTH would have to
+    /// be around `from_gray(133)` and would turn the #857-validated dark
+    /// palette into an outlined-control theme. #1283 named the
+    /// high-contrast button, and high contrast is where it is held.
+    #[test]
+    fn every_palette_gives_a_resting_control_a_visible_edge() {
+        for (palette, t) in all_palettes() {
+            let v = visuals_for(&t);
+            let edge = v.widgets.inactive.bg_stroke.color;
+
+            let on_field = contrast_ratio(edge, t.field_fill);
+            assert!(
+                on_field >= AA_LARGE,
+                "{palette}: a resting text field's edge is {on_field:.2}:1 on its own fill"
+            );
+
+            let on_window = contrast_ratio(edge, t.window_fill);
+            assert!(
+                on_window >= AA_LARGE,
+                "{palette}: a resting button's edge is {on_window:.2}:1 on the window"
+            );
+        }
+
+        // The control: this must be able to fail. `border`'s dark value
+        // is the button fill it would have drawn on, which is the
+        // coincidence that let #1258 f233 ship without retuning dark.
+        let dark = Theme::dark();
+        assert!(
+            contrast_ratio(dark.border, dark.field_fill) < AA_LARGE,
+            "if the old window-chrome colour now passes, this guard proves nothing"
+        );
+    }
+
+    /// #1283: the edge is really PAINTED, not merely present in a struct.
+    ///
+    /// The whole tranche started from a palette whose guards read `Theme`
+    /// fields the renderer never consulted (#1258), so the strongest
+    /// available check for a palette claim is the shapes egui actually
+    /// emits. This runs a real `TextEdit` and a real `Button` in a real
+    /// context and reads the stroke off the rectangles they paint.
+    ///
+    /// Drawn on the root `Ui` rather than inside an `Area`: an `Area`
+    /// fades in over its first frames, and every colour in those passes
+    /// arrives premultiplied by the fade, which would make an exact
+    /// comparison a comparison against an animation.
+    #[test]
+    fn a_resting_control_paints_the_palettes_edge() {
+        fn rect_strokes(shape: &egui::Shape, out: &mut Vec<egui::epaint::Stroke>) {
+            match shape {
+                egui::Shape::Rect(r) => out.push(r.stroke),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| rect_strokes(s, out)),
+                _ => {}
+            }
+        }
+
+        for (palette, theme) in all_palettes() {
+            let ctx = egui::Context::default();
+            let mut text = String::new();
+            let mut strokes = Vec::new();
+            // Three passes: a button reads LAST frame's response to pick
+            // its state, so the first pass paints nothing settled.
+            for _ in 0..3 {
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(400.0, 200.0),
+                    )),
+                    ..Default::default()
+                };
+                strokes.clear();
+                let out = ctx.run_ui(input, |ui| {
+                    ui.ctx().set_visuals(visuals_for(&theme));
+                    // Both responses dropped on purpose: this test reads
+                    // the PAINT, not the interaction. Leaving the field
+                    // unfocused is the point — a focused one takes its
+                    // stroke from `selection.stroke` instead (#1284).
+                    let _ = ui.text_edit_singleline(&mut text);
+                    let _ = ui.button("Example");
+                });
+                for clipped in &out.shapes {
+                    rect_strokes(&clipped.shape, &mut strokes);
+                }
+            }
+
+            let edges = strokes
+                .iter()
+                .filter(|s| s.color == theme.control_border && s.width == CONTROL_EDGE_WIDTH)
+                .count();
+            assert!(
+                edges >= 2,
+                "{palette}: expected the field and the button to paint the palette's \
+                 edge, found {edges} of them in {strokes:?}"
             );
         }
     }
@@ -1289,19 +1483,24 @@ mod tests {
             hv.widgets.inactive.weak_bg_fill,
         );
         assert!(btn >= AAA_TEXT, "high contrast button text is {btn:.2}:1");
-        // The other surface — the button's own BOUNDARY — is not
-        // asserted, and the omission is deliberate rather than an
-        // oversight. #1258 gave it a bright resting stroke; #1281 took
-        // that back, because the stroke is shared with every widget tier
-        // and resized every unselected toggle in the app on hover. What
-        // remains is the stock fill against the window, `from_gray(60)`
-        // on `from_gray(10)`, 1.79:1 — under WCAG 1.4.11 and recorded
-        // as such. Fixing it means the palette owning the widget FILLS
-        // as well as their label colours, which is #1283's subject.
-        let boundary = contrast_ratio(hv.widgets.inactive.weak_bg_fill, hc.window_fill);
+        // The other surface — the button's own BOUNDARY — was left
+        // unasserted here through #1258 and #1281 and is now held
+        // (#1283). The button's FILL against the window is still
+        // `from_gray(60)` on `from_gray(10)`, 1.79:1, and that has not
+        // changed: no fill can clear 3:1 against a near-black window and
+        // still carry AAA text, because the first needs luminance above
+        // 0.109 and the second needs it below 0.10. So the boundary is
+        // the EDGE's job, which is why it could never have been fixed by
+        // lifting `weak_bg_fill` as #1258 f232 originally proposed.
+        let fill_alone = contrast_ratio(hv.widgets.inactive.weak_bg_fill, hc.window_fill);
         assert!(
-            boundary > 1.0,
-            "a button has to be distinguishable from the window somehow"
+            fill_alone < AA_LARGE,
+            "if the fill alone now clears {AA_LARGE}:1 the reasoning above is stale"
+        );
+        let boundary = contrast_ratio(hv.widgets.inactive.bg_stroke.color, hc.window_fill);
+        assert!(
+            boundary >= AA_LARGE,
+            "high contrast button boundary is {boundary:.2}:1, under WCAG 1.4.11"
         );
 
         assert!(hc.border_stroke_width > dark.border_stroke_width);

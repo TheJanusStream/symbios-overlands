@@ -139,16 +139,27 @@ fn track_skybox_to_camera(
 
 pub use clouds::CloudLayer;
 
-/// Format elapsed seconds as a `MM:SS` (or `H:MM:SS`) timestamp string.
+/// Format session-elapsed seconds as `+MM:SS` (or `+H:MM:SS`).
+///
+/// **The leading `+` is what stops it being read as a clock (#1264
+/// f231).** This stamp is minutes-into-the-session and
+/// [`state::clock_hhmm`] is a local wall-clock time, and the two used to
+/// be formatted identically: "14:32" meant fourteen minutes thirty-two
+/// in the Diagnostics event log and twenty past two in the chat window,
+/// with nothing on either to say which. The surfaces this appears on —
+/// the event log and the anomaly hovers — are the ones a user is pointed
+/// at when something has gone wrong, and a timestamp read as the wrong
+/// kind of quantity sends them looking at the wrong part of the session.
+/// One column buys the distinction.
 pub fn format_elapsed_ts(elapsed_secs: f64) -> String {
     let total = elapsed_secs as u64;
     let h = total / 3600;
     let m = (total % 3600) / 60;
     let s = total % 60;
     if h > 0 {
-        format!("{h}:{m:02}:{s:02}")
+        format!("+{h}:{m:02}:{s:02}")
     } else {
-        format!("{m:02}:{s:02}")
+        format!("+{m:02}:{s:02}")
     }
 }
 use pds::{AvatarRecord, InventoryRecord, RoomRecord};
@@ -216,6 +227,15 @@ pub fn run() {
     // stays false (F5 / Ctrl+R must keep working).
     #[cfg(target_arch = "wasm32")]
     app.add_systems(Startup, ui::shortcuts::install_ctrl_s_blocker);
+    // wasm-only: IME input cannot work in the browser at all (#1263 f357)
+    // — winit's web backend emits no Ime events and documents
+    // `set_ime_allowed` as unimplemented. The probe watches for a
+    // keystroke going to an IME instead of to the page, and the reporter
+    // says so once, with paste as the workaround. An honest dead end; a
+    // field that silently swallows keystrokes reads as a broken app.
+    #[cfg(target_arch = "wasm32")]
+    app.add_systems(Startup, ui::shortcuts::install_ime_probe)
+        .add_systems(Update, ui::shortcuts::report_ime_dead_end);
     // The persisted-session resume's one-shot (#1228 f6) — a Resource
     // rather than the `Local<bool>` it was, so the Retry button on a
     // recoverable resume failure can re-arm it without throwing the saved
@@ -325,6 +345,7 @@ pub fn run() {
         // so a change lands the same frame it's made.
         .init_resource::<ui::theme::CurrentTheme>()
         .init_resource::<ui::fonts::CjkFonts>()
+        .init_resource::<ui::fonts::ScriptGaps>()
         .add_systems(
             Update,
             (
@@ -339,8 +360,12 @@ pub fn run() {
                 // a self-retrying one-shot; detect/poll are change-gated
                 // and drive the at-most-once lazy CJK swap.
                 ui::fonts::install_base_fonts,
-                ui::fonts::detect_cjk_need,
+                ui::fonts::detect_script_needs,
                 ui::fonts::poll_cjk_fetch,
+                // The lifecycle the user can see (#1262 f361): after the
+                // poll, so a transition made this frame is announced this
+                // frame rather than a frame late.
+                ui::fonts::surface_font_status,
             )
                 .chain(),
         )

@@ -339,7 +339,9 @@ pub fn rename_dialog(
         }
         ui.add_space(8.0);
 
-        let enter_applied = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        // The same IME guard chat's Send uses (#1263 f372) — a
+        // half-composed Apply writes a garbage key into the record.
+        let enter_applied = crate::ui::shortcuts::enter_submitted(ui, &field);
         ui.horizontal(|ui| {
             if ui
                 .add_enabled(validation.is_ok(), egui::Button::new("Apply"))

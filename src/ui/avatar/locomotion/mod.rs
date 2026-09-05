@@ -137,7 +137,7 @@ pub(super) fn fp_slider(
     dirty: &mut bool,
 ) {
     if ui
-        .add(egui::Slider::new(&mut value.0, range).step_by(step))
+        .add(crate::ui::num::slider(&mut value.0, range).step_by(step))
         .changed()
     {
         *dirty = true;
@@ -153,7 +153,7 @@ pub(super) fn fp3_extents(ui: &mut egui::Ui, label: &str, value: &mut [f32; 3], 
     ui.horizontal(|ui| {
         for axis in value.iter_mut() {
             if ui
-                .add(egui::DragValue::new(axis).speed(0.05).range(0.05..=20.0))
+                .add(crate::ui::num::drag(axis).speed(0.05).range(0.05..=20.0))
                 .changed()
             {
                 *dirty = true;

@@ -178,6 +178,23 @@ fn badge_count(n: usize) -> String {
     }
 }
 
+/// Pick the singular or plural noun for a count (#1264 f374).
+///
+/// The app already branches on the singular nearly everywhere — the
+/// People window's pending offers, this file's anomaly badge, the
+/// Inventory header, the audio panel's per-noun suffixes — which is
+/// exactly what made "1 entries" in the catalogue, "Downloaded 1 events"
+/// and "· 1 props" read as unfinished rather than as a house style. The
+/// three stragglers now go through here.
+///
+/// English-only, and that is fine: there is no i18n framework in the tree
+/// (no fluent, gettext or rust-i18n dependency), so a helper is not a
+/// translation layer — it is the seam to route through if one is ever
+/// added, which is worth more than three inline `if n == 1` branches.
+pub(crate) fn plural<'a>(n: usize, one: &'a str, many: &'a str) -> &'a str {
+    if n == 1 { one } else { many }
+}
+
 /// Longest `@handle` the account chip prints before it elides (#1261
 /// f235). ATProto handles are domains and a custom one is unbounded —
 /// `@someone.a-very-long-custom-domain.example` is a legal handle, and

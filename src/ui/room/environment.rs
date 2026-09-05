@@ -61,7 +61,7 @@ pub(super) fn draw_environment_tab(
 
     draw_arrival_point(ui, landing, player_pose, dirty);
 
-    egui::CollapsingHeader::new("Lighting & Sky")
+    egui::CollapsingHeader::new("Lighting & sky")
         .default_open(true)
         .show(ui, |ui| {
             color_picker(ui, "Sun colour", &mut env.sun_color, dirty);
@@ -133,7 +133,7 @@ pub(super) fn draw_environment_tab(
             ui.horizontal(|ui| {
                 if ui
                     .add(
-                        egui::DragValue::new(&mut wind[0])
+                        crate::ui::num::drag(&mut wind[0])
                             .speed(0.05)
                             .range(-10.0..=10.0),
                     )
@@ -143,7 +143,7 @@ pub(super) fn draw_environment_tab(
                 }
                 if ui
                     .add(
-                        egui::DragValue::new(&mut wind[1])
+                        crate::ui::num::drag(&mut wind[1])
                             .speed(0.05)
                             .range(-10.0..=10.0),
                     )
@@ -164,7 +164,7 @@ pub(super) fn draw_environment_tab(
             );
         });
 
-    egui::CollapsingHeader::new("Distance Fog")
+    egui::CollapsingHeader::new("Distance fog")
         .default_open(false)
         .show(ui, |ui| {
             fp_slider(
@@ -324,14 +324,14 @@ fn draw_arrival_point(
             ui.horizontal(|ui| {
                 ui.label("X");
                 if ui
-                    .add(egui::DragValue::new(&mut l.pos.0[0]).speed(0.25))
+                    .add(crate::ui::num::drag(&mut l.pos.0[0]).speed(0.25))
                     .changed()
                 {
                     *dirty = true;
                 }
                 ui.label("Z");
                 if ui
-                    .add(egui::DragValue::new(&mut l.pos.0[1]).speed(0.25))
+                    .add(crate::ui::num::drag(&mut l.pos.0[1]).speed(0.25))
                     .changed()
                 {
                     *dirty = true;
@@ -342,7 +342,7 @@ fn draw_arrival_point(
                 ui.label("Facing (°)");
                 if ui
                     .add(
-                        egui::DragValue::new(&mut l.yaw_deg.0)
+                        crate::ui::num::drag(&mut l.yaw_deg.0)
                             .speed(1.0)
                             .range(0.0..=360.0),
                     )
@@ -368,7 +368,7 @@ fn draw_arrival_point(
             if let Some(y) = l.y.as_mut() {
                 ui.horizontal(|ui| {
                     ui.label("Y");
-                    if ui.add(egui::DragValue::new(&mut y.0).speed(0.25)).changed() {
+                    if ui.add(crate::ui::num::drag(&mut y.0).speed(0.25)).changed() {
                         *dirty = true;
                     }
                 });

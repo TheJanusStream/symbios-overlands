@@ -64,6 +64,31 @@
 //!
 //! Gizmo-style S/R/G/X/Y/Z keys are deliberately NOT bound — they collide
 //! with WASD/Shift movement.
+//!
+//! ## Enter under an input method (#1263)
+//!
+//! **The one Enter this module does not own is the one inside a text
+//! field, and it needed a guard anyway.** Chat's Send and the rename
+//! dialog's Apply both read `lost_focus() && key_pressed(Enter)`, which
+//! is egui's own idiom and is right for a Latin keyboard. Under an IME
+//! the first Enter means "accept the candidate", and egui's `TextEdit`
+//! surrenders focus on the return key with no composition check — so
+//! that press could send a half-composed line to a room with no edit and
+//! no delete. [`enter_submitted`] is the single place both sites ask,
+//! and [`ime_composing`] is how it knows.
+//!
+//! **In the browser this is moot, because IME input cannot happen at
+//! all.** winit's web backend emits no `Ime` events and documents
+//! `set_ime_allowed` as unimplemented, and nothing mounts a hidden input
+//! over the canvas — so every text field in the wasm build silently
+//! swallows the keystrokes of anyone typing CJK, Korean or Vietnamese.
+//! That is not fixable from this crate; what is fixable is the silence.
+//! `install_ime_probe` watches for a keystroke going to an IME rather
+//! than to the page and `report_ime_dead_end` says so once, naming paste
+//! as the way through (both wasm-only, so not linkable from a native doc
+//! build). The real fix is upstream — a focused, visually-hidden input
+//! whose composition events become `egui::Event::Ime`, the shape
+//! eframe's own web backend uses.
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
@@ -693,6 +718,114 @@ pub fn global_shortcuts(
     }
 }
 
+/// Whether an IME composition is in flight right now (#1263 f372).
+///
+/// **Not** the check the issue proposed. `TextEditState::cursor_purpose`
+/// and the whole `TextEditCursorPurpose` enum are `pub(crate)` to egui
+/// 0.35 (`widgets/text_edit/state.rs:44` and `:85`), so the state that
+/// answers this question exactly is not reachable from here. What IS
+/// reachable is the event stream egui builds it from: `Event::Ime`, whose
+/// `ImeEvent` is public.
+///
+/// A non-empty `Preedit` means the IME is composing and an empty one
+/// means it was dismissed — epaint's own words — and `Commit` is the
+/// composition ending, which is the frame the dangerous Enter arrives on.
+///
+/// The one-pass tail is the reason this is not a bare event test. Whether
+/// a platform delivers the IME commit and the `Key::Enter` in the same
+/// event batch is exactly what the finding could not establish from code,
+/// and it varies by IME; a guard that only covers the same-frame case
+/// would work on the author's machine and not on the user's. One pass of
+/// slack is ~16 ms, which no human can type an intentional second Enter
+/// inside of, so it costs nothing and covers the split-batch case too.
+pub fn ime_composing(ctx: &egui::Context) -> bool {
+    /// egui-memory slot holding the pass an IME event last arrived on.
+    fn last_pass_id() -> egui::Id {
+        egui::Id::new("symbios-ime-last-pass")
+    }
+
+    let pass = ctx.cumulative_pass_nr();
+    if ctx.input(|i| i.events.iter().any(is_composition_event)) {
+        ctx.data_mut(|d| d.insert_temp(last_pass_id(), pass));
+        return true;
+    }
+    ctx.data(|d| d.get_temp::<u64>(last_pass_id()))
+        .is_some_and(|last| pass.saturating_sub(last) <= 1)
+}
+
+/// Whether `event` is an IME composition step, as opposed to any other
+/// input.
+///
+/// The deprecated `Enabled`/`Disabled` variants fall through the wildcard
+/// rather than being named: egui no longer emits them, and naming a
+/// deprecated variant would be a warning under the `-D warnings` gate.
+fn is_composition_event(event: &egui::Event) -> bool {
+    match event {
+        egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => !text.is_empty(),
+        egui::Event::Ime(egui::ImeEvent::Commit(_)) => true,
+        _ => false,
+    }
+}
+
+/// Did this text field just commit on Enter? (#1263 f372)
+///
+/// The one place both text commits in the app ask the question — chat's
+/// Send and the rename dialog's Apply, which were three lines apart in
+/// shape and both read the key alone.
+///
+/// `lost_focus() && key_pressed(Enter)` is egui's own idiom and it is
+/// right for a Latin keyboard, where Enter means "I am finished". Under
+/// an IME, Enter also means "accept the candidate the IME is offering",
+/// and egui's `TextEdit` surrenders focus on the return key with no
+/// composition check of its own (`text_edit/builder.rs:1100-1117`). So
+/// the first Enter of a Japanese sentence could send the half-composed
+/// line to a room that has no edit and no delete, or write a
+/// half-composed key into a record. Composition suppresses the commit;
+/// the NEXT Enter, on a settled field, submits normally.
+pub fn enter_submitted(ui: &egui::Ui, response: &egui::Response) -> bool {
+    response.lost_focus()
+        && ui.input(|i| i.key_pressed(egui::Key::Enter))
+        && !ime_composing(ui.ctx())
+}
+
+/// Whether a browser keydown is the IME swallowing the keystroke rather
+/// than the page receiving it (#1263 f357).
+///
+/// Both spellings, because they are the same fact from two eras of the
+/// DOM: `key == "Process"` is the modern one and `keyCode == 229` the
+/// legacy sentinel every browser still sends. Composition events are the
+/// obvious signal and are listened for too, but they are unreliable here
+/// for a specific reason: a browser starts a composition against the
+/// focused *editable* element, and this app's focused element is a
+/// canvas. The keystroke still gets marked as consumed by the IME, which
+/// is why this is the trigger that actually fires.
+///
+/// Pure, so the wasm-only path has one thing a native test gate can see.
+pub fn is_ime_keystroke(key: &str, key_code: u32) -> bool {
+    key == "Process" || key_code == 229
+}
+
+/// What to tell a browser user whose IME just swallowed a keystroke
+/// (#1263 f357).
+///
+/// A dead end, stated as one. There is no IME path in the wasm build to
+/// fix from here: winit's web backend documents `set_ime_allowed` as
+/// "Currently not implemented" (`platform_impl/web/window.rs:332`),
+/// emits no `Ime` events at all, and `bevy_window` states
+/// "iOS / Android / Web: Unsupported". The real fix is a focused,
+/// visually-hidden input element mounted over the canvas whose
+/// composition events are forwarded as `egui::Event::Ime` — the shape
+/// eframe's own web backend uses — and that is upstream-shaped work in
+/// bevy_egui or winit, not a change this crate can make.
+///
+/// So the deliverable is honesty plus the workaround that does work:
+/// composing elsewhere and pasting is a real path through, and a user
+/// who is told about it can finish what they were doing. A field that
+/// silently swallows keystrokes is indistinguishable from a broken app.
+pub const IME_UNSUPPORTED_NOTICE: &str = "Typing with an input method editor isn't supported in the browser yet — your \
+     keystrokes are going to the IME and not to this field. Compose the text in another \
+     app and paste it in with Ctrl+V.";
+
 /// wasm: swallow the browser's own Ctrl+S/Cmd+S "save page" dialog with
 /// a capture-phase keydown listener. The app deliberately leaves
 /// `prevent_default_event_handling` false so F5 / Ctrl+R keep working —
@@ -722,6 +855,87 @@ pub fn install_ctrl_s_blocker() {
         warn!("failed to install Ctrl+S blocker: {e:?}");
     }
     closure.forget();
+}
+
+/// Set by the browser listeners below the first time a keystroke is seen
+/// to go to an IME rather than to the page (#1263 f357).
+///
+/// A `static` and not a resource because the writer is a JS callback with
+/// no world to write into; [`report_ime_dead_end`] is what moves it into
+/// the app.
+#[cfg(target_arch = "wasm32")]
+static IME_ATTEMPTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// wasm: notice when a keystroke is swallowed by an input method editor,
+/// so the app can say so instead of looking broken (#1263 f357).
+///
+/// Two listeners for one fact. `compositionstart` is the obvious one and
+/// fires when the browser targets an editable element; this app's focused
+/// element is a canvas, so it often will not. The keydown sentinel
+/// ([`is_ime_keystroke`]) fires either way, because the browser marks the
+/// keystroke as consumed by the IME whatever the target is. Both are
+/// capture-phase and neither calls `preventDefault`: this listens, it
+/// does not intercept.
+///
+/// Leaked with `Closure::forget` for the same reason the Ctrl+S blocker
+/// is — it must live for the whole page lifetime.
+#[cfg(target_arch = "wasm32")]
+pub fn install_ime_probe() {
+    use std::sync::atomic::Ordering;
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen::closure::Closure;
+
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+
+    let on_key =
+        Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(move |event: web_sys::KeyboardEvent| {
+            if is_ime_keystroke(&event.key(), event.key_code()) {
+                IME_ATTEMPTED.store(true, Ordering::Relaxed);
+            }
+        });
+    if let Err(e) = window.add_event_listener_with_callback_and_bool(
+        "keydown",
+        on_key.as_ref().unchecked_ref(),
+        true,
+    ) {
+        warn!("failed to install the IME probe's keydown listener: {e:?}");
+    }
+    on_key.forget();
+
+    let on_composition = Closure::<dyn FnMut(web_sys::Event)>::new(move |_: web_sys::Event| {
+        IME_ATTEMPTED.store(true, Ordering::Relaxed);
+    });
+    if let Err(e) = window.add_event_listener_with_callback_and_bool(
+        "compositionstart",
+        on_composition.as_ref().unchecked_ref(),
+        true,
+    ) {
+        warn!("failed to install the IME probe's composition listener: {e:?}");
+    }
+    on_composition.forget();
+}
+
+/// wasm: say the dead end out loud, once (#1263 f357).
+///
+/// Once per page load, not once per attempt: a user who keeps typing
+/// under a live IME would otherwise get a toast per keystroke, and the
+/// queue evicts oldest-first, so the message would bury everything else
+/// the app had to say.
+#[cfg(target_arch = "wasm32")]
+pub fn report_ime_dead_end(
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    time: Res<Time>,
+    mut told: Local<bool>,
+) {
+    use std::sync::atomic::Ordering;
+    if *told || !IME_ATTEMPTED.load(Ordering::Relaxed) {
+        return;
+    }
+    *told = true;
+    warn!("IME input attempted in the browser build, where it cannot work (#1263)");
+    toasts.warn(IME_UNSUPPORTED_NOTICE, time.elapsed_secs_f64());
 }
 
 #[cfg(test)]
@@ -1032,6 +1246,186 @@ mod tests {
     /// `egui::Window` never runs its body — and the Save row that consumes
     /// the request is in the body — so it aged out on the TTL with no
     /// effect. The chord now expands the window, and the body runs on the
+    /// One Enter press, as an egui event.
+    #[cfg(test)]
+    fn enter_key() -> egui::Event {
+        egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    /// A composition step, as an egui event.
+    #[cfg(test)]
+    fn preedit(text: &str) -> egui::Event {
+        egui::Event::Ime(egui::ImeEvent::Preedit {
+            text: text.to_owned(),
+            active_range_chars: None,
+        })
+    }
+
+    /// An IME composition is seen, and it stops being seen (#1263 f372).
+    ///
+    /// The second half is the one that would ruin the feature if it were
+    /// wrong: a guard that never clears is a chat window whose Enter key
+    /// has stopped working, which is worse than the defect it fixes.
+    #[test]
+    fn a_composition_is_visible_for_its_pass_and_one_more() {
+        let ctx = egui::Context::default();
+        let pass = |events: Vec<egui::Event>| {
+            let mut composing = false;
+            let input = egui::RawInput {
+                events,
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| composing = ime_composing(ui.ctx()));
+            composing
+        };
+
+        assert!(!pass(vec![]), "control: a quiet field is not composing");
+        assert!(
+            pass(vec![preedit("\u{304B}")]),
+            "a preedit is a composition"
+        );
+        assert!(
+            pass(vec![]),
+            "the one-pass tail covers an IME that splits its commit from the key"
+        );
+        assert!(!pass(vec![]), "and then it clears");
+
+        // A commit is the dangerous frame: the composition is ENDING, which
+        // is exactly when the platform may also deliver a Key::Enter.
+        assert!(pass(vec![egui::Event::Ime(egui::ImeEvent::Commit(
+            "\u{6F22}\u{5B57}".to_owned()
+        ))]));
+
+        // An empty preedit is egui's "the IME was dismissed", not a
+        // composition — treating it as one would extend the guard past the
+        // end of every composition by a pass for no reason.
+        let _ = pass(vec![]);
+        let _ = pass(vec![]);
+        assert!(!pass(vec![preedit("")]));
+    }
+
+    /// Enter submits a settled field and does not submit a composing one
+    /// (#1263 f372).
+    ///
+    /// Driven through a real `TextEdit` in a real context, because the
+    /// thing being asserted is the interaction between egui's own
+    /// return-key arm — which surrenders focus with no composition check
+    /// (`text_edit/builder.rs:1100-1117`) — and the app's read of
+    /// `lost_focus()`. A hand-rolled `Response` would assert nothing about
+    /// that.
+    #[test]
+    fn enter_commits_a_settled_field_but_not_a_composing_one() {
+        let ctx = egui::Context::default();
+        let mut text = String::new();
+
+        /// What one egui pass reported: the guarded answer the app now
+        /// uses, and the OLD key-only idiom's answer beside it.
+        ///
+        /// The old answer is a control, not decoration. Without it the
+        /// negative assertion could be passing because the field never
+        /// lost focus at all, which would prove nothing about the guard
+        /// (#1280's lesson: if the failing case looks like the passing
+        /// case there is no check).
+        struct Pass {
+            submitted: bool,
+            unguarded: bool,
+        }
+
+        let pass = |text: &mut String, events: Vec<egui::Event>| {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(400.0, 200.0),
+                )),
+                events,
+                ..Default::default()
+            };
+            let mut out = Pass {
+                submitted: false,
+                unguarded: false,
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                let response = ui.text_edit_singleline(text);
+                // Read the outcome BEFORE re-focusing. `lost_focus()` is
+                // "focused last pass, not now", so calling `request_focus`
+                // first puts the id back and answers false — which is how
+                // this harness reported no submit on a plain Enter until
+                // the order was fixed. Chat does the same two things in
+                // the same order for the same reason.
+                out.submitted = enter_submitted(ui, &response);
+                out.unguarded =
+                    response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if !response.has_focus() {
+                    response.request_focus();
+                }
+            });
+            out
+        };
+
+        // Focus first: `lost_focus()` needs a field that HAD focus.
+        pass(&mut text, vec![]);
+        assert!(
+            !pass(&mut text, vec![]).submitted,
+            "control: no Enter, no submit"
+        );
+
+        assert!(
+            pass(&mut text, vec![enter_key()]).submitted,
+            "a settled field submits on Enter"
+        );
+
+        // Re-settle, then the IME case: the commit and the key in one
+        // batch, which is the platform behaviour the finding could not
+        // rule out and the one that sends a half-composed line.
+        pass(&mut text, vec![]);
+        pass(&mut text, vec![]);
+        let composing = pass(
+            &mut text,
+            vec![
+                egui::Event::Ime(egui::ImeEvent::Commit("\u{6F22}\u{5B57}".to_owned())),
+                enter_key(),
+            ],
+        );
+        assert!(
+            composing.unguarded,
+            "the control: on this very pass the old key-only idiom DOES fire, \
+             so the field really did lose focus to an Enter"
+        );
+        assert!(
+            !composing.submitted,
+            "the Enter that accepts an IME candidate must not send the line"
+        );
+
+        // And the next deliberate Enter, on a settled field, does send it —
+        // otherwise the guard has broken the key it was protecting.
+        pass(&mut text, vec![]);
+        pass(&mut text, vec![]);
+        assert!(
+            pass(&mut text, vec![enter_key()]).submitted,
+            "the second Enter submits normally"
+        );
+    }
+
+    /// The browser's two spellings of "the IME took this keystroke"
+    /// (#1263 f357).
+    ///
+    /// The wasm listener that uses this cannot be reached by any gate in
+    /// this repo, so the classification it turns on is pulled out where a
+    /// native test can hold it.
+    #[test]
+    fn an_ime_keystroke_is_recognised_by_either_spelling() {
+        assert!(is_ime_keystroke("Process", 0), "the modern spelling");
+        assert!(is_ime_keystroke("Unidentified", 229), "the legacy sentinel");
+        assert!(!is_ime_keystroke("a", 65));
+        assert!(!is_ime_keystroke("Enter", 13));
+    }
+
     /// very next pass, inside the TTL.
     #[test]
     fn a_collapsed_editor_window_is_expanded_so_its_save_row_runs() {

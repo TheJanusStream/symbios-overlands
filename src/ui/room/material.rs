@@ -131,7 +131,7 @@ pub(super) fn draw_uv_transform_rows(
         for v in offset.iter_mut() {
             if ui
                 .add(
-                    egui::DragValue::new(v)
+                    crate::ui::num::drag(v)
                         .speed(0.05)
                         .range(-1_000.0..=1_000.0),
                 )
@@ -148,7 +148,7 @@ pub(super) fn draw_uv_transform_rows(
         ui.label("UV rotation (deg)");
         if ui
             .add(
-                egui::DragValue::new(&mut rotation)
+                crate::ui::num::drag(&mut rotation)
                     .speed(1.0)
                     .range(-360.0..=360.0),
             )

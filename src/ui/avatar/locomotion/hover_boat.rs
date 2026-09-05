@@ -25,7 +25,7 @@ impl LocomotionPanel for HoverBoatParams {
                 fp_slider(ui, &mut self.angular_damping, 0.0..=20.0, 0.1, dirty);
             });
 
-        egui::CollapsingHeader::new("Suspension & Drive")
+        egui::CollapsingHeader::new("Suspension & drive")
             .default_open(false)
             .show(ui, |ui| {
                 ui.label("Suspension rest length");

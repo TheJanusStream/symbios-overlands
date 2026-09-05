@@ -2,9 +2,12 @@
 //!
 //! Renders `ChatHistory` into a scroll area and exposes a single-line input
 //! that broadcasts `OverlandsMessage::Chat` over the Reliable channel.  The
-//! sender enforces the same `MAX_MESSAGE_LEN` cap as the receiver so a
+//! sender holds the typist to `MAX_MESSAGE_CHARS` while the receiver
+//! enforces `MAX_MESSAGE_BYTES` on whatever actually arrives, so a
 //! misbehaving peer who bypasses this UI still gets its payload clipped on
-//! every other client in the room.
+//! every other client in the room. Two units on purpose (#1264 f362): the
+//! wire limit exists to bound rendering cost and the composer limit exists
+//! to be fair to every script, and a single byte cap could not be both.
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
@@ -62,6 +65,22 @@ fn author_now<'a>(
         .and_then(|did| names.get(did))
         .map(String::as_str)
         .unwrap_or(entry.author.as_str())
+}
+
+/// The composer's remaining-length readout, or `None` while the limit is
+/// far enough away not to be worth saying (#1264 f362).
+///
+/// A counter that is always on is noise on every ordinary message; one
+/// that appears only at the moment of amputation is the defect this
+/// closes, restated. So it arrives with a fifth of the budget left, which
+/// is enough warning to finish a sentence or start trimming one.
+///
+/// Counted in characters, like the limit itself — the whole point is that
+/// a CJK writer sees the same number of characters as everyone else.
+fn composer_counter(draft: &str) -> Option<String> {
+    let max = crate::config::ui::chat::MAX_MESSAGE_CHARS;
+    let used = draft.chars().count();
+    (used * 5 >= max * 4).then(|| format!("{used}/{max}"))
 }
 
 /// Everything the chat window reads that is not the conversation itself.
@@ -233,8 +252,28 @@ pub fn chat_ui(
                             {
                                 cleared = true;
                             }
+                            // The remaining-length readout (#1264 f362),
+                            // between Clear and the field so it sits
+                            // against the right-hand controls. Silent
+                            // until the limit is close enough to matter —
+                            // a counter on every message would be noise
+                            // on the 99% of lines nowhere near it — and
+                            // tinted once there is nothing left.
+                            if let Some(count) = composer_counter(&input) {
+                                let th = crate::ui::theme::current(ui.ctx());
+                                let colour = if input.chars().count() >= cfg::MAX_MESSAGE_CHARS {
+                                    th.status.warn
+                                } else {
+                                    th.text_weak
+                                };
+                                ui.colored_label(colour, count);
+                            }
                             let response = ui.add(
                                 egui::TextEdit::singleline(&mut input)
+                                    // The limit made visible before it is
+                                    // hit, rather than as an amputation
+                                    // after Send (#1264 f362).
+                                    .char_limit(cfg::MAX_MESSAGE_CHARS)
                                     .desired_width(ui.available_width()),
                             );
                             // Global Enter shortcut (#836): consume the one-shot
@@ -243,9 +282,13 @@ pub fn chat_ui(
                                 response.request_focus();
                                 focus_request.0 = false;
                             }
+                            // Enter through the shared IME guard (#1263
+                            // f372): under an input method the first
+                            // Enter accepts the candidate, and this room
+                            // has no edit and no delete for what it
+                            // would otherwise have sent.
                             let submit = send.clicked()
-                                || (response.lost_focus()
-                                    && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                                || crate::ui::shortcuts::enter_submitted(ui, &response);
 
                             if submit && !input.trim().is_empty() {
                                 // Enforce a strict per-message length cap *before*
@@ -254,17 +297,19 @@ pub fn chat_ui(
                                 // MiB packet limit) and every guest would try to
                                 // word-wrap it in egui on every frame — an instant
                                 // room-wide DoS.
+                                //
+                                // CHARACTERS, not bytes (#1264 f362): the
+                                // old cap gave a CJK writer a third of
+                                // everyone else's message length. The
+                                // field's `char_limit` below means this
+                                // clip cannot fire on anything a person
+                                // typed or pasted into it; it stays as
+                                // the invariant's enforcement, because
+                                // what is broadcast must be what the
+                                // limit says however the draft got here.
                                 let trimmed = input.trim();
-                                let max = cfg::MAX_MESSAGE_LEN;
-                                let clipped = if trimmed.len() <= max {
-                                    trimmed.to_string()
-                                } else {
-                                    let mut end = max;
-                                    while end > 0 && !trimmed.is_char_boundary(end) {
-                                        end -= 1;
-                                    }
-                                    trimmed[..end].to_string()
-                                };
+                                let clipped: String =
+                                    trimmed.chars().take(cfg::MAX_MESSAGE_CHARS).collect();
                                 // Strip ASCII control characters (newlines,
                                 // carriage returns, form feeds, …) before either
                                 // pushing to our own HUD or broadcasting. The
@@ -571,5 +616,94 @@ mod author_tests {
             &empty,
             &crate::state::MutedDids::default()
         ));
+    }
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+    use crate::config::ui::chat as cfg;
+
+    /// The wire ceiling can never clip a message the composer permitted
+    /// (#1264 f362).
+    ///
+    /// The two limits are in different units on purpose — bytes bound
+    /// peer-side rendering cost, characters are what a person is held to —
+    /// and the whole arrangement only works if the byte one is the looser.
+    /// Set the char limit above a quarter of the byte limit and a CJK
+    /// sentence the composer accepted arrives amputated, which is the
+    /// defect this closes, restored with extra steps.
+    #[test]
+    fn the_wire_ceiling_cannot_truncate_a_permitted_message() {
+        const {
+            assert!(cfg::MAX_MESSAGE_BYTES >= 4 * cfg::MAX_MESSAGE_CHARS);
+        }
+
+        // Demonstrated, not just asserted: the longest thing the composer
+        // will hand over, in the widest encoding UTF-8 has.
+        let widest: String = std::iter::repeat_n('\u{1F600}', cfg::MAX_MESSAGE_CHARS).collect();
+        assert_eq!(widest.chars().count(), cfg::MAX_MESSAGE_CHARS);
+        assert!(widest.len() <= cfg::MAX_MESSAGE_BYTES);
+
+        // And the old cap really did clip it — the control, so this test
+        // is not describing a coincidence.
+        assert!(widest.len() > 512, "512 bytes was the old ceiling");
+    }
+
+    /// Every script gets the same message length (#1264 f362).
+    ///
+    /// The finding in one assertion: under a byte cap a Japanese sentence
+    /// was worth a third of a Latin one.
+    #[test]
+    fn the_composer_limit_is_the_same_in_every_script() {
+        for sample in ['a', '\u{3042}', '\u{05D0}', '\u{1F600}'] {
+            let full: String = std::iter::repeat_n(sample, cfg::MAX_MESSAGE_CHARS).collect();
+            let clipped: String = full.chars().take(cfg::MAX_MESSAGE_CHARS).collect();
+            assert_eq!(
+                clipped.chars().count(),
+                cfg::MAX_MESSAGE_CHARS,
+                "{sample:?} must get the full allowance"
+            );
+            // The old rule, for contrast: bytes, so anything above U+007F
+            // lost most of the message.
+            let old: usize = full.char_indices().take_while(|(i, _)| *i < 512).count();
+            if sample.is_ascii() {
+                assert_eq!(old, cfg::MAX_MESSAGE_CHARS);
+            } else {
+                // At most half, and for CJK a third: 512 bytes bought
+                // 256 Hebrew or Arabic characters, 170 CJK, 128 emoji.
+                assert!(old <= cfg::MAX_MESSAGE_CHARS / 2);
+            }
+        }
+    }
+
+    /// The counter appears with enough left to act on, and not before
+    /// (#1264 f362).
+    #[test]
+    fn the_counter_arrives_before_the_limit_does() {
+        assert_eq!(composer_counter(""), None);
+        assert_eq!(composer_counter("hello"), None);
+
+        // The threshold is a fifth remaining, so 410 of 512 is the first
+        // draft that shows one.
+        let near: String = "x".repeat(cfg::MAX_MESSAGE_CHARS * 4 / 5 + 1);
+        assert_eq!(
+            composer_counter(&near),
+            Some(format!("{}/{}", near.len(), cfg::MAX_MESSAGE_CHARS))
+        );
+
+        let just_under: String = "x".repeat(cfg::MAX_MESSAGE_CHARS * 4 / 5);
+        assert_eq!(just_under.len(), near.len() - 1);
+        assert_eq!(
+            composer_counter(&just_under),
+            None,
+            "quiet until it matters"
+        );
+
+        // Counted in characters, so a CJK draft at the same character
+        // count shows the same number — the point of the whole change.
+        let cjk: String =
+            std::iter::repeat_n('\u{3042}', cfg::MAX_MESSAGE_CHARS * 4 / 5 + 1).collect();
+        assert_eq!(composer_counter(&cjk), composer_counter(&near));
     }
 }

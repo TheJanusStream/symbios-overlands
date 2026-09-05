@@ -11,17 +11,55 @@
 //! * **CJK fallback** — Noto Sans CJK SC (~16 MB) is far too heavy to
 //!   compile in (it would triple the wasm download), so it ships as a
 //!   plain asset (`assets/fonts/`) and loads lazily: the first time a
-//!   CJK code point appears in chat, a peer handle, or the login feed
-//!   ([`detect_cjk_need`]), the file is read (native) or fetched from
-//!   the deploy origin (wasm) on the `IoTaskPool`, and
-//!   [`poll_cjk_fetch`] swaps in a rebuilt `FontDefinitions` once —
-//!   brief tofu-then-correct, per the 2026-07-17 lazy-fetch decision.
+//!   CJK code point is sighted ([`detect_script_needs`]), the file is
+//!   read (native) or fetched from the deploy origin (wasm) on the
+//!   `IoTaskPool`, and [`poll_cjk_fetch`] swaps in a rebuilt
+//!   `FontDefinitions` once, per the 2026-07-17 lazy-fetch decision.
 //!
 //! `ctx.set_fonts` is a full atlas swap, so the state machine
 //! ([`CjkFonts`]) guarantees it happens at most twice per session
-//! (base install, CJK upgrade) — never per frame. A missing asset
-//! (operator forgot to deploy the OTF) degrades to a logged warning and
-//! the tofu stays: fonts are never worth blocking a session over.
+//! (base install, CJK upgrade) — never per frame.
+//!
+//! **"Brief tofu-then-correct" is the native account of the CJK load.**
+//! On wasm it is a ~16 MB download raced against a three-minute timeout,
+//! which on a slow link is neither brief nor obviously a font at all, and
+//! a missing asset leaves the session in a terminal `Failed`. None of
+//! that is worth blocking a session over — but it is worth *saying*, so
+//! the transitions reach the toast channel through [`surface_font_status`]
+//! rather than the log alone (#1262 f361).
+//!
+//! ## What this module cannot do
+//!
+//! **No face for Hebrew, Arabic, Thai or the Indic scripts.** The base
+//! font is Latin/Cyrillic/Greek, egui's embedded tail adds Ubuntu-Light
+//! and two emoji faces, and the one fetchable fallback is CJK — so those
+//! scripts are tofu for the whole session with no trigger that could
+//! change it. Shipping the faces is an asset-weight decision for the
+//! owner, not something this module can take on its own; what it does
+//! instead is *say so*, once per script, from [`UNSUPPORTED_SCRIPTS`].
+//!
+//! **No bidi, so do not ship an RTL face without reading this.** epaint
+//! 0.35 shapes through harfrust and guesses segment properties, so a
+//! single-script Arabic or Hebrew run joins and orders correctly once a
+//! covering face exists — but there is no bidirectional *reordering*
+//! across runs (the TODO is epaint's own, at `text/font.rs:830`, and
+//! `text_layout.rs` records that run segmentation "would need
+//! script-aware splitting once RTL/bidi support is added"). A mixed
+//! line — an Arabic name beside a Latin handle or a digit — therefore
+//! comes out in logical segment order, which is wrong. Adding an RTL
+//! face without fixing that trades empty boxes for confidently wrong
+//! text, which is harder for a reader to diagnose, not easier. Whoever
+//! adds one should wrap user-supplied strings in isolate marks
+//! (U+2068 … U+2069) at the interpolation sites first. Not done here:
+//! with no covering face the marks would isolate nothing, and dead
+//! machinery is how a limitation gets forgotten (#1262 f368).
+//!
+//! **Only Simplified-Chinese glyph forms, ever.** The single fetchable
+//! face is the SC regional cut, so Japanese and Korean text is readable
+//! but drawn in Chinese letterforms for the several hundred unified
+//! ideographs whose shapes differ. Shipping the JP and KR cuts as well
+//! is ~48 MB of assets for a papercut; the choice is recorded in
+//! `assets/fonts/README.md` so it stays a decision (#1262 f373).
 
 use bevy::prelude::*;
 use bevy::tasks::Task;
@@ -84,6 +122,169 @@ fn needs_cjk(text: &str) -> bool {
             | 0xFE30..=0xFE4F // CJK compat forms
             | 0xFF00..=0xFFEF // full-width forms
         )
+    })
+}
+
+/// A script the app has no face for, and no code path that could load
+/// one (#1262 f360).
+///
+/// The bundled base font is Latin/Cyrillic/Greek and the only fallback
+/// that can ever be fetched is the CJK OTF, so every script listed here
+/// is tofu for the whole session. `sample` is probe data for
+/// `the_unsupported_script_table_names_real_gaps`, never drawn — the
+/// guard asks the real charmaps whether the gap is still a gap, so a
+/// font change that closes one fails the test instead of leaving a
+/// message that lies to the user.
+struct ScriptGap {
+    /// What the user is told their text is written in.
+    name: &'static str,
+    /// One representative code point, probed against the base atlas.
+    ///
+    /// Test-only by design: it exists so the guard can ask the real
+    /// charmaps whether this row is still true, and a deliberately
+    /// *assigned letter* is the probe — deriving one from the block's low
+    /// bound would often land on an unassigned or combining code point,
+    /// which no face owns and which would therefore pass vacuously.
+    #[cfg_attr(not(test), allow(dead_code))]
+    sample: char,
+    /// The Unicode blocks that script writes in, as inclusive pairs.
+    blocks: &'static [(u32, u32)],
+}
+
+/// Scripts with neither a bundled face nor a fetchable one.
+///
+/// Not exhaustive and does not claim to be: it covers the scripts f360
+/// named plus their immediate neighbours, which is what the toast needs
+/// in order to name what it cannot draw. Adding a row costs nothing but
+/// a probe; the guard refuses a row whose gap has since closed.
+const UNSUPPORTED_SCRIPTS: &[ScriptGap] = &[
+    ScriptGap {
+        name: "Hebrew",
+        sample: '\u{05D0}',
+        blocks: &[(0x0590, 0x05FF), (0xFB1D, 0xFB4F)],
+    },
+    ScriptGap {
+        name: "Arabic",
+        sample: '\u{0627}',
+        blocks: &[
+            (0x0600, 0x06FF),
+            (0x0750, 0x077F),
+            (0x08A0, 0x08FF),
+            (0xFB50, 0xFDFF),
+            (0xFE70, 0xFEFF),
+        ],
+    },
+    ScriptGap {
+        name: "Syriac",
+        sample: '\u{0710}',
+        blocks: &[(0x0700, 0x074F)],
+    },
+    ScriptGap {
+        name: "Thaana",
+        sample: '\u{0780}',
+        blocks: &[(0x0780, 0x07BF)],
+    },
+    ScriptGap {
+        name: "Armenian",
+        sample: '\u{0531}',
+        blocks: &[(0x0530, 0x058F)],
+    },
+    ScriptGap {
+        name: "Georgian",
+        sample: '\u{10D0}',
+        blocks: &[(0x10A0, 0x10FF), (0x1C90, 0x1CBF)],
+    },
+    ScriptGap {
+        name: "Devanagari",
+        sample: '\u{0905}',
+        blocks: &[(0x0900, 0x097F), (0xA8E0, 0xA8FF)],
+    },
+    ScriptGap {
+        name: "Bengali",
+        sample: '\u{0985}',
+        blocks: &[(0x0980, 0x09FF)],
+    },
+    ScriptGap {
+        name: "Gurmukhi",
+        sample: '\u{0A05}',
+        blocks: &[(0x0A00, 0x0A7F)],
+    },
+    ScriptGap {
+        name: "Gujarati",
+        sample: '\u{0A85}',
+        blocks: &[(0x0A80, 0x0AFF)],
+    },
+    ScriptGap {
+        name: "Odia",
+        sample: '\u{0B05}',
+        blocks: &[(0x0B00, 0x0B7F)],
+    },
+    ScriptGap {
+        name: "Tamil",
+        sample: '\u{0B85}',
+        blocks: &[(0x0B80, 0x0BFF)],
+    },
+    ScriptGap {
+        name: "Telugu",
+        sample: '\u{0C05}',
+        blocks: &[(0x0C00, 0x0C7F)],
+    },
+    ScriptGap {
+        name: "Kannada",
+        sample: '\u{0C85}',
+        blocks: &[(0x0C80, 0x0CFF)],
+    },
+    ScriptGap {
+        name: "Malayalam",
+        sample: '\u{0D05}',
+        blocks: &[(0x0D00, 0x0D7F)],
+    },
+    ScriptGap {
+        name: "Sinhala",
+        sample: '\u{0D85}',
+        blocks: &[(0x0D80, 0x0DFF)],
+    },
+    ScriptGap {
+        name: "Thai",
+        sample: '\u{0E01}',
+        blocks: &[(0x0E00, 0x0E7F)],
+    },
+    ScriptGap {
+        name: "Lao",
+        sample: '\u{0E81}',
+        blocks: &[(0x0E80, 0x0EFF)],
+    },
+    ScriptGap {
+        name: "Tibetan",
+        sample: '\u{0F40}',
+        blocks: &[(0x0F00, 0x0FFF)],
+    },
+    ScriptGap {
+        name: "Myanmar",
+        sample: '\u{1000}',
+        blocks: &[(0x1000, 0x109F)],
+    },
+    ScriptGap {
+        name: "Ethiopic",
+        sample: '\u{1200}',
+        blocks: &[(0x1200, 0x137F)],
+    },
+    ScriptGap {
+        name: "Khmer",
+        sample: '\u{1780}',
+        blocks: &[(0x1780, 0x17FF)],
+    },
+];
+
+/// The name of the first unsupported script `text` is written in, if
+/// any (#1262 f360).
+fn unsupported_script(text: &str) -> Option<&'static str> {
+    text.chars().find_map(|c| {
+        let cp = u32::from(c);
+        UNSUPPORTED_SCRIPTS
+            .iter()
+            .find(|gap| gap.blocks.iter().any(|(lo, hi)| (*lo..=*hi).contains(&cp)))
+            .map(|gap| gap.name)
     })
 }
 
@@ -159,41 +360,247 @@ pub fn install_base_fonts(mut contexts: EguiContexts, mut installed: Local<bool>
     *installed = true;
 }
 
-/// Watch the strings that can carry arbitrary user text — chat, peer
-/// handles, the login post feed — and kick off the CJK load the first
-/// time one needs it. Every scan is change-gated, so the steady-state
-/// cost is three change-tick reads per frame.
-pub fn detect_cjk_need(
-    mut cjk: ResMut<CjkFonts>,
-    chat: Res<crate::state::ChatHistory>,
-    feed: Res<crate::ui::login::LoginPostFeed>,
-    changed_peers: Query<&crate::state::RemotePeer, Changed<crate::state::RemotePeer>>,
-) {
-    if !matches!(cjk.status, CjkStatus::Dormant) {
+/// Scripts already reported to the user this session (#1262 f360).
+///
+/// One message per script, ever: the point is to tell someone once that
+/// their writing system is not supported, not to interrupt them every
+/// time a peer says something in it.
+#[derive(Resource, Default)]
+pub struct ScriptGaps {
+    reported: std::collections::HashSet<&'static str>,
+}
+
+/// A sighting written by a draw site and drained by
+/// [`detect_script_needs`] (#1262 f359).
+#[derive(Clone, Default)]
+struct DrawnSighting {
+    cjk: bool,
+    gap: Option<&'static str>,
+}
+
+/// egui temp-memory slot the drawn-text channel lives in.
+fn sighting_id() -> egui::Id {
+    egui::Id::new("symbios-font-sighting")
+}
+
+/// Report text a UI surface is about to draw, so the font machinery can
+/// see the strings that never reach a resource (#1262 f359).
+///
+/// The detector below reads change-gated ECS sources, which covers text
+/// that has been *committed* somewhere. It cannot see a half-typed name
+/// in a deferred-commit field (`room::widgets::text_draft_row`
+/// keeps its draft in egui's own temp memory), and scanning the whole
+/// live room record instead would mean walking every authored name on
+/// every frame of a gizmo drag. So a draw site says what it is drawing,
+/// through egui's memory rather than a `SystemParam`, because the
+/// alternative is a new resource threaded into every UI system in the
+/// crate and this repo has a 16-parameter ceiling it has hit before.
+///
+/// **Where to call it:** any surface that draws a string a user typed
+/// and that is not already one of the detector's arms. Cost is a scan of
+/// the string; nothing is written unless it actually contains text the
+/// fonts cannot draw, which is the rare case.
+pub fn note_drawn_text(ctx: &egui::Context, text: &str) {
+    let cjk = needs_cjk(text);
+    let gap = unsupported_script(text);
+    if !cjk && gap.is_none() {
         return;
     }
-    let mut hit = false;
-    if chat.is_changed() {
-        hit = chat
-            .messages
+    ctx.data_mut(|d| {
+        let mut seen = d
+            .get_temp::<DrawnSighting>(sighting_id())
+            .unwrap_or_default();
+        seen.cjk |= cjk;
+        seen.gap = seen.gap.or(gap);
+        d.insert_temp(sighting_id(), seen);
+    });
+}
+
+/// Read and clear the drawn-text channel.
+fn take_drawn_sighting(ctx: &egui::Context) -> DrawnSighting {
+    ctx.data_mut(|d| {
+        let seen = d
+            .get_temp::<DrawnSighting>(sighting_id())
+            .unwrap_or_default();
+        d.insert_temp(sighting_id(), DrawnSighting::default());
+        seen
+    })
+}
+
+/// Every string a chat history offers the font detector.
+///
+/// The draft comes FIRST and is the whole point (#1262 f359): the scan
+/// used to read `messages` alone, so a sentence being typed in Japanese
+/// was a row of empty boxes in the sender's own input field until they
+/// pressed Send and it became a message. The draft lives on this same
+/// resource ([`crate::state::ChatHistory::draft`], #1140), so it was one
+/// line away the entire time.
+fn chat_sources(chat: &crate::state::ChatHistory) -> impl Iterator<Item = &str> {
+    std::iter::once(chat.draft.as_str()).chain(
+        chat.messages
             .iter()
-            .any(|m| needs_cjk(&m.text) || needs_cjk(&m.author));
+            .flat_map(|m| [m.text.as_str(), m.author.as_str()]),
+    )
+}
+
+/// Watch every string that can carry arbitrary user text and kick off
+/// the CJK load the first time one needs it; report a script the app
+/// cannot draw at all (#1262 f359/f360).
+///
+/// Two kinds of source, and which one a surface belongs to is a cost
+/// question. **Change-gated ECS arms** carry text that is small and
+/// rarely rewritten — the chat scrollback and its draft, the login feed,
+/// peer handles, a mutuals listing, the one open gift dialog, the item
+/// names in the stash. **The drawn-text channel**
+/// ([`note_drawn_text`]) carries everything else: drafts that live in
+/// egui's memory rather than in a resource, and names inside the live
+/// room record, which changes every frame of a gizmo drag and would make
+/// a record-wide scan a permanent per-frame cost. The channel is bounded
+/// by what is on screen, which is the right bound.
+///
+/// The CJK half latches — once the fetch starts there is nothing left to
+/// detect — while the script-gap half keeps watching, because a second
+/// unsupported script can turn up at any point in a session.
+#[allow(clippy::too_many_arguments)]
+pub fn detect_script_needs(
+    mut contexts: EguiContexts,
+    mut cjk: ResMut<CjkFonts>,
+    mut gaps: ResMut<ScriptGaps>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    time: Res<Time>,
+    chat: Res<crate::state::ChatHistory>,
+    feed: Res<crate::ui::login::LoginPostFeed>,
+    mutuals: Res<crate::social::MutualsCache>,
+    offer: Option<Res<crate::state::IncomingOfferDialog>>,
+    inventory: Option<Res<crate::state::LiveInventoryRecord>>,
+    changed_peers: Query<&crate::state::RemotePeer, Changed<crate::state::RemotePeer>>,
+) {
+    let want_cjk = matches!(cjk.status, CjkStatus::Dormant);
+
+    // Drained first, and unconditionally: leaving a sighting in egui's
+    // memory would have it re-reported on every later frame.
+    let drawn = contexts
+        .ctx_mut()
+        .map(|ctx| take_drawn_sighting(ctx))
+        .unwrap_or_default();
+    let mut hit_cjk = want_cjk && drawn.cjk;
+    let mut gap = drawn.gap;
+
+    {
+        let mut see = |text: &str| {
+            if want_cjk && !hit_cjk {
+                hit_cjk = needs_cjk(text);
+            }
+            if gap.is_none() {
+                gap = unsupported_script(text);
+            }
+        };
+
+        if chat.is_changed() {
+            for text in chat_sources(&chat) {
+                see(text);
+            }
+        }
+        if feed.is_changed() {
+            for post in &feed.posts {
+                see(&post.text);
+                see(&post.author_handle);
+            }
+        }
+        if mutuals.is_changed() {
+            for cached in mutuals.by_owner.values() {
+                if let crate::social::MutualsState::Ready(list) = &cached.state {
+                    for entry in &list.mutuals {
+                        see(&entry.handle);
+                        if let Some(name) = &entry.display_name {
+                            see(name);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(offer) = offer.as_ref().filter(|o| o.is_changed()) {
+            see(&offer.item_name);
+            see(&offer.sender_label.name());
+        }
+        if let Some(inventory) = inventory.as_ref().filter(|i| i.is_changed()) {
+            for item_name in inventory.0.generators.keys() {
+                see(item_name);
+            }
+        }
+        for peer in changed_peers.iter() {
+            if let Some(handle) = peer.handle.as_deref() {
+                see(handle);
+            }
+        }
     }
-    if !hit && feed.is_changed() {
-        hit = feed
-            .posts
-            .iter()
-            .any(|p| needs_cjk(&p.text) || needs_cjk(&p.author_handle));
-    }
-    if !hit {
-        hit = changed_peers
-            .iter()
-            .any(|p| p.handle.as_deref().is_some_and(needs_cjk));
-    }
-    if hit {
+
+    if hit_cjk {
         info!("CJK text sighted — loading the CJK font fallback");
         cjk.status = CjkStatus::Fetching;
         cjk.task = Some(spawn_cjk_load());
+    }
+
+    // `contains` before `insert` so a repeated sighting does not deref
+    // the resource mutably and mark it changed every frame (#879).
+    if let Some(name) = gap
+        && !gaps.reported.contains(name)
+    {
+        gaps.reported.insert(name);
+        warn!("{name} text sighted; no bundled or fetchable face covers it — it renders as tofu");
+        toasts.warn(
+            format!("{name} text can't be shown — this app bundles no font for that script."),
+            time.elapsed_secs_f64(),
+        );
+    }
+}
+
+/// What the user should be told about a font-state transition (#1262
+/// f361), or `None` for a transition that needs no message.
+///
+/// `slow_load` is whether fetching the face is something a user would
+/// notice: on wasm it is a ~16 MB download over the network, on native a
+/// local file read that finishes before the next frame. Announcing a
+/// load that has already finished is worse than saying nothing, so the
+/// "loading" message is the slow target's only. A parameter rather than
+/// a `cfg!` inside the body so both answers are reachable from a test on
+/// either target.
+pub(crate) fn status_toast(
+    status: &CjkStatus,
+    slow_load: bool,
+) -> Option<(crate::ui::toast::ToastKind, &'static str)> {
+    match status {
+        CjkStatus::Fetching if slow_load => Some((
+            crate::ui::toast::ToastKind::Info,
+            "Loading the font for this text — it is a large download and may take a moment.",
+        )),
+        CjkStatus::Failed => Some((
+            crate::ui::toast::ToastKind::Warn,
+            "Some text can't be displayed — the font for it failed to load. It will stay as \
+             empty boxes until you reload.",
+        )),
+        _ => None,
+    }
+}
+
+/// Put the CJK font's lifecycle on a surface the user can see (#1262
+/// f361).
+///
+/// Every transition used to report to the log alone, so a 16 MB fetch, a
+/// 180-second timeout and a permanently failed load were all indis-
+/// tinguishable from a rendering bug. The resource is only marked
+/// changed by a real transition — the idle poll bypasses change
+/// detection — so this fires once per transition, not per frame.
+pub fn surface_font_status(
+    cjk: Res<CjkFonts>,
+    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    time: Res<Time>,
+) {
+    if !cjk.is_changed() {
+        return;
+    }
+    if let Some((kind, text)) = status_toast(&cjk.status, cfg!(target_arch = "wasm32")) {
+        toasts.push(kind, text, time.elapsed_secs_f64());
     }
 }
 
@@ -318,6 +725,154 @@ mod tests {
         }
     }
 
+    /// The chat draft is a scanned source (#1262 f359).
+    ///
+    /// The negative half is the one that matters: the OLD scan is
+    /// `chat.messages` alone, so a test that only asserted the messages
+    /// are visited would have passed against the defect. What is asserted
+    /// here is that a draft nobody has sent yet reaches the detector.
+    #[test]
+    fn the_chat_draft_is_one_of_the_scanned_sources() {
+        let mut chat = crate::state::ChatHistory {
+            draft: "\u{3053}\u{3093}\u{3070}\u{3093}\u{306F}".to_owned(),
+            ..Default::default()
+        };
+        chat.messages.push(crate::state::ChatEntry {
+            did: None,
+            author: "alice".to_owned(),
+            text: "hello".to_owned(),
+            at_epoch_secs: 0,
+            delivery: crate::network::ChatDelivery::NotApplicable,
+        });
+
+        let seen: Vec<&str> = chat_sources(&chat).collect();
+        assert!(
+            seen.contains(&chat.draft.as_str()),
+            "the draft must be scanned before it is sent"
+        );
+        assert!(seen.contains(&"hello") && seen.contains(&"alice"));
+        assert!(
+            chat_sources(&chat).any(needs_cjk),
+            "an unsent Japanese draft must be enough to trigger the load"
+        );
+
+        // The control: without the draft this history is pure ASCII, which
+        // is exactly why the old scan never fired on it.
+        chat.draft.clear();
+        assert!(!chat_sources(&chat).any(needs_cjk));
+    }
+
+    /// The gap table names the script it found, and stays quiet about
+    /// everything the app can actually draw (#1262 f360).
+    #[test]
+    fn unsupported_scripts_are_named_and_only_when_real() {
+        assert_eq!(
+            unsupported_script("\u{05E9}\u{05DC}\u{05D5}\u{05DD}"),
+            Some("Hebrew")
+        );
+        assert_eq!(
+            unsupported_script("\u{0645}\u{0631}\u{062D}\u{0628}\u{0627}"),
+            Some("Arabic")
+        );
+        assert_eq!(
+            unsupported_script("\u{0E2A}\u{0E27}\u{0E31}\u{0E2A}\u{0E14}\u{0E35}"),
+            Some("Thai")
+        );
+        assert_eq!(
+            unsupported_script("\u{0928}\u{092E}\u{0938}\u{094D}\u{0924}\u{0947}"),
+            Some("Devanagari")
+        );
+        // A Latin sentence with one Arabic word still reports the gap.
+        assert_eq!(
+            unsupported_script("hi \u{0639}\u{0644}\u{064A}"),
+            Some("Arabic")
+        );
+
+        for covered in [
+            "hello",
+            "\u{041F}\u{0440}\u{0438}\u{0432}\u{0435}\u{0442}",
+            "\u{0393}\u{03B5}\u{03B9}\u{03AC}",
+            "caf\u{00E9}",
+            "@alice.bsky.social",
+        ] {
+            assert_eq!(unsupported_script(covered), None, "{covered} is covered");
+        }
+        // CJK is a gap the app CAN close, so it is not one of these — it
+        // has a fetch, and reporting it would tell the user to give up on
+        // text that is about to render.
+        assert_eq!(unsupported_script("\u{4F60}\u{597D}"), None);
+        assert!(needs_cjk("\u{4F60}\u{597D}"));
+    }
+
+    /// The font lifecycle says something on exactly the transitions a user
+    /// can be hurt by, and stays quiet on the rest (#1262 f361).
+    ///
+    /// `slow_load` is a parameter precisely so both answers are reachable
+    /// from a native test run — the wasm branch is otherwise unreachable
+    /// by every gate this repo has.
+    #[test]
+    fn the_font_lifecycle_speaks_only_when_it_has_something_to_say() {
+        use crate::ui::toast::ToastKind;
+
+        // A 16 MB download over an unknown link: worth announcing.
+        assert_eq!(
+            status_toast(&CjkStatus::Fetching, true).map(|(k, _)| k),
+            Some(ToastKind::Info)
+        );
+        // A local file read that finishes before the next frame is not:
+        // a six-second toast about a load that already completed is a
+        // worse lie than silence.
+        assert_eq!(status_toast(&CjkStatus::Fetching, false), None);
+
+        // Terminal, and the only state the user can do nothing about —
+        // this is the one that used to be a `warn!` nobody reads.
+        assert_eq!(
+            status_toast(&CjkStatus::Failed, false).map(|(k, _)| k),
+            Some(ToastKind::Warn)
+        );
+        assert_eq!(
+            status_toast(&CjkStatus::Failed, true).map(|(k, _)| k),
+            Some(ToastKind::Warn)
+        );
+
+        // Nothing has happened, or it worked: the text appearing IS the
+        // message.
+        assert!(status_toast(&CjkStatus::Dormant, true).is_none());
+        assert!(status_toast(&CjkStatus::Installed, true).is_none());
+    }
+
+    /// The drawn-text channel carries a sighting to the detector and is
+    /// emptied by the read (#1262 f359).
+    ///
+    /// The clear is the half worth testing: a sighting left in egui's
+    /// memory would be re-reported on every later frame, which for the
+    /// script-gap toast means the message returns forever.
+    #[test]
+    fn the_drawn_text_channel_reports_once_and_clears() {
+        let ctx = egui::Context::default();
+
+        assert!(!take_drawn_sighting(&ctx).cjk, "nothing drawn yet");
+
+        note_drawn_text(&ctx, "ordinary latin text");
+        let quiet = take_drawn_sighting(&ctx);
+        assert!(
+            !quiet.cjk && quiet.gap.is_none(),
+            "covered text is not news"
+        );
+
+        note_drawn_text(&ctx, "\u{540D}\u{524D}");
+        note_drawn_text(&ctx, "\u{05E9}\u{05DC}\u{05D5}\u{05DD}");
+        let seen = take_drawn_sighting(&ctx);
+        assert!(seen.cjk, "sightings accumulate across draw sites");
+        assert_eq!(seen.gap, Some("Hebrew"));
+
+        let after = take_drawn_sighting(&ctx);
+        assert!(
+            !after.cjk && after.gap.is_none(),
+            "a drained sighting must not be reported again next frame"
+        );
+    }
+
     /// The font set builder is the whole contract: Noto leads the
     /// proportional family, egui's fonts stay as tail, monospace keeps
     /// its primary, and the CJK face lands at the very end of both
@@ -343,8 +898,17 @@ mod tests {
     }
 }
 
+/// The crate's source scans over its own UI, and the helpers they share.
+///
+/// Four laws live here — glyphs the bundled fonts cannot draw, the hosted
+/// editor's glyph list, numeric widgets built without the locale parser,
+/// and US spellings in copy — because they ask the same question of the
+/// same files and a second copy of the walk or the literal lexer is how
+/// two scans drift apart. `pub(crate)` so a scan that has to live
+/// elsewhere can still borrow the helpers rather than re-deriving them:
+/// `room::widgets`' sRGB-colour-widget scan does exactly that.
 #[cfg(test)]
-mod glyph_coverage_tests {
+pub(crate) mod glyph_coverage_tests {
     use super::*;
 
     /// Files outside `src/ui` whose string literals are rendered verbatim
@@ -472,24 +1036,89 @@ mod glyph_coverage_tests {
     /// be walked instead — it is full of log lines and wire strings nobody
     /// renders — so a module that hands `src/ui` a string to draw verbatim
     /// has to name itself here.
-    #[test]
-    fn every_ui_label_glyph_is_in_the_base_font_set() {
-        let ui_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui");
-        let mut sources: Vec<std::path::PathBuf> = EXTRA_LABEL_SOURCES
-            .iter()
-            .map(|rel| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(rel))
-            .collect();
-        let mut stack = vec![ui_root];
+    /// Every `.rs` file under `rel`, recursively.
+    fn rust_sources_under(rel: &str) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        let mut stack = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(rel)];
         while let Some(dir) = stack.pop() {
-            for entry in std::fs::read_dir(&dir).expect("src/ui is readable") {
+            for entry in std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("{rel} readable: {e}")) {
                 let path = entry.expect("dir entry").path();
                 if path.is_dir() {
                     stack.push(path);
                 } else if path.extension().is_some_and(|e| e == "rs") {
-                    sources.push(path);
+                    out.push(path);
                 }
             }
         }
+        out
+    }
+
+    /// `source` up to its first `#[cfg(test)]`, which is where every file
+    /// in this crate puts its tests.
+    ///
+    /// Needed because a scan that bans a string is itself a file
+    /// containing that string — both scans below found their own needles
+    /// before this existed. Test code draws no widgets and ships no copy,
+    /// so cutting it is not a compromise. An item-level `#[cfg(test)]`
+    /// earlier in a file would truncate the scan early: that costs
+    /// coverage, never a false pass, which is the same trade the literal
+    /// lexer makes.
+    pub(crate) fn non_test_source(source: &str) -> &str {
+        // The attribute at column 0 is the crate's convention for a
+        // top-level test module. The `starts_with` arm is for a source
+        // that is nothing but tests: no file in the tree looks like that,
+        // but a caller's synthetic control does, and a helper that
+        // answers wrongly on the simplest input is a helper nobody can
+        // write a control for.
+        if source.starts_with("#[cfg(test)]") {
+            return "";
+        }
+        match source.find("\n#[cfg(test)]") {
+            Some(at) => &source[..at],
+            None => source,
+        }
+    }
+
+    /// Whether `line` constructs a numeric widget the raw way, ignoring
+    /// anything after a `//`.
+    fn builds_a_raw_numeric_widget(line: &str) -> bool {
+        let code = line.split("//").next().unwrap_or("");
+        code.contains("egui::DragValue::new(") || code.contains("egui::Slider::new(")
+    }
+
+    /// The US spelling this literal drifted into, if it is UI copy at all.
+    ///
+    /// Identifier-shaped literals are not copy: `"color_edit_button_rgb"`
+    /// is an egui method name quoted inside another source scan, and
+    /// nobody reads it on screen.
+    fn us_spelling(literal: &str) -> Option<&'static str> {
+        let identifier_shaped = !literal.is_empty()
+            && literal
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+        if identifier_shaped {
+            return None;
+        }
+        ["color", "Color", "center", "Center"]
+            .into_iter()
+            .find(|wrong| literal.contains(wrong))
+    }
+
+    /// A repo-relative path, for a failure message a reader can act on.
+    fn short(path: &std::path::Path) -> String {
+        path.strip_prefix(env!("CARGO_MANIFEST_DIR"))
+            .unwrap_or(path)
+            .display()
+            .to_string()
+    }
+
+    #[test]
+    fn every_ui_label_glyph_is_in_the_base_font_set() {
+        let mut sources: Vec<std::path::PathBuf> = EXTRA_LABEL_SOURCES
+            .iter()
+            .map(|rel| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(rel))
+            .collect();
+        sources.extend(rust_sources_under("src/ui"));
         assert!(
             sources.len() > EXTRA_LABEL_SOURCES.len(),
             "the walk found no UI sources"
@@ -578,6 +1207,133 @@ mod glyph_coverage_tests {
         // Plain arrows are not emoji, so the emoji faces skip them and Noto
         // Sans has none; the toolbar's key hints were tofu until #1105.
         assert!(!atlas.draws('←'));
+    }
+
+    /// Every script [`UNSUPPORTED_SCRIPTS`] names must really be a gap
+    /// (#1262 f360).
+    ///
+    /// The table drives a message telling the user their script cannot be
+    /// displayed. If a font change ever closes one of those gaps, the
+    /// message becomes a lie about text that is rendering perfectly well —
+    /// so the row is probed against the same charmaps epaint resolves
+    /// through, and a closed gap fails here rather than shipping.
+    #[test]
+    fn the_unsupported_script_table_names_real_gaps() {
+        let atlas = BaseAtlas::new();
+        let drawn: Vec<String> = UNSUPPORTED_SCRIPTS
+            .iter()
+            .filter(|gap| atlas.draws(gap.sample))
+            .map(|gap| format!("{} (U+{:04X})", gap.name, u32::from(gap.sample)))
+            .collect();
+        assert!(
+            drawn.is_empty(),
+            "these scripts are no longer gaps — drop their rows, the toast \
+             would be telling users text they can see cannot be shown:\n  {}",
+            drawn.join("\n  ")
+        );
+    }
+
+    /// Numeric entry goes through the locale-aware constructors, always
+    /// (#1264 f364).
+    ///
+    /// egui offers no `Style`-level parser hook, so a decimal comma has to
+    /// be handled per widget, which means per construction site — and
+    /// there are 78 of them across 16 files. A helper nobody is obliged to
+    /// call fixes this once and loses it again the next time somebody
+    /// reaches for `egui::DragValue::new`, which is exactly how the defect
+    /// got this wide. `ui::num` is the only file allowed to say it.
+    #[test]
+    fn the_only_numeric_widgets_are_the_locale_aware_ones() {
+        let mut sources = rust_sources_under("src/ui");
+        // The gizmo's transform fields are numeric entry too, and they
+        // live outside `src/ui`.
+        sources.extend(rust_sources_under("src/editor_gizmo"));
+
+        assert!(sources.len() > 20, "the walk found no sources to scan");
+
+        // The control. Both scans in this module found their own needles
+        // until test source was excluded, and the fix could just as easily
+        // have blinded them entirely — a scan that cannot see the thing it
+        // bans passes forever and proves nothing.
+        assert!(builds_a_raw_numeric_widget(
+            "  ui.add(egui::DragValue::new(&mut v));"
+        ));
+        assert!(builds_a_raw_numeric_widget(
+            "egui::Slider::new(&mut v, 0.0..=1.0)"
+        ));
+        assert!(!builds_a_raw_numeric_widget(
+            "  ui.add(crate::ui::num::drag(&mut v));"
+        ));
+        assert!(
+            !builds_a_raw_numeric_widget("  // egui::DragValue::new is banned here"),
+            "a mention in a comment is not a call site"
+        );
+
+        let mut raw = Vec::new();
+        for path in sources {
+            if path.ends_with("num.rs") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("source is readable");
+            for (n, line) in non_test_source(&source).lines().enumerate() {
+                if builds_a_raw_numeric_widget(line) {
+                    raw.push(format!("{}:{}", short(&path), n + 1));
+                }
+            }
+        }
+        assert!(
+            raw.is_empty(),
+            "numeric widgets built without the locale parser — use \
+             `crate::ui::num::drag` / `::slider`, which accept a decimal comma:\n  {}",
+            raw.join("\n  ")
+        );
+    }
+
+    /// UI copy uses one spelling of the words this product says most
+    /// (#1264 f225).
+    ///
+    /// "Base color" on a plant, "Start colour" on particles and "Sun
+    /// colour" in Environment; "Center X / Z" on a grid placement and
+    /// "District centre (m)" on a road — inside one editor, on labels an
+    /// owner reads hundreds of times a session. UK spelling won because
+    /// the rest of the copy already leaned that way, and this is what
+    /// keeps the next label from drifting back.
+    ///
+    /// Identifier-shaped literals are skipped: `"color_edit_button_rgb"`
+    /// is an egui method name quoted inside another source scan, not
+    /// something anybody reads on screen.
+    #[test]
+    fn ui_copy_uses_one_spelling_of_colour_and_centre() {
+        let mut sources = rust_sources_under("src/ui");
+        sources.extend(rust_sources_under("src/editor_gizmo"));
+
+        assert!(sources.len() > 20, "the walk found no sources to scan");
+
+        // The control, for the same reason as above.
+        assert_eq!(us_spelling("Base color"), Some("color"));
+        assert_eq!(us_spelling("Center X / Z"), Some("Center"));
+        assert_eq!(us_spelling("Base colour"), None);
+        assert_eq!(us_spelling("Centre X / Z"), None);
+        assert_eq!(
+            us_spelling("color_edit_button_rgb"),
+            None,
+            "an identifier quoted in another scan is not UI copy"
+        );
+
+        let mut drift = Vec::new();
+        for path in sources {
+            let source = std::fs::read_to_string(&path).expect("source is readable");
+            for literal in string_literals(non_test_source(&source)) {
+                if let Some(wrong) = us_spelling(&literal) {
+                    drift.push(format!("{}: {wrong:?} in {literal:?}", short(&path)));
+                }
+            }
+        }
+        assert!(
+            drift.is_empty(),
+            "US spellings in UI copy — this product says \"colour\" and \"centre\":\n  {}",
+            drift.join("\n  ")
+        );
     }
 
     /// Probe for authoring: which candidate icon glyphs the base set can

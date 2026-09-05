@@ -206,7 +206,11 @@ pub fn clock_hhmm(epoch_secs: i64) -> String {
                 .format("%H:%M")
                 .to_string()
         })
-        .unwrap_or_else(|| "--:--".to_owned())
+        // The app's one spelling of "unknown" is the em dash (#1264
+        // f231); `--:--` was this function's private dialect, and it
+        // reads as a time whose digits happen to be missing rather than
+        // as a stamp that could not be resolved.
+        .unwrap_or_else(|| "\u{2014}".to_owned())
 }
 
 /// Rolling chat history shown in the HUD.

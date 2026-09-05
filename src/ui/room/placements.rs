@@ -504,7 +504,14 @@ pub(super) fn draw_placements_tab(
                         ui.horizontal(|ui| {
                             let picked = *selected == Some(i) || list.extra.contains(&i);
                             if ui
-                                .selectable_label(picked, placement_label(i, p))
+                                .selectable_label(picked, {
+                                    let label = placement_label(i, p);
+                                    // Carries an authored generator name
+                                    // (#1262 f359); the room record is not
+                                    // one of the detector's ECS arms.
+                                    crate::ui::fonts::note_drawn_text(ui.ctx(), &label);
+                                    label
+                                })
                                 .on_hover_text(
                                     "Shift-click to extend the selection · Ctrl-click to \
                                      add or remove one row",
@@ -667,7 +674,7 @@ fn draw_placement_detail(
                 ui.horizontal(|ui| {
                     ui.label("Clearance (m)");
                     if ui
-                        .add(egui::DragValue::new(&mut avoid_water_clearance.0).range(0.0..=100.0))
+                        .add(crate::ui::num::drag(&mut avoid_water_clearance.0).range(0.0..=100.0))
                         .on_hover_text(
                             "Dry-land radius the walk must clear — roughly the \
                              structure's footprint radius. 0 checks the centre only.",
@@ -762,19 +769,19 @@ fn draw_placement_detail(
             ui.label("Grid Counts (X, Y, Z)");
             ui.horizontal(|ui| {
                 if ui
-                    .add(egui::DragValue::new(&mut counts[0]).speed(1).range(1..=100))
+                    .add(crate::ui::num::drag(&mut counts[0]).speed(1).range(1..=100))
                     .changed()
                 {
                     *dirty = true;
                 }
                 if ui
-                    .add(egui::DragValue::new(&mut counts[1]).speed(1).range(1..=100))
+                    .add(crate::ui::num::drag(&mut counts[1]).speed(1).range(1..=100))
                     .changed()
                 {
                     *dirty = true;
                 }
                 if ui
-                    .add(egui::DragValue::new(&mut counts[2]).speed(1).range(1..=100))
+                    .add(crate::ui::num::drag(&mut counts[2]).speed(1).range(1..=100))
                     .changed()
                 {
                     *dirty = true;
@@ -785,7 +792,7 @@ fn draw_placement_detail(
             ui.horizontal(|ui| {
                 if ui
                     .add(
-                        egui::DragValue::new(&mut gaps.0[0])
+                        crate::ui::num::drag(&mut gaps.0[0])
                             .speed(0.1)
                             .range(0.01..=100.0),
                     )
@@ -795,7 +802,7 @@ fn draw_placement_detail(
                 }
                 if ui
                     .add(
-                        egui::DragValue::new(&mut gaps.0[1])
+                        crate::ui::num::drag(&mut gaps.0[1])
                             .speed(0.1)
                             .range(0.01..=100.0),
                     )
@@ -805,7 +812,7 @@ fn draw_placement_detail(
                 }
                 if ui
                     .add(
-                        egui::DragValue::new(&mut gaps.0[2])
+                        crate::ui::num::drag(&mut gaps.0[2])
                             .speed(0.1)
                             .range(0.01..=100.0),
                     )
@@ -913,7 +920,7 @@ fn draw_scatter_bounds(ui: &mut egui::Ui, bounds: &mut ScatterBounds, dirty: &mu
                 ui.label("Extents");
                 for v in e.iter_mut() {
                     if ui
-                        .add(egui::DragValue::new(v).speed(1.0).range(0.0..=4096.0))
+                        .add(crate::ui::num::drag(v).speed(1.0).range(0.0..=4096.0))
                         .changed()
                     {
                         *dirty = true;
@@ -924,7 +931,7 @@ fn draw_scatter_bounds(ui: &mut egui::Ui, bounds: &mut ScatterBounds, dirty: &mu
 
             let mut deg = rotation.0.to_degrees();
             if ui
-                .add(egui::Slider::new(&mut deg, -180.0..=180.0).text("Rotation (deg)"))
+                .add(crate::ui::num::slider(&mut deg, -180.0..=180.0).text("Rotation (deg)"))
                 .changed()
             {
                 rotation.0 = deg.to_radians();
@@ -939,10 +946,10 @@ fn draw_scatter_bounds(ui: &mut egui::Ui, bounds: &mut ScatterBounds, dirty: &mu
 /// coarse channel.
 fn scatter_center_row(ui: &mut egui::Ui, center: &mut Fp2, dirty: &mut bool) {
     ui.horizontal(|ui| {
-        ui.label("Center X / Z");
+        ui.label("Centre X / Z");
         for v in center.0.iter_mut() {
             if ui
-                .add(egui::DragValue::new(v).speed(1.0))
+                .add(crate::ui::num::drag(v).speed(1.0))
                 .on_hover_text("Type exact coordinates — or drag the gizmo in the scene")
                 .changed()
             {
@@ -1006,7 +1013,7 @@ fn draw_naturalness(ui: &mut egui::Ui, n: &mut ScatterNaturalness, dirty: &mut b
     let mut slider = |label: &str, value: &mut Fp, hi: f32, hint: &str| {
         let mut v = value.0;
         if ui
-            .add(egui::Slider::new(&mut v, 0.0..=hi).text(label))
+            .add(crate::ui::num::slider(&mut v, 0.0..=hi).text(label))
             .on_hover_text(hint)
             .changed()
         {
@@ -1060,7 +1067,7 @@ fn draw_naturalness(ui: &mut egui::Ui, n: &mut ScatterNaturalness, dirty: &mut b
                 ui.label("    min / max");
                 for v in [lo, hi] {
                     if ui
-                        .add(egui::DragValue::new(v).speed(0.5).range(range.clone()))
+                        .add(crate::ui::num::drag(v).speed(0.5).range(range.clone()))
                         .changed()
                     {
                         *dirty = true;

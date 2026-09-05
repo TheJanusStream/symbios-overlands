@@ -256,9 +256,9 @@ pub(super) fn draw_attachments_tab(
                             if ui
                                 .selectable_label(is_selected, "⌖ Drag in world")
                                 .on_hover_text(
-                                    "aim the in-world gizmo at this prop — the body holds \
-                                     its bind pose while the gizmo is up, because the \
-                                     offset is stored in the joint's rest frame",
+                                    "Aim the in-world gizmo at this prop. The body holds its \
+                                     bind pose while the gizmo is up, because the offset \
+                                     is stored in the joint's rest frame.",
                                 )
                                 .clicked()
                             {
@@ -339,8 +339,8 @@ pub(super) fn draw_attachments_tab(
                                 if ui
                                     .button("Re-seat")
                                     .on_hover_text(
-                                        "zero the offset — the engine seats the prop just \
-                                     outside the body at its socket",
+                                        "Zero its offset — the engine seats it just outside \
+                                     the body again.",
                                     )
                                     .clicked()
                                 {
@@ -350,8 +350,8 @@ pub(super) fn draw_attachments_tab(
                                 if ui
                                     .button("Edit parts")
                                     .on_hover_text(
-                                        "open this item's part tree — the region-asset editor, \
-                                         on your worn copy",
+                                        "Open this item's parts — the same editor the World \
+                                         Editor uses, on your worn copy.",
                                     )
                                     .clicked()
                                 {
@@ -371,9 +371,8 @@ pub(super) fn draw_attachments_tab(
                                 if ui
                                     .add_enabled(inventory.is_some(), egui::Button::new(save_label))
                                     .on_hover_text(
-                                        "write this worn item, with its socket and offset, \
-                                         back to your inventory so wearing it again looks \
-                                         exactly like this",
+                                        "Write it back — geometry, socket and offset — so \
+                                         wearing it again looks exactly like this.",
                                     )
                                     .on_disabled_hover_text("Your inventory has not loaded yet.")
                                     .clicked()
@@ -860,7 +859,7 @@ fn offset_rows(ui: &mut egui::Ui, record: &mut AttachmentRecord, seat: Option<Tr
         for (axis, value) in ["x", "y", "z"].into_iter().zip(translation.iter_mut()) {
             changed |= ui
                 .add(
-                    egui::DragValue::new(value)
+                    crate::ui::num::drag(value)
                         .speed(0.005)
                         .range(-3.0..=3.0)
                         .prefix(format!("{axis} "))
@@ -883,7 +882,7 @@ fn offset_rows(ui: &mut egui::Ui, record: &mut AttachmentRecord, seat: Option<Tr
         for (axis, value) in ["x", "y", "z"].into_iter().zip(working.scale.0.iter_mut()) {
             changed |= ui
                 .add(
-                    egui::DragValue::new(value)
+                    crate::ui::num::drag(value)
                         .speed(0.01)
                         .range(0.05..=10.0)
                         .prefix(format!("{axis} ")),

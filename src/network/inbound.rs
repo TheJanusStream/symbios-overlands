@@ -843,7 +843,11 @@ pub(super) fn handle_incoming_messages(
                     // peer: the local sender throttles via the chat UI, but a
                     // hand-crafted packet could still ship an 800 KiB string
                     // and lock every guest's renderer trying to word-wrap it.
-                    let max = crate::config::ui::chat::MAX_MESSAGE_LEN;
+                    // Bytes, and deliberately so: this is the wire
+                    // backstop against a payload nobody typed (#1264
+                    // f362). The length a PERSON is held to is counted in
+                    // characters, and it is enforced in the composer.
+                    let max = crate::config::ui::chat::MAX_MESSAGE_BYTES;
                     let clipped = if text.len() <= max {
                         text
                     } else {

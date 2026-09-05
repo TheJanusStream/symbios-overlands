@@ -93,15 +93,15 @@ pub(super) fn draw_lsystem_forge(
                 ui.horizontal(|ui| {
                     ui.label("x");
                     changed |= ui
-                        .add(egui::DragValue::new(&mut v[0]).speed(0.05))
+                        .add(crate::ui::num::drag(&mut v[0]).speed(0.05))
                         .changed();
                     ui.label("y");
                     changed |= ui
-                        .add(egui::DragValue::new(&mut v[1]).speed(0.05))
+                        .add(crate::ui::num::drag(&mut v[1]).speed(0.05))
                         .changed();
                     ui.label("z");
                     changed |= ui
-                        .add(egui::DragValue::new(&mut v[2]).speed(0.05))
+                        .add(crate::ui::num::drag(&mut v[2]).speed(0.05))
                         .changed();
                 });
                 if changed {
@@ -156,7 +156,7 @@ pub(super) fn draw_lsystem_forge(
                             to_remove = Some(id);
                         }
                     });
-                    color_picker(ui, "Base color", &mut m.base_color, dirty);
+                    color_picker(ui, "Base colour", &mut m.base_color, dirty);
                     color_picker(ui, "Emission", &mut m.emission_color, dirty);
                     fp_slider(
                         ui,

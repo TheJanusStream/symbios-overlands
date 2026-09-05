@@ -59,7 +59,7 @@ pub(super) fn draw_primitive_cuboid(ui: &mut egui::Ui, size: &mut Fp3, edit: Pri
         let mut changed = false;
         for axis in v.iter_mut() {
             changed |= ui
-                .add(egui::DragValue::new(axis).speed(0.1).range(0.01..=100.0))
+                .add(crate::ui::num::drag(axis).speed(0.1).range(0.01..=100.0))
                 .changed();
         }
         if changed {
@@ -205,7 +205,7 @@ pub(super) fn draw_primitive_plane(
         let mut changed = false;
         for axis in v.iter_mut() {
             changed |= ui
-                .add(egui::DragValue::new(axis).speed(0.1).range(0.01..=100.0))
+                .add(crate::ui::num::drag(axis).speed(0.1).range(0.01..=100.0))
                 .changed();
         }
         if changed {
@@ -281,7 +281,7 @@ pub(super) fn draw_primitive_bevel(
         let mut changed = false;
         for axis in v.iter_mut() {
             changed |= ui
-                .add(egui::DragValue::new(axis).speed(0.1).range(0.01..=100.0))
+                .add(crate::ui::num::drag(axis).speed(0.1).range(0.01..=100.0))
                 .changed();
         }
         if changed {
@@ -346,7 +346,7 @@ pub(super) fn draw_primitive_superellipsoid(
         let mut changed = false;
         for axis in v.iter_mut() {
             changed |= ui
-                .add(egui::DragValue::new(axis).speed(0.1).range(0.01..=100.0))
+                .add(crate::ui::num::drag(axis).speed(0.1).range(0.01..=100.0))
                 .changed();
         }
         if changed {
@@ -391,7 +391,7 @@ pub(super) fn draw_primitive_spine(
             let mut changed = false;
             for axis in v.iter_mut() {
                 changed |= ui
-                    .add(egui::DragValue::new(axis).speed(0.05).range(-100.0..=100.0))
+                    .add(crate::ui::num::drag(axis).speed(0.05).range(-100.0..=100.0))
                     .changed();
             }
             if changed {
@@ -400,7 +400,7 @@ pub(super) fn draw_primitive_spine(
             }
             let mut r = p.radius.0;
             if ui
-                .add(egui::DragValue::new(&mut r).speed(0.01).range(0.01..=100.0))
+                .add(crate::ui::num::drag(&mut r).speed(0.01).range(0.01..=100.0))
                 .changed()
             {
                 p.radius = Fp(r);
@@ -467,7 +467,7 @@ pub(super) fn draw_primitive_lathe(
             ui.label(format!("{i}"));
             let mut r = p.radius.0;
             if ui
-                .add(egui::DragValue::new(&mut r).speed(0.01).range(0.0..=100.0))
+                .add(crate::ui::num::drag(&mut r).speed(0.01).range(0.0..=100.0))
                 .changed()
             {
                 p.radius = Fp(r);
@@ -476,7 +476,7 @@ pub(super) fn draw_primitive_lathe(
             let mut h = p.height.0;
             if ui
                 .add(
-                    egui::DragValue::new(&mut h)
+                    crate::ui::num::drag(&mut h)
                         .speed(0.05)
                         .range(-100.0..=100.0),
                 )
@@ -592,7 +592,7 @@ pub(super) fn draw_primitive_blob_group(
                 let mut b = e.blend.0;
                 ui.label("Blend");
                 if ui
-                    .add(egui::DragValue::new(&mut b).speed(0.01).range(0.0..=10.0))
+                    .add(crate::ui::num::drag(&mut b).speed(0.01).range(0.0..=10.0))
                     .changed()
                 {
                     e.blend = Fp(b);
@@ -621,7 +621,7 @@ pub(super) fn draw_primitive_blob_group(
                 let mut changed = false;
                 for c in v.iter_mut() {
                     changed |= ui
-                        .add(egui::DragValue::new(c).speed(0.05).range(-100.0..=100.0))
+                        .add(crate::ui::num::drag(c).speed(0.05).range(-100.0..=100.0))
                         .changed();
                 }
                 if changed {
@@ -643,7 +643,7 @@ pub(super) fn draw_primitive_blob_group(
                     let r0 = e.radii.0[0];
                     let (mut rx, mut ry, mut rz) = (r0, r0, r0);
                     let size = |ui: &mut egui::Ui, v: &mut f32| {
-                        ui.add(egui::DragValue::new(v).speed(0.02).range(0.01..=100.0))
+                        ui.add(crate::ui::num::drag(v).speed(0.02).range(0.01..=100.0))
                             .changed()
                     };
                     let cx = size(ui, &mut rx);
@@ -675,7 +675,7 @@ pub(super) fn draw_primitive_blob_group(
                     let mut changed = false;
                     for c in r.iter_mut() {
                         changed |= ui
-                            .add(egui::DragValue::new(c).speed(0.02).range(0.01..=100.0))
+                            .add(crate::ui::num::drag(c).speed(0.02).range(0.01..=100.0))
                             .changed();
                     }
                     if changed {

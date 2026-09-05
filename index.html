@@ -183,7 +183,7 @@
         const progressEl = document.getElementById('loading-progress');
         const statusEl = document.getElementById('loading-status');
         const actionsEl = document.getElementById('loading-actions');
-        const mb = bytes => (bytes / (1024 * 1024)).toFixed(1);
+        const mib = bytes => (bytes / (1024 * 1024)).toFixed(1);
 
         // The bundle download is the longest and least reliable step of the
         // browser journey, and a stalled TCP stream does not reject — it
@@ -256,7 +256,7 @@
             }
             // Content-Length is the *encoded* (gzip/brotli) size while the
             // reader yields decoded bytes, so only trust it for a percentage
-            // when the transfer is identity-encoded. Otherwise show plain MB.
+            // when the transfer is identity-encoded. Otherwise show plain MiB.
             const encoding = resp.headers.get('Content-Encoding');
             const lengthHeader = resp.headers.get('Content-Length');
             const total = (!encoding || encoding === 'identity') && lengthHeader
@@ -275,9 +275,9 @@
                     received += value.byteLength;
                     armStallWatch();
                     progressEl.textContent = total
-                        ? mb(received) + ' MB of ' + mb(total) + ' MB ('
+                        ? mib(received) + ' MiB of ' + mib(total) + ' MiB ('
                             + Math.floor(100 * received / total) + '%)'
-                        : mb(received) + ' MB downloaded';
+                        : mib(received) + ' MiB downloaded';
                     controller.enqueue(value);
                 },
                 cancel(reason) { disarmStallWatch(); return reader.cancel(reason); }

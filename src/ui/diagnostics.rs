@@ -844,7 +844,13 @@ fn render_log_export_controls(
             "application/x-ndjson",
             &ndjson,
         ) {
-            Ok(()) => toasts.success(format!("Downloaded {count} events"), now),
+            Ok(()) => toasts.success(
+                format!(
+                    "Downloaded {count} {}",
+                    crate::ui::toolbar::plural(count, "event", "events")
+                ),
+                now,
+            ),
             Err(e) => toasts.error(format!("Download failed ({e})"), now),
         }
     }

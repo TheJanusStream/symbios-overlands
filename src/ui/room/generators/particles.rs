@@ -128,7 +128,7 @@ pub(super) fn draw_generator_particles(
             ui.horizontal(|ui| {
                 for axis in v.iter_mut() {
                     changed |= ui
-                        .add(egui::DragValue::new(axis).speed(0.1).range(-100.0..=100.0))
+                        .add(crate::ui::num::drag(axis).speed(0.1).range(-100.0..=100.0))
                         .changed();
                 }
             });
@@ -482,7 +482,7 @@ fn draw_emitter_shape(ui: &mut egui::Ui, shape: &mut EmitterShape, salt: &str, d
             ui.horizontal(|ui| {
                 for axis in v.iter_mut() {
                     changed |= ui
-                        .add(egui::DragValue::new(axis).speed(0.05).range(0.0..=100.0))
+                        .add(crate::ui::num::drag(axis).speed(0.05).range(0.0..=100.0))
                         .changed();
                 }
             });

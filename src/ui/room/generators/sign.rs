@@ -41,7 +41,7 @@ pub(super) fn draw_generator_sign(
         let mut changed = false;
         for axis in v.iter_mut() {
             changed |= ui
-                .add(egui::DragValue::new(axis).speed(0.1).range(0.01..=100.0))
+                .add(crate::ui::num::drag(axis).speed(0.1).range(0.01..=100.0))
                 .changed();
         }
         if changed {

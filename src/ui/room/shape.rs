@@ -83,7 +83,7 @@ pub(super) fn draw_shape_forge(
                 ui.label("x");
                 changed |= ui
                     .add(
-                        egui::DragValue::new(&mut v[0])
+                        crate::ui::num::drag(&mut v[0])
                             .speed(0.5)
                             .range(0.001..=1000.0),
                     )
@@ -94,7 +94,7 @@ pub(super) fn draw_shape_forge(
                 // [0.0, 1000.0]; keep the widget range matching.
                 changed |= ui
                     .add(
-                        egui::DragValue::new(&mut v[1])
+                        crate::ui::num::drag(&mut v[1])
                             .speed(0.5)
                             .range(0.0..=1000.0),
                     )
@@ -102,7 +102,7 @@ pub(super) fn draw_shape_forge(
                 ui.label("z");
                 changed |= ui
                     .add(
-                        egui::DragValue::new(&mut v[2])
+                        crate::ui::num::drag(&mut v[2])
                             .speed(0.5)
                             .range(0.001..=1000.0),
                     )
@@ -223,7 +223,7 @@ pub(super) fn draw_shape_forge(
                             to_remove = Some(name.clone());
                         }
                     });
-                    color_picker(ui, "Base color", &mut m.base_color, dirty);
+                    color_picker(ui, "Base colour", &mut m.base_color, dirty);
                     color_picker(ui, "Emission", &mut m.emission_color, dirty);
                     fp_slider(
                         ui,

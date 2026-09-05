@@ -318,7 +318,10 @@ fn road_slider(
     dirty: &mut bool,
     undo_label: &mut crate::ui::undo::LabelSlot,
 ) {
-    if ui.add(egui::Slider::new(v, range).text(label)).changed() {
+    if ui
+        .add(crate::ui::num::slider(v, range).text(label))
+        .changed()
+    {
         undo_label.set(format!("road {undo_name}"));
         *dirty = true;
     }
@@ -451,7 +454,11 @@ fn draw_road_editor(
                 stats.streets, stats.junctions, stats.buildings, stats.vertices
             );
             if stats.props > 0 {
-                text.push_str(&format!(" · {} props", stats.props));
+                text.push_str(&format!(
+                    " · {} {}",
+                    stats.props,
+                    crate::ui::toolbar::plural(stats.props, "prop", "props")
+                ));
             }
             // Marked stale rather than reported as settled fact (#1245
             // f385): these are the PREVIOUS layout's numbers for the whole
@@ -628,7 +635,7 @@ fn draw_road_editor(
                 for (axis_label, axis) in ["X", "Z"].iter().zip(config.center.0.iter_mut()) {
                     ui.label(*axis_label);
                     if ui
-                        .add(egui::DragValue::new(axis).speed(1.0).range(-512.0..=512.0))
+                        .add(crate::ui::num::drag(axis).speed(1.0).range(-512.0..=512.0))
                         .changed()
                     {
                         undo_label.set("road district centre".to_string());
@@ -775,7 +782,7 @@ fn draw_road_editor(
                 }
                 if let Some(r) = &mut ap.deck_roughness
                     && ui
-                        .add(egui::Slider::new(&mut r.0, 0.0..=1.0).step_by(0.01))
+                        .add(crate::ui::num::slider(&mut r.0, 0.0..=1.0).step_by(0.01))
                         .changed()
                 {
                     undo_label.set("road deck roughness".to_string());
@@ -791,7 +798,7 @@ fn draw_road_editor(
                 }
                 if let Some(s) = &mut ap.neon_strength
                     && ui
-                        .add(egui::Slider::new(&mut s.0, 0.0..=10.0).step_by(0.1))
+                        .add(crate::ui::num::slider(&mut s.0, 0.0..=10.0).step_by(0.1))
                         .changed()
                 {
                     undo_label.set("road edge strength".to_string());
@@ -831,7 +838,7 @@ fn draw_road_editor(
             ui.add_enabled_ui(config.furniture.enabled, |ui| {
                 if ui
                     .add(
-                        egui::Slider::new(&mut config.furniture.spacing.0, 8.0..=200.0)
+                        crate::ui::num::slider(&mut config.furniture.spacing.0, 8.0..=200.0)
                             .text("Prop spacing (m)"),
                     )
                     .changed()
@@ -861,7 +868,7 @@ fn draw_road_editor(
             }
             let lots = &mut config.lots;
             if ui
-                .add(egui::Slider::new(&mut lots.density.0, 0.0..=1.0).text("Density"))
+                .add(crate::ui::num::slider(&mut lots.density.0, 0.0..=1.0).text("Density"))
                 .on_hover_text("Fraction of lots that grow a building — the largest lots win")
                 .changed()
             {
@@ -950,7 +957,7 @@ fn draw_road_editor(
                 let mut changed = false;
                 changed |= ui
                     .add(
-                        egui::DragValue::new(&mut lots.scale_min.0)
+                        crate::ui::num::drag(&mut lots.scale_min.0)
                             .speed(0.05)
                             .range(0.1..=max.clamp(0.1, 5.0)),
                     )
@@ -958,7 +965,7 @@ fn draw_road_editor(
                 ui.label("to");
                 changed |= ui
                     .add(
-                        egui::DragValue::new(&mut lots.scale_max.0)
+                        crate::ui::num::drag(&mut lots.scale_max.0)
                             .speed(0.05)
                             .range(min.clamp(0.1, 5.0)..=5.0),
                     )
@@ -1043,7 +1050,7 @@ fn draw_portal_editor(
         {
             ui.label(*label);
             if ui
-                .add(egui::DragValue::new(axis).speed(0.1).range(range))
+                .add(crate::ui::num::drag(axis).speed(0.1).range(range))
                 .changed()
             {
                 undo_label.set("portal exit position".to_string());
@@ -1062,7 +1069,7 @@ fn draw_gateway_editor(ui: &mut egui::Ui, size: &mut crate::pds::Fp3, dirty: &mu
         for (label, axis) in ["X", "Y", "Z"].iter().zip(size.0.iter_mut()) {
             ui.label(*label);
             if ui
-                .add(egui::DragValue::new(axis).speed(0.1).range(0.25..=50.0))
+                .add(crate::ui::num::drag(axis).speed(0.1).range(0.25..=50.0))
                 .changed()
             {
                 *dirty = true;

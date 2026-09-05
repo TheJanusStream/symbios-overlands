@@ -86,7 +86,7 @@ pub fn settings_ui(
             ui.horizontal(|ui| {
                 dirty |= ui
                     .add(
-                        egui::Slider::new(
+                        crate::ui::num::slider(
                             &mut s.ui_scale,
                             crate::config::ui::UI_SCALE_MIN..=crate::config::ui::UI_SCALE_MAX,
                         )
@@ -144,7 +144,7 @@ pub fn settings_ui(
                     ui.label("Clearance:");
                     dirty |= ui
                         .add(
-                            egui::Slider::new(&mut s.camera_ground_clearance_m, 0.2..=5.0)
+                            crate::ui::num::slider(&mut s.camera_ground_clearance_m, 0.2..=5.0)
                                 .suffix(" m"),
                         )
                         .on_hover_text("Headroom kept between the camera and the terrain")

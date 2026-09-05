@@ -174,6 +174,15 @@ pub(super) fn draw_tree_panel(
     // every frame as the layout cache rebuilds.
     let all_roots: Vec<String> = source.root_names();
     let root_names: Vec<String> = matching_roots(&all_roots, if multi_root { filter } else { "" });
+    // Authored asset names are in the live room record, which changes on
+    // every frame of a gizmo drag — so the font detector deliberately does
+    // not scan it, and the names reach it from here instead (#1262 f359).
+    // The filtered roots are what is actually on screen, which is the right
+    // bound for a per-frame scan.
+    for name in &root_names {
+        crate::ui::fonts::note_drawn_text(ui.ctx(), name);
+    }
+
     let hidden = all_roots.len() - root_names.len();
     if hidden > 0 {
         ui.label(

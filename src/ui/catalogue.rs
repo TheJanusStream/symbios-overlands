@@ -418,9 +418,12 @@ pub(crate) fn catalogue_ui(
                     egui::Layout::top_down(egui::Align::Min),
                     |ui| {
                         ui.label(
-                            egui::RichText::new(format!("{total} entries"))
-                                .small()
-                                .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                            egui::RichText::new(format!(
+                                "{total} {}",
+                                crate::ui::toolbar::plural(total, "entry", "entries")
+                            ))
+                            .small()
+                            .color(crate::ui::theme::current(ui.ctx()).text_weak),
                         );
                         egui::ScrollArea::vertical()
                             .id_salt("catalogue_tree_scroll")

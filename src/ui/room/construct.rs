@@ -248,7 +248,7 @@ pub(crate) fn draw_universal_material(
     dirty: &mut bool,
     assets: &mut super::assets::AssetPanel<'_>,
 ) {
-    color_picker(ui, "Base color", &mut m.base_color, dirty);
+    color_picker(ui, "Base colour", &mut m.base_color, dirty);
     color_picker(ui, "Emission", &mut m.emission_color, dirty);
     fp_slider(
         ui,
@@ -301,7 +301,7 @@ pub(super) fn draw_torture(
         ui.label("Taper top (X/Z)").on_hover_text("Narrow (or widen) the top on each axis. Equal on both is a cone; unequal is a wedge or fin. 0 leaves it alone.");
         for v in tp.iter_mut() {
             if ui
-                .add(egui::DragValue::new(v).speed(0.02).range(-0.99..=0.99))
+                .add(crate::ui::num::drag(v).speed(0.02).range(-0.99..=0.99))
                 .changed()
             {
                 *dirty = true;
@@ -318,7 +318,7 @@ pub(super) fn draw_torture(
         );
         for v in tb.iter_mut() {
             if ui
-                .add(egui::DragValue::new(v).speed(0.02).range(-0.99..=0.99))
+                .add(crate::ui::num::drag(v).speed(0.02).range(-0.99..=0.99))
                 .changed()
             {
                 *dirty = true;
@@ -335,7 +335,7 @@ pub(super) fn draw_torture(
         );
         for v in bu.iter_mut() {
             if ui
-                .add(egui::DragValue::new(v).speed(0.02).range(-2.0..=2.0))
+                .add(crate::ui::num::drag(v).speed(0.02).range(-2.0..=2.0))
                 .changed()
             {
                 *dirty = true;
@@ -349,7 +349,7 @@ pub(super) fn draw_torture(
         ui.label("Bend (X/Y/Z)").on_hover_text("Lean the top away from the base, in metres of travel. The Y value lengthens or shortens instead.");
         for v in b.iter_mut() {
             if ui
-                .add(egui::DragValue::new(v).speed(0.05).range(-10.0..=10.0))
+                .add(crate::ui::num::drag(v).speed(0.05).range(-10.0..=10.0))
                 .changed()
             {
                 *dirty = true;
@@ -365,7 +365,7 @@ pub(super) fn draw_torture(
         );
         for v in s.iter_mut() {
             if ui
-                .add(egui::DragValue::new(v).speed(0.05).range(-10.0..=10.0))
+                .add(crate::ui::num::drag(v).speed(0.05).range(-10.0..=10.0))
                 .changed()
             {
                 *dirty = true;
@@ -381,7 +381,7 @@ pub(super) fn draw_torture(
         );
         for v in sh.iter_mut() {
             if ui
-                .add(egui::DragValue::new(v).speed(0.05).range(-10.0..=10.0))
+                .add(crate::ui::num::drag(v).speed(0.05).range(-10.0..=10.0))
                 .changed()
             {
                 *dirty = true;
@@ -403,7 +403,7 @@ pub(super) fn draw_torture(
         ui.label("Path-cut (begin/end)").on_hover_text("Keep only part of the way around: 0 to 1 is the whole turn. Begin past end keeps nothing.");
         for v in pc.iter_mut() {
             if ui
-                .add(egui::DragValue::new(v).speed(0.01).range(0.0..=1.0))
+                .add(crate::ui::num::drag(v).speed(0.01).range(0.0..=1.0))
                 .changed()
             {
                 *dirty = true;
@@ -419,7 +419,7 @@ pub(super) fn draw_torture(
         );
         for v in prc.iter_mut() {
             if ui
-                .add(egui::DragValue::new(v).speed(0.01).range(0.0..=1.0))
+                .add(crate::ui::num::drag(v).speed(0.01).range(0.0..=1.0))
                 .changed()
             {
                 *dirty = true;

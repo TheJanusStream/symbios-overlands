@@ -51,7 +51,7 @@ pub(crate) fn euler_rotation_row(
         for (angle, name) in ypr.iter_mut().zip(["Yaw", "Pitch", "Roll"]) {
             changed |= ui
                 .add(
-                    egui::DragValue::new(angle)
+                    crate::ui::num::drag(angle)
                         .speed(1.0)
                         .range(-180.0..=180.0)
                         .suffix("°"),
@@ -71,7 +71,7 @@ pub(super) fn draw_transform(ui: &mut egui::Ui, t: &mut TransformData, dirty: &m
     let mut tr = t.translation.0;
     ui.horizontal(|ui| {
         for v in tr.iter_mut() {
-            if ui.add(egui::DragValue::new(v).speed(0.5)).changed() {
+            if ui.add(crate::ui::num::drag(v).speed(0.5)).changed() {
                 *dirty = true;
             }
         }
@@ -83,7 +83,7 @@ pub(super) fn draw_transform(ui: &mut egui::Ui, t: &mut TransformData, dirty: &m
     ui.horizontal(|ui| {
         for v in sc.iter_mut() {
             if ui
-                .add(egui::DragValue::new(v).speed(0.05).range(0.01..=1000.0))
+                .add(crate::ui::num::drag(v).speed(0.05).range(0.01..=1000.0))
                 .changed()
             {
                 *dirty = true;
@@ -101,19 +101,19 @@ pub(super) fn draw_transform_no_scale(ui: &mut egui::Ui, t: &mut TransformData, 
     let mut tr = t.translation.0;
     ui.horizontal(|ui| {
         if ui
-            .add(egui::DragValue::new(&mut tr[0]).speed(0.5))
+            .add(crate::ui::num::drag(&mut tr[0]).speed(0.5))
             .changed()
         {
             *dirty = true;
         }
         if ui
-            .add(egui::DragValue::new(&mut tr[1]).speed(0.5))
+            .add(crate::ui::num::drag(&mut tr[1]).speed(0.5))
             .changed()
         {
             *dirty = true;
         }
         if ui
-            .add(egui::DragValue::new(&mut tr[2]).speed(0.5))
+            .add(crate::ui::num::drag(&mut tr[2]).speed(0.5))
             .changed()
         {
             *dirty = true;
@@ -184,7 +184,7 @@ pub(super) fn fp_slider(
     dirty: &mut bool,
 ) -> egui::Response {
     let mut v = value.0;
-    let response = ui.add(egui::Slider::new(&mut v, lo..=hi).text(label));
+    let response = ui.add(crate::ui::num::slider(&mut v, lo..=hi).text(label));
     if response.changed() {
         *value = Fp(v);
         *dirty = true;
@@ -226,7 +226,7 @@ pub(super) fn fp_slider_log(
         ui.label(label);
         let mut v = value.0;
         let response = ui.add(
-            egui::Slider::new(&mut v, lo..=hi)
+            crate::ui::num::slider(&mut v, lo..=hi)
                 .logarithmic(true)
                 .smallest_positive(0.01),
         );
@@ -270,7 +270,7 @@ pub(super) fn drag_u32(
 ) -> egui::Response {
     ui.horizontal(|ui| {
         ui.label(label);
-        let response = ui.add(egui::DragValue::new(value).range(lo..=hi));
+        let response = ui.add(crate::ui::num::drag(value).range(lo..=hi));
         if response.changed() {
             *dirty = true;
         }
@@ -282,7 +282,7 @@ pub(super) fn drag_u32(
 pub(super) fn drag_u64(ui: &mut egui::Ui, label: &str, value: &mut u64, dirty: &mut bool) {
     ui.horizontal(|ui| {
         ui.label(label);
-        if ui.add(egui::DragValue::new(value)).changed() {
+        if ui.add(crate::ui::num::drag(value)).changed() {
             *dirty = true;
         }
     });
@@ -790,6 +790,12 @@ pub(super) fn text_draft_row(
         state.synced_to = current.to_string();
     }
 
+    // A draft lives in egui's temp memory and never reaches a resource, so
+    // the font detector's ECS arms cannot see it — which is exactly the
+    // case #1262 f359 is about: text you are typing rendering as boxes
+    // until you commit it.
+    crate::ui::fonts::note_drawn_text(ui.ctx(), &state.text);
+
     let refused = refusal(&state.text);
     let mut field = egui::TextEdit::singleline(&mut state.text).desired_width(width);
     if refused.is_some() {
@@ -853,6 +859,20 @@ mod colour_space_tests {
     /// `detail.rs`'s road-appearance row was.
     #[test]
     fn no_editor_surface_calls_the_linear_colour_widget_directly() {
+        use crate::ui::fonts::glyph_coverage_tests::non_test_source;
+
+        // The control. This scan now cuts test source (see below), and a
+        // cut that went one line too far would leave it walking real
+        // files and finding nothing, forever.
+        assert!(
+            non_test_source("fn f() { ui.color_edit_button_rgb(&mut c); }\n#[cfg(test)]\nmod t {}")
+                .contains("color_edit_button_rgb")
+        );
+        assert!(
+            !non_test_source("#[cfg(test)]\nmod t { ui.color_edit_button_rgb(&mut c); }")
+                .contains("color_edit_button_rgb")
+        );
+
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui");
         let mut offenders = Vec::new();
         let mut walk = vec![root];
@@ -871,6 +891,13 @@ mod colour_space_tests {
                     continue;
                 }
                 let src = std::fs::read_to_string(&path).expect("readable");
+                // Test source is not an editor surface. This scan matches
+                // raw text, so any test or scan that merely NAMES the
+                // banned method is an offender by its own rule — which is
+                // what happened the first time another scan quoted it as
+                // a control (#1264). Shared with the `ui::fonts` scans
+                // rather than copied, so the two cannot drift.
+                let src = crate::ui::fonts::glyph_coverage_tests::non_test_source(&src);
                 if src.contains("color_edit_button_rgb") {
                     offenders.push(path.display().to_string());
                 }

@@ -51,14 +51,14 @@ pub(super) fn draw_water_editor(ui: &mut egui::Ui, surface: &mut WaterSurface, d
                 let mut changed = false;
                 changed |= ui
                     .add(
-                        egui::DragValue::new(&mut v[0])
+                        crate::ui::num::drag(&mut v[0])
                             .speed(0.05)
                             .range(-1.0..=1.0),
                     )
                     .changed();
                 changed |= ui
                     .add(
-                        egui::DragValue::new(&mut v[1])
+                        crate::ui::num::drag(&mut v[1])
                             .speed(0.05)
                             .range(-1.0..=1.0),
                     )

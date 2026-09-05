@@ -120,7 +120,7 @@ pub(super) fn draw_terrain_forge(
             }
         });
 
-    egui::CollapsingHeader::new("Hydraulic Erosion")
+    egui::CollapsingHeader::new("Hydraulic erosion")
         .default_open(false)
         .show(ui, |ui| {
             if ui.checkbox(&mut cfg.erosion_enabled, "Enabled").changed() {
@@ -173,7 +173,7 @@ pub(super) fn draw_terrain_forge(
             });
         });
 
-    egui::CollapsingHeader::new("Thermal Erosion")
+    egui::CollapsingHeader::new("Thermal erosion")
         .default_open(false)
         .show(ui, |ui| {
             if ui.checkbox(&mut cfg.thermal_enabled, "Enabled").changed() {

@@ -288,7 +288,7 @@ fn snap_increment_row(
         ui.label(label);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add(
-                egui::DragValue::new(value)
+                crate::ui::num::drag(value)
                     .speed(speed)
                     .range(range)
                     .suffix(suffix),

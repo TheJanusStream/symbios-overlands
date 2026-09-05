@@ -1427,12 +1427,35 @@ pub(crate) mod login {
 // ---------------------------------------------------------------------------
 pub(crate) mod ui {
     pub mod chat {
-        /// Maximum allowed length (in bytes) of a single chat message before
-        /// it is truncated.  Caps peer-side rendering cost: without this an
-        /// attacker could paste an 800 KiB string of junk that egui would try
-        /// to word-wrap on every frame, creating an instant DoS for every
-        /// guest in the room.  Well below the 1 MiB multiuser packet limit.
-        pub const MAX_MESSAGE_LEN: usize = 512;
+        /// How long a chat message may be, in CHARACTERS — the limit the
+        /// user is held to, and the one the counter and the field's own
+        /// `char_limit` are derived from.
+        ///
+        /// **Counted in characters because a byte cap is a script tax
+        /// (#1264 f362).** The cap used to be 512 bytes, applied to a
+        /// UTF-8 string: 512 Latin characters, about 256 of Greek,
+        /// Cyrillic, Hebrew or Arabic, about 170 CJK and about 128 emoji.
+        /// A Japanese writer got a third of the message length everyone
+        /// else got, with no counter, no `char_limit` and no warning —
+        /// they learned about it by watching their own sentence get
+        /// amputated in their own HUD, on both sides silently.
+        pub const MAX_MESSAGE_CHARS: usize = 512;
+
+        /// Hard ceiling on a chat payload's SIZE IN BYTES, enforced on
+        /// receipt against whatever a peer actually sent.
+        ///
+        /// This is the DoS backstop and it belongs on the wire, not on
+        /// the typist: without it a hand-crafted packet could ship an 800
+        /// KiB string of junk (well under the 1 MiB multiuser packet
+        /// limit) that every guest's egui would re-wrap on every frame.
+        ///
+        /// Four bytes per permitted character, which is the most UTF-8
+        /// can spend on one, so a message the sender was allowed to write
+        /// can never be clipped by this on arrival —
+        /// `the_wire_ceiling_cannot_truncate_a_permitted_message` holds
+        /// that. The peer-side cost this bounds went up 4x with it and is
+        /// still far below what the rolling history cap allows.
+        pub const MAX_MESSAGE_BYTES: usize = 4 * MAX_MESSAGE_CHARS;
         /// Maximum chat entries retained in the rolling HUD log. A noisy (or
         /// malicious) peer could otherwise spam the channel until egui's
         /// scroll area holds megabytes of strings, re-wrapping every frame.

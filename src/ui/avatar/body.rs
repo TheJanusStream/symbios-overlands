@@ -301,7 +301,7 @@ pub(super) fn draw_body_tab(
 
             // --- Wardrobe ---------------------------------------------------
             ui.separator();
-            egui::CollapsingHeader::new("wardrobe").show(ui, |ui| {
+            egui::CollapsingHeader::new("Wardrobe").show(ui, |ui| {
                 let Some(did) = did else {
                     ui.small("Log in to browse your wardrobe.");
                     return;
@@ -332,7 +332,7 @@ pub(super) fn draw_body_tab(
                     if ui
                         .button("Save as copy")
                         .on_hover_text(
-                            "keep editing under a new wardrobe entry, named after this one",
+                            "Keep editing under a new wardrobe entry, named after this one.",
                         )
                         .clicked()
                     {
