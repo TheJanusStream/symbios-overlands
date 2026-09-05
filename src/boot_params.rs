@@ -741,7 +741,7 @@ mod landmark_link_tests {
     #[test]
     fn a_stashed_landmark_comes_back_intact() {
         let original = parse_query(
-            "did=did%3Aplc%3Afriend&pos=10.25,-4.50&rot=-33.5             &pds=https%3A%2F%2Fpds.example&relay=relay.example",
+            "did=did%3Aplc%3Afriend&pos=10.25,-4.50&rot=-33.5&pds=https%3A%2F%2Fpds.example&relay=relay.example",
         )
         .params;
         let restored = parse_query(&encode_our_params(&original)).params;
@@ -857,6 +857,9 @@ mod tests {
         assert!(parse_yaw_deg("nan").is_none());
         assert!(parse_yaw_deg("inf").is_none());
         assert!(parse_yaw_deg("foo").is_none());
+        // Trimmed, because a hand-pasted landmark link can carry whitespace
+        // around the value and the yaw is worth keeping when it does.
+        assert_eq!(parse_yaw_deg("  -33.5  "), Some(-33.5));
     }
 
     #[test]

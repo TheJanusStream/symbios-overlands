@@ -928,11 +928,11 @@ pub(super) fn dress_peer_placeholders(
         .get_or_insert_with(|| {
             (
                 meshes.add(Capsule3d::new(
-                    config::network::PEER_PLACEHOLDER_RADIUS,
-                    config::network::PEER_PLACEHOLDER_LENGTH,
+                    config::network::BODY_PLACEHOLDER_RADIUS,
+                    config::network::BODY_PLACEHOLDER_LENGTH,
                 )),
                 materials.add(StandardMaterial {
-                    base_color: config::network::PEER_PLACEHOLDER_COLOR,
+                    base_color: config::network::BODY_PLACEHOLDER_COLOR,
                     alpha_mode: AlphaMode::Blend,
                     perceptual_roughness: 1.0,
                     ..default()

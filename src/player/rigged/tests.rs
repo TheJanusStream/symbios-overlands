@@ -2576,3 +2576,414 @@ fn selecting_a_part_holds_the_pose_as_it_stands() {
         "the whole-prop hold is the bind pose"
     );
 }
+
+// --- #1255: a failed build, and a body that is not standing ---------------
+
+/// A [`RiggedBuild`] whose task has already decided it will produce nothing.
+///
+/// The engine's one documented failure — limbs overlapping at a joint —
+/// arrives as `GenResult::Avatar(None)`, so a resolved future carrying that
+/// is the whole of the doomed case; nothing here needs a real mesher.
+fn doomed_build(target: crate::pds::avatar::wardrobe::EngineAvatarRecord) -> RiggedBuild {
+    RiggedBuild {
+        target,
+        atlas: symbios_avatar::AvatarConfig::default().atlas,
+        offset: 0.0,
+        kicked_at: 0.0,
+        announced: false,
+        task: bevy::tasks::AsyncComputeTaskPool::get()
+            .spawn(async { crate::offload::GenResult::Avatar(None) }),
+    }
+}
+
+/// Run `land_rigged_builds` until it has actually polled the task.
+///
+/// A fixed number of passes races the executor: `poll_once` returns `None`
+/// while the task is still being scheduled, which passes locally and fails
+/// on the run that happens to be slower. Bounded so a genuine hang fails the
+/// test rather than hanging the suite.
+fn land_until_settled(app: &mut App, chassis: Entity) {
+    for _ in 0..2_000 {
+        app.world_mut()
+            .run_system_once(land_rigged_builds)
+            .expect("runs");
+        if app.world().get::<RiggedBuild>(chassis).is_none() {
+            return;
+        }
+        std::thread::yield_now();
+    }
+    panic!("the build never landed");
+}
+
+fn toast_lines(app: &App) -> Vec<String> {
+    app.world()
+        .resource::<crate::ui::toast::Toasts>()
+        .shown()
+        .iter()
+        .map(|(_, text)| (*text).to_owned())
+        .collect()
+}
+
+/// THE SEQUENCE (#1255 f96): the owner drags a shape slider past what the
+/// mesher can build, and the build comes back empty.
+///
+/// Before this the failure was silent in every direction a user can look:
+/// `land_rigged_builds` took the `None` arm with a `warn!` on a console they
+/// cannot see, a Diagnostics counter and a session-log line. What they saw
+/// was their own body missing from their own camera. The toast is the
+/// moment; the marker is the standing state the Body tab's banner draws.
+#[test]
+fn a_failed_build_tells_the_owner_and_leaves_the_editor_something_to_say() {
+    bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default);
+    let mut app = test_app();
+    app.init_resource::<crate::ui::toast::Toasts>();
+    let body = engine_default_for_did("did:plc:doomed");
+    let chassis = app
+        .world_mut()
+        .spawn((
+            LocalPlayer,
+            Transform::default(),
+            GlobalTransform::default(),
+            doomed_build(body.clone()),
+        ))
+        .id();
+
+    land_until_settled(&mut app, chassis);
+
+    assert!(
+        app.world().get::<RiggedBuildFailed>(chassis).is_some(),
+        "the standing state the banner reads must exist"
+    );
+    assert!(
+        app.world().get::<RiggedApplied>(chassis).is_some(),
+        "the record that failed is still stamped — that is what scopes the claim"
+    );
+    assert_eq!(
+        toast_lines(&app),
+        vec![build::BUILD_FAILED_LINE.to_owned()],
+        "the owner is told, once"
+    );
+
+    // A second doomed build for the same record — the shape of a re-kick, or
+    // of an edit that lands on an equally impossible body — must not stack a
+    // second copy of the same sentence on the toast rail.
+    app.world_mut()
+        .entity_mut(chassis)
+        .insert(doomed_build(body));
+    land_until_settled(&mut app, chassis);
+    assert_eq!(
+        toast_lines(&app).len(),
+        1,
+        "a run of failures says it once; the banner carries the rest"
+    );
+}
+
+/// A PEER whose body cannot be built is not the owner's problem: the metrics
+/// and the session log still record it, but nothing is toasted at somebody
+/// who cannot edit that record. A busy room would otherwise toast per
+/// arrival for bodies the viewer has no way to fix.
+#[test]
+fn a_peers_failed_build_is_recorded_but_not_toasted() {
+    bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default);
+    let mut app = test_app();
+    app.init_resource::<crate::ui::toast::Toasts>();
+    let chassis = app
+        .world_mut()
+        .spawn((
+            Transform::default(),
+            GlobalTransform::default(),
+            doomed_build(engine_default_for_did("did:plc:someone-else")),
+        ))
+        .id();
+
+    land_until_settled(&mut app, chassis);
+
+    assert!(
+        app.world().get::<RiggedBuildFailed>(chassis).is_some(),
+        "the fact is recorded for every chassis"
+    );
+    assert!(
+        toast_lines(&app).is_empty(),
+        "but only the owner's own body is worth interrupting them for"
+    );
+}
+
+/// THE SEQUENCE (#1255 f96, the half the review's refuter found): a doomed
+/// record with NOTHING standing used to re-dispatch its build every frame.
+///
+/// The stamp's own comment claimed otherwise — "re-kicking the same doomed
+/// record every frame would burn a core" — but the latch it relied on also
+/// required a root, and a failed build installs none. So the one case the
+/// comment names was the one case it did not cover, and a body the mesher
+/// cannot build burned a core proving it for the rest of the session.
+#[test]
+fn a_doomed_record_is_not_rebuilt_every_frame() {
+    bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default);
+    let mut app = test_app();
+    let body = engine_default_for_did("did:plc:doomed");
+    app.insert_resource(LiveAvatarRecord(rigged_record(ResolvedRig {
+        body: body.clone(),
+        attachments: Vec::new(),
+    })));
+    // What a failed build leaves behind: the record it was for, the marker,
+    // and — the whole point — no root.
+    let chassis = app
+        .world_mut()
+        .spawn((
+            LocalPlayer,
+            Transform::default(),
+            GlobalTransform::default(),
+            RiggedApplied {
+                record: body,
+                atlas: symbios_avatar::AvatarConfig::default().atlas,
+            },
+            RiggedBuildFailed,
+        ))
+        .id();
+
+    for pass in 0..3 {
+        app.world_mut()
+            .run_system_once(kick_rigged_builds)
+            .expect("runs");
+        assert!(
+            app.world().get::<RiggedBuild>(chassis).is_none(),
+            "pass {pass}: a record known to be unbuildable was dispatched again"
+        );
+    }
+    assert!(
+        app.world().get::<RiggedSteady>(chassis).is_some(),
+        "and it latches, so the per-frame deep compare stops too"
+    );
+
+    // The escape route the toast and the banner both name: change the
+    // record, and the chassis tries again immediately.
+    app.insert_resource(LiveAvatarRecord(rigged_record(ResolvedRig {
+        body: engine_default_for_did("did:plc:buildable"),
+        attachments: Vec::new(),
+    })));
+    app.world_mut()
+        .run_system_once(kick_rigged_builds)
+        .expect("runs");
+    assert!(
+        app.world().get::<RiggedBuild>(chassis).is_some(),
+        "moving a slider back must re-kick — otherwise the failure is a dead end"
+    );
+}
+
+/// THE SEQUENCE (#1255 f274): the loading screen finishes and the owner
+/// walks into their world before their body exists.
+///
+/// The rigged build is not one of the loading gate's six tasks and cannot
+/// easily become one — `spawn_local_player` is `OnEnter(InGame)`, so during
+/// `Loading` there is no chassis and no `RiggedBuild` for a gate row to
+/// watch. `spawn_avatar_visuals` returns early for a rigged body and nothing
+/// drew a placeholder, so the answer to "where am I?" was nothing at all.
+///
+/// `run_system_cached` rather than `run_system_once`: the system caches its
+/// mesh and material in a `Local`, and a fresh `Local` per call would leak
+/// an asset pair per frame — which is the thing the cache exists to stop.
+#[test]
+fn a_body_that_is_not_standing_yet_wears_a_stand_in() {
+    let mut app = test_app();
+    app.insert_resource(LiveAvatarRecord(rigged_record(ResolvedRig {
+        body: engine_default_for_did("did:plc:arriving"),
+        attachments: Vec::new(),
+    })));
+    let chassis = app
+        .world_mut()
+        .spawn((
+            LocalPlayer,
+            Transform::default(),
+            GlobalTransform::default(),
+        ))
+        .id();
+
+    let sync = |app: &mut App| {
+        app.world_mut()
+            .run_system_cached(sync_local_placeholder)
+            .expect("runs");
+    };
+
+    sync(&mut app);
+    assert!(
+        app.world().get::<Mesh3d>(chassis).is_some(),
+        "a rigged body still building must not leave the owner invisible"
+    );
+    let first = app.world().get::<Mesh3d>(chassis).map(|m| m.0.clone());
+
+    // The body lands. The stand-in comes straight off.
+    let root = app
+        .world_mut()
+        .spawn((RiggedRoot, Transform::default(), ChildOf(chassis)))
+        .id();
+    sync(&mut app);
+    assert!(
+        app.world().get::<Mesh3d>(chassis).is_none(),
+        "a real body must not be worn under a placeholder"
+    );
+
+    // …and it comes back if the body goes away again — the failed-build
+    // case, where `RiggedBuild` is removed with no root installed. A latched
+    // "retired" state (which is what the peer stand-in uses, correctly, for
+    // a peer that arrives once) would leave that case a void again.
+    app.world_mut().entity_mut(root).despawn();
+    sync(&mut app);
+    assert!(app.world().get::<Mesh3d>(chassis).is_some());
+    assert_eq!(
+        app.world().get::<Mesh3d>(chassis).map(|m| m.0.clone()),
+        first,
+        "one mesh for the session — a body rebuilt per slider drag must not \
+         leak an asset per attempt"
+    );
+
+    // A generator body dresses itself synchronously, and a record naming no
+    // body at all is a bare chassis by contract (#1217). Neither is an
+    // absence to paper over.
+    app.insert_resource(LiveAvatarRecord(AvatarRecord::default_for_seed(7)));
+    sync(&mut app);
+    assert!(
+        app.world().get::<Mesh3d>(chassis).is_none(),
+        "only a rigged body's wait is a void worth filling"
+    );
+}
+
+/// A build that runs long enough to notice says so, once, and an ordinary
+/// one stays silent (#1255 f274).
+///
+/// The threshold is what separates "the app is working" from "the worker is
+/// never coming back": on wasm the first `AvatarBuild` pulls 839 KB of
+/// engine through the gen-worker, and a `gen-worker.js` that 404s looked
+/// exactly like a slow one until the offload watchdog noticed at 60 seconds
+/// — in the diagnostics log, where nobody was looking.
+#[test]
+fn a_slow_build_announces_itself_once_and_a_fast_one_never_does() {
+    bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default);
+    let mut app = test_app();
+    app.init_resource::<crate::ui::toast::Toasts>();
+    let chassis = app
+        .world_mut()
+        .spawn((
+            LocalPlayer,
+            Transform::default(),
+            GlobalTransform::default(),
+            doomed_build(engine_default_for_did("did:plc:slow")),
+        ))
+        .id();
+
+    // `Time` in a `MinimalPlugins` app has not advanced, so this build is
+    // zero seconds old: the ordinary case, and it must say nothing.
+    app.world_mut()
+        .run_system_once(announce_slow_builds)
+        .expect("runs");
+    assert!(
+        toast_lines(&app).is_empty(),
+        "a build that lands promptly must not narrate itself"
+    );
+
+    // Back-date the kick past the threshold — the wasm cold-start shape.
+    app.world_mut()
+        .get_mut::<RiggedBuild>(chassis)
+        .expect("the build")
+        .kicked_at = -(SLOW_BUILD_ANNOUNCE_SECS + 1.0);
+    for _ in 0..3 {
+        app.world_mut()
+            .run_system_once(announce_slow_builds)
+            .expect("runs");
+    }
+    assert_eq!(
+        toast_lines(&app),
+        vec![placeholder::SLOW_BUILD_LINE.to_owned()],
+        "said once per build, not once per frame"
+    );
+}
+
+/// THE SEQUENCE (#1257 f110): type a name for your body in the Body tab,
+/// and the avatar visibly re-pops at low texture quality every few
+/// characters.
+///
+/// The engine's `identity` section returns TWO flags — `(changed, noted)` —
+/// where `noted` means "the record changed and the body did not", and its
+/// doc warns that a host ignoring the distinction "would pay a draft build
+/// per letter". The host ORed them together, and this comparison is where
+/// that landed: a whole-record equality, so a name, a seed number or a lock
+/// toggle re-armed `RiggedSettle` and dispatched a fresh draft-atlas build.
+///
+/// Fixed at the comparison rather than by routing the flags, because the
+/// record still has to reach `live.set_changed()` — `capture_avatar_history`
+/// takes the undo snapshot off that tick, and so does the peer preview
+/// broadcast. Only the rebuild's question was wrong, so only it is narrowed.
+#[test]
+fn a_name_a_seed_or_a_lock_does_not_rebuild_the_body() {
+    bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default);
+    let body = engine_default_for_did("did:plc:inert-edits");
+
+    let mut app = test_app();
+    app.insert_resource(LiveAvatarRecord(rigged_record(ResolvedRig {
+        body: body.clone(),
+        attachments: Vec::new(),
+    })));
+    let chassis = app
+        .world_mut()
+        .spawn((
+            LocalPlayer,
+            Transform::default(),
+            GlobalTransform::default(),
+            RiggedApplied {
+                record: body.clone(),
+                atlas: symbios_avatar::AvatarConfig::default().atlas,
+            },
+        ))
+        .id();
+    app.world_mut()
+        .spawn((RiggedRoot, Transform::default(), ChildOf(chassis)));
+    app.world_mut()
+        .run_system_once(kick_rigged_builds)
+        .expect("latching pass");
+    assert!(app.world().get::<RiggedBuild>(chassis).is_none());
+
+    // Every edit the engine reports as `noted` rather than `changed`.
+    for (what, edit) in [
+        (
+            "a wardrobe name",
+            Box::new(|r: &mut crate::pds::avatar::EngineAvatarRecord| {
+                r.name = String::from("Wanderer");
+            }) as Box<dyn Fn(&mut crate::pds::avatar::EngineAvatarRecord)>,
+        ),
+        (
+            "a seed number",
+            Box::new(|r: &mut crate::pds::avatar::EngineAvatarRecord| r.seed = 4471),
+        ),
+        (
+            "a re-roll lock",
+            Box::new(|r: &mut crate::pds::avatar::EngineAvatarRecord| r.locks.bits = 0b1010),
+        ),
+    ] {
+        let mut edited = body.clone();
+        edit(&mut edited);
+        app.insert_resource(LiveAvatarRecord(rigged_record(ResolvedRig {
+            body: edited,
+            attachments: Vec::new(),
+        })));
+        app.world_mut()
+            .run_system_once(kick_rigged_builds)
+            .expect("runs");
+        assert!(
+            app.world().get::<RiggedBuild>(chassis).is_none(),
+            "{what} rebuilt the whole skinned body"
+        );
+    }
+
+    // …and something that really does change the mesh still rebuilds, or
+    // the narrowing would have broken the editor instead of the burn.
+    app.insert_resource(LiveAvatarRecord(rigged_record(ResolvedRig {
+        body: engine_default_for_did("did:plc:a-different-person"),
+        attachments: Vec::new(),
+    })));
+    app.world_mut()
+        .run_system_once(kick_rigged_builds)
+        .expect("runs");
+    assert!(
+        app.world().get::<RiggedBuild>(chassis).is_some(),
+        "a real shape change must still rebuild"
+    );
+}

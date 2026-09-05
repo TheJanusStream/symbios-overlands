@@ -45,6 +45,36 @@ pub(super) struct BodyTabOutcome {
     pub toast: Option<String>,
 }
 
+/// The standing "your body could not be built" banner (#1255).
+///
+/// Same frame idiom as the record-recovery banner one level up in
+/// `avatar::mod` — a `danger_surface` fill with its paired text colour, so
+/// the severity survives the high-contrast palette and does not depend on
+/// hue alone. The engine returns a bare `None` with no reason value, so the
+/// copy names the one documented cause rather than inventing a diagnosis it
+/// cannot have.
+fn build_failed_banner(ui: &mut egui::Ui) {
+    let theme = crate::ui::theme::current(ui.ctx());
+    egui::Frame::new()
+        .fill(theme.danger_surface)
+        .inner_margin(6.0)
+        .corner_radius(4.0)
+        .show(ui, |ui| {
+            ui.colored_label(
+                theme.danger_surface_text,
+                "⚠ This body can't be built at these proportions.",
+            );
+            ui.label(
+                egui::RichText::new(
+                    "Limbs overlapping at a joint is the usual cause. Press Ctrl+Z, or move \
+                     the shape sliders back — the body rebuilds as soon as the numbers work.",
+                )
+                .small(),
+            );
+        });
+    ui.add_space(4.0);
+}
+
 /// The name a branched wardrobe entry gets (#1201): the parent's name with
 /// " copy", numbered past the first, and never one the wardrobe already
 /// lists — a wardrobe of identically-named rows is unusable, and an empty
@@ -145,13 +175,23 @@ impl WardrobeListing {
 /// Draw the tab. `did` is the session identity; without one (not logged in)
 /// wearing and the wardrobe are disabled with a hint, since both need a
 /// repo to point into.
+///
+/// `build_failed` is the standing state of the owner's own body: the last
+/// build the engine ran for this record produced nothing (#1255). It is
+/// drawn here, above the sliders, because the sliders are what caused it and
+/// are the only way out — the toast that fires at the moment of failure has
+/// expired long before an owner works out which axis to move.
 pub(super) fn draw_body_tab(
     ui: &mut egui::Ui,
     record: &mut AvatarRecord,
     listing: &mut WardrobeListing,
     did: Option<&str>,
+    build_failed: bool,
 ) -> BodyTabOutcome {
     let mut outcome = BodyTabOutcome::default();
+    if build_failed {
+        build_failed_banner(ui);
+    }
 
     let Some(rig) = record.body.rigged_ref() else {
         ui.label(
@@ -228,6 +268,19 @@ pub(super) fn draw_body_tab(
             };
             let engine = &mut resolved.body;
 
+            // #1256 f107: the engine's `identity` section carries its own
+            // `seed` DragValue with ◀/▶ arrows and its own `locked`
+            // category row — stature/build/frame/… — while the window
+            // hosting it has a "Whole-avatar seed" block eight rows above
+            // with Chassis/Style/Ornateness/Wear locks. Same word, same
+            // window, two scopes, and one of them replaces the entire
+            // record. The host cannot rename an upstream widget, but it can
+            // say which seed this is before drawing it.
+            ui.label(egui::RichText::new("Body seed — sculpting only").strong());
+            ui.small(
+                "Rolls this body's proportions and colouring. The whole-avatar seed above \
+                 replaces the entire avatar, including which kind of body it is.",
+            );
             let (rebuilt, noted) = sections::identity(ui, engine);
             let mut changed = rebuilt;
             ui.separator();

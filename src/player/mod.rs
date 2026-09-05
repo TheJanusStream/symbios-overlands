@@ -92,6 +92,7 @@ pub use preset::{
     AirplanePreset, CarPreset, HelicopterPreset, HoverBoatPreset, HumanoidPreset, VehicleChassis,
 };
 pub use respawn::{PlayerMove, PlayerMoveRequest, go_to_pose, return_to_spawn_blocked};
+pub use rigged::RiggedBuildFailed;
 pub(crate) use rigged::RiggedRoot;
 
 use avian3d::prelude::*;
@@ -215,6 +216,13 @@ impl Plugin for PlayerPlugin {
                 (
                     rigged::kick_rigged_builds,
                     rigged::land_rigged_builds,
+                    // #1255, after the land so a body installed this frame
+                    // retires the stand-in in the same frame's commands:
+                    // the rigged build is the one wait that escapes the
+                    // loading screen, and until it lands the owner used to
+                    // be nothing at all.
+                    rigged::announce_slow_builds,
+                    rigged::sync_local_placeholder,
                     attachments::sync_rigged_attachments,
                 )
                     .chain()

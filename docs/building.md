@@ -266,6 +266,28 @@ sentences are true, so a bump that changes a version literal or an upstream
 file path leaves the `//!` headers and this file describing the old world.
 Nothing in the gate can catch that.
 
+**Refresh the hosted-editor glyph list on a `bevy_symbios_avatar` bump.**
+The Body tab draws sculpting sections it does not own, from
+`bevy_symbios_avatar::editor`. The tofu guard
+(`every_ui_label_glyph_is_in_the_base_font_set`) walks `src/ui` plus a list of
+paths under this crate, so it structurally cannot see that editor's string
+literals — and a glyph the bundled faces cannot draw ships as an empty box
+that looks like a styled button until someone renders it (#861, #1105, #1257).
+`HOSTED_EDITOR_GLYPHS` in [`src/ui/fonts.rs`](../src/ui/fonts.rs) is the
+hand-kept floor that IS checked. After a bump, re-scan the dependency's
+`src/editor.rs` for non-ASCII characters in string literals and add any that
+are new:
+
+```bash
+grep -oP '"(?:[^"\\]|\\.)*"' \
+    ~/.cargo/registry/src/*/bevy_symbios_avatar-*/src/editor.rs \
+    | grep -P '[^\x00-\x7F]'
+```
+
+Mind the multi-line literals: a `\`-continued string spans lines, so a
+line-oriented scan misses its tail — which is exactly how the `⚠` at
+`editor.rs:606` was nearly left out.
+
 The other three `#[ignore]`d tests are probes rather than canaries — they
 assert nothing and print measurements — so nothing is owed for them.
 

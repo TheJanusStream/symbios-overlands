@@ -23,10 +23,127 @@
 
 use bevy_egui::egui;
 
+use bevy::ecs::system::SystemParam;
+use bevy::prelude::{ChildOf, Query, Transform, With};
+
 use crate::pds::avatar::wardrobe::AttachmentRecord;
 use crate::pds::avatar::{MAX_AVATAR_ATTACHMENTS, ResolvedAttachment};
 use crate::pds::{AvatarRecord, InventoryRecord};
 use crate::state::LiveInventoryRecord;
+
+/// What the body standing in the world knows about the props this tab draws
+/// (#1256).
+///
+/// The editor used to answer both of these questions from the record alone,
+/// and got both wrong: an offset of 0/0/0 is a SENTINEL meaning "seat me",
+/// not a placement, and `Socket::ALL` includes a socket a given rig may not
+/// have. Both answers live on the built body, so the built body is what is
+/// asked.
+/// The live-body queries the Avatar window needs, as one derived
+/// [`SystemParam`].
+///
+/// A struct rather than four more entries in `avatar_ui`'s grouped tuple:
+/// that tuple was one short of `SystemParam`'s 16-element ceiling, and a
+/// derived param has no such limit (the ceiling is on the SYSTEM). It also
+/// puts the queries beside the view they exist to build.
+///
+/// `pub` because it appears in `avatar_ui`'s signature and that is itself
+/// `pub`, as every `*_ui` system in this crate is; its methods stay
+/// crate-internal, so nothing about the view leaks with it.
+#[derive(SystemParam)]
+pub struct LocalBody<'w, 's> {
+    /// #1255: the owner's own body could not be built. The Body tab draws
+    /// the banner; the fact belongs to `player::rigged`.
+    failed: Query<
+        'w,
+        's,
+        (),
+        (
+            With<crate::state::LocalPlayer>,
+            With<crate::player::RiggedBuildFailed>,
+        ),
+    >,
+    /// Where each of the owner's props really sits.
+    props: Query<
+        'w,
+        's,
+        (
+            &'static crate::player::attachments::LocalAttachment,
+            &'static Transform,
+        ),
+    >,
+    /// The rig, which rides the `RiggedRoot` rather than the chassis — so
+    /// the owner's is the one whose parent is the local player, the same hop
+    /// `editor_gizmo::sync` makes.
+    bodies: Query<
+        'w,
+        's,
+        (&'static bevy_symbios_avatar::AvatarBody, &'static ChildOf),
+        With<crate::player::RiggedRoot>,
+    >,
+    chassis: Query<'w, 's, (), With<crate::state::LocalPlayer>>,
+}
+
+impl LocalBody<'_, '_> {
+    /// Did the last build of the owner's own body come back empty (#1255)?
+    pub(super) fn build_failed(&self) -> bool {
+        !self.failed.is_empty()
+    }
+
+    /// One borrowed view of the body for the frame (#1256).
+    pub(super) fn worn(&self) -> WornBody<'_> {
+        WornBody {
+            avatar: self
+                .bodies
+                .iter()
+                .find(|(_, child_of)| self.chassis.contains(child_of.parent()))
+                .map(|(body, _)| &body.avatar),
+            seats: self
+                .props
+                .iter()
+                .map(|(worn, transform)| (worn.rkey.as_str(), *transform))
+                .collect(),
+        }
+    }
+}
+
+#[derive(Default)]
+pub(super) struct WornBody<'a> {
+    /// The rig the owner's body was actually built with, when one is
+    /// standing. `None` while it builds, or for a generator body — in which
+    /// case nothing is claimed and every control behaves as before.
+    pub(super) avatar: Option<&'a symbios_avatar::Avatar>,
+    /// Record key → where the prop is *actually* sitting: the transform
+    /// `player::attachments::placements` resolved and spawned it at. For an
+    /// authored offset that is the offset; for the identity sentinel it is
+    /// the engine seat, fit scale included.
+    pub(super) seats: Vec<(&'a str, Transform)>,
+}
+
+impl WornBody<'_> {
+    /// Where the prop with this record key is sitting, if it is in the world.
+    fn seat(&self, rkey: &str) -> Option<Transform> {
+        self.seats
+            .iter()
+            .find(|(key, _)| *key == rkey)
+            .map(|(_, transform)| *transform)
+    }
+
+    /// Does the body standing here carry this socket's joint?
+    ///
+    /// `Tail` is the one socket the engine documents as conditional. Asking
+    /// the rig is the same question `player::attachments::placements` asks
+    /// before it drops the prop on the floor — so the picker and the dresser
+    /// can no longer disagree about what this body can wear.
+    fn has_socket(&self, socket: symbios_avatar::Socket) -> bool {
+        match self.avatar {
+            Some(avatar) => socket.joint(&avatar.rig).is_some(),
+            // No body standing: claim nothing rather than disabling every
+            // socket on a body that has not finished building.
+            None => true,
+        }
+    }
+}
 
 /// What the Attachments tab did this frame.
 #[derive(Default)]
@@ -65,6 +182,9 @@ pub(super) fn draw_attachments_tab(
     focus_selected: bool,
     toasts: &mut crate::ui::toast::Toasts,
     now: f64,
+    // The body actually standing in the world (#1256): what a prop's numbers
+    // really are, and which sockets this rig has.
+    body: &WornBody<'_>,
 ) -> AttachmentsTabOutcome {
     let mut outcome = AttachmentsTabOutcome::default();
     let mut inventory = inventory;
@@ -152,9 +272,27 @@ pub(super) fn draw_attachments_tab(
                                 ui.label("socket");
                                 for socket in symbios_avatar::Socket::ALL {
                                     let picked = attachment.record.socket == socket.name();
-                                    if ui.selectable_label(picked, socket.name()).clicked()
-                                        && !picked
-                                    {
+                                    // #1256 f103: `Socket::ALL` includes
+                                    // `Tail`, which only some rigs carry.
+                                    // Picking it used to drop the prop with a
+                                    // bare `continue` in `placements` — not
+                                    // even an `info!` — while this row went
+                                    // on drawing its offsets as if the thing
+                                    // were worn. A socket this body does not
+                                    // have is now a control that says so
+                                    // instead of a control that lies.
+                                    let has = body.has_socket(socket);
+                                    let response = ui
+                                        .add_enabled(
+                                            has || picked,
+                                            egui::Button::selectable(picked, socket.name()),
+                                        )
+                                        .on_disabled_hover_text(format!(
+                                            "This body has no {} — a prop seated there would \
+                                             not be worn at all.",
+                                            socket.name()
+                                        ));
+                                    if response.clicked() && !picked {
                                         attachment.record.socket = socket.name().to_string();
                                         outcome.changed = true;
                                         outcome.label =
@@ -162,7 +300,30 @@ pub(super) fn draw_attachments_tab(
                                     }
                                 }
                             });
-                            outcome.changed |= offset_rows(ui, &mut attachment.record);
+                            // A prop already seated somewhere this body
+                            // cannot carry (a record authored on a quadruped,
+                            // worn on a biped) keeps its row — the record is
+                            // honoured by the body that has the part — but
+                            // must not pretend to be on screen.
+                            if attachment
+                                .record
+                                .socket()
+                                .is_some_and(|socket| !body.has_socket(socket))
+                            {
+                                ui.colored_label(
+                                    crate::ui::theme::current(ui.ctx()).status.warn,
+                                    format!(
+                                        "Not worn — this body has no {}. The prop stays in \
+                                         your outfit for a body that does.",
+                                        attachment.record.socket
+                                    ),
+                                );
+                            }
+                            outcome.changed |= offset_rows(
+                                ui,
+                                &mut attachment.record,
+                                body.seat(&attachment.rkey),
+                            );
                             // Fit is item metadata (#1089), shown so the
                             // schema has a face in the editor — never edited
                             // here: the declaration belongs to the catalogue
@@ -323,6 +484,16 @@ pub(super) fn draw_attachments_tab(
             }
             let mut names: Vec<&String> = inventory.0.wear.keys().collect();
             names.sort_by_key(|name| name.to_lowercase());
+            // #1256 f114: the pick survives across frames and used to outlive
+            // the item it names. Rename or delete that item from the
+            // Inventory window and the combo went on displaying a dead name
+            // over an ENABLED Wear button whose whole action chain
+            // (`record_for_inventory_item` returning `None`) fell through
+            // with no branch and no message. Dropping the stale pick here
+            // makes the combo fall back to its placeholder and the button
+            // disable honestly — the smallest version of an enabled control
+            // that does nothing.
+            retain_live_pick(&mut state.pick_item, &names);
             if names.is_empty() {
                 ui.small(
                     "Nothing wearable in your inventory — copy a wearable from the Catalogue \
@@ -350,11 +521,22 @@ pub(super) fn draw_attachments_tab(
                 let ready = state.pick_item.is_some();
                 if ui.add_enabled(ready, egui::Button::new("Wear")).clicked()
                     && let Some(name) = state.pick_item.clone()
-                    && let Some(record) = record_for_inventory_item(&inventory.0, &name)
                 {
-                    attach_record(rig, record, did);
-                    outcome.changed = true;
-                    outcome.label = Some(format!("wear {name}"));
+                    // Belt and braces to the stale-pick sweep above: an item
+                    // can be listed under `wear` and still have lost its
+                    // generator or its wear metadata, and that miss used to
+                    // be the end of the story.
+                    match record_for_inventory_item(&inventory.0, &name) {
+                        Some(record) => {
+                            attach_record(rig, record, did);
+                            outcome.changed = true;
+                            outcome.label = Some(format!("wear {name}"));
+                        }
+                        None => toasts.warn(
+                            format!("\"{name}\" can no longer be worn — its item is missing."),
+                            now,
+                        ),
+                    }
                 }
             });
             ui.small(
@@ -612,14 +794,67 @@ fn detach_at(rig: &mut crate::pds::avatar::RiggedBody, index: usize) {
     rig.attachments.retain(|rkey| rkey != &gone.rkey);
 }
 
+/// Drop a wear pick that no longer names anything in the stash (#1256 f114).
+///
+/// `pick_item` persists across frames and used to outlive the item it names:
+/// rename or delete that item from the Inventory window and the combo went
+/// on displaying a dead name over an ENABLED Wear button whose whole action
+/// chain fell through with no branch and no message.
+fn retain_live_pick(pick: &mut Option<String>, names: &[&String]) {
+    if pick.as_ref().is_some_and(|picked| !names.contains(&picked)) {
+        *pick = None;
+    }
+}
+
+/// What the offset rows should show, and whether it came from the seat.
+///
+/// Split out of [`offset_rows`] because it is the whole of #1256 f99 and
+/// egui is not needed to state it. Editing a COPY matters: writing the seat
+/// into the record just to display it would flip the sentinel branch in
+/// `player::attachments::placements` with nobody having touched anything,
+/// pinning a fitted prop's scale the first time its row was drawn.
+fn rows_source(
+    offset: &crate::pds::TransformData,
+    seat: Option<Transform>,
+) -> (crate::pds::TransformData, bool) {
+    match (offset.is_identity(), seat) {
+        // The sentinel, and we know where the engine put it: show that.
+        (true, Some(seat)) => (crate::pds::TransformData::from(seat), true),
+        // Either already authored, or nothing standing to measure. The
+        // record is the best answer available.
+        _ => (offset.clone(), false),
+    }
+}
+
 /// The full transform rows for one worn prop (#1095): translation, yaw /
 /// pitch / roll, per-axis scale — a region placement's editor, tuned for
 /// body scale (centimetre drag steps, a few metres of range). Values land
 /// on the wire's grid when the record sanitises on flush; the ranges are
 /// the generous "keep it near the body" kind, not authorship limits.
-fn offset_rows(ui: &mut egui::Ui, record: &mut AttachmentRecord) -> bool {
+///
+/// `seat` is where the prop is ACTUALLY sitting, and it is what these rows
+/// edit (#1256 f99). The stored offset is not a placement: an identity
+/// transform is a **sentinel** meaning "seat me", and
+/// `player::attachments::placements` reads it as one — taking the engine
+/// seat, or for a `fit_band_mm` prop the measured, fit-scaled head seat,
+/// and only otherwise honouring the numbers verbatim. Rendering the raw
+/// record therefore printed 0/0/0 and 1/1/1 for a hat that was sitting on
+/// a head somewhere else entirely, and the first 5 mm nudge flipped the
+/// branch: the seat translation, its outward yaw and the measured fit scale
+/// all vanished in one frame, from one drag.
+///
+/// So the rows are seeded from the seat and written back whole on the first
+/// edit. At rest the numbers are true; the first nudge is a nudge. The
+/// gizmo already commits the then-current transform on arm, so this makes
+/// the numeric twin behave the way the module doc above always claimed the
+/// two did.
+fn offset_rows(ui: &mut egui::Ui, record: &mut AttachmentRecord, seat: Option<Transform>) -> bool {
     let mut changed = false;
-    let translation = &mut record.offset.translation.0;
+    let (mut working, seeded) = rows_source(&record.offset, seat);
+    if seeded {
+        ui.small("Seated by the engine — editing any of these takes manual control.");
+    }
+    let translation = &mut working.translation.0;
     ui.horizontal(|ui| {
         ui.label("offset");
         for (axis, value) in ["x", "y", "z"].into_iter().zip(translation.iter_mut()) {
@@ -640,15 +875,12 @@ fn offset_rows(ui: &mut egui::Ui, record: &mut AttachmentRecord) -> bool {
     crate::ui::room::widgets::euler_rotation_row(
         ui,
         "rotation",
-        &mut record.offset.rotation,
+        &mut working.rotation,
         &mut changed,
     );
     ui.horizontal(|ui| {
         ui.label("scale");
-        for (axis, value) in ["x", "y", "z"]
-            .into_iter()
-            .zip(record.offset.scale.0.iter_mut())
-        {
+        for (axis, value) in ["x", "y", "z"].into_iter().zip(working.scale.0.iter_mut()) {
             changed |= ui
                 .add(
                     egui::DragValue::new(value)
@@ -659,6 +891,11 @@ fn offset_rows(ui: &mut egui::Ui, record: &mut AttachmentRecord) -> bool {
                 .changed();
         }
     });
+    if changed {
+        // The whole transform lands together, seat included, so the prop
+        // moves by exactly the drag the owner just made.
+        record.offset = working;
+    }
     changed
 }
 
@@ -987,5 +1224,133 @@ mod tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod misleading_controls_tests {
+    use super::*;
+    use crate::pds::TransformData;
+    use crate::pds::types::{Fp3, Fp4};
+    use bevy::prelude::{Quat, Vec3};
+
+    /// THE SEQUENCE (#1256 f99): wear a hat, open its row, see 0/0/0 and
+    /// 1/1/1, nudge x by 5 mm — and the hat jumps inside your head at the
+    /// wrong size.
+    ///
+    /// The stored offset is not a placement. An identity transform is a
+    /// SENTINEL meaning "seat me", and `player::attachments::placements`
+    /// reads it as one: the engine seat, or for a `fit_band_mm` prop the
+    /// measured, fit-scaled head seat. Rendering the raw record therefore
+    /// printed numbers describing nothing, and the first drag flipped the
+    /// branch — seat translation, outward yaw and measured fit scale all
+    /// gone in one frame.
+    #[test]
+    fn the_offset_rows_show_where_the_prop_actually_is() {
+        let seat = Transform {
+            translation: Vec3::new(0.0, 0.11, 0.04),
+            rotation: Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
+            // What a fitted band's measured head scale looks like.
+            scale: Vec3::splat(1.07),
+        };
+
+        // The sentinel, with a body standing: the rows speak for the seat.
+        let (shown, seeded) = rows_source(&TransformData::default(), Some(seat));
+        assert!(seeded, "an identity offset with a known seat is seeded");
+        assert_eq!(shown.translation.0, seat.translation.to_array());
+        assert_eq!(shown.scale.0, seat.scale.to_array());
+        assert!(
+            shown != TransformData::default(),
+            "the rows must not print the sentinel as if it were a placement"
+        );
+
+        // Nothing standing to measure — mid-build, or a generator body.
+        // Claim nothing; the record is the best answer available.
+        let (shown, seeded) = rows_source(&TransformData::default(), None);
+        assert!(!seeded);
+        assert_eq!(shown, TransformData::default());
+
+        // An already-authored offset is never re-seeded: it IS the
+        // placement, and overwriting it would move the prop.
+        let authored = TransformData {
+            translation: Fp3([0.2, 0.0, 0.0]),
+            rotation: Fp4([0.0, 0.0, 0.0, 1.0]),
+            scale: Fp3([1.0; 3]),
+        };
+        let (shown, seeded) = rows_source(&authored, Some(seat));
+        assert!(!seeded);
+        assert_eq!(shown, authored);
+    }
+
+    /// THE SEQUENCE (#1256 f103): pick "tail" on a humanoid, and the prop
+    /// vanishes while its row stays fully interactive.
+    ///
+    /// The picker offered every `Socket::ALL` unconditionally while the
+    /// dresser dropped the ones this rig has no joint for — with a bare
+    /// `continue` and, unlike the unknown-socket branch four lines above it,
+    /// not even an `info!`. This pins the two to the same question: a socket
+    /// the picker disables is exactly a socket the dresser would refuse.
+    #[test]
+    fn the_socket_picker_offers_exactly_what_this_body_can_wear() {
+        let avatar = symbios_avatar::Avatar::build_with(
+            &crate::pds::avatar::wardrobe::engine_default_for_did("did:plc:socket-test"),
+            &symbios_avatar::AvatarConfig {
+                atlas: 64,
+                ..Default::default()
+            },
+        )
+        .expect("the default body builds");
+        let body = WornBody {
+            avatar: Some(&avatar),
+            seats: Vec::new(),
+        };
+
+        for socket in symbios_avatar::Socket::ALL {
+            assert_eq!(
+                body.has_socket(socket),
+                socket.joint(&avatar.rig).is_some(),
+                "the picker and the dresser disagree about {}",
+                socket.name()
+            );
+        }
+
+        // While no body is standing the editor claims nothing, rather than
+        // disabling every socket on a body that has not finished building.
+        let unknown = WornBody::default();
+        for socket in symbios_avatar::Socket::ALL {
+            assert!(unknown.has_socket(socket));
+        }
+    }
+
+    /// THE SEQUENCE (#1256 f114): pick "lantern", rename or delete it from
+    /// the Inventory window, come back and click Wear — the button is
+    /// enabled, the combo still says "lantern", and nothing happens.
+    #[test]
+    fn a_wear_pick_does_not_outlive_the_item_it_names() {
+        let lantern = String::from("lantern");
+        let hat = String::from("hat");
+        let names = vec![&lantern, &hat];
+
+        let mut pick = Some(String::from("lantern"));
+        retain_live_pick(&mut pick, &names);
+        assert_eq!(pick.as_deref(), Some("lantern"), "a live pick is kept");
+
+        // Renamed out from under the combo.
+        let mut pick = Some(String::from("lantern"));
+        retain_live_pick(&mut pick, &[&hat]);
+        assert!(
+            pick.is_none(),
+            "a dead name must fall back to the placeholder so Wear disables honestly"
+        );
+
+        // The stash emptied entirely.
+        let mut pick = Some(String::from("hat"));
+        retain_live_pick(&mut pick, &[]);
+        assert!(pick.is_none());
+
+        // No pick, nothing to do.
+        let mut pick: Option<String> = None;
+        retain_live_pick(&mut pick, &names);
+        assert!(pick.is_none());
     }
 }

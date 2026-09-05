@@ -7,9 +7,51 @@ use crate::interaction::locomotion::locomotion_total_height;
 use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 
 use super::{
-    DRAFT_ATLAS, RiggedApplied, RiggedBuild, RiggedMotion, RiggedRoot, RiggedSettle, RiggedSteady,
-    SETTLE_SECS,
+    DRAFT_ATLAS, RiggedApplied, RiggedBuild, RiggedBuildFailed, RiggedMotion, RiggedRoot,
+    RiggedSettle, RiggedSteady, SETTLE_SECS,
 };
+
+/// What the owner is told when their own body cannot be built (#1255).
+///
+/// Names the one documented cause in the user's own vocabulary and points
+/// at both escape routes, because the failure leaves nothing on screen to
+/// click: with no body ever installed there is no geometry to select, and
+/// with one standing the edit is a silent no-op on stale geometry.
+pub(in crate::player) const BUILD_FAILED_LINE: &str =
+    "This body can't be built at these proportions — press Ctrl+Z, or move the shape sliders back.";
+
+/// The part of an engine record the BUILT BODY depends on (#1257 f110).
+///
+/// Three of `EngineAvatarRecord`'s fields cannot change a mesh or a texel:
+/// the wardrobe display `name`, the `seed` of the last re-roll, and the
+/// `locks` a re-roll must respect. The engine's own editor already knows
+/// this and says so — its sections return `(changed, noted)`, where `noted`
+/// means "the record changed and the body did not", and its doc warns that a
+/// host ignoring the distinction "would pay a draft build per letter". The
+/// host collapsed the two flags, and this comparison is where that landed:
+/// `built.record == resolved.body` over the WHOLE record, so typing a name
+/// re-armed `RiggedSettle` and dispatched a fresh draft-atlas build every
+/// quarter-second of typing — visibly re-popping the body through the low
+/// atlas, and on wasm paying a worker round trip per keystroke burst.
+///
+/// Fixed HERE rather than by routing the flags, because the record still has
+/// to reach `live.set_changed()`: the undo ring captures on that tick
+/// (`capture_avatar_history`), and so does the peer preview broadcast. Only
+/// the REBUILD was wrong, so only the rebuild's question is narrowed.
+///
+/// Built by clearing the three inert fields on a clone rather than by
+/// listing the ones that matter: a field added upstream then stays in the
+/// comparison by default, so a dependency bump can cost a redundant rebuild
+/// but can never silently skip a needed one.
+fn build_identity(
+    record: &crate::pds::avatar::EngineAvatarRecord,
+) -> crate::pds::avatar::EngineAvatarRecord {
+    let mut identity = record.clone();
+    identity.name = String::new();
+    identity.seed = 0;
+    identity.locks = Default::default();
+    identity
+}
 
 /// Start a build for every chassis whose resolved rigged record is not the
 /// one standing under it, and tear down rigged state on a chassis whose
@@ -27,6 +69,9 @@ pub(in crate::player) fn kick_rigged_builds(
     steady: Query<(), With<RiggedSteady>>,
     settle: Query<&RiggedSettle>,
     roots: Query<(Entity, &ChildOf), With<RiggedRoot>>,
+    // #1255: the last build for this chassis produced no body. Only
+    // meaningful alongside `RiggedApplied.record` — see the component.
+    failed: Query<(), With<RiggedBuildFailed>>,
 ) {
     let now = time.elapsed_secs();
     // One pass over the roots instead of one per body (#1135). The inner scan
@@ -64,12 +109,29 @@ pub(in crate::player) fn kick_rigged_builds(
         //     with nothing but the clock, and the ladder has to keep being
         //     re-evaluated. At the full atlas there is no rung above.
         //   * a root is actually standing, and no build is in flight.
+        //
+        // A FAILED build is reconciled too (#1255). The stamp below always
+        // claimed this — "re-kicking the same doomed record every frame
+        // would burn a core" — but only delivered it for a chassis that
+        // already had a body standing, because both this gate and the latch
+        // further down also require a root. A build that fails installs no
+        // root, so the one case the comment names, a doomed record with
+        // nothing standing, re-dispatched the same build every frame for
+        // the rest of the session.
+        //
+        // `RiggedBuildFailed` is deliberately NOT cleared here. It is only
+        // ever read beside `RiggedApplied.record`, so a record that really
+        // changed invalidates it through the value compare below — while a
+        // `source_changed` that turns out to touch nothing (the resource is
+        // shared by every local surface) leaves the chassis reconciled
+        // instead of re-dispatching the doomed build one more time.
         if source_changed {
             commands.entity(chassis).remove::<RiggedSteady>();
         } else if steady.contains(chassis)
-            && chassis_with_root.contains(&chassis)
             && !building.contains(chassis)
-            && applied.get(chassis).is_ok_and(|b| b.atlas >= full_atlas)
+            && (failed.contains(chassis)
+                || (chassis_with_root.contains(&chassis)
+                    && applied.get(chassis).is_ok_and(|b| b.atlas >= full_atlas)))
         {
             return;
         }
@@ -88,7 +150,12 @@ pub(in crate::player) fn kick_rigged_builds(
             Some(resolved) => {
                 let has_root = chassis_with_root.contains(&chassis);
                 let built = applied.get(chassis).ok();
-                let same_record = built.is_some_and(|built| built.record == resolved.body);
+                // Compared on the build identity, not the whole record
+                // (#1257 f110): a name, a seed number or a lock toggle
+                // changes the record and not the body.
+                let same_record = built.is_some_and(|built| {
+                    build_identity(&built.record) == build_identity(&resolved.body)
+                });
                 // The draft/settle ladder (#1059): while a record is moving —
                 // an editor slider mid-drag, a stream of peer previews — a
                 // build is only worth the draft atlas, because the next edit
@@ -105,7 +172,13 @@ pub(in crate::player) fn kick_rigged_builds(
                     .is_none_or(|s| now - s.changed_at >= SETTLE_SECS);
                 let atlas = if settled { full_atlas } else { DRAFT_ATLAS };
                 let atlas_owed = built.is_some_and(|built| built.atlas < atlas);
-                if same_record && has_root && !atlas_owed {
+                // A record whose last build FAILED is reconciled: there is
+                // nothing left to try (#1255). The atlas ladder is skipped
+                // for it deliberately — a draft failure is not a texture
+                // problem, so re-running it at the full atlas only spends a
+                // second build to fail identically.
+                let doomed = same_record && failed.contains(chassis);
+                if doomed || (same_record && has_root && !atlas_owed) {
                     // Reconciled: latch it so the compare above is skipped
                     // until something clears the latch.
                     commands.entity(chassis).insert(RiggedSteady);
@@ -131,6 +204,7 @@ pub(in crate::player) fn kick_rigged_builds(
                     atlas,
                     offset,
                     kicked_at: now as f64,
+                    announced: false,
                     task,
                 });
             }
@@ -176,15 +250,26 @@ pub(in crate::player) fn land_rigged_builds(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
-    mut builds: Query<(Entity, &mut RiggedBuild)>,
+    // `Has<LocalPlayer>` because only the owner's own body is worth a toast
+    // (#1255): a peer's failed build is their editor's problem, and the
+    // metrics and session-log lines below already cover both. `Has<..Failed>`
+    // is the rising edge — a run of consecutive doomed builds says it once
+    // and lets the editor's banner carry the standing state.
+    mut builds: Query<(
+        Entity,
+        &mut RiggedBuild,
+        Has<LocalPlayer>,
+        Has<RiggedBuildFailed>,
+    )>,
     roots: Query<(Entity, &ChildOf), With<RiggedRoot>>,
-    // Both optional, because headless embedders (the render tool, minimal
-    // test worlds) run this without the diagnostics plugin.
+    // All optional, because headless embedders (the render tool, minimal
+    // test worlds) run this without the diagnostics or UI plugins.
     mut metrics: Option<ResMut<crate::diagnostics::MetricsRegistry>>,
     mut session_log: Option<ResMut<crate::diagnostics::SessionLog>>,
+    mut toasts: Option<ResMut<crate::ui::toast::Toasts>>,
 ) {
     use bevy::tasks::{block_on, futures_lite::future};
-    for (chassis, mut build) in &mut builds {
+    for (chassis, mut build, is_local, was_failing) in &mut builds {
         let Some(result) = block_on(future::poll_once(&mut build.task)) else {
             continue;
         };
@@ -228,8 +313,23 @@ pub(in crate::player) fn land_rigged_builds(
         }
         let Some(avatar) = result else {
             warn!("a rigged avatar record described a body that could not be built");
+            // #1255. Before this the failure was silent to the user: a warn
+            // on a console they cannot see, a Diagnostics counter, and a
+            // session-log line. What they actually saw was their own body
+            // missing from their own camera (no rigged root was ever
+            // installed and nothing draws a placeholder), or — with a body
+            // already standing — an edit that did nothing at all.
+            commands.entity(chassis).insert(RiggedBuildFailed);
+            if is_local
+                && !was_failing
+                && let Some(toasts) = toasts.as_deref_mut()
+            {
+                toasts.warn(BUILD_FAILED_LINE, time.elapsed_secs_f64());
+            }
             continue;
         };
+        // Landed a body, so whatever the last attempt did is history.
+        commands.entity(chassis).remove::<RiggedBuildFailed>();
         let stale: Vec<Entity> = roots
             .iter()
             .filter(|(_, child_of)| child_of.parent() == chassis)

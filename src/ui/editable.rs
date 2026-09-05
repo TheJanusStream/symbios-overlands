@@ -929,12 +929,19 @@ impl<P: Copy + PartialEq> PinHuntCache<P> {
 /// collapsed and the body did not run. Callers fold that to their
 /// "nothing happened" case: a collapsed section shows no "Apply"
 /// button, so it can never report an action.
+/// `title` names the SCOPE this seed re-rolls (#1256 f107). The Avatar
+/// window hosts a second, unrelated `seed` control eight rows below this one
+/// — the engine's own sculpting seed, with its own lock vocabulary — and
+/// with both headed "Seed & re-roll" there was no way to tell from the
+/// window which number made the face on screen. One of the two replaces the
+/// entire record; the other moves a jaw.
 pub fn reroll_section<R>(
     ui: &mut egui::Ui,
     id_salt: &str,
+    title: &str,
     body: impl FnOnce(&mut egui::Ui) -> R,
 ) -> Option<R> {
-    egui::CollapsingHeader::new("Seed & re-roll")
+    egui::CollapsingHeader::new(title)
         .id_salt(id_salt)
         .default_open(true)
         .show(ui, body)

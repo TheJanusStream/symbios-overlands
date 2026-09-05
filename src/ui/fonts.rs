@@ -339,6 +339,33 @@ mod glyph_coverage_tests {
         "src/world_builder/asset_failure.rs",
     ];
 
+    /// Non-ASCII glyphs drawn by the sculpting sections the Body tab HOSTS
+    /// from `bevy_symbios_avatar::editor` (#1257 f116).
+    ///
+    /// The walk above is rooted at `src/ui` plus [`EXTRA_LABEL_SOURCES`],
+    /// and both are paths under this crate — so the one surface the avatar
+    /// epic moved a whole editor into was the one surface no gate could see.
+    /// The two most-used controls in the Body tab are a pair of these
+    /// arrows, and a silently-tofu arrow is unfindable in review because it
+    /// looks like a styled button until you render it.
+    ///
+    /// A hand-kept list rather than a walk of the dependency's source: that
+    /// source lives in the cargo registry, at a path that depends on the
+    /// resolved version and on `CARGO_HOME`, which is not something a test
+    /// can rely on in CI or a vendored build. **Refresh this on a
+    /// `bevy_symbios_avatar` bump** — it is named in the dependency-bump
+    /// checklist for exactly that reason. Being stale costs coverage, never
+    /// a false failure; the list is a floor, not a claim of completeness.
+    const HOSTED_EDITOR_GLYPHS: &[char] = &[
+        '·', // U+00B7, axis readouts
+        '—', // U+2014, section dashes
+        '•', // U+2022, list bullets
+        '…', // U+2026, truncation
+        '▶', // U+25B6, seed-hunt step forward
+        '◀', // U+25C0, seed-hunt step back
+        '⚠', // U+26A0, the generator-mismatch warning
+    ];
+
     /// The charmaps of every face the proportional family falls back
     /// through, in the order the app installs them (Noto Sans first, egui's
     /// embedded tail after, no CJK).
@@ -468,6 +495,36 @@ mod glyph_coverage_tests {
             missing.is_empty(),
             "UI label glyphs the bundled fonts cannot draw (tofu in-world):\n  {}",
             missing.join("\n  ")
+        );
+    }
+
+    /// Every glyph the HOSTED sculpting sections draw must be in the base
+    /// font set too (#1257 f116).
+    ///
+    /// Same law as [`every_ui_label_glyph_is_in_the_base_font_set`], asked
+    /// of the one editor this crate draws but does not own. It has already
+    /// bitten twice inside `src/ui` — #861 for ✓/● and #1105 for ◈ — and
+    /// nothing at build time can see a missing glyph.
+    #[test]
+    fn every_hosted_editor_glyph_is_in_the_base_font_set() {
+        let atlas = BaseAtlas::new();
+        let missing: Vec<String> = HOSTED_EDITOR_GLYPHS
+            .iter()
+            .filter(|c| !atlas.draws(**c))
+            .map(|c| format!("{c} U+{:04X}", u32::from(*c)))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "glyphs the hosted avatar editor draws that the bundled fonts cannot \
+             (tofu on the Body tab):\n  {}",
+            missing.join("\n  ")
+        );
+        // The list is only worth anything if it is actually being probed —
+        // an empty one would pass vacuously for the rest of time.
+        assert!(HOSTED_EDITOR_GLYPHS.len() >= 6);
+        assert!(
+            HOSTED_EDITOR_GLYPHS.contains(&'◀') && HOSTED_EDITOR_GLYPHS.contains(&'▶'),
+            "the seed-hunt arrows are the two most-used controls on the tab"
         );
     }
 

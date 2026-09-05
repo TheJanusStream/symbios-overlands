@@ -719,7 +719,7 @@ mod tests {
             assert_eq!(
                 e.wear_socket().is_some(),
                 e.role() == StructureRole::Attachment,
-                "entry {}: wear_socket() and StructureRole::Attachment must                  agree",
+                "entry {}: wear_socket() and StructureRole::Attachment must agree",
                 e.slug()
             );
             // A fit declaration only means anything on a wearable (#1089):

@@ -1036,8 +1036,11 @@ pub fn room_admin_ui(
                 // who has settled on a world rarely re-rolls it again.
                 // Collapsed, the whole block folds to one header row and the
                 // tab body takes back the space.
-                let (action, start, effective) =
-                    crate::ui::editable::reroll_section(ui, "world_reroll", |ui| {
+                let (action, start, effective) = crate::ui::editable::reroll_section(
+                    ui,
+                    "world_reroll",
+                    "Seed & re-roll",
+                    |ui| {
                         let action = seed_row(
                             ui,
                             seed_row_state,
@@ -1106,10 +1109,11 @@ pub fn room_admin_ui(
                                 );
                             });
                         (action, start, effective)
-                    })
-                    // Collapsed: no Apply button was drawn, so there is
-                    // nothing to act on this frame.
-                    .unwrap_or((SeedAction::None, did_seed, None));
+                    },
+                )
+                // Collapsed: no Apply button was drawn, so there is
+                // nothing to act on this frame.
+                .unwrap_or((SeedAction::None, did_seed, None));
 
                 if let SeedAction::Reroll(_) = action {
                     // Build from the same hunted seed the readout previewed

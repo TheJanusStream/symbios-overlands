@@ -140,6 +140,16 @@ const DRAFT_ATLAS: u32 = 256;
 /// How long the record must be still before the full-atlas build is owed.
 const SETTLE_SECS: f32 = 0.8;
 
+/// How long the owner's own body may be building before the wait is worth a
+/// word (#1255).
+///
+/// Comfortably above a native full-atlas build (~277 ms) and above the
+/// gen-worker's own documented 130 ms–1.0 s instantiation, so the ordinary
+/// case stays silent; comfortably below the offload watchdog's 60 s, so a
+/// worker that is never coming back is visible long before the diagnostics
+/// log is the only place that knows.
+const SLOW_BUILD_ANNOUNCE_SECS: f64 = 2.5;
+
 /// When the resolved record under this chassis last differed from the body
 /// standing on it — the settle ladder's clock (#1059).
 ///
@@ -173,6 +183,30 @@ pub(super) struct RiggedApplied {
     atlas: u32,
 }
 
+/// The last build dispatched for this chassis came back with no body
+/// (#1255).
+///
+/// The engine returns a bare `None` — one documented cause, limbs
+/// overlapping at a joint, and no reason value — so this marker is the whole
+/// of what the app knows about the failure, and the whole of what any
+/// surface can say about it.
+///
+/// Read together with [`RiggedApplied`], which is stamped with the record
+/// that build was for: the pair means "the record recorded there is the one
+/// that failed". That is what makes the claim self-invalidating — a record
+/// edit makes the comparison in [`kick_rigged_builds`] false without
+/// anything having to clear the marker, so the next build is kicked
+/// normally and the owner's escape route is simply to move the slider back.
+/// [`land_rigged_builds`] removes it on the next build that lands a body.
+///
+/// Public because the avatar editor queries it beside
+/// [`LocalPlayer`](crate::state::LocalPlayer) to draw the banner it
+/// implies, and `avatar_ui` is itself `pub`. It carries no reason string
+/// for the same reason there is no toast text here: the words belong to
+/// the surface, the fact belongs to the player.
+#[derive(Component)]
+pub struct RiggedBuildFailed;
+
 /// A build in flight for this chassis. At most one exists at a time.
 #[derive(Component)]
 pub(super) struct RiggedBuild {
@@ -187,6 +221,10 @@ pub(super) struct RiggedBuild {
     /// land reports kick-to-land wall time, which is how long this chassis
     /// stands as a naked capsule.
     kicked_at: f64,
+    /// The owner has already been told this build is taking a while
+    /// (#1255). Lives here rather than in a `Local` so it dies with the
+    /// build it describes: a retry is a new wait and gets to say so.
+    announced: bool,
     task: bevy::tasks::Task<crate::offload::GenResult>,
 }
 
@@ -397,6 +435,7 @@ impl MotionSource {
 
 mod build;
 mod motion;
+mod placeholder;
 #[cfg(test)]
 mod tests;
 
@@ -404,3 +443,4 @@ mod tests;
 pub(super) use build::install_built_body;
 pub(super) use build::{kick_rigged_builds, land_rigged_builds};
 pub(super) use motion::{drive_rigged_motion, start_emotes};
+pub(super) use placeholder::{announce_slow_builds, sync_local_placeholder};

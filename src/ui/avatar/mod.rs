@@ -576,6 +576,29 @@ impl AvatarEditorState {
     }
 }
 
+/// Why this tab is a dead end on this body kind, or `None` (#1256 f100).
+///
+/// Exactly one tab is a dead end at any time — never two, and never the Body
+/// tab, which on a generator body is the feature's ENTRY POINT (three
+/// sentences of explanation and a working "Wear a rigged body" button)
+/// rather than a no-op. Body and Visuals are two exclusive body KINDS, and
+/// the tab bar used to hide that model behind a click: four undifferentiated
+/// `selectable_label`s, one of which answered "that's for the other kind of
+/// body".
+fn tab_disabled_reason(tab: AvatarTab, rigged: bool) -> Option<&'static str> {
+    match tab {
+        AvatarTab::Visuals if rigged => Some(
+            "Visuals edits a construction-kit body; you're wearing a rigged one. \
+             Sculpt it on the Body tab.",
+        ),
+        AvatarTab::Attachments if !rigged => Some(
+            "Attachments dress a rigged body; you're wearing a construction-kit one. \
+             Switch on the Body tab first.",
+        ),
+        _ => None,
+    }
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn avatar_ui(
     mut contexts: EguiContexts,
@@ -609,6 +632,7 @@ pub fn avatar_ui(
         mut face_pick,
         movement,
         mut asset_caches,
+        local_body,
     ): (
         Res<bevy_symbios_audio::ui::AudioMonitor>,
         MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
@@ -628,6 +652,12 @@ pub fn avatar_ui(
         // the same status lines rather than a second, silent copy of the
         // tree.
         crate::ui::room::assets::AssetCaches,
+        // What the body standing in the world knows (#1255, #1256): whether
+        // its last build failed, where each worn prop really sits, and which
+        // sockets this rig has. Queries rather than editor state, because
+        // every one of those facts belongs to the player module that owns
+        // it — the editor is a reader, not the owner.
+        attachments::LocalBody,
     ),
 ) {
     // `ResMut::deref_mut` unconditionally flips the change tick, so
@@ -653,6 +683,11 @@ pub fn avatar_ui(
     // One borrowed view of the asset caches for the frame (#1246); see
     // `room::assets::AssetPanel`.
     let mut asset_panel = asset_caches.panel(time.elapsed_secs_f64());
+
+    // …and one of the live body (#1256). Built here rather than inside the
+    // tab because it is ECS queries and the tab is a plain drawing function
+    // over the record.
+    let worn_body = local_body.worn();
 
     // `.open()` only hides the window *body* — without this gate the
     // whole-record `before` clone below (and the egui Window bookkeeping)
@@ -696,11 +731,33 @@ pub fn avatar_ui(
                         (AvatarTab::Visuals, "Visuals"),
                         (AvatarTab::Locomotion, "Locomotion"),
                     ];
+                    // #1256 f100: exactly one tab is a dead end at any
+                    // time — never two, and never the Body tab, which on a
+                    // generator body is the feature's entry point rather
+                    // than a no-op. Body and Visuals are two EXCLUSIVE body
+                    // kinds, and the tab bar used to hide that model behind
+                    // a click: four undifferentiated labels, one of which
+                    // answered "that's for the other kind of body".
+                    let rigged = live_mut.0.body.rigged_ref().is_some();
                     for (tab, label) in tabs {
-                        if ui
-                            .selectable_label(editor.selected_tab == tab, label)
-                            .clicked()
-                        {
+                        let disabled_reason = tab_disabled_reason(tab, rigged);
+                        // A currently-selected tab that has just become a
+                        // dead end (the owner switched body kind under it)
+                        // falls back rather than sitting there disabled and
+                        // selected, which reads as broken.
+                        if disabled_reason.is_some() && editor.selected_tab == tab {
+                            editor.selected_tab = AvatarTab::Body;
+                        }
+                        let mut response = ui.add_enabled(
+                            disabled_reason.is_none(),
+                            egui::Button::selectable(editor.selected_tab == tab, label),
+                        );
+                        // egui gives no tooltip on a disabled widget without
+                        // this — the reason has to be asked for explicitly.
+                        if let Some(reason) = disabled_reason {
+                            response = response.on_disabled_hover_text(reason);
+                        }
+                        if response.clicked() {
                             editor.selected_tab = tab;
                         }
                     }
@@ -824,8 +881,11 @@ pub fn avatar_ui(
                     // owner who has settled on an avatar rarely re-rolls it
                     // again. Collapsed, the whole block folds to one header
                     // row and the tab body takes back the space.
-                    let (reroll, start, effective) =
-                        crate::ui::editable::reroll_section(ui, "avatar_reroll", |ui| {
+                    let (reroll, start, effective) = crate::ui::editable::reroll_section(
+                        ui,
+                        "avatar_reroll",
+                        "Whole-avatar seed & re-roll",
+                        |ui| {
                             let reroll = seed_row(
                                 ui,
                                 seed_row_state,
@@ -886,10 +946,11 @@ pub fn avatar_ui(
                                     );
                                 });
                             (reroll, start, effective)
-                        })
-                        // Collapsed: no Apply button was drawn, so there is
-                        // nothing to act on this frame.
-                        .unwrap_or((SeedAction::None, did_seed, None));
+                        },
+                    )
+                    // Collapsed: no Apply button was drawn, so there is
+                    // nothing to act on this frame.
+                    .unwrap_or((SeedAction::None, did_seed, None));
 
                     if let SeedAction::Reroll(_) = reroll {
                         // Build from the same hunted seed the readout
@@ -1065,6 +1126,7 @@ pub fn avatar_ui(
                                 &mut live_mut.0,
                                 wardrobe,
                                 session.as_ref().map(|s| s.did.as_str()),
+                                local_body.build_failed(),
                             );
                             widget_changed |= outcome.changed;
                             if let Some(label) = outcome.label {
@@ -1190,6 +1252,7 @@ pub fn avatar_ui(
                                 std::mem::take(pending_attachment_focus),
                                 &mut toasts,
                                 time.elapsed_secs_f64(),
+                                &worn_body,
                             );
                             widget_changed |= outcome.changed;
                             if let Some(label) = outcome.label {
@@ -1300,6 +1363,8 @@ pub fn avatar_ui(
                                     &mut widget_changed,
                                     &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
                                     &movement,
+                                    &mut toasts,
+                                    time.elapsed_secs_f64(),
                                 );
                             });
                     }
@@ -1905,5 +1970,59 @@ mod tests {
                 "ancestor at depth {depth} expanded"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tab_tests {
+    use super::*;
+
+    /// THE SEQUENCE (#1256 f100): open the Avatar window, see four
+    /// equally-weighted tabs, click Visuals and Attachments, and both say
+    /// they are for the other kind of body.
+    ///
+    /// The correction the evidence refuter made is what this pins: it is
+    /// ONE dead end per body kind, never two, and never the Body tab — on a
+    /// generator body that tab is the feature's entry point, with a working
+    /// "Wear a rigged body" action, not a no-op.
+    #[test]
+    fn exactly_one_tab_is_a_dead_end_and_it_is_never_the_body_tab() {
+        let all = [
+            AvatarTab::Body,
+            AvatarTab::Attachments,
+            AvatarTab::Visuals,
+            AvatarTab::Locomotion,
+        ];
+        for rigged in [false, true] {
+            let dead: Vec<AvatarTab> = all
+                .into_iter()
+                .filter(|tab| tab_disabled_reason(*tab, rigged).is_some())
+                .collect();
+            assert_eq!(
+                dead.len(),
+                1,
+                "rigged={rigged}: expected one dead end, got {dead:?}"
+            );
+            assert!(!dead.contains(&AvatarTab::Body));
+            assert!(!dead.contains(&AvatarTab::Locomotion));
+        }
+
+        // And it is the tab for the OTHER body kind, each time.
+        assert!(tab_disabled_reason(AvatarTab::Visuals, true).is_some());
+        assert!(tab_disabled_reason(AvatarTab::Visuals, false).is_none());
+        assert!(tab_disabled_reason(AvatarTab::Attachments, false).is_some());
+        assert!(tab_disabled_reason(AvatarTab::Attachments, true).is_none());
+    }
+
+    /// The reason has to name the body kind you are on and where to go —
+    /// egui shows nothing at all on a disabled widget without an explicit
+    /// `on_disabled_hover_text`, so this string is the entire explanation.
+    #[test]
+    fn a_disabled_tab_says_which_body_you_are_on_and_where_to_go() {
+        let visuals = tab_disabled_reason(AvatarTab::Visuals, true).expect("dead on a rigged body");
+        assert!(visuals.contains("rigged") && visuals.contains("Body tab"));
+        let attachments =
+            tab_disabled_reason(AvatarTab::Attachments, false).expect("dead on a generator body");
+        assert!(attachments.contains("rigged") && attachments.contains("Body tab"));
     }
 }

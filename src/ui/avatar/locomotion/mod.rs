@@ -22,15 +22,51 @@ pub trait LocomotionPanel {
     fn draw(&mut self, ui: &mut egui::Ui, dirty: &mut bool, facts: &LocalMovement);
 }
 
+/// The name of the preset whose tuning a switch away from `current` would
+/// throw away, or `None` when it would throw away nothing (#1256 f102).
+///
+/// "Nothing" means the live config still equals its own preset defaults —
+/// the exact comparison the retired #838 confirm modal used to gate on. An
+/// untuned switch stays silent, because the sentence is about loss, not
+/// about having clicked.
+fn discarded_tuning(current: &LocomotionConfig) -> Option<&'static str> {
+    let kind = current.kind_tag();
+    LocomotionConfig::pickers()
+        .iter()
+        .find(|(k, _, _)| *k == kind)
+        .filter(|(_, _, ctor)| ctor() != *current)
+        .map(|(_, label, _)| *label)
+}
+
+/// What the owner is told at the moment their tuning is replaced.
+///
+/// Undo alone was not enough: the loss was INVISIBLE when it happened — the
+/// panel simply redrew with different sliders — so by the time anyone
+/// noticed, the 32-entry ring could have rolled past it. `undo_label` only
+/// names a future undo ENTRY; the undo toast fires on Ctrl+Z, which is
+/// exactly the gesture someone who does not know they lost anything will
+/// never make.
+fn switch_discard_line(from: &str, to: &str) -> String {
+    format!("Switched to {to} — your {from} tuning was replaced with defaults. Ctrl+Z restores it.")
+}
+
 /// Render the picker row (one selectable label per preset, switching
 /// preset replaces `*locomotion` with the new variant's default-tuned
 /// instance) followed by the per-preset detail panel.
 ///
-/// #838: switching presets throws away ALL of the current preset's
-/// tuning, so when the live config differs from its own defaults (the
-/// user has actually tuned something) the switch routes through the
-/// shared confirm modal. An untuned config (or one that IS the default)
-/// switches instantly — nothing is lost.
+/// #838 originally routed a lossy switch through the shared confirm modal;
+/// #866 retired that in favour of undo. The undo contract is the one in
+/// force: switching preset replaces the whole config with the new variant's
+/// defaults, the switch is one entry in the ring, and `undo_label` names it.
+///
+/// #1256 f102: undo alone was not enough, because the loss was INVISIBLE at
+/// the moment it happened — the panel simply redrew with different sliders,
+/// so by the time an owner noticed their tuning was gone the 32-entry ring
+/// could have rolled past it. The switch now says what it replaced, at the
+/// moment it replaces it, and `toasts` is threaded here for that. A switch
+/// that discards nothing (the config still IS its own defaults) stays
+/// silent — the sentence is about loss, not about clicking.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_locomotion_tab(
     ui: &mut egui::Ui,
     locomotion: &mut LocomotionConfig,
@@ -42,6 +78,8 @@ pub fn draw_locomotion_tab(
     // tunes movement needs to be able to say when a value it publishes
     // has stopped having an effect on THIS body.
     facts: &LocalMovement,
+    toasts: &mut crate::ui::toast::Toasts,
+    now: f64,
 ) {
     let current_kind = locomotion.kind_tag();
 
@@ -53,9 +91,14 @@ pub fn draw_locomotion_tab(
             // is now one Ctrl+Z away and the toast names it.
             if ui.selectable_label(current_kind == *kind, *label).clicked() && current_kind != *kind
             {
+                // Measured BEFORE the replacement.
+                let lost = discarded_tuning(locomotion);
                 *locomotion = ctor();
                 undo_label.set(format!("preset switch to {label}"));
                 *dirty = true;
+                if let Some(from) = lost {
+                    toasts.warn(switch_discard_line(from, label), now);
+                }
             }
         }
     });
@@ -117,4 +160,77 @@ pub(super) fn fp3_extents(ui: &mut egui::Ui, label: &str, value: &mut [f32; 3], 
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Move one authored value on whichever preset this is — the smallest
+    /// possible "the owner tuned something".
+    fn tune(cfg: &mut LocomotionConfig) {
+        match cfg {
+            LocomotionConfig::Humanoid(p) => {
+                p.capsule_radius = crate::pds::types::Fp(p.capsule_radius.0 + 0.1);
+            }
+            LocomotionConfig::HoverBoat(p) => p.chassis_half_extents.0[0] += 0.1,
+            LocomotionConfig::Car(p) => p.chassis_half_extents.0[0] += 0.1,
+            LocomotionConfig::Helicopter(p) => p.chassis_half_extents.0[0] += 0.1,
+            LocomotionConfig::Airplane(p) => p.chassis_half_extents.0[0] += 0.1,
+            LocomotionConfig::Unknown => panic!("every pickable preset is a known one"),
+        }
+    }
+
+    /// THE SEQUENCE (#1256 f102): tune the Car preset for ten minutes,
+    /// click Helicopter to compare, click Car again — and every value is
+    /// back to default, with no warning at any point.
+    ///
+    /// #838 guarded this with a confirm modal; #866 retired that in favour
+    /// of undo, on the grounds that "a switch is now one Ctrl+Z away and the
+    /// toast names it". No toast fired here: `undo_label.set` only names a
+    /// future undo ENTRY, and the undo toast appears when the user presses
+    /// Ctrl+Z — which is exactly the gesture someone who does not know they
+    /// lost anything will never make. Undo is only a remedy for someone who
+    /// notices within 32 edits.
+    #[test]
+    fn switching_away_from_tuned_settings_says_what_it_replaced() {
+        // An untuned preset is still its own defaults: nothing is lost, so
+        // nothing is said. Clicking around must not manufacture warnings.
+        for (_, label, ctor) in LocomotionConfig::pickers() {
+            let untouched = ctor();
+            assert_eq!(
+                discarded_tuning(&untouched),
+                None,
+                "an untouched {label} has no tuning to lose"
+            );
+        }
+
+        // Tune each one, and the switch owes the owner a sentence naming it.
+        for (_, label, ctor) in LocomotionConfig::pickers() {
+            let mut tuned = ctor();
+            tune(&mut tuned);
+            assert_eq!(
+                discarded_tuning(&tuned),
+                Some(*label),
+                "a tuned {label} must name itself as what the switch throws away"
+            );
+        }
+
+        // And the sentence says what happened and how to undo it — the
+        // whole point being that it arrives at the moment of the loss.
+        let line = switch_discard_line("Car", "Helicopter");
+        assert!(line.contains("Car") && line.contains("Helicopter"));
+        assert!(
+            line.contains("Ctrl+Z"),
+            "the remedy has to be in the sentence: {line}"
+        );
+    }
+
+    /// A record authored against a newer schema has no preset defaults to
+    /// compare against, so a switch away from it claims no loss — the panel
+    /// above already tells the owner to replace it.
+    #[test]
+    fn an_unrecognised_preset_claims_no_lost_tuning() {
+        assert_eq!(discarded_tuning(&LocomotionConfig::Unknown), None);
+    }
 }

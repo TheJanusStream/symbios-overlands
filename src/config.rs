@@ -902,19 +902,23 @@ pub(crate) mod network {
     /// short of "this room has been lying to me all session".
     pub const PEER_GHOST_SECS: f64 = 120.0;
 
-    /// Radius (metres) of the translucent stand-in body drawn for a peer
-    /// whose real one has not arrived yet (#1217 f328).
-    pub const PEER_PLACEHOLDER_RADIUS: f32 = 0.32;
+    /// Radius (metres) of the translucent stand-in body drawn for a
+    /// chassis whose real one has not arrived yet (#1217 f328).
+    ///
+    /// Shared by the peer stand-in and the owner's own (#1255): two
+    /// differently-shaped placeholders would read as two different kinds
+    /// of absence, and there is only one.
+    pub const BODY_PLACEHOLDER_RADIUS: f32 = 0.32;
     /// Length (metres) of the stand-in capsule's cylindrical section; the
-    /// total height is this plus twice [`PEER_PLACEHOLDER_RADIUS`], so
+    /// total height is this plus twice [`BODY_PLACEHOLDER_RADIUS`], so
     /// roughly a person. A peer chassis broadcasts its transform from the
     /// body's centre, and the capsule is centred on its own origin, so the
     /// stand-in stands where the peer stands.
-    pub const PEER_PLACEHOLDER_LENGTH: f32 = 1.06;
+    pub const BODY_PLACEHOLDER_LENGTH: f32 = 1.06;
     /// Colour of the stand-in. Deliberately a translucent neutral and not
     /// anything a body could be: the point is that it reads as a placeholder
     /// rather than as a person who chose to look like this.
-    pub const PEER_PLACEHOLDER_COLOR: bevy::prelude::Color =
+    pub const BODY_PLACEHOLDER_COLOR: bevy::prelude::Color =
         bevy::prelude::Color::srgba(0.62, 0.68, 0.78, 0.35);
 
     /// Maximum age (seconds) a partial reassembly is kept before it is
