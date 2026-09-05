@@ -23,7 +23,7 @@ use crate::diagnostics::event::RecordKind;
 use crate::pds::{self, AvatarRecord, FetchError, InventoryRecord, RoomRecord};
 use crate::state::{
     AvatarRecordRecovery, CurrentRoomDid, InventoryRecordRecovery, LiveAvatarRecord,
-    LiveInventoryRecord, LiveRoomRecord, RoomRecordRecovery, StoredAvatarRecord,
+    LiveInventoryRecord, LiveRoomRecord, RecoveryCause, RoomRecordRecovery, StoredAvatarRecord,
     StoredInventoryRecord, StoredRoomRecord,
 };
 
@@ -65,11 +65,15 @@ impl LoadedRecord for RoomRecord {
         commands.insert_resource(LiveRoomRecord(self));
     }
 
-    /// Surface a recovery banner so the world editor can offer the owner
-    /// a "Reset PDS to default" affordance — falling back to the default
-    /// silently would risk a publish click clobbering the real record.
-    fn on_unrecoverable(commands: &mut Commands, reason: String) {
-        commands.insert_resource(RoomRecordRecovery { reason });
+    /// Surface a recovery banner — falling back to the default silently
+    /// would risk a publish click clobbering the real record.
+    ///
+    /// The cause rides along (#1265 f210): the deliberate overwrite the
+    /// banner offers is the remedy for a record this build cannot decode
+    /// and a hard delete of a healthy one when the server was merely
+    /// unreachable, so only the room banner branches on it.
+    fn on_unrecoverable(commands: &mut Commands, cause: RecoveryCause, reason: String) {
+        commands.insert_resource(RoomRecordRecovery { cause, reason });
     }
 
     fn clear_recovery(commands: &mut Commands) {
@@ -101,7 +105,11 @@ impl LoadedRecord for AvatarRecord {
     /// marker the next routine avatar publish clobbers it (#840). The
     /// Avatar editor shows a banner and gates the first publish behind
     /// a confirm while the marker is present.
-    fn on_unrecoverable(commands: &mut Commands, reason: String) {
+    /// `cause` is unused here on purpose: this banner already words itself
+    /// cause-neutrally ("could not be loaded") and offers nothing
+    /// destructive, so there is nothing for it to branch. It stays on the
+    /// hook so a banner that *does* branch never has to re-derive it.
+    fn on_unrecoverable(commands: &mut Commands, _cause: RecoveryCause, reason: String) {
         commands.insert_resource(AvatarRecordRecovery { reason });
     }
 
@@ -139,7 +147,8 @@ impl LoadedRecord for InventoryRecord {
     /// may still exist on the PDS (#840). The Inventory window shows a
     /// banner and gates the first publish behind a confirm while the
     /// marker is present.
-    fn on_unrecoverable(commands: &mut Commands, reason: String) {
+    /// Cause-neutral for the same reason as the avatar's.
+    fn on_unrecoverable(commands: &mut Commands, _cause: RecoveryCause, reason: String) {
         commands.insert_resource(InventoryRecordRecovery { reason });
     }
 

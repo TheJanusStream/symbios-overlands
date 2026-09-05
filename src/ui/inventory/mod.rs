@@ -3,7 +3,7 @@
 //! The Inventory window lists every `Generator` the owner has tucked aside
 //! across editing sessions. Each entry can be renamed in place via a modal,
 //! removed, or kept — and once the stash diverges from the PDS-persisted
-//! copy, "Save to PDS" commits the live-vs-stored diff as one atomic
+//! copy, "Save" commits the live-vs-stored diff as one atomic
 //! `com.atproto.repo.applyWrites` batch — one record per item (#696).
 //! The stash is loaded during `AppState::Loading`
 //! (see [`crate::loading::start_inventory_record_fetch`]) so a freshly-logged-in
@@ -298,7 +298,10 @@ fn wear_buttons(
     }
     if ui
         .small_button("Wear")
-        .on_hover_text(format!("Wear this item at the {socket} socket"))
+        .on_hover_text(format!(
+            "Wear this on your {}",
+            crate::pds::avatar::socket_label(socket).to_lowercase()
+        ))
         .clicked()
     {
         *action = Some(WearAction::Wear(name.to_string()));
@@ -472,12 +475,12 @@ pub fn inventory_ui(
                     .show(ui, |ui| {
                         ui.colored_label(
                             crate::ui::theme::current(ui.ctx()).danger_surface_text,
-                            "⚠ Your stash could not be loaded — this shows an empty default.",
+                            "⚠ Your inventory could not be loaded — this shows an empty default.",
                         );
                         ui.label(egui::RichText::new(format!("Reason: {}", rec.reason)).small());
                         ui.label(
                             egui::RichText::new(
-                                "Saving would overwrite the stored stash (you'll be asked \
+                                "Saving would overwrite the stored copy (you'll be asked \
                                  first).",
                             )
                             .small(),
@@ -510,7 +513,7 @@ pub fn inventory_ui(
                 ui.colored_label(
                     crate::ui::theme::current(ui.ctx()).status.error,
                     format!(
-                        "Stored Generators: {count}/{cap} — over the {cap}-item cap; \
+                        "Saved items: {count}/{cap} — over the {cap}-item cap; \
                          remove {} to enable saving",
                         if count - cap == 1 {
                             "1 item".to_owned()
@@ -520,10 +523,9 @@ pub fn inventory_ui(
                     ),
                 );
             } else {
-                ui.label(format!("Stored Generators: {count}/{cap}"));
+                ui.label(format!("Saved items: {count}/{cap}"));
             }
             ui.separator();
-
 
             // Footer FIRST, bottom-up, so its height is measured and the
             // list gets exactly what is left. This used to reserve a flat
@@ -542,267 +544,322 @@ pub fn inventory_ui(
             // single frame of lag on an indicator, against a window that
             // could climb off the screen.
             crate::ui::layout::footer(ui, "inventory_footer", |ui| {
-                    // Shared Save / Load / Reset row + status line
-                    // (`ui::editable`), identical to the World and Avatar
-                    // editors. Dirty is derived (a serialized diff against the stored
-                    // snapshot) so the row needs no per-edit flag; Inventory now
-                    // also gets Load-from-PDS (revert) and Reset-to-default
-                    // (empty the stash) — it previously had Publish only.
-                    //
-                    // Both baselines are cached (#1135, the #674 pattern): the stored
-                    // side re-serializes only when the resource changes and the empty
-                    // default only once, so an open panel serializes the LIVE stash
-                    // ONCE per frame instead of three whole trees. The comparisons are
-                    // value-identical to `records_differ` — `Option<Value>` on both
-                    // sides, `.ok()` semantics preserved — so dirty and can_reset are
-                    // frame-accurate exactly as before.
-                    if state
-                        .stored_baseline
-                        .as_ref()
-                        .is_none_or(|(tick, _)| *tick != stored.last_changed())
-                    {
-                        state.stored_baseline =
-                            Some((stored.last_changed(), serde_json::to_value(&stored.0).ok()));
-                    }
-                    if state.default_baseline.is_none() {
-                        state.default_baseline =
-                            Some(serde_json::to_value(InventoryRecord::default()).ok());
-                    }
-                    let live_value = serde_json::to_value(&live.0).ok();
-                    let dirty = match state.stored_baseline.as_ref() {
-                        Some((_, baseline)) => *baseline != live_value,
-                        None => true,
-                    };
-                    let can_reset = state
-                        .default_baseline
-                        .as_ref()
-                        .is_none_or(|baseline| *baseline != live_value);
-                    // Publishing is blocked while over the cap (#841) — the red
-                    // header line explains; mirrors the hard-ceiling size block.
-                    let within_cap = live.0.generators.len() <= crate::config::state::MAX_INVENTORY_ITEMS;
-                    // `session` + `refresh_ctx` are guaranteed present (the early
-                    // return above bails otherwise), so a publish is always
-                    // attemptable while dirty.
-                    //
-                    // Size readout: the stash is one record PER ITEM (#696), so
-                    // the per-record budget applies to the largest single item —
-                    // not the whole stash. Same throttled cache as the other
-                    // editors, custom measurement.
-                    let now = time.elapsed_secs_f64();
-                    crate::ui::editable::refresh_size_readout(
-                        &mut *feedback,
-                        &live.0,
-                        now,
-                        crate::pds::inventory::measure_publish,
-                    );
-                    let size = feedback.live_size.clone();
-                    let ctrl_s = publish_shortcut.take(crate::ui::shortcuts::EditorKind::Inventory);
-                    let mut do_publish = false;
-                    match save_load_reset_row(
-                        ui,
-                        crate::ui::editable::SaveRow {
-                            kind: RecordKind::Inventory,
-                            dirty,
-                            can_publish: within_cap,
-                            can_reset,
-                            size: &size,
-                            publish_shortcut: ctrl_s,
-                            status: &mut feedback.status,
-                            // Inventory has no undo stack (#866) — keep the modal.
-                            confirm: Some(&mut state.row_confirm),
-                            reset: crate::ui::editable::ResetWording::EmptyStash {
-                                items: live.0.generators.len(),
-                            },
+                // Shared Save / Load / Reset row + status line
+                // (`ui::editable`), identical to the World and Avatar
+                // editors. Dirty is derived (a serialized diff against the stored
+                // snapshot) so the row needs no per-edit flag; Inventory now
+                // also gets Load-from-PDS (revert) and Reset-to-default
+                // (empty the stash) — it previously had Publish only.
+                //
+                // Both baselines are cached (#1135, the #674 pattern): the stored
+                // side re-serializes only when the resource changes and the empty
+                // default only once, so an open panel serializes the LIVE stash
+                // ONCE per frame instead of three whole trees. The comparisons are
+                // value-identical to `records_differ` — `Option<Value>` on both
+                // sides, `.ok()` semantics preserved — so dirty and can_reset are
+                // frame-accurate exactly as before.
+                if state
+                    .stored_baseline
+                    .as_ref()
+                    .is_none_or(|(tick, _)| *tick != stored.last_changed())
+                {
+                    state.stored_baseline =
+                        Some((stored.last_changed(), serde_json::to_value(&stored.0).ok()));
+                }
+                if state.default_baseline.is_none() {
+                    state.default_baseline =
+                        Some(serde_json::to_value(InventoryRecord::default()).ok());
+                }
+                let live_value = serde_json::to_value(&live.0).ok();
+                let dirty = match state.stored_baseline.as_ref() {
+                    Some((_, baseline)) => *baseline != live_value,
+                    None => true,
+                };
+                let can_reset = state
+                    .default_baseline
+                    .as_ref()
+                    .is_none_or(|baseline| *baseline != live_value);
+                // Publishing is blocked while over the cap (#841) — the red
+                // header line explains; mirrors the hard-ceiling size block.
+                let within_cap =
+                    live.0.generators.len() <= crate::config::state::MAX_INVENTORY_ITEMS;
+                // `session` + `refresh_ctx` are guaranteed present (the early
+                // return above bails otherwise), so a publish is always
+                // attemptable while dirty.
+                //
+                // Size readout: the stash is one record PER ITEM (#696), so
+                // the per-record budget applies to the largest single item —
+                // not the whole stash. Same throttled cache as the other
+                // editors, custom measurement.
+                let now = time.elapsed_secs_f64();
+                crate::ui::editable::refresh_size_readout(
+                    &mut *feedback,
+                    &live.0,
+                    now,
+                    crate::pds::inventory::measure_publish,
+                );
+                let size = feedback.live_size.clone();
+                let ctrl_s = publish_shortcut.take(crate::ui::shortcuts::EditorKind::Inventory);
+                let mut do_publish = false;
+                match save_load_reset_row(
+                    ui,
+                    crate::ui::editable::SaveRow {
+                        kind: RecordKind::Inventory,
+                        dirty,
+                        can_publish: within_cap,
+                        can_reset,
+                        size: &size,
+                        publish_shortcut: ctrl_s,
+                        status: &mut feedback.status,
+                        // Inventory has no undo stack (#866) — keep the modal.
+                        confirm: Some(&mut state.row_confirm),
+                        reset: crate::ui::editable::ResetWording::EmptyStash {
+                            items: live.0.generators.len(),
                         },
-                    ) {
-                        RecordAction::None => {}
-                        RecordAction::Refused(reason) => {
-                            toasts.info(crate::ui::editable::ctrl_s_refused(&reason), now);
-                        }
-                        RecordAction::Publish => {
-                            // Clobber protection (#840): while the session is
-                            // degraded, saving this (empty-default) stash would
-                            // wipe whatever is actually stored — ask first.
-                            match recovery.as_deref() {
-                                Some(rec) => crate::ui::editable::request_overwrite_confirm(
-                                    &mut state.publish_guard,
-                                    RecordKind::Inventory,
-                                    &rec.reason,
-                                ),
-                                None => do_publish = true,
-                            }
-                        }
-                        RecordAction::Load => {
-                            live.0 = stored.0.clone();
-                        }
-                        RecordAction::Reset => {
-                            // The baseline above is the default's serialized FORM; the
-                            // record itself is `default()`, which for an inventory is
-                            // simply empty and costs nothing to rebuild here.
-                            live.0 = InventoryRecord::default();
+                    },
+                ) {
+                    RecordAction::None => {}
+                    RecordAction::Refused(reason) => {
+                        toasts.info(crate::ui::editable::ctrl_s_refused(&reason), now);
+                    }
+                    RecordAction::Publish => {
+                        // Clobber protection (#840): while the session is
+                        // degraded, saving this (empty-default) stash would
+                        // wipe whatever is actually stored — ask first.
+                        match recovery.as_deref() {
+                            Some(rec) => crate::ui::editable::request_overwrite_confirm(
+                                &mut state.publish_guard,
+                                RecordKind::Inventory,
+                                &rec.reason,
+                            ),
+                            None => do_publish = true,
                         }
                     }
-                    if state
-                        .publish_guard
-                        .show(ui.ctx(), "inventory-recovery-publish")
-                        .is_some()
-                    {
-                        // Acknowledged. The marker retires when the poll system
-                        // sees the write land (#1199), not here.
-                        do_publish = true;
+                    RecordAction::Load => {
+                        live.0 = stored.0.clone();
                     }
-                    if do_publish {
-                        feedback.status = PublishStatus::Publishing { since_secs: now };
-                        spawn_publish_inventory_task(
-                            &mut commands,
-                            &session,
-                            &refresh_ctx,
-                            live.0.clone(),
-                            stored.0.clone(),
-                            now,
-                        );
+                    RecordAction::Reset => {
+                        // The baseline above is the default's serialized FORM; the
+                        // record itself is `default()`, which for an inventory is
+                        // simply empty and costs nothing to rebuild here.
+                        live.0 = InventoryRecord::default();
                     }
+                }
+                if state
+                    .publish_guard
+                    .show(ui.ctx(), "inventory-recovery-publish")
+                    .is_some()
+                {
+                    // Acknowledged. The marker retires when the poll system
+                    // sees the write land (#1199), not here.
+                    do_publish = true;
+                }
+                if do_publish {
+                    feedback.status = PublishStatus::Publishing { since_secs: now };
+                    spawn_publish_inventory_task(
+                        &mut commands,
+                        &session,
+                        &refresh_ctx,
+                        live.0.clone(),
+                        stored.0.clone(),
+                        now,
+                    );
+                }
 
-                    publish_status_line(ui, &feedback.status, now, dirty);
+                publish_status_line(ui, &feedback.status, now, dirty);
             });
 
             crate::ui::layout::fill_above(ui, |ui| {
-                    egui::ScrollArea::vertical()
-                        .auto_shrink([true, false])
-                        .show(ui, |ui| {
-                            let mut to_remove: Option<String> = None;
-                            let mut wear_action: Option<WearAction> = None;
-                            let mut names: Vec<String> = live.0.generators.keys().cloned().collect();
-                            // Case-insensitive (#841): plain `sort()` put "Zebra"
-                            // before "apple".
-                            names.sort_by_key(|name| name.to_lowercase());
+                egui::ScrollArea::vertical()
+                    .auto_shrink([true, false])
+                    .show(ui, |ui| {
+                        let mut to_remove: Option<String> = None;
+                        let mut wear_action: Option<WearAction> = None;
+                        let mut names: Vec<String> = live.0.generators.keys().cloned().collect();
+                        // Case-insensitive (#841): plain `sort()` put "Zebra"
+                        // before "apple".
+                        names.sort_by_key(|name| name.to_lowercase());
 
-                            for name in names {
-                                ui.horizontal(|ui| {
-                                    // Generators that make no sense as a dropped
-                                    // placement (terrain + water are room-scoped, not
-                                    // point-placed) render as a plain label so the
-                                    // drag sense doesn't arm a release we'd ignore.
-                                    let is_placeable = live
-                                        .0
-                                        .generators
-                                        .get(&name)
-                                        .map(is_drop_placeable)
-                                        .unwrap_or(false);
-                                    // An item this build cannot decode (#1207): a
-                                    // gift from a newer client, or a stash saved by
-                                    // one. It cannot be placed, worn, renamed or
-                                    // written back — only kept or deleted — and it
-                                    // is what disables Save for the whole stash.
-                                    let unreadable = live
-                                        .0
-                                        .generators
-                                        .get(&name)
-                                        .is_some_and(|g| matches!(g.kind, GeneratorKind::Unknown));
-                                    // What KIND of blueprint each row is (#841) —
-                                    // names alone ("cuboid_2", "my_tree") didn't say.
-                                    let kind_tag = live
-                                        .0
-                                        .generators
-                                        .get(&name)
-                                        .map(|g| g.kind_tag())
-                                        .unwrap_or("?");
-                                    // Wearables say so, and where (#1096).
-                                    let kind_tag = match live.0.wear.get(&name) {
-                                        Some(meta) => format!("{kind_tag} · wearable, {}", meta.socket),
-                                        None => kind_tag.to_string(),
-                                    };
-                                    if is_placeable {
-                                        // The ⠿ handle + grab cursor make the row
-                                        // read as draggable (#832) — it used to be
-                                        // a plain label whose drag sense was
-                                        // discoverable only by accident.
-                                        let label = egui::Label::new(format!("☰ {name}"))
-                                            .sense(egui::Sense::click_and_drag());
-                                        let resp = ui.add(label).on_hover_cursor(egui::CursorIcon::Grab);
-                                        ui.label(
-                                            egui::RichText::new(format!("({kind_tag})"))
-                                                .small()
-                                                .color(crate::ui::theme::current(ui.ctx()).text_weak),
-                                        );
-                                        if resp.drag_started() {
-                                            pending_drop.generator_name = Some(name.clone());
-                                            pending_drop.source = DropSource::Inventory;
-                                        }
-                                        if resp.dragged()
-                                            && pending_drop.generator_name.as_deref() == Some(name.as_str())
-                                        {
-                                            // Follow-the-cursor tooltip keeps the
-                                            // dragger oriented while they hunt for a
-                                            // target — without it, the drag is
-                                            // invisible once the pointer leaves the
-                                            // row. Shared with the Catalogue since
-                                            // #1220 f132.
-                                            drag_tooltip(ui, "inv_drag_tip", &name, owns_room);
-                                        }
-                                    } else if unreadable {
-                                        ui.label(&name);
-                                        ui.label(
-                                            egui::RichText::new(UNREADABLE_ITEM_TAG)
-                                                .small()
-                                                .color(crate::ui::theme::current(ui.ctx()).status.warn),
-                                        )
-                                        .on_hover_text(UNREADABLE_ITEM_HOVER);
-                                    } else {
-                                        // Room-scoped kinds (terrain/water) can't be
-                                        // point-placed — say so instead of rendering
-                                        // an identical-looking row that silently
-                                        // refuses to drag (#832; the catalogue
-                                        // already explains the same distinction).
-                                        ui.label(&name);
-                                        ui.label(
-                                            egui::RichText::new(format!("({kind_tag} — room-scoped)"))
-                                                .small()
-                                                .color(crate::ui::theme::current(ui.ctx()).text_weak),
-                                        );
-                                    }
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            if crate::ui::affordances::remove_button(
-                                                ui,
-                                                "Delete this item from your stash",
-                                            )
-                                            .clicked()
-                                            {
-                                                to_remove = Some(name.clone());
-                                            }
-                                            if ui
-                                                .add_enabled(
-                                                    !unreadable,
-                                                    egui::Button::new("Rename").small(),
-                                                )
-                                                .on_disabled_hover_text(UNREADABLE_ITEM_HOVER)
-                                                .clicked()
-                                            {
-                                                state.renaming_generator =
-                                                    Some((name.clone(), name.clone()));
-                                            }
-                                            // Wear / Take off (#1096) for items that
-                                            // carry wear metadata.
-                                            if let Some(meta) = live.0.wear.get(&name) {
-                                                wear_buttons(
-                                                    ui,
-                                                    &name,
-                                                    meta.socket.as_str(),
-                                                    &mut wear_action,
-                                                    live_avatar.as_deref(),
-                                                );
-                                            }
-                                        },
+                        for name in names {
+                            ui.horizontal(|ui| {
+                                // Generators that make no sense as a dropped
+                                // placement (terrain + water are room-scoped, not
+                                // point-placed) render as a plain label so the
+                                // drag sense doesn't arm a release we'd ignore.
+                                let is_placeable = live
+                                    .0
+                                    .generators
+                                    .get(&name)
+                                    .map(is_drop_placeable)
+                                    .unwrap_or(false);
+                                // An item this build cannot decode (#1207): a
+                                // gift from a newer client, or a stash saved by
+                                // one. It cannot be placed, worn, renamed or
+                                // written back — only kept or deleted — and it
+                                // is what disables Save for the whole stash.
+                                let unreadable = live
+                                    .0
+                                    .generators
+                                    .get(&name)
+                                    .is_some_and(|g| matches!(g.kind, GeneratorKind::Unknown));
+                                // What KIND of blueprint each row is (#841) —
+                                // names alone ("cuboid_2", "my_tree") didn't say.
+                                let kind_tag = live
+                                    .0
+                                    .generators
+                                    .get(&name)
+                                    .map(|g| g.kind_tag())
+                                    .unwrap_or("?");
+                                // Wearables say so, and where (#1096).
+                                let kind_tag = match live.0.wear.get(&name) {
+                                    Some(meta) => format!(
+                                        "{} · wearable, {}",
+                                        crate::pds::GeneratorKind::display_name(kind_tag),
+                                        crate::pds::avatar::socket_label(&meta.socket)
+                                            .to_lowercase()
+                                    ),
+                                    None => kind_tag.to_string(),
+                                };
+                                if is_placeable {
+                                    // The ⠿ handle + grab cursor make the row
+                                    // read as draggable (#832) — it used to be
+                                    // a plain label whose drag sense was
+                                    // discoverable only by accident.
+                                    let label = egui::Label::new(format!("☰ {name}"))
+                                        .sense(egui::Sense::click_and_drag());
+                                    let resp =
+                                        ui.add(label).on_hover_cursor(egui::CursorIcon::Grab);
+                                    ui.label(
+                                        egui::RichText::new(format!("({kind_tag})"))
+                                            .small()
+                                            .color(crate::ui::theme::current(ui.ctx()).text_weak),
                                     );
-                                });
-                            }
-                            // Applied after the list so the borrow of `live` the rows
-                            // hold is released before the avatar record is dressed.
-                            if let Some(action) = wear_action.take() {
+                                    if resp.drag_started() {
+                                        pending_drop.generator_name = Some(name.clone());
+                                        pending_drop.source = DropSource::Inventory;
+                                    }
+                                    if resp.dragged()
+                                        && pending_drop.generator_name.as_deref()
+                                            == Some(name.as_str())
+                                    {
+                                        // Follow-the-cursor tooltip keeps the
+                                        // dragger oriented while they hunt for a
+                                        // target — without it, the drag is
+                                        // invisible once the pointer leaves the
+                                        // row. Shared with the Catalogue since
+                                        // #1220 f132.
+                                        drag_tooltip(ui, "inv_drag_tip", &name, owns_room);
+                                    }
+                                } else if unreadable {
+                                    ui.label(&name);
+                                    ui.label(
+                                        egui::RichText::new(UNREADABLE_ITEM_TAG)
+                                            .small()
+                                            .color(crate::ui::theme::current(ui.ctx()).status.warn),
+                                    )
+                                    .on_hover_text(UNREADABLE_ITEM_HOVER);
+                                } else {
+                                    // Room-scoped kinds (terrain/water) can't be
+                                    // point-placed — say so instead of rendering
+                                    // an identical-looking row that silently
+                                    // refuses to drag (#832; the catalogue
+                                    // already explains the same distinction).
+                                    ui.label(&name);
+                                    ui.label(
+                                        egui::RichText::new(format!("({kind_tag} — room-scoped)"))
+                                            .small()
+                                            .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                                    );
+                                }
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if crate::ui::affordances::remove_button(
+                                            ui,
+                                            "Delete this item from your inventory",
+                                        )
+                                        .clicked()
+                                        {
+                                            to_remove = Some(name.clone());
+                                        }
+                                        if ui
+                                            .add_enabled(
+                                                !unreadable,
+                                                egui::Button::new("Rename").small(),
+                                            )
+                                            .on_disabled_hover_text(UNREADABLE_ITEM_HOVER)
+                                            .clicked()
+                                        {
+                                            state.renaming_generator =
+                                                Some((name.clone(), name.clone()));
+                                        }
+                                        // Wear / Take off (#1096) for items that
+                                        // carry wear metadata.
+                                        if let Some(meta) = live.0.wear.get(&name) {
+                                            wear_buttons(
+                                                ui,
+                                                &name,
+                                                meta.socket.as_str(),
+                                                &mut wear_action,
+                                                live_avatar.as_deref(),
+                                            );
+                                        }
+                                    },
+                                );
+                            });
+                        }
+                        // Applied after the list so the borrow of `live` the rows
+                        // hold is released before the avatar record is dressed.
+                        if let Some(action) = wear_action.take() {
+                            apply_wear_action(
+                                action,
+                                &live.0,
+                                live_avatar.as_deref_mut(),
+                                avatar_editor.as_mut(),
+                                &session.did,
+                                undo_labels.as_mut(),
+                                toasts.as_mut(),
+                                time.elapsed_secs_f64(),
+                            );
+                        }
+                        // Delete asks first (#1200): this is the one surface with
+                        // no undo, and the click sits beside Rename. A worn item
+                        // is named as such — deleting takes it off too, so the
+                        // prop cannot linger on the body with the only row that
+                        // offered "Take off" gone (finding 131).
+                        if let Some(name) = to_remove {
+                            let worn = live_avatar
+                                .as_deref()
+                                .and_then(|avatar| avatar.0.body.rigged_ref())
+                                .is_some_and(|rig| crate::ui::avatar::is_worn_from(rig, &name));
+                            let body = if worn {
+                                format!(
+                                    "You are wearing \"{name}\" — deleting it also takes it off. \
+                                         The inventory has no undo; the stored copy keeps it until \
+                                         you save."
+                                )
+                            } else {
+                                String::from(
+                                    "The inventory has no undo; the stored copy keeps it until \
+                                         you save.",
+                                )
+                            };
+                            state.delete_confirm.request(
+                                format!("Delete \"{name}\"?"),
+                                body,
+                                "Delete",
+                                name,
+                            );
+                        }
+                        if let Some(name) = state.delete_confirm.show(ui.ctx(), "inventory-delete")
+                        {
+                            let worn = live_avatar
+                                .as_deref()
+                                .and_then(|avatar| avatar.0.body.rigged_ref())
+                                .is_some_and(|rig| crate::ui::avatar::is_worn_from(rig, &name));
+                            if worn {
                                 apply_wear_action(
-                                    action,
+                                    WearAction::TakeOff(name.clone()),
                                     &live.0,
                                     live_avatar.as_deref_mut(),
                                     avatar_editor.as_mut(),
@@ -812,64 +869,18 @@ pub fn inventory_ui(
                                     time.elapsed_secs_f64(),
                                 );
                             }
-                            // Delete asks first (#1200): this is the one surface with
-                            // no undo, and the click sits beside Rename. A worn item
-                            // is named as such — deleting takes it off too, so the
-                            // prop cannot linger on the body with the only row that
-                            // offered "Take off" gone (finding 131).
-                            if let Some(name) = to_remove {
-                                let worn = live_avatar
-                                    .as_deref()
-                                    .and_then(|avatar| avatar.0.body.rigged_ref())
-                                    .is_some_and(|rig| crate::ui::avatar::is_worn_from(rig, &name));
-                                let body = if worn {
-                                    format!(
-                                        "You are wearing \"{name}\" — deleting it also takes it off. \
-                                         The inventory has no undo; the item stays on your PDS until \
-                                         you save."
-                                    )
-                                } else {
-                                    String::from(
-                                        "The inventory has no undo; the item stays on your PDS until \
-                                         you save.",
-                                    )
-                                };
-                                state.delete_confirm.request(
-                                    format!("Delete \"{name}\"?"),
-                                    body,
-                                    "Delete",
-                                    name,
+                            if live.0.remove_item(&name).is_some() {
+                                toasts.info(
+                                    if worn {
+                                        format!("Deleted \"{name}\" and took it off.")
+                                    } else {
+                                        format!("Deleted \"{name}\".")
+                                    },
+                                    time.elapsed_secs_f64(),
                                 );
                             }
-                            if let Some(name) = state.delete_confirm.show(ui.ctx(), "inventory-delete") {
-                                let worn = live_avatar
-                                    .as_deref()
-                                    .and_then(|avatar| avatar.0.body.rigged_ref())
-                                    .is_some_and(|rig| crate::ui::avatar::is_worn_from(rig, &name));
-                                if worn {
-                                    apply_wear_action(
-                                        WearAction::TakeOff(name.clone()),
-                                        &live.0,
-                                        live_avatar.as_deref_mut(),
-                                        avatar_editor.as_mut(),
-                                        &session.did,
-                                        undo_labels.as_mut(),
-                                        toasts.as_mut(),
-                                        time.elapsed_secs_f64(),
-                                    );
-                                }
-                                if live.0.remove_item(&name).is_some() {
-                                    toasts.info(
-                                        if worn {
-                                            format!("Deleted \"{name}\" and took it off.")
-                                        } else {
-                                            format!("Deleted \"{name}\".")
-                                        },
-                                        time.elapsed_secs_f64(),
-                                    );
-                                }
-                            }
-                        });
+                        }
+                    });
             });
             reload_stash
         });
@@ -935,7 +946,7 @@ pub(crate) fn spawn_publish_inventory_task(
         };
         crate::config::http::run_or(
             fut,
-            Err(crate::config::http::timed_out("inventory publish")),
+            Err(crate::config::http::timed_out("Saving your inventory")),
         )
         .await
     });
@@ -968,13 +979,13 @@ pub fn poll_publish_inventory_tasks(
             &mut task.task,
             spawned_at,
             time.elapsed_secs_f64(),
-            "inventory publish",
+            "Saving your inventory",
         ) else {
             continue;
         };
         commands.entity(entity).despawn();
         if crate::ui::room::stale_result(
-            "inventory publish",
+            "Saving your inventory",
             &task.did,
             session.as_deref().map(|s| s.did.as_str()),
         ) {
@@ -1003,6 +1014,12 @@ pub fn poll_publish_inventory_tasks(
                 // recovery marker retires where success is known (#1199).
                 commands.remove_resource::<crate::state::InventoryRecordRecovery>();
                 feedback.status = PublishStatus::Success { at_secs: now };
+                crate::ui::editable::report_publish_success(
+                    RecordKind::Inventory,
+                    &panels,
+                    &mut toasts,
+                    now,
+                );
                 session_log.info(
                     now,
                     EventPayload::RecordWriteCompleted {
@@ -1042,7 +1059,7 @@ pub const UNREADABLE_ITEM_TAG: &str = "(from a newer version of Overlands)";
 /// What the owner can do about an unreadable item.
 pub const UNREADABLE_ITEM_HOVER: &str = "This item was made by a newer version of Overlands. \
      This build cannot read it, so it cannot be placed, worn, renamed or saved — and while it \
-     is in your stash, the stash cannot be saved at all. Update Overlands, or delete the item.";
+     is in your inventory, the inventory cannot be saved at all. Update Overlands, or delete the item.";
 
 /// Which generator kinds can be point-placed via drag-and-drop.
 /// Terrain + water describe whole-room scope (one heightmap / one water

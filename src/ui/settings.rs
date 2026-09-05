@@ -222,7 +222,7 @@ pub fn settings_ui(
             ui.add_space(8.0);
             ui.separator();
             ui.strong("Effects");
-            ui.label("Contact effects from the room you're in:");
+            ui.label("Contact effects from the world you're in:");
             ui.horizontal(|ui| {
                 for level in [
                     crate::state::EffectsIntensity::Full,
@@ -234,7 +234,7 @@ pub fn settings_ui(
                         .on_hover_text(match level {
                             crate::state::EffectsIntensity::Full => {
                                 "Play the splashes, dust, scorch marks and footstep \
-                                 sounds the room's owner authored."
+                                 sounds this world's owner authored."
                             }
                             crate::state::EffectsIntensity::Reduced => {
                                 "Keep them, smaller and quieter, and never more than \
@@ -265,7 +265,7 @@ pub fn settings_ui(
                      applies the next time you see the login screen.",
                 )
                 .changed();
-            ui.small("(this device only — not saved to your PDS)");
+            ui.small("(this device only — not saved to your account)");
 
             ui.add_space(8.0);
             ui.separator();

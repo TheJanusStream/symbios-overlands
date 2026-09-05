@@ -485,9 +485,15 @@ impl std::fmt::Display for FetchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NoSuchIdentity => write!(f, "no account with that identifier"),
-            Self::DidResolutionFailed => write!(f, "that identity's PDS could not be resolved"),
+            // "data server", not "PDS" (#1266): this `Display` is read by
+            // the loading screen's retry reason, the wardrobe status line
+            // and the recovery banners, and the acronym is exactly the
+            // protocol jargon the rest of the copy keeps off screen.
+            Self::DidResolutionFailed => {
+                write!(f, "that account's data server could not be found")
+            }
             Self::Network(detail) => write!(f, "network — {detail}"),
-            Self::PdsError(status) => write!(f, "the PDS answered {status}"),
+            Self::PdsError(status) => write!(f, "the data server answered {status}"),
             Self::Decode(detail) => write!(f, "the response could not be read — {detail}"),
         }
     }

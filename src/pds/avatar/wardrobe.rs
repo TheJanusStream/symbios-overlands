@@ -75,6 +75,45 @@ const MAX_WARDROBE_LIST_PAGES: usize = 4;
 // ---------------------------------------------------------------------------
 
 /// One worn prop: a record in [`AVATAR_ATTACHMENT_COLLECTION`] at a TID rkey.
+/// What a person is told a socket is (#1267 f220).
+///
+/// [`symbios_avatar::Socket::name`] returns the engine's stable kebab
+/// identifier — "crown", "left-hand", "right-shoulder" — and those exact
+/// strings were the display text on every wear surface: the worn row's
+/// title, the picker's chips, the Inventory's "Wear this item at the
+/// left-hand socket", the Catalogue's. Inventory is the designated wear
+/// surface for every user, not a developer tool.
+///
+/// Lives beside [`AttachmentRecord::socket`] rather than in `ui` because
+/// the wire value and its reading are one fact, and the refusal text
+/// `attachment_label` builds needs it too — `pds` must not reach into
+/// `ui` for a string (#1158).
+///
+/// An unknown name comes back as itself: a record written by a newer
+/// build names a socket this one has no word for, and printing the raw
+/// name is more use than printing nothing.
+pub fn socket_label(name: &str) -> &str {
+    match name {
+        "crown" => "Crown",
+        "face" => "Face",
+        "neck" => "Neck",
+        "chest" => "Chest",
+        "back" => "Back",
+        "waist" => "Waist",
+        "hips" => "Hips",
+        "tail" => "Tail",
+        "left-shoulder" => "Left shoulder",
+        "right-shoulder" => "Right shoulder",
+        "left-hand" => "Left hand",
+        "right-hand" => "Right hand",
+        "left-hip" => "Left hip",
+        "right-hip" => "Right hip",
+        "left-foot" => "Left foot",
+        "right-foot" => "Right foot",
+        other => other,
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct AttachmentRecord {
     #[serde(rename = "$type")]
@@ -288,7 +327,7 @@ async fn delete_record(
 ) -> Result<(), String> {
     let pds = resolve_pds(client, &session.did)
         .await
-        .ok_or_else(|| "Failed to resolve PDS".to_string())?;
+        .ok_or_else(|| "couldn't reach your account's data server".to_string())?;
     let url = format!("{pds}/xrpc/com.atproto.repo.deleteRecord");
     let body = DeleteRequest {
         repo: &session.did,
@@ -680,7 +719,7 @@ async fn read_avatar_repo_state(
     };
     let (attachments, attachments_complete) = list_attachment_rkeys(client, pds, did)
         .await
-        .map_err(|e| format!("attachment listing failed: {e:?}"))?;
+        .map_err(|e| format!("couldn't list your worn items: {e}"))?;
     Ok(AvatarRepoState {
         avatar_record: record_exists(client, pds, did, super::super::AVATAR_COLLECTION, "self")
             .await?,
@@ -802,8 +841,12 @@ pub(crate) fn plan_avatar_writes(
         ));
     }
     for (rkey, attachment) in &plan.attachments {
-        let value =
-            serde_json::to_value(attachment).map_err(|e| format!("serialize attachment: {e}"))?;
+        let value = serde_json::to_value(attachment).map_err(|e| {
+            crate::pds::record_size::unserializable_reason(
+                &attachment_label(rkey, attachment),
+                &e.to_string(),
+            )
+        })?;
         crate::pds::record_size::preflight(&value, &attachment_label(rkey, attachment))?;
         ordered.push(upsert(
             repo.attachments.contains(rkey),
@@ -853,7 +896,10 @@ pub(crate) fn plan_avatar_writes(
 fn attachment_label(rkey: &str, attachment: &AttachmentRecord) -> String {
     match attachment.source.as_deref() {
         Some(name) => format!("worn item \"{name}\""),
-        None => format!("prop worn at {} ({rkey})", attachment.socket),
+        None => format!(
+            "prop worn at the {} ({rkey})",
+            socket_label(&attachment.socket).to_lowercase()
+        ),
     }
 }
 
@@ -1014,7 +1060,7 @@ pub async fn publish_avatar_bundle(
 ) -> Result<(), String> {
     let pds = resolve_pds(client, &session.did)
         .await
-        .ok_or_else(|| "Failed to resolve PDS".to_string())?;
+        .ok_or_else(|| "couldn't reach your account's data server".to_string())?;
     let repo = read_avatar_repo_state(client, &pds, &session.did, plan).await?;
     for batch in plan_avatar_writes(plan, &repo)? {
         crate::pds::xrpc::apply_writes(&pds, session, refresh, batch).await?;

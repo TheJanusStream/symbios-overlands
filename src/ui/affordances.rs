@@ -134,6 +134,51 @@ pub fn status_dot(ui: &mut egui::Ui, color: egui::Color32) -> egui::Response {
     response
 }
 
+/// The one way this app builds a text field (#1284).
+///
+/// Wrapping `ui.add` rather than a fresh constructor, so every builder
+/// chain a call site already has — `desired_width`, `hint_text`,
+/// `text_color`, `code_editor`, `font` — keeps working unchanged, and the
+/// returned `egui::Response` is the field's own.
+///
+/// **What it does:** paints the focus ring from
+/// [`crate::ui::theme::focus_ring`] instead of `selection_text`. egui
+/// reads `visuals.selection.stroke` off the `Ui` the widget is added to,
+/// so the override is set on this `Ui`, the widget is added, and the
+/// previous value is put straight back — every selected chip in the app
+/// keeps its label colour, which is the other role that same field
+/// carries upstream. Deliberately NOT `ui.scope`: a child `Ui` derives a
+/// different auto id, and these fields' focus and cursor state is keyed
+/// on it.
+///
+/// Every text field goes through here, enforced by
+/// `fonts::glyph_coverage_tests::the_only_text_fields_are_the_focusable_ones`
+/// — the same shape `ui::num` uses for numeric widgets, and for the same
+/// reason: a helper nobody is obliged to call fixes this once and loses
+/// it at the next call site.
+pub fn text_edit(ui: &mut egui::Ui, field: egui::TextEdit<'_>) -> egui::Response {
+    text_edit_enabled(ui, true, field)
+}
+
+/// [`text_edit`] for a field that can be disabled — the gateway's
+/// destination row greys itself out while a lookup is in flight.
+///
+/// A disabled field cannot take focus, so the ring override is inert
+/// there; the variant exists so the source scan has nothing to make an
+/// exception for.
+pub fn text_edit_enabled(
+    ui: &mut egui::Ui,
+    enabled: bool,
+    field: egui::TextEdit<'_>,
+) -> egui::Response {
+    let previous = ui.visuals().selection.stroke;
+    let ring = theme::focus_ring(&theme::current(ui.ctx()));
+    ui.visuals_mut().selection.stroke = ring;
+    let response = ui.add_enabled(enabled, field);
+    ui.visuals_mut().selection.stroke = previous;
+    response
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -88,7 +88,7 @@ pub fn resolve(
         Choice::TakeTheirs => {
             *live = held.record;
             signals.foreign = true;
-            "Took the other session's copy. Your unpublished edits here are gone; \
+            "Took the other session's copy. Your unsaved edits here are gone; \
              the undo history starts over."
         }
     }
@@ -119,12 +119,12 @@ pub fn other_session_room_ui(
         ui.add_space(4.0);
         ui.label(
             "Another session signed in as you changed this world while you have \
-             unpublished edits here. Which copy do you want to keep?",
+             unsaved edits here. Which copy do you want to keep?",
         );
         ui.label(
             egui::RichText::new(
                 "Keeping yours leaves the other session's changes out until one of you \
-                 saves; taking theirs discards your unpublished edits here.",
+                 saves; taking theirs discards your unsaved edits here.",
             )
             .small(),
         );

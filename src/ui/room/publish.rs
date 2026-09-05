@@ -75,7 +75,11 @@ pub(crate) fn spawn_room_publish_task(
             let client = crate::config::http::default_client();
             pds::publish_room_record(&client, &session_clone, &refresh_clone, &record).await
         };
-        crate::config::http::run_or(fut, Err(crate::config::http::timed_out("room publish"))).await
+        crate::config::http::run_or(
+            fut,
+            Err(crate::config::http::timed_out("Saving your world")),
+        )
+        .await
     });
     commands.spawn(PublishRoomTask {
         task,
@@ -111,7 +115,11 @@ pub(super) fn spawn_reset_task(
             let client = crate::config::http::default_client();
             pds::reset_room_record(&client, &session_clone, &refresh_clone, &record).await
         };
-        crate::config::http::run_or(fut, Err(crate::config::http::timed_out("room reset"))).await
+        crate::config::http::run_or(
+            fut,
+            Err(crate::config::http::timed_out("Resetting your world")),
+        )
+        .await
     });
     commands.spawn(ResetRoomTask {
         task,
@@ -156,14 +164,14 @@ pub fn poll_publish_tasks(
             &mut task.task,
             spawned_at,
             time.elapsed_secs_f64(),
-            "room publish",
+            "Saving your world",
         ) else {
             continue;
         };
 
         commands.entity(entity).despawn();
         if stale_result(
-            "room publish",
+            "Saving your world",
             &task.did,
             current_room.as_deref().map(|r| r.0.as_str()),
         ) {
@@ -190,6 +198,12 @@ pub fn poll_publish_tasks(
                 // retired HERE, where success is known (#1199).
                 commands.remove_resource::<crate::state::RoomRecordRecovery>();
                 publish_feedback.status = PublishStatus::Success { at_secs: now };
+                crate::ui::editable::report_publish_success(
+                    RecordKind::Room,
+                    &panels,
+                    &mut toasts,
+                    now,
+                );
                 session_log.info(
                     now,
                     EventPayload::RecordWriteCompleted {
@@ -220,14 +234,14 @@ pub fn poll_publish_tasks(
             &mut task.task,
             spawned_at,
             time.elapsed_secs_f64(),
-            "room reset",
+            "Resetting your world",
         ) else {
             continue;
         };
 
         commands.entity(entity).despawn();
         if stale_result(
-            "room reset",
+            "Resetting your world",
             &task.did,
             current_room.as_deref().map(|r| r.0.as_str()),
         ) {
@@ -254,6 +268,12 @@ pub fn poll_publish_tasks(
                 // its banner and its button.
                 commands.remove_resource::<crate::state::RoomRecordRecovery>();
                 publish_feedback.status = PublishStatus::Success { at_secs: now };
+                crate::ui::editable::report_publish_success(
+                    RecordKind::Room,
+                    &panels,
+                    &mut toasts,
+                    now,
+                );
                 session_log.info(
                     now,
                     EventPayload::RecordWriteCompleted {

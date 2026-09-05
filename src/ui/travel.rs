@@ -173,7 +173,7 @@ pub fn travel_overlay_ui(
         });
 }
 
-/// Why "Travel to my overland" is unavailable, or `None` (#1232 f251).
+/// Why "Travel to my world" is unavailable, or `None` (#1232 f251).
 ///
 /// Pure, and it exists because the account chip is the ONLY route home
 /// that does not require walking into a gateway collider. The gateway
@@ -193,7 +193,7 @@ pub fn home_travel_blocked(
     guard_open: bool,
 ) -> Option<&'static str> {
     if already_home {
-        return Some("You are already in your own overland");
+        return Some("You are already in your own world");
     }
     if traveling {
         return Some("Finish or cancel the current travel first");

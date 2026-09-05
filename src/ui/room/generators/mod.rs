@@ -474,8 +474,8 @@ pub(crate) fn draw_generators_tab(
                 if ui
                     .button("Place it at my position")
                     .on_hover_text(
-                        "Adds a placement pointing at this asset. A region \
-                         asset is a blueprint; a placement is where a copy of \
+                        "Adds a placement pointing at this item. An item is \
+                         the thing you build; a placement is where a copy of \
                          it stands.",
                     )
                     .clicked()

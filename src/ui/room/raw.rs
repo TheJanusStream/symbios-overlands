@@ -112,7 +112,8 @@ pub(super) fn draw_raw_tab(
         .max_height(row_height * EDITOR_ROWS as f32)
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            ui.add(
+            crate::ui::affordances::text_edit(
+                ui,
                 egui::TextEdit::multiline(&mut raw.text)
                     .font(egui::TextStyle::Monospace)
                     .code_editor()

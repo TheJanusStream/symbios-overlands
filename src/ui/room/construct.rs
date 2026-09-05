@@ -50,28 +50,38 @@ pub(super) fn generator_kind_picker(
     confirm: &mut crate::ui::confirm::ConfirmState<(super::generators::GenNodeId, &'static str)>,
 ) {
     let current = kind.kind_tag();
+    // Names and blurbs, not serde tags (#1267 f214). The confirm below
+    // still keys on the TAG — it is the payload the caller applies — so
+    // only what the reader sees changes.
+    let name = |tag: &str| GeneratorKind::display_name(tag).to_owned();
     // "Has the user tuned anything?" — the same value a fresh switch to
     // this kind would install. Unknown has no constructor, so switching
     // away from it always warns (it discards data this build can't read).
     let is_pristine = *kind == make_default_for_kind(current);
     egui::ComboBox::from_id_salt(format!("{}_kind", salt))
-        .selected_text(current)
+        .selected_text(name(current))
         .show_ui(ui, |ui| {
             for k in kinds {
-                if ui.selectable_label(current == *k, *k).clicked() && current != *k {
+                let blurb = GeneratorKind::blurb(k);
+                let mut entry = ui.selectable_label(current == *k, name(k));
+                if !blurb.is_empty() {
+                    entry = entry.on_hover_text(blurb);
+                }
+                if entry.clicked() && current != *k {
                     let losses = kind_change_losses(current, is_pristine, child_count, k);
                     if losses.is_empty() {
                         *kind = make_default_for_kind(k);
                         *dirty = true;
                     } else {
                         confirm.request(
-                            format!("Change kind to {k}?"),
+                            format!("Change kind to {}?", name(k)),
                             format!(
-                                "Switching this node to {k} discards {}. Undo \
+                                "Switching this part to {} discards {}. Undo \
                                  (Ctrl+Z) can restore it this session.",
+                                name(k),
                                 losses.join(" and ")
                             ),
-                            format!("Change to {k}"),
+                            format!("Change to {}", name(k)),
                             (node_id.clone(), *k),
                         );
                     }
@@ -467,5 +477,90 @@ mod kind_change_tests {
         assert_eq!(node.children.len(), 3, "a container keeps its children");
         apply_kind_change(&mut node, "Water");
         assert!(node.children.is_empty(), "a leaf kind cannot carry them");
+    }
+}
+
+#[cfg(test)]
+mod kind_vocabulary_tests {
+    use super::*;
+
+    /// #1267 f214. THE SEQUENCE: right-click the ground, open "Create
+    /// new…", and be handed a bare list containing "BlobGroup",
+    /// "LSystem", "Superellipsoid", "ParticleSystem" and "RoadNetwork"
+    /// with no descriptions anywhere — on the primary creation surface of
+    /// the owner-only feature the product is built around. The same tag
+    /// was also the whole of what a visitor was told a gift's kind was.
+    ///
+    /// The five names in that sentence are pinned by name, because they
+    /// are the finding: a serde discriminant that would read as a word to
+    /// nobody outside this repo.
+    #[test]
+    fn the_serde_tags_are_not_what_a_person_is_shown() {
+        for tag in [
+            "BlobGroup",
+            "LSystem",
+            "Superellipsoid",
+            "ParticleSystem",
+            "RoadNetwork",
+        ] {
+            assert_ne!(
+                GeneratorKind::display_name(tag),
+                tag,
+                "{tag} is a wire tag, not a name"
+            );
+        }
+        // The control: an unknown tag comes back as itself. A menu that
+        // silently dropped an entry it could not name would be worse than
+        // one showing the raw word.
+        assert_eq!(
+            GeneratorKind::display_name("SomethingNewer"),
+            "SomethingNewer"
+        );
+    }
+
+    /// Every kind a picker offers says what it is FOR. This is the guard
+    /// that catches the real drift: a variant added to the roster and to
+    /// one of these lists, with no line describing it.
+    #[test]
+    fn every_offered_kind_has_a_name_and_a_blurb() {
+        let mut missing = Vec::new();
+        for tag in ROOM_ROOT_KINDS
+            .iter()
+            .chain(ROOM_CHILD_KINDS)
+            .chain(AVATAR_KINDS)
+        {
+            if GeneratorKind::blurb(tag).is_empty() {
+                missing.push(*tag);
+            }
+            assert!(
+                !GeneratorKind::display_name(tag).is_empty(),
+                "{tag} has an empty name"
+            );
+        }
+        missing.sort_unstable();
+        missing.dedup();
+        assert!(
+            missing.is_empty(),
+            "offered with no description — a picker entry has to say what it makes:\n  {}",
+            missing.join("\n  ")
+        );
+
+        // And the control: a tag nothing offers has no blurb, so the test
+        // above is reading the table rather than a blanket default.
+        assert!(GeneratorKind::blurb("SomethingNewer").is_empty());
+    }
+
+    /// Two kinds must not share a name — the combo would offer the same
+    /// word twice with different results.
+    #[test]
+    fn no_two_offered_kinds_share_a_name() {
+        let mut names: Vec<&str> = ROOM_CHILD_KINDS
+            .iter()
+            .map(|t| GeneratorKind::display_name(t))
+            .collect();
+        let before = names.len();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(before, names.len(), "two child kinds render as one name");
     }
 }

@@ -203,18 +203,22 @@ pub(super) fn draw_sign_source(
         SignSource::AtprotoBlob { did, cid } => {
             ui.horizontal(|ui| {
                 ui.label("DID:");
-                if ui
-                    .add(egui::TextEdit::singleline(did).hint_text("did:plc:…"))
-                    .changed()
+                if crate::ui::affordances::text_edit(
+                    ui,
+                    egui::TextEdit::singleline(did).hint_text("did:plc:…"),
+                )
+                .changed()
                 {
                     *dirty = true;
                 }
             });
             ui.horizontal(|ui| {
                 ui.label("CID:");
-                if ui
-                    .add(egui::TextEdit::singleline(cid).hint_text("bafy…"))
-                    .changed()
+                if crate::ui::affordances::text_edit(
+                    ui,
+                    egui::TextEdit::singleline(cid).hint_text("bafy…"),
+                )
+                .changed()
                 {
                     *dirty = true;
                 }
@@ -223,9 +227,11 @@ pub(super) fn draw_sign_source(
         SignSource::DidPfp { did } => {
             ui.horizontal(|ui| {
                 ui.label("DID:");
-                if ui
-                    .add(egui::TextEdit::singleline(did).hint_text("did:plc:…"))
-                    .changed()
+                if crate::ui::affordances::text_edit(
+                    ui,
+                    egui::TextEdit::singleline(did).hint_text("did:plc:…"),
+                )
+                .changed()
                 {
                     *dirty = true;
                 }

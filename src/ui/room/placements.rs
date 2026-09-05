@@ -341,7 +341,7 @@ pub(super) fn draw_placements_tab(
                 let absolute_refusal = if full {
                     full_reason.as_str()
                 } else {
-                    "Add a region asset first — a placement has to point at one"
+                    "Add an item first — a placement has to point at one"
                 };
                 if ui
                     .add_enabled(
@@ -368,7 +368,7 @@ pub(super) fn draw_placements_tab(
                 let scatter_refusal = if full {
                     full_reason.as_str()
                 } else {
-                    "No scatterable generator in this world yet"
+                    "No scatterable item in this world yet"
                 };
                 if ui
                     .add_enabled(
@@ -407,7 +407,8 @@ pub(super) fn draw_placements_tab(
             // Find a row (#1244 f414). The filter runs over the row's own
             // label, which already embeds the generator name.
             ui.horizontal(|ui| {
-                ui.add(
+                crate::ui::affordances::text_edit(
+                    ui,
                     egui::TextEdit::singleline(list.filter)
                         .desired_width(120.0)
                         .hint_text("Filter…"),
@@ -457,7 +458,7 @@ pub(super) fn draw_placements_tab(
                             "Delete these placements?",
                             format!(
                                 "{} placements will be removed from this world. \
-                                 The region assets they point at are kept.",
+                                 The items they point at are kept.",
                                 selection.len()
                             ),
                             "Delete",
@@ -622,7 +623,7 @@ fn draw_placement_detail(
             avoid_water,
             avoid_water_clearance,
         } => {
-            generator_combo(ui, "Generator", generator_ref, all_names, dirty);
+            generator_combo(ui, "Item", generator_ref, all_names, dirty);
             if snap_toggle(
                 ui,
                 snap_to_terrain,
@@ -664,7 +665,7 @@ fn draw_placement_detail(
                 .checkbox(avoid_water, "Avoid Water")
                 .on_hover_text(
                     "When snapped, slide the anchor along its bearing to the \
-                     nearest ground above the room's water line.",
+                     nearest ground above the world's water line.",
                 )
                 .changed()
             {
@@ -699,7 +700,7 @@ fn draw_placement_detail(
             float_on_water,
             naturalness,
         } => {
-            generator_combo(ui, "Generator", generator_ref, eligible_names, dirty);
+            generator_combo(ui, "Item", generator_ref, eligible_names, dirty);
             if ui.checkbox(snap_to_terrain, "Snap to Terrain").changed() {
                 *dirty = true;
             }
@@ -741,7 +742,7 @@ fn draw_placement_detail(
             snap_to_terrain,
             random_yaw,
         } => {
-            generator_combo(ui, "Generator", generator_ref, eligible_names, dirty);
+            generator_combo(ui, "Item", generator_ref, eligible_names, dirty);
             if snap_toggle(
                 ui,
                 snap_to_terrain,
@@ -1078,9 +1079,9 @@ fn draw_naturalness(ui: &mut egui::Ui, n: &mut ScatterNaturalness, dirty: &mut b
     };
     band(
         "Limit by height above water",
-        "Reject samples outside this band above the room's water line — the \
-         moisture proxy. [0, 4] is a riparian shoreline band. Needs a water \
-         generator; without one the scatter places nothing.",
+        "Reject samples outside this band above the world's water line — the \
+         moisture proxy. [0, 4] is a riparian shoreline band. Needs a Water \
+         item; without one the scatter places nothing.",
         &mut n.above_water_band,
         [0.0, 6.0],
         -100.0..=1000.0,

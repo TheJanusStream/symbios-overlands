@@ -929,6 +929,13 @@ pub(crate) mod glyph_coverage_tests {
         // are printed verbatim by every asset field in the room editor, by
         // the loading screen's ambient row and by the arrival toast.
         "src/world_builder/asset_failure.rs",
+        // #1267: `GeneratorKind::display_name` / `blurb` are the creation
+        // menus' entries and the gift modal's kind line — the labels the
+        // CamelCase serde tags used to be.
+        "src/pds/generator.rs",
+        // #1267: `socket_label` names every wear surface's socket, and
+        // `attachment_label` names a prop in a preflight refusal.
+        "src/pds/avatar/wardrobe.rs",
     ];
 
     /// Non-ASCII glyphs drawn by the sculpting sections the Body tab HOSTS
@@ -993,34 +1000,132 @@ pub(crate) mod glyph_coverage_tests {
         }
     }
 
-    /// The contents of every `"…"` string literal in `source`, with
-    /// `//` comments stripped first. A deliberately small lexer: it only
-    /// has to find the characters a label can carry, and a mis-lexed
-    /// literal costs coverage, never a false failure.
+    /// The contents of every `"…"` string literal in `source`.
+    ///
+    /// A deliberately small lexer, but a whole-source one: it used to run
+    /// per line, splitting each on `//` first, which had two consequences
+    /// that cost real coverage (#1266).
+    ///
+    /// **A backslash-continued literal was invisible past its first
+    /// line.** Almost every sentence in this UI is written that way — a
+    /// confirm body, a hover, a banner — so a scan for a word in prose saw
+    /// only the opening fragment. Twelve of the fifteen "PDS" strings the
+    /// vocabulary sweep had to find lived on continuation lines.
+    ///
+    /// **`"https://…"` lexed as a string plus a comment.** Splitting on
+    /// `//` before knowing whether you are inside a literal cuts URLs in
+    /// half.
+    ///
+    /// So the scan is a real (if tiny) lexer: `//` ends a line only
+    /// OUTSIDE a literal, a literal runs to its closing quote across
+    /// newlines, and a char literal is recognised so that `'"'` cannot
+    /// open a string that swallows the rest of the file. Escapes stay
+    /// opaque — only the raw glyphs matter — which means a continued
+    /// literal comes back carrying the source's own indentation. That is
+    /// fine for every needle these scans look for and would not be for a
+    /// whitespace check; nothing here does one.
+    ///
+    /// A mis-lexed literal still costs coverage, never a false failure.
     fn string_literals(source: &str) -> Vec<String> {
         let mut out = Vec::new();
-        for line in source.lines() {
-            let code = line.split("//").next().unwrap_or("");
-            let mut chars = code.chars().peekable();
-            while let Some(c) = chars.next() {
-                if c != '"' {
-                    continue;
-                }
-                let mut literal = String::new();
-                loop {
-                    match chars.next() {
-                        None | Some('"') => break,
-                        Some('\\') => {
-                            // Keep escapes opaque; only the raw glyphs matter.
-                            chars.next();
+        let mut chars = source.chars().peekable();
+        while let Some(c) = chars.next() {
+            match c {
+                '/' if chars.peek() == Some(&'/') => {
+                    for c in chars.by_ref() {
+                        if c == '\n' {
+                            break;
                         }
-                        Some(other) => literal.push(other),
                     }
                 }
-                out.push(literal);
+                // A char literal, but only when it really is one: `'a'` and
+                // `'\n'` are, `'a` opening a lifetime is not, and treating a
+                // lifetime as a literal would desync everything after it.
+                '\'' if is_char_literal(&chars) => {
+                    if chars.peek() == Some(&'\\') {
+                        chars.next();
+                    }
+                    chars.next();
+                    chars.next();
+                }
+                '"' => {
+                    let mut literal = String::new();
+                    loop {
+                        match chars.next() {
+                            None | Some('"') => break,
+                            Some('\\') => {
+                                chars.next();
+                            }
+                            Some(other) => literal.push(other),
+                        }
+                    }
+                    out.push(literal);
+                }
+                _ => {}
             }
         }
         out
+    }
+
+    /// Whether the `'` just consumed opens a char literal rather than a
+    /// lifetime. `rest` starts at the character after the quote.
+    fn is_char_literal(rest: &std::iter::Peekable<std::str::Chars<'_>>) -> bool {
+        let mut probe = rest.clone();
+        match probe.next() {
+            Some('\\') => {
+                probe.next();
+                probe.next() == Some('\'')
+            }
+            Some(_) => probe.next() == Some('\''),
+            None => false,
+        }
+    }
+
+    /// `source` with every `bevy::log` macro invocation blanked out.
+    ///
+    /// A log line is not UI copy — nobody reads `info!("Room record saved
+    /// to PDS")` on a screen — and the logs are by far the largest
+    /// population of strings in this tree that legitimately speak the
+    /// wire's vocabulary. Without this cut the vocabulary scans would
+    /// either fail on the logs or need a per-line exception list, and an
+    /// exception list is how a scan stops meaning anything.
+    ///
+    /// Lines are blanked rather than removed so reported line numbers
+    /// still point at the source. Parentheses are balanced from the
+    /// macro's opening line, so a multi-line `warn!(\n "…",\n x\n);` goes
+    /// whole. A macro whose parens never balance would swallow the rest of
+    /// the file: that costs coverage, never a false failure, which is the
+    /// trade every helper here makes.
+    pub(crate) fn without_log_macros(source: &str) -> String {
+        const MACROS: &[&str] = &["info!(", "warn!(", "error!(", "debug!(", "trace!("];
+        let mut out = String::with_capacity(source.len());
+        let mut depth: i32 = 0;
+        for line in source.lines() {
+            let code = line.split("//").next().unwrap_or("");
+            if depth == 0 {
+                match MACROS.iter().filter_map(|m| code.find(m)).min() {
+                    Some(at) => depth = paren_balance(&code[at..]),
+                    None => {
+                        out.push_str(line);
+                        out.push('\n');
+                        continue;
+                    }
+                }
+            } else {
+                depth += paren_balance(code);
+            }
+            depth = depth.max(0);
+            out.push('\n');
+        }
+        out
+    }
+
+    /// Open parentheses minus closing ones. Quotes are not tracked: a `(`
+    /// inside a log message inflates the count and swallows a line or two
+    /// more than it should, which costs coverage rather than causing a
+    /// false failure.
+    fn paren_balance(code: &str) -> i32 {
+        code.matches('(').count() as i32 - code.matches(')').count() as i32
     }
 
     /// Every non-ASCII glyph a UI label can show must exist in the base
@@ -1289,6 +1394,101 @@ pub(crate) mod glyph_coverage_tests {
         );
     }
 
+    /// Every raw `egui::TextEdit::{singleline,multiline}` construction in
+    /// `source` that is NOT an argument to `affordances::text_edit`, as
+    /// `(line, snippet)` pairs.
+    ///
+    /// A window over the preceding source rather than a per-line test,
+    /// because `cargo fmt` puts the constructor on its own line the
+    /// moment the call wraps — so the call and the construction are
+    /// routinely two lines apart, and a per-line rule flags every correct
+    /// site.
+    fn raw_text_fields(source: &str) -> Vec<(usize, String)> {
+        const LOOKBEHIND: usize = 200;
+        let mut out = Vec::new();
+        for needle in ["egui::TextEdit::singleline(", "egui::TextEdit::multiline("] {
+            let mut from = 0;
+            while let Some(at) = source[from..].find(needle) {
+                let at = from + at;
+                from = at + needle.len();
+                let line_start = source[..at].rfind('\n').map_or(0, |n| n + 1);
+                // A mention inside a `//` comment is not a call site.
+                if source[line_start..at].contains("//") {
+                    continue;
+                }
+                let window = &source[at.saturating_sub(LOOKBEHIND)..at];
+                if window.contains("text_edit(") || window.contains("text_edit_enabled(") {
+                    continue;
+                }
+                let line = source[..at].matches('\n').count() + 1;
+                out.push((line, source[at..from].to_string()));
+            }
+        }
+        out.sort_unstable();
+        out
+    }
+
+    /// Every text field goes through `affordances::text_edit` (#1284).
+    ///
+    /// egui 0.35 paints a FOCUSED field's frame with
+    /// `visuals.selection.stroke`, which in this app is `selection_text` —
+    /// the near-black label colour of a selected chip. Since #1283 gave a
+    /// resting field a gray-105 edge, focusing one *removed* its border.
+    /// The helper scopes a proper ring to the widget; a field added
+    /// directly with `ui.add` silently opts out of it, and there is
+    /// nothing on screen to notice, because the defect is the ABSENCE of a
+    /// line.
+    ///
+    /// Same shape as `the_only_numeric_widgets_are_the_locale_aware_ones`
+    /// and for the same reason (#1264 f364): a helper nobody is obliged to
+    /// call fixes the problem once and loses it at the next call site.
+    #[test]
+    fn the_only_text_fields_are_the_ring_aware_ones() {
+        let mut sources = rust_sources_under("src/ui");
+        sources.extend(rust_sources_under("src/editor_gizmo"));
+        assert!(sources.len() > 20, "the walk found no sources to scan");
+
+        // The controls, both ways round — a scan that cannot see what it
+        // bans passes forever.
+        assert_eq!(
+            raw_text_fields("ui.add(egui::TextEdit::singleline(&mut s));").len(),
+            1
+        );
+        assert_eq!(
+            raw_text_fields("ui.add(egui::TextEdit::multiline(&mut s));").len(),
+            1
+        );
+        assert!(
+            raw_text_fields(
+                "affordances::text_edit(\n    ui,\n    egui::TextEdit::singleline(&mut s),\n)"
+            )
+            .is_empty(),
+            "the wrapped form is the correct one, and fmt puts it on its own line"
+        );
+        assert!(
+            raw_text_fields("  // egui::TextEdit::singleline is banned here").is_empty(),
+            "a mention in a comment is not a call site"
+        );
+
+        let mut raw = Vec::new();
+        for path in sources {
+            if path.ends_with("affordances.rs") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("source is readable");
+            for (line, _) in raw_text_fields(non_test_source(&source)) {
+                raw.push(format!("{}:{line}", short(&path)));
+            }
+        }
+        assert!(
+            raw.is_empty(),
+            "text fields built without the focus ring — use \
+             `crate::ui::affordances::text_edit` / `::text_edit_enabled`, which paint \
+             a focused field's edge in the accent instead of erasing it:\n  {}",
+            raw.join("\n  ")
+        );
+    }
+
     /// UI copy uses one spelling of the words this product says most
     /// (#1264 f225).
     ///
@@ -1334,6 +1534,488 @@ pub(crate) mod glyph_coverage_tests {
             "US spellings in UI copy — this product says \"colour\" and \"centre\":\n  {}",
             drift.join("\n  ")
         );
+    }
+
+    // ---------------------------------------------------------------
+    // The settled product vocabulary (#1266). Four owner decisions, four
+    // scans, because each has a different scope and a different reason.
+    //
+    // The decisions, made 2026-09-05 after five names for one concept
+    // shipped side by side:
+    //
+    // **The place is a `world`.** "Overlands" survives only as the product
+    // name — wordmark, splash, OAuth pages, "a newer version of
+    // Overlands". "room" stays on the wire, where it is the schema's own
+    // noun, and never reaches a label.
+    //
+    // **The buildable is an `item` and a node inside one is a `part`.**
+    // Region Asset, generator, blueprint and "stash item" were the other
+    // four. The accepted cost is that "item" already means an Inventory
+    // entry, so the scene menu's two destructive deletes are disambiguated
+    // by SCOPE ("Delete this part" / "Delete the whole item") rather than
+    // by noun.
+    //
+    // **The write is `Save`, and `PDS` is gone from every user-visible
+    // string.** Not merely from the button: "Publish & travel" in the
+    // unsaved guard was the same action under a verb the user had never
+    // been taught, on the one dialog that stands between them and losing
+    // work.
+    //
+    // **Worn things are `Wearables`.**
+    //
+    // Why scans and not just a sweep: "stash" was five strings when the
+    // review found it, six by the time it was triaged and EIGHT by the
+    // time it was swept — the extras added by tranches worked in between,
+    // by people (me) who had read the finding. A vocabulary decision that
+    // is only written down in prose is a vocabulary decision that drifts.
+
+    /// A literal that is not UI copy: an egui id salt, a storage key, a
+    /// metric name, an env-var name, a method name quoted inside another
+    /// scan.
+    ///
+    /// The rule is shape, not a list: copy is written for a reader, so it
+    /// either contains a space or is a single capitalised word ("Items",
+    /// "Wearables", "Generators" — the tab and heading names this decision
+    /// is mostly about). An identifier is lower-or-upper-case joined by
+    /// `_`, `-`, `.`, `/` or `:` with no space. `ui.label("socket")` — a
+    /// bare lowercase word with no separator — is deliberately COPY, and
+    /// deliberately so: it is a real label on a real panel.
+    fn is_ui_copy(literal: &str) -> bool {
+        if literal.trim().is_empty() {
+            return false;
+        }
+        if literal.contains(' ') {
+            return true;
+        }
+        !literal.contains(['_', '-', '.', '/', ':'])
+    }
+
+    /// The sources every vocabulary scan walks: the UI, the in-world
+    /// editor menus, and the modules outside both that hand a UI surface a
+    /// string to print verbatim.
+    fn ui_copy_sources() -> Vec<std::path::PathBuf> {
+        let mut sources: Vec<std::path::PathBuf> = EXTRA_LABEL_SOURCES
+            .iter()
+            .map(|rel| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(rel))
+            .collect();
+        sources.extend(rust_sources_under("src/ui"));
+        sources.extend(rust_sources_under("src/editor_gizmo"));
+        assert!(sources.len() > 20, "the walk found no sources to scan");
+        sources
+    }
+
+    /// Every UI-copy literal in `path`, with test code and log macros cut
+    /// and format placeholders blanked.
+    ///
+    /// A `{…}` group is an expression, not words: nobody reads
+    /// `MAX_AVATAR_ATTACHMENTS` in "All {MAX_AVATAR_ATTACHMENTS} slots are
+    /// full", they read a number. Leaving them in makes every scan trip
+    /// over its own subject's identifier name.
+    fn copy_literals(path: &std::path::Path) -> Vec<String> {
+        let source = std::fs::read_to_string(path).expect("source is readable");
+        string_literals(&without_log_macros(non_test_source(&source)))
+            .into_iter()
+            .filter(|l| is_ui_copy(l))
+            .map(|l| without_placeholders(&l))
+            .collect()
+    }
+
+    /// `literal` with every `{…}` group replaced by a space.
+    fn without_placeholders(literal: &str) -> String {
+        let mut out = String::with_capacity(literal.len());
+        let mut depth = 0usize;
+        for c in literal.chars() {
+            match c {
+                '{' => depth += 1,
+                '}' => depth = depth.saturating_sub(1),
+                _ if depth == 0 => out.push(c),
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// Run one vocabulary rule over the UI sources and report every drift.
+    fn assert_no_drift(rule: fn(&str) -> Option<&'static str>, headline: &str) {
+        let mut drift = Vec::new();
+        for path in ui_copy_sources() {
+            for literal in copy_literals(&path) {
+                if let Some(why) = rule(&literal) {
+                    drift.push(format!("{}: {why} — {literal:?}", short(&path)));
+                }
+            }
+        }
+        assert!(drift.is_empty(), "{headline}:\n  {}", drift.join("\n  "));
+    }
+
+    /// Whether `haystack` contains `needle` as a whole word.
+    ///
+    /// Needed because "Headroom kept between the camera and the terrain"
+    /// is not about a room, and "part-way" is not about a part.
+    fn has_word(haystack: &str, needle: &str) -> bool {
+        let lower = haystack.to_lowercase();
+        let needle = needle.to_lowercase();
+        let mut from = 0;
+        while let Some(at) = lower[from..].find(&needle) {
+            let start = from + at;
+            let end = start + needle.len();
+            let before_ok = start == 0
+                || !lower[..start]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_alphanumeric());
+            let after_ok = end == lower.len()
+                || !lower[end..]
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_alphanumeric());
+            if before_ok && after_ok {
+                return true;
+            }
+            from = end;
+        }
+        false
+    }
+
+    /// The place noun this literal drifted into, if any.
+    fn stray_place_noun(literal: &str) -> Option<&'static str> {
+        // The product name is not the place noun. Removed before the
+        // check rather than special-cased after it, so "Enter the
+        // Overlands" and "a newer version of Overlands" pass while
+        // "Loading your overland" does not.
+        let without_product = literal.replace("Overlands", "").replace("OVERLANDS", "");
+        if has_word(&without_product, "overland") || has_word(&without_product, "overlands") {
+            return Some("the place is a \"world\"");
+        }
+        // "room" is the WIRE's noun and stays there, so the rule is aimed
+        // at prose: a determiner in front of it, a possessive after it, or
+        // a label that opens with it. That leaves `timed_out("room
+        // publish")`-style internal labels alone — and those are exactly
+        // the strings that turned out to reach a toast, which is why they
+        // were renamed rather than exempted.
+        const PROSE: &[&str] = &[
+            "this room",
+            "the room",
+            "a room",
+            "your room",
+            "their room",
+            "my room",
+            "target room",
+            "room's",
+            "rooms'",
+            "in room",
+        ];
+        let lower = literal.to_lowercase();
+        if PROSE.iter().any(|p| lower.contains(p))
+            || lower.starts_with("room ")
+            || lower.starts_with("⚠ room ")
+        {
+            return Some("the place is a \"world\"; \"room\" is the wire's word");
+        }
+        None
+    }
+
+    /// The buildable-tree noun this literal drifted into, if any.
+    fn stray_buildable_noun(literal: &str) -> Option<&'static str> {
+        if has_word(literal, "region asset")
+            || has_word(literal, "region assets")
+            || literal.contains("region-asset")
+            || literal.contains("Region Asset")
+        {
+            return Some("a buildable is an \"item\"");
+        }
+        if has_word(literal, "generator") || has_word(literal, "generators") {
+            return Some("a buildable is an \"item\"");
+        }
+        if has_word(literal, "blueprint") || has_word(literal, "blueprints") {
+            return Some("a buildable is an \"item\"");
+        }
+        if has_word(literal, "stash") || has_word(literal, "stashes") {
+            return Some("the place things live is the \"inventory\"");
+        }
+        None
+    }
+
+    /// A user-visible "PDS", or the write verb that is not "Save".
+    fn stray_save_vocabulary(literal: &str) -> Option<&'static str> {
+        if literal.contains("PDS") {
+            return Some("say \"your account\" or \"the stored copy\"");
+        }
+        for verb in [
+            "publish",
+            "publishes",
+            "publishing",
+            "published",
+            "unpublished",
+        ] {
+            if has_word(literal, verb) {
+                return Some("the write is \"Save\"");
+            }
+        }
+        None
+    }
+
+    /// The worn-things noun, if it drifted.
+    fn stray_worn_noun(literal: &str) -> Option<&'static str> {
+        (has_word(literal, "attachment") || has_word(literal, "attachments"))
+            .then_some("worn things are \"wearables\"")
+    }
+
+    #[test]
+    fn ui_copy_calls_the_place_a_world() {
+        // Controls. Each scan carries the sentence that USED to ship and
+        // the one that ships now, so a rule that stopped seeing anything
+        // fails here rather than passing forever (#1264's lesson).
+        assert!(stray_place_noun("Loading your overland — @{}").is_some());
+        assert!(stray_place_noun("Travel to {}'s overland").is_some());
+        assert!(stray_place_noun("Travel to a mutual follow of this room's owner").is_some());
+        assert!(stray_place_noun("Contact effects from the room you're in:").is_some());
+        assert!(stray_place_noun("Room theme").is_some());
+        assert!(stray_place_noun("Loading your world — @{}").is_none());
+        assert!(
+            stray_place_noun("Enter the Overlands").is_none(),
+            "the product name is not the place noun"
+        );
+        assert!(
+            stray_place_noun("This item was authored by a newer version of Overlands").is_none()
+        );
+        assert!(
+            stray_place_noun("Make room for it").is_none(),
+            "the idiom is not the noun"
+        );
+        assert!(
+            stray_place_noun("Headroom kept between the camera and the terrain").is_none(),
+            "whole words only"
+        );
+
+        assert_no_drift(
+            stray_place_noun,
+            "UI copy that is not about a \"world\" — the place has one name",
+        );
+    }
+
+    #[test]
+    fn ui_copy_calls_a_buildable_an_item() {
+        assert!(stray_buildable_noun("Region Assets").is_some());
+        assert!(stray_buildable_noun("Rename Generator").is_some());
+        assert!(stray_buildable_noun("Stored Generators: {count}/{cap}").is_some());
+        assert!(stray_buildable_noun("Inventory — your saved item blueprints").is_some());
+        assert!(stray_buildable_noun("Delete this item from your stash").is_some());
+        assert!(stray_buildable_noun("Items").is_none());
+        assert!(stray_buildable_noun("Delete this item from your inventory").is_none());
+        assert!(
+            stray_buildable_noun("Delete the whole item (and its placements)").is_none(),
+            "the two deletes are told apart by SCOPE, not by a second noun"
+        );
+
+        assert_no_drift(
+            stray_buildable_noun,
+            "UI copy naming the buildable something other than an \"item\" (its child is a \"part\")",
+        );
+    }
+
+    /// Scope note: `src/ui/login` is exempt because the login screen owns
+    /// the PDS override field itself — its label, its validation and the
+    /// errors that point at it. An operator field has to name the thing it
+    /// configures. Everything else in the app is a user surface.
+    #[test]
+    fn ui_copy_says_save_and_never_says_pds() {
+        assert!(stray_save_vocabulary("Save to PDS").is_some());
+        assert!(stray_save_vocabulary("Publish & travel").is_some());
+        assert!(stray_save_vocabulary("You have unpublished edits to: {}.").is_some());
+        assert!(stray_save_vocabulary("Saving would overwrite the stored copy").is_none());
+        assert!(stray_save_vocabulary("Save & travel").is_none());
+        assert!(
+            stray_save_vocabulary("Republishing").is_none(),
+            "whole words only"
+        );
+
+        let mut drift = Vec::new();
+        for path in ui_copy_sources() {
+            if path.components().any(|c| c.as_os_str() == "login") {
+                continue;
+            }
+            for literal in copy_literals(&path) {
+                if let Some(why) = stray_save_vocabulary(&literal) {
+                    drift.push(format!("{}: {why} — {literal:?}", short(&path)));
+                }
+            }
+        }
+        assert!(
+            drift.is_empty(),
+            "UI copy naming the write something other than \"Save\", or saying \"PDS\" \
+             outside the login screen's operator field:\n  {}",
+            drift.join("\n  ")
+        );
+    }
+
+    #[test]
+    fn ui_copy_calls_worn_things_wearables() {
+        assert!(stray_worn_noun("Attachments").is_some());
+        assert!(
+            stray_worn_noun("Vehicles carry no attachments — pilot a body to wear this.").is_some()
+        );
+        assert!(stray_worn_noun("Wearables").is_none());
+
+        assert_no_drift(
+            stray_worn_noun,
+            "UI copy calling worn things \"attachments\"",
+        );
+    }
+
+    /// The helpers the four scans share, checked on the inputs that made
+    /// them necessary.
+    #[test]
+    fn the_copy_filter_and_the_log_cut_do_what_the_scans_need() {
+        assert_eq!(
+            without_placeholders("All {MAX_AVATAR_ATTACHMENTS} slots are full"),
+            "All  slots are full",
+            "an interpolated identifier is not a word anybody reads"
+        );
+        assert!(is_ui_copy("Items"), "a bare capitalised word is a tab name");
+        assert!(
+            is_ui_copy("socket"),
+            "a bare lowercase word is a real label"
+        );
+        assert!(is_ui_copy("Delete this part"));
+        assert!(!is_ui_copy("room-recovery-reset"), "an egui id salt");
+        assert!(!is_ui_copy("symbios_overlands_prefs_v1"), "a storage key");
+        assert!(!is_ui_copy("app.symbios.room"), "an NSID");
+        assert!(!is_ui_copy(""));
+
+        // A log line is not copy, on one line or several.
+        assert_eq!(
+            string_literals(&without_log_macros("info!(\"Room record saved\");\n")).len(),
+            0
+        );
+        let multi = "warn!(\n    \"Stored {} record could not be decoded\",\n    LABEL\n);\nlet x = \"kept\";\n";
+        assert_eq!(
+            string_literals(&without_log_macros(multi)),
+            vec!["kept".to_string()],
+            "a multi-line log macro goes whole and the code after it survives"
+        );
+
+        // And the lexer half: a backslash-continued literal is ONE
+        // literal, which is where twelve of the fifteen "PDS" strings
+        // lived (#1266).
+        let continued = "let s = \"first half \\\n         second half\";\n";
+        assert_eq!(string_literals(continued).len(), 1);
+        assert!(string_literals(continued)[0].contains("second half"));
+
+        // A URL is one literal, not a literal plus a comment.
+        assert_eq!(
+            string_literals("let u = \"https://bsky.social/xrpc\";\n"),
+            vec!["https://bsky.social/xrpc".to_string()]
+        );
+
+        // A lifetime does not open a char literal, and a char literal
+        // holding a quote does not open a string.
+        assert_eq!(
+            string_literals("fn f<'a>(x: &'a str) -> &'a str { \"kept\" }\n"),
+            vec!["kept".to_string()]
+        );
+        assert_eq!(
+            string_literals("let q = '\"'; let s = \"kept\";\n"),
+            vec!["kept".to_string()]
+        );
+    }
+
+    /// No shipped label carries a run of spaces from the source's own
+    /// indentation (#1266).
+    ///
+    /// **This one has cost two tranches.** A Rust string continued with a
+    /// trailing backslash is one string with no gap in it — but a Python
+    /// triple-quoted heredoc, which is how a lot of this repo's bulk
+    /// rewrites are done, reads that backslash as ITS OWN line
+    /// continuation, joins the lines, and bakes the following indentation
+    /// into the literal as real spaces. It ships as "the field below" plus
+    /// thirty-eight spaces plus "to go to your own world instead", and
+    /// `fmt`, `clippy` and every test pass. #1227 shipped one (found under
+    /// #1233); #1269's audience line shipped one into the working tree
+    /// before this existed.
+    ///
+    /// **Deliberately per LINE, not through
+    /// [`string_literals`].** That lexer joins a continued literal across
+    /// newlines with the source's indentation intact, so it reports every
+    /// correctly-written multi-line string as a defect. What distinguishes
+    /// the two is exactly whether the run of spaces is inside a single
+    /// source line, which is a question only the raw line can answer.
+    ///
+    /// `src/diagnostics/analyze` legitimately pads columns in aligned CLI
+    /// output; it is not a UI-copy source and is not walked.
+    #[test]
+    fn no_ui_label_carries_the_sources_own_indentation() {
+        // The control, both ways round.
+        assert!(gapped_literals("let s = \"a          b\";").len() == 1);
+        assert!(gapped_literals("let s = \"a b\";").is_empty());
+        assert!(
+            gapped_literals("// a          b").is_empty(),
+            "a comment ships nothing"
+        );
+
+        let mut found = Vec::new();
+        for path in ui_copy_sources() {
+            let source = std::fs::read_to_string(&path).expect("source is readable");
+            for (n, line) in non_test_source(&source).lines().enumerate() {
+                for literal in gapped_literals(line) {
+                    found.push(format!("{}:{}: {literal:?}", short(&path), n + 1));
+                }
+            }
+        }
+        assert!(
+            found.is_empty(),
+            "labels carrying a run of spaces from the source's indentation — a \
+             backslash continuation eaten by a heredoc:\n  {}",
+            found.join("\n  ")
+        );
+    }
+
+    /// Every literal ON THIS LINE holding four or more consecutive spaces
+    /// between two non-space characters.
+    fn gapped_literals(line: &str) -> Vec<String> {
+        let code = line.split("//").next().unwrap_or("");
+        let mut out = Vec::new();
+        let mut chars = code.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c != '"' {
+                continue;
+            }
+            let mut literal = String::new();
+            loop {
+                match chars.next() {
+                    None | Some('"') => break,
+                    Some('\\') => {
+                        chars.next();
+                    }
+                    Some(other) => literal.push(other),
+                }
+            }
+            if has_indent_run(&literal) {
+                out.push(literal);
+            }
+        }
+        out
+    }
+
+    /// Four or more spaces with a non-space on each side.
+    fn has_indent_run(literal: &str) -> bool {
+        let chars: Vec<char> = literal.chars().collect();
+        let mut run = 0usize;
+        let mut seen_non_space = false;
+        for (i, c) in chars.iter().enumerate() {
+            if *c == ' ' {
+                if seen_non_space {
+                    run += 1;
+                }
+                continue;
+            }
+            if run >= 4 && i < chars.len() {
+                return true;
+            }
+            run = 0;
+            seen_non_space = true;
+        }
+        false
     }
 
     /// Probe for authoring: which candidate icon glyphs the base set can

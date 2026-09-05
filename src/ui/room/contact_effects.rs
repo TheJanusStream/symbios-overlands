@@ -55,6 +55,8 @@ pub(super) fn draw_contact_effects_tab(
     dirty: &mut bool,
     assets: &mut super::assets::AssetPanel<'_>,
     muted: &mut crate::audio_mute::AudioMuted,
+    // How many other people are in the world right now (#1269 f305).
+    peers: usize,
 ) {
     // The worst path in #1252 f303 is the FIRST one: `AudioMuted` defaults
     // to true, so a brand-new owner's very first correct cue is silent and
@@ -120,14 +122,14 @@ pub(super) fn draw_contact_effects_tab(
             // as an undiscoverable kill switch for the whole channel.
             ui.separator();
             ui.label(
-                egui::RichText::new("Room limits")
+                egui::RichText::new("World limits")
                     .small()
                     .strong()
                     .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
             let mut per_frame = effects.max_particles_per_frame;
             drag_u32(ui, "Max particles / frame", &mut per_frame, 1, 4096, dirty).on_hover_text(
-                "A ceiling across every recipe and every avatar in this room, not \
+                "A ceiling across every recipe and every avatar in this world, not \
                  a setting on one recipe. Lower it if effects are costing frames.",
             );
             effects.max_particles_per_frame = per_frame;
@@ -202,13 +204,30 @@ pub(super) fn draw_contact_effects_tab(
             .show(ui, |ui| {
                 ui.label(
                     egui::RichText::new(
-                        "Particle bursts, decals and audio cues triggered when an \
-                         avatar contacts a surface (e.g. a boat hitting water). \
-                         Edits apply live — trigger the effect by touching the \
-                         surface.",
+                        "Particle bursts, marks and sounds triggered when an avatar \
+                         touches a surface — a boat hitting water, a body landing on \
+                         ground. Trigger one by touching the surface yourself.",
                     )
                     .small()
                     .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                );
+                // #1269 f305. This tab writes straight into the record and
+                // arms the debounce, so a flush broadcasts the edit the
+                // same frame the slider moves — while the footer's lit
+                // "Save" told the owner nothing had gone out yet. Every
+                // other editor surface trains them that dirty means
+                // private, and the things being edited here are exactly
+                // the ones that act on other people's screens and
+                // speakers: a cooldown-0 audio cue reaches a visitor
+                // before the owner has heard it once.
+                //
+                // A NOTICE, not `text_weak` — it is a mode the owner is
+                // in, not a footnote.
+                crate::ui::editable::audience_notice(
+                    ui,
+                    crate::ui::editable::EditVisibility::Live,
+                    peers,
+                    "world",
                 );
                 ui.add_space(4.0);
                 let Some(i) = *selected else {
@@ -264,7 +283,38 @@ fn draw_recipe_detail(
             limits::MAX_CONTACT_MIN_SPEED,
             dirty,
         );
-        fp_slider(ui, "Min intensity", &mut r.min_intensity, 0.0, 1.0, dirty);
+        // ONE slider whose meaning changes with the surface combo two rows
+        // above it (#1267 f319). `classifier::intensity_for` computes
+        // intensity as submersion depth over avatar height for water, and
+        // as downward impact speed over a reference (floored at a grounded
+        // constant) for terrain. An owner tuning a terrain recipe by a
+        // slider labelled "intensity" is tuning impact SPEED while
+        // believing they are tuning something like depth or firmness, and
+        // no reading of the old label would have told them otherwise.
+        //
+        // `draw_recipe_detail` has `r.surface` in hand, so the label can
+        // simply say which. `Unknown` is a decode fallback and cannot be
+        // authored, so it keeps the neutral word.
+        let (intensity_label, intensity_hover): (&str, &str) = match r.surface {
+            ContactSurfaceKind::Water => (
+                "Min depth",
+                "How deep the avatar has to be before this fires, as a fraction of its \
+                 own height. 0 fires at the surface; 1 needs full submersion.",
+            ),
+            ContactSurfaceKind::Terrain => (
+                "Min impact",
+                "How hard the landing has to be before this fires, as a fraction of a \
+                 reference impact speed. Standing still still counts a little, so 0 \
+                 fires on any contact.",
+            ),
+            ContactSurfaceKind::Unknown => (
+                "Min intensity",
+                "This recipe names a surface this build does not model, so what \
+                 intensity measures here is unknown.",
+            ),
+        };
+        fp_slider(ui, intensity_label, &mut r.min_intensity, 0.0, 1.0, dirty)
+            .on_hover_text(intensity_hover);
     });
 
     fp_slider_log(
@@ -302,7 +352,16 @@ fn draw_recipe_detail(
             velocity_inherit,
             particle,
         } => {
-            ui.collapsing("Count = clamp(speed·gain + base, min, max)", |ui| {
+            // The section header was the implementation formula verbatim
+            // (#1267 f319). It is still worth stating — it is the only
+            // place the two sliders' relationship is written down — but as
+            // a hover on a header that says what the knobs are FOR.
+            ui.collapsing("How many particles", |ui| {
+                ui.label(
+                    egui::RichText::new("count = speed x gain + base, clamped to min and max")
+                        .small()
+                        .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                );
                 fp_slider(ui, "Gain", &mut count.gain, 0.0, 40.0, dirty);
                 fp_slider(ui, "Base", &mut count.base, 0.0, 40.0, dirty);
                 // Bounded against each other (#1254 f318). The sanitiser
@@ -318,7 +377,18 @@ fn draw_recipe_detail(
                 drag_u32(ui, "Max", &mut count.max, count_min.min(512), 512, dirty);
             });
             fp_slider(ui, "Radius scale", radius_scale, 0.0, 8.0, dirty);
-            fp_slider(ui, "Velocity inherit", velocity_inherit, 0.0, 2.0, dirty);
+            fp_slider(
+                ui,
+                "Carry the impact's speed",
+                velocity_inherit,
+                0.0,
+                2.0,
+                dirty,
+            )
+            .on_hover_text(
+                "How much of the contact's own motion the particles set off with. \
+                     0 launches them from rest; 1 sends them along with it.",
+            );
             ui.collapsing("Particle", |ui| {
                 shape_combo(ui, i, &mut particle.shape, dirty);
                 fp_range_sliders(
@@ -361,7 +431,14 @@ fn draw_recipe_detail(
                 fp_slider(ui, "End size", &mut particle.end_size, 0.0, 1.0, dirty);
                 color_picker_rgba(ui, "Start colour", &mut particle.start_color, dirty);
                 color_picker_rgba(ui, "End colour", &mut particle.end_color, dirty);
-                if ui.checkbox(&mut particle.billboard, "Billboard").changed() {
+                if ui
+                    .checkbox(&mut particle.billboard, "Always face the camera")
+                    .on_hover_text(
+                        "Each particle turns to face whoever is looking. Off: they keep \
+                         the orientation they were emitted with.",
+                    )
+                    .changed()
+                {
                     *dirty = true;
                 }
                 drag_u32(
@@ -428,11 +505,17 @@ fn surface_label(s: ContactSurfaceKind) -> &'static str {
     }
 }
 
+/// What a phase is called on screen (#1267 f319).
+///
+/// The wire enum's own words reached the picker unmapped, and "dwell" is
+/// the runtime's term for "still touching" — not a word an author would
+/// reach for, and the one of the three whose meaning cannot be guessed.
+/// This is the boundary: the enum is untouched, only the reading changes.
 fn phase_label(p: ContactPhaseKind) -> &'static str {
     match p {
-        ContactPhaseKind::Enter => "enter",
-        ContactPhaseKind::Dwell => "dwell",
-        ContactPhaseKind::Exit => "exit",
+        ContactPhaseKind::Enter => "on contact",
+        ContactPhaseKind::Dwell => "while touching",
+        ContactPhaseKind::Exit => "on leaving",
         ContactPhaseKind::Unknown => "unknown",
     }
 }
@@ -457,7 +540,7 @@ fn surface_combo(ui: &mut egui::Ui, salt: usize, s: &mut ContactSurfaceKind, dir
 
 fn phase_combo(ui: &mut egui::Ui, salt: usize, p: &mut ContactPhaseKind, dirty: &mut bool) {
     ui.horizontal(|ui| {
-        ui.label("Phase");
+        ui.label("When");
         egui::ComboBox::from_id_salt(("phase", salt))
             .selected_text(phase_label(*p))
             .show_ui(ui, |ui| {
@@ -486,7 +569,7 @@ fn default_particle_effect() -> ContactEffectKind {
 fn effect_kind_label(e: &ContactEffectKind) -> &'static str {
     match e {
         ContactEffectKind::ParticleBurst { .. } => "particle burst",
-        ContactEffectKind::DecalStamp { .. } => "decal",
+        ContactEffectKind::DecalStamp { .. } => "mark",
         ContactEffectKind::AudioCue { .. } => "audio cue",
         ContactEffectKind::Unknown => "unknown",
     }
@@ -700,7 +783,7 @@ fn audio_form(
 
 /// Editor for a [`DecalParams`] payload.
 fn decal_form(ui: &mut egui::Ui, decal: &mut DecalParams, dirty: &mut bool) {
-    ui.collapsing("Decal", |ui| {
+    ui.collapsing("Mark left behind", |ui| {
         fp_slider_log(
             ui,
             "TTL (s)",
@@ -756,7 +839,7 @@ fn shape_combo(ui: &mut egui::Ui, salt: usize, shape: &mut EmitterShape, dirty: 
     // the one that did not. Capitalised to match the generators tab, which
     // names the same enum.
     ui.horizontal(|ui| {
-        ui.label("Emitter shape");
+        ui.label("Emitted from");
         egui::ComboBox::from_id_salt(("shape", salt))
             .selected_text(label)
             .show_ui(ui, |ui| {
@@ -872,5 +955,42 @@ mod authoring_tests {
         // The sentence names the consequence, not the mechanism.
         let text = dwell_cooldown_warning(ContactPhaseKind::Dwell, 0.0).expect("warned");
         assert!(text.contains("every frame"), "{text}");
+    }
+}
+
+#[cfg(test)]
+mod phase_vocabulary_tests {
+    use super::*;
+
+    /// #1267 f319. The wire enum's own words reached the picker unmapped,
+    /// and "dwell" is the runtime's term for "still touching" — the one of
+    /// the three an author cannot guess. The wire is untouched; only the
+    /// reading changed, so this asserts the boundary rather than the enum.
+    #[test]
+    fn the_phase_picker_does_not_speak_the_runtimes_enum() {
+        for (phase, banned) in [
+            (ContactPhaseKind::Enter, "enter"),
+            (ContactPhaseKind::Dwell, "dwell"),
+            (ContactPhaseKind::Exit, "exit"),
+        ] {
+            assert_ne!(phase_label(phase), banned, "{banned} is the enum's word");
+        }
+        // Each says WHEN, which is the question the row asks.
+        assert!(phase_label(ContactPhaseKind::Dwell).contains("touching"));
+        assert!(phase_label(ContactPhaseKind::Enter).contains("contact"));
+        assert!(phase_label(ContactPhaseKind::Exit).contains("leaving"));
+
+        // The control: three distinct answers, so a table that collapsed
+        // two phases into one phrase would fail here.
+        let mut all = [
+            phase_label(ContactPhaseKind::Enter),
+            phase_label(ContactPhaseKind::Dwell),
+            phase_label(ContactPhaseKind::Exit),
+        ];
+        all.sort_unstable();
+        let before = all.len();
+        let mut v = all.to_vec();
+        v.dedup();
+        assert_eq!(before, v.len());
     }
 }

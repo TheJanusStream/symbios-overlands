@@ -126,7 +126,7 @@ pub(super) fn draw_transform_no_scale(ui: &mut egui::Ui, t: &mut TransformData, 
 
     ui.label(
         egui::RichText::new(format!(
-            "Scale: {:.2} x {:.2} x {:.2} (Configure scale in Generator)",
+            "Scale: {:.2} x {:.2} x {:.2} (Configure scale in Item)",
             t.scale.0[0], t.scale.0[1], t.scale.0[2]
         ))
         .small()
@@ -304,13 +304,29 @@ pub(super) fn drag_u64(ui: &mut egui::Ui, label: &str, value: &mut u64, dirty: &
 /// changes is what the swatch shows; every stored value keeps exactly the
 /// meaning it already had, so no record is migrated and no world re-lights
 /// itself on upgrade.
-pub(super) fn color_picker(ui: &mut egui::Ui, label: &str, value: &mut Fp3, dirty: &mut bool) {
+/// Returns the row's `Response` so the caller can hang an
+/// `on_hover_text` on it (#1268 f66) — the same change `fp_slider` took in
+/// #1233, for the same reason: a helper that swallows the `Response` makes
+/// a tooltip *structurally impossible* on every knob built from it, and
+/// the Distance Fog section's four controls are all colour pickers.
+///
+/// The union of the label and the swatch, not the swatch alone: "Extinction"
+/// is the part a reader points at when they want to know what it means.
+pub(super) fn color_picker(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut Fp3,
+    dirty: &mut bool,
+) -> egui::Response {
     ui.horizontal(|ui| {
-        ui.label(label);
-        if edit_srgb_rgb(ui, &mut value.0) {
+        let label = ui.label(label);
+        let picker = edit_srgb_rgb(ui, &mut value.0);
+        if picker.changed() {
             *dirty = true;
         }
-    });
+        label | picker
+    })
+    .inner
 }
 
 /// The stored sRGB triple, edited through egui's linear-space picker.
@@ -318,22 +334,27 @@ pub(super) fn color_picker(ui: &mut egui::Ui, label: &str, value: &mut Fp3, dirt
 /// and the road-appearance override rows, which is the whole set — a
 /// twenty-fifth picker that called egui directly would be a twenty-fifth
 /// swatch telling a different story.
-pub(super) fn edit_srgb_rgb(ui: &mut egui::Ui, value: &mut [f32; 3]) -> bool {
+pub(super) fn edit_srgb_rgb(ui: &mut egui::Ui, value: &mut [f32; 3]) -> egui::Response {
     let mut linear = value.map(egui::ecolor::linear_from_gamma);
-    if ui.color_edit_button_rgb(&mut linear).changed() {
+    let response = ui.color_edit_button_rgb(&mut linear);
+    if response.changed() {
         *value = linear.map(egui::ecolor::gamma_from_linear);
-        return true;
     }
-    false
+    response
 }
 
 /// RGBA colour picker — mirrors [`color_picker`] but for [`Fp4`] fields
 /// where the alpha channel carries renderer-relevant information (fog
 /// opacity, sun-glow strength). Uses the unmultiplied variant so the
 /// alpha edits independently of RGB rather than being pre-scaled.
-pub(super) fn color_picker_rgba(ui: &mut egui::Ui, label: &str, value: &mut Fp4, dirty: &mut bool) {
+pub(super) fn color_picker_rgba(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut Fp4,
+    dirty: &mut bool,
+) -> egui::Response {
     ui.horizontal(|ui| {
-        ui.label(label);
+        let label = ui.label(label);
         // Same conversion as [`color_picker`], on the three colour channels
         // only: alpha is a coverage fraction in both spaces and gamma is
         // not applied to it anywhere in the renderer.
@@ -343,7 +364,8 @@ pub(super) fn color_picker_rgba(ui: &mut egui::Ui, label: &str, value: &mut Fp4,
             egui::ecolor::linear_from_gamma(value.0[2]),
             value.0[3],
         ];
-        if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+        let picker = ui.color_edit_button_rgba_unmultiplied(&mut rgba);
+        if picker.changed() {
             *value = Fp4([
                 egui::ecolor::gamma_from_linear(rgba[0]),
                 egui::ecolor::gamma_from_linear(rgba[1]),
@@ -352,7 +374,9 @@ pub(super) fn color_picker_rgba(ui: &mut egui::Ui, label: &str, value: &mut Fp4,
             ]);
             *dirty = true;
         }
-    });
+        label | picker
+    })
+    .inner
 }
 
 /// Terrain-algorithm picker, driven by the generator roster rather than a
@@ -397,7 +421,7 @@ pub(super) fn generator_combo(
         .show_ui(ui, |ui| {
             if names.is_empty() {
                 ui.label(
-                    egui::RichText::new("No region assets in this world yet")
+                    egui::RichText::new("No items in this world yet")
                         .small()
                         .color(crate::ui::theme::current(ui.ctx()).text_weak),
                 );
@@ -797,11 +821,16 @@ pub(super) fn text_draft_row(
     crate::ui::fonts::note_drawn_text(ui.ctx(), &state.text);
 
     let refused = refusal(&state.text);
-    let mut field = egui::TextEdit::singleline(&mut state.text).desired_width(width);
-    if refused.is_some() {
-        field = field.text_color(crate::ui::theme::current(ui.ctx()).status.error);
-    }
-    let response = ui.add(field).on_hover_text(hover);
+    let refused_colour = refused
+        .is_some()
+        .then(|| crate::ui::theme::current(ui.ctx()).status.error);
+    let response = crate::ui::affordances::text_edit(
+        ui,
+        egui::TextEdit::singleline(&mut state.text)
+            .desired_width(width)
+            .text_color_opt(refused_colour),
+    )
+    .on_hover_text(hover);
     if let Some(reason) = &refused {
         ui.label(
             egui::RichText::new(reason.clone())

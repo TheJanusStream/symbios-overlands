@@ -252,7 +252,7 @@ pub(super) fn poll_portal_travel_tasks(
         // owner's PDS contents — substituting the default on a transient
         // network failure would silently destroy the destination user's
         // real room as soon as they (or any autosave hook) clicked
-        // "Save to PDS". Mirrors the loading-pipeline policy in
+        // "Save". Mirrors the loading-pipeline policy in
         // `loading::poll_room_record_task`.
         let elapsed = time.elapsed_secs_f64();
         let mut new_record = match result {
@@ -277,7 +277,7 @@ pub(super) fn poll_portal_travel_tasks(
                 commands.remove_resource::<RoomRecordRecovery>();
                 toasts.info(
                     format!(
-                        "{} hasn't built an overland yet — this one is generated from their identifier.",
+                        "{} hasn't built a world yet — this one is generated from their identifier.",
                         crate::ui::travel::travel_label(
                             &profile_cache,
                             &travel_data.target_did,
@@ -304,6 +304,10 @@ pub(super) fn poll_portal_travel_tasks(
                     msg
                 );
                 commands.insert_resource(RoomRecordRecovery {
+                    // Decode by construction — this is the `FetchError::Decode`
+                    // arm, the one cause that knows the stored record is
+                    // unreadable rather than merely unread (#1265 f210).
+                    cause: crate::state::RecoveryCause::Decode,
                     reason: msg.clone(),
                 });
                 RoomRecord::default_for_did(&travel_data.target_did)

@@ -144,10 +144,10 @@ impl WardrobeStatus {
             Self::Fetching | Self::Listed => None,
             Self::Failed(reason) => Some(format!("Couldn't load your wardrobe — {reason}")),
             Self::Untried => Some(String::from(
-                "Refresh to list the bodies published to your wardrobe.",
+                "Refresh to list the bodies saved to your wardrobe.",
             )),
             Self::Empty => Some(String::from(
-                "No bodies in the wardrobe yet — saving publishes this one.",
+                "No bodies in the wardrobe yet — saving stores this one.",
             )),
         }
     }
@@ -195,7 +195,7 @@ pub(super) fn draw_body_tab(
 
     let Some(rig) = record.body.rigged_ref() else {
         ui.label(
-            "This avatar is a generator chassis — the classic construction-kit \
+            "This avatar has a construction-kit body — the classic one, built \
              body. A rigged body is the parametric skinned kind: sculpted by \
              sliders, animated procedurally, dressable at sockets.",
         );
@@ -210,8 +210,8 @@ pub(super) fn draw_body_tab(
                 }
                 ui.small(
                     "Rolled from your identity — re-roll, sculpt and dress it \
-                     from here. Saving publishes it to your wardrobe; the \
-                     footer's Reset returns to a generator chassis.",
+                     from here. Saving stores it in your wardrobe; the \
+                     footer's Reset returns to a construction-kit body.",
                 );
             }
             None => {
@@ -361,7 +361,7 @@ pub(super) fn draw_body_tab(
                             })
                             .unwrap_or_default();
                         outcome.toast = Some(format!(
-                            "Branched to a new wardrobe entry \"{name}\" — Save to publish it."
+                            "Branched to a new wardrobe entry \"{name}\" — Save to store it."
                         ));
                         outcome.changed = true;
                         outcome.label = Some(String::from("save body as copy"));
@@ -401,7 +401,11 @@ pub(super) fn draw_body_tab(
                                 };
                                 if ui
                                     .selectable_label(worn, name)
-                                    .on_hover_text(format!("wardrobe/{rkey}"))
+                                    .on_hover_text(if worn {
+                                        String::from("You're wearing this one")
+                                    } else {
+                                        format!("Wear \"{name}\" instead")
+                                    })
                                     .clicked()
                                     && !worn
                                 {
@@ -463,7 +467,7 @@ mod tests {
         assert_eq!(pristine, WardrobeStatus::Untried);
         assert_eq!(
             pristine.message().as_deref(),
-            Some("Refresh to list the bodies published to your wardrobe.")
+            Some("Refresh to list the bodies saved to your wardrobe.")
         );
 
         let mut failed = listing();
@@ -481,7 +485,7 @@ mod tests {
             "names the failure: {message}"
         );
         assert!(
-            message.contains("the PDS answered 500"),
+            message.contains("the data server answered 500"),
             "and the reason, so a 500 and an expired token are not one hint: {message}"
         );
     }
@@ -529,7 +533,7 @@ mod tests {
         assert_eq!(empty.status(), WardrobeStatus::Empty);
         assert_eq!(
             empty.status().message().as_deref(),
-            Some("No bodies in the wardrobe yet — saving publishes this one.")
+            Some("No bodies in the wardrobe yet — saving stores this one.")
         );
     }
 

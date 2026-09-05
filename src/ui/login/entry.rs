@@ -251,12 +251,12 @@ pub fn override_warning(pds: Option<&str>, relay: Option<&str>) -> Option<String
              password and this app's access are handled by that server."
         )),
         (None, Some(relay)) => Some(format!(
-            "This link also changes which server carries the room: {relay}. \
+            "This link also changes which server carries the world: {relay}. \
              Everything you say and do in the world passes through it."
         )),
         (Some(pds), Some(relay)) => Some(format!(
             "This link also changes where you sign in ({pds}) and which \
-             server carries the room ({relay}). The first handles your \
+             server carries the world ({relay}). The first handles your \
              account; everything you say and do in the world passes through \
              the second."
         )),
@@ -268,7 +268,7 @@ pub fn destination_line(name: &str, resolving: bool) -> String {
     if resolving {
         format!("You're heading to {name} — checking who that is…")
     } else {
-        format!("You're heading to {name}'s overland.")
+        format!("You're heading to {name}'s world.")
     }
 }
 
@@ -279,7 +279,7 @@ pub fn destination_line(name: &str, resolving: bool) -> String {
 /// decide is whose world they are about to authorise into.
 pub fn enter_button_label(name: Option<&str>) -> String {
     match name {
-        Some(name) => format!("Enter {name}'s overland"),
+        Some(name) => format!("Enter {name}'s world"),
         None => String::from("Enter the Overlands"),
     }
 }
@@ -485,7 +485,7 @@ mod tests {
         assert_eq!(enter_button_label(None), "Enter the Overlands");
         assert_eq!(
             enter_button_label(Some("@alice.bsky.social")),
-            "Enter @alice.bsky.social's overland"
+            "Enter @alice.bsky.social's world"
         );
         assert!(destination_line("@alice.bsky.social", false).contains("@alice.bsky.social"));
         assert!(destination_line("did:plc:z72i7hd…", true).contains("checking who that is"));

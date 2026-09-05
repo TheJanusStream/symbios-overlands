@@ -15,7 +15,7 @@
 //! DID-seeded default immediately. Substituting the default on a
 //! transient network failure would be catastrophic for room and avatar —
 //! the owner would silently be staged on the blank default, and a
-//! "Save to PDS" click would overwrite their real record.
+//! "Save" click would overwrite their real record.
 
 use std::marker::PhantomData;
 
@@ -26,6 +26,7 @@ use crate::config;
 use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::{EventPayload, FetchStatus, RecordKind, Severity};
 use crate::pds::FetchError;
+use crate::state::RecoveryCause;
 
 /// Per-record policy for the shared fetch pipeline. Implemented in
 /// [`super::records`] for `RoomRecord`, `AvatarRecord` and
@@ -66,14 +67,26 @@ pub trait LoadedRecord: Sized + Send + Sync + 'static {
     fn install(self, commands: &mut Commands);
 
     /// Hook fired when the stored record can never be fetched intact —
-    /// decode failure (schema drift is permanent, retrying can't help)
-    /// or an exhausted retry budget. Every impl raises its recovery
-    /// marker here (#840): room's drives the World-editor banner, avatar
-    /// and inventory gate their first publish behind a confirm so a
-    /// routine Save can't clobber the real stored record. Required (no
-    /// default) so a future record type can't silently skip the
-    /// clobber-protection contract.
-    fn on_unrecoverable(commands: &mut Commands, reason: String);
+    /// decode failure (schema drift is permanent, retrying can't help),
+    /// an identity that does not resolve, or an exhausted retry budget.
+    /// Every impl raises its recovery marker here (#840): room's drives
+    /// the World-editor banner, avatar and inventory gate their first
+    /// publish behind a confirm so a routine Save can't clobber the real
+    /// stored record. Required (no default) so a future record type can't
+    /// silently skip the clobber-protection contract.
+    ///
+    /// `cause` splits "this build cannot read what is stored" from "we
+    /// never read it" (#1265 f210). It rides the hook rather than being
+    /// re-derived per impl because this is the one funnel all three
+    /// arms of `poll_record_task` pass through — the room banner's
+    /// headline, its detail prefix and whether it offers a destructive
+    /// reset at all are decided by it, and a second derivation is how the
+    /// two would drift apart again.
+    fn on_unrecoverable(
+        commands: &mut Commands,
+        cause: crate::state::RecoveryCause,
+        reason: String,
+    );
 
     /// Hook fired when a fetch resolves cleanly (a record, or an honest
     /// 404 for a never-published one): clears the recovery marker a
@@ -431,7 +444,7 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                     msg
                 );
                 outcomes.set(R::RECORD_KIND, FetchStatus::DecodeError);
-                R::on_unrecoverable(&mut commands, msg);
+                R::on_unrecoverable(&mut commands, RecoveryCause::Decode, msg);
                 R::default_for(&did)
             }
             // A destination that does not exist is not a server having a bad
@@ -457,7 +470,10 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                     did
                 );
                 outcomes.set(R::RECORD_KIND, FetchStatus::NoSuchIdentity);
-                R::on_unrecoverable(&mut commands, err.to_string());
+                // Unreachable, not Decode: an identity that does not
+                // resolve leaves the stored record unread, so nothing
+                // that destroys it may be offered.
+                R::on_unrecoverable(&mut commands, RecoveryCause::Unreachable, err.to_string());
                 R::default_for(&did)
             }
             Err(err) => {
@@ -491,7 +507,11 @@ pub(crate) fn poll_record_task<R: LoadedRecord>(
                     // rendered verbatim in the recovery banner and the
                     // overwrite-confirm sentence; `DidResolutionFailed` is
                     // not a thing to say to somebody.
-                    R::on_unrecoverable(&mut commands, format!("PDS unreachable — {err}"));
+                    R::on_unrecoverable(
+                        &mut commands,
+                        RecoveryCause::Unreachable,
+                        format!("PDS unreachable — {err}"),
+                    );
                     R::default_for(&did)
                 } else {
                     let backoff = record_backoff_secs(next_attempt);

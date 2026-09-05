@@ -782,8 +782,7 @@ pub fn visuals_for(theme: &Theme) -> egui::Visuals {
     // same value only by accident — see the field's doc.
     visuals.extreme_bg_color = theme.field_fill;
     visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, theme.border);
-    visuals.widgets.inactive.bg_stroke =
-        egui::Stroke::new(CONTROL_EDGE_WIDTH, theme.control_border);
+    visuals.widgets.inactive.bg_stroke = resting_edge(theme);
     visuals.widgets.inactive.expansion = CONTROL_EDGE_WIDTH;
     visuals.widgets.hovered.expansion = CONTROL_EDGE_WIDTH + 1.0;
     visuals.widgets.active.expansion = CONTROL_EDGE_WIDTH + 1.0;
@@ -818,7 +817,44 @@ pub fn visuals_for(theme: &Theme) -> egui::Visuals {
 /// exact. The high-contrast palette widens its WINDOW chrome
 /// (`border_stroke_width` 1.5) and deliberately does not widen this: a
 /// window edge is one line per window, a control edge is one per control.
-const CONTROL_EDGE_WIDTH: f32 = 1.0;
+pub(crate) const CONTROL_EDGE_WIDTH: f32 = 1.0;
+
+/// The edge a FOCUSED text field paints (#1284).
+///
+/// egui 0.35 picks a text field's frame stroke in two branches
+/// (`widgets/text_edit/builder.rs:699-716`): `visuals.selection.stroke`
+/// when the field has focus, the widget tier's `bg_stroke` when it does
+/// not. This app's `selection.stroke` is [`Theme::selection_text`] — the
+/// LABEL colour on the teal selection band, near-black by design and by
+/// measurement — so once #1283 gave a RESTING field its gray-105 edge,
+/// focusing a field *removed* that edge: a gray-8 stroke on a gray-10
+/// interior. Measured in a live capture: 27 (card) → 11 → 10, no stroke
+/// anywhere, on the first field a new user meets.
+///
+/// **`selection.stroke.color` cannot simply be repainted**, which is why
+/// this is a widget-scoped helper rather than one line in
+/// [`visuals_for`]. Upstream it carries a second role that wants the
+/// opposite colour: `Style::button_style` assigns it to `ws.text.color`
+/// under `SELECTED_CLASS`, so it is also the label colour of every
+/// selected toolbar toggle, tab and gizmo chip — text that must read
+/// against the teal selection FILL. That trade was made deliberately at
+/// #857 and the label won; what changed is that focus has gone from
+/// "adds a cursor" to "adds a cursor and takes the outline away".
+///
+/// **Same width as the resting edge, on purpose.** egui compensates its
+/// margins by `expansion - stroke.width`, so a wider ring would move the
+/// text inside the field the moment it was focused — the #1281 class of
+/// defect, where a palette edit turns out to be a layout change. Only the
+/// colour differs: grey at rest, accent under focus.
+pub(crate) fn focus_ring(theme: &Theme) -> egui::Stroke {
+    egui::Stroke::new(CONTROL_EDGE_WIDTH, theme.accent)
+}
+
+/// The edge a RESTING control paints — the other half of the pair, named
+/// here so the two cannot drift apart in width.
+pub(crate) fn resting_edge(theme: &Theme) -> egui::Stroke {
+    egui::Stroke::new(CONTROL_EDGE_WIDTH, theme.control_border)
+}
 
 pub fn apply_theme(ctx: &egui::Context, theme: &Theme) {
     ctx.data_mut(|d| {
@@ -1265,6 +1301,112 @@ mod tests {
                 edges >= 2,
                 "{palette}: expected the field and the button to paint the palette's \
                  edge, found {edges} of them in {strokes:?}"
+            );
+        }
+    }
+
+    /// A FOCUSED field paints a ring, not a hole (#1284).
+    ///
+    /// The other half of `a_resting_control_paints_the_palettes_edge`, and
+    /// the pair is the point: before this, focusing a field REMOVED its
+    /// border. egui takes a focused text field's stroke from
+    /// `visuals.selection.stroke`, this app sets that to `selection_text`
+    /// (near-black, because it is the label colour of a selected chip),
+    /// and #1283 had just given the resting state a gray-105 edge — so
+    /// focus went from "adds a cursor" to "adds a cursor and takes the
+    /// outline away".
+    ///
+    /// Reads the PAINT, for the #1258 reason: every colour guard that
+    /// measured a `Theme` field measured something the renderer never
+    /// consulted. `request_focus` before the pass that is read, because
+    /// egui's focus takes effect on the frame after it is asked for.
+    #[test]
+    fn a_focused_field_paints_a_ring_the_field_can_be_seen_against() {
+        fn rect_strokes(shape: &egui::Shape, out: &mut Vec<egui::epaint::Stroke>) {
+            match shape {
+                egui::Shape::Rect(r) => out.push(r.stroke),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| rect_strokes(s, out)),
+                _ => {}
+            }
+        }
+
+        for (palette, theme) in all_palettes() {
+            let ctx = egui::Context::default();
+            let mut text = String::new();
+            let mut strokes = Vec::new();
+            for _ in 0..3 {
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(400.0, 200.0),
+                    )),
+                    ..Default::default()
+                };
+                strokes.clear();
+                let out = ctx.run_ui(input, |ui| {
+                    // `apply_theme`, not `set_visuals` alone: the helper
+                    // reads the palette back through `theme::current`, and
+                    // installing only the `Visuals` left every palette
+                    // measuring DARK's accent — which is how the first one
+                    // in the list passes a test that proves nothing about
+                    // the other two.
+                    apply_theme(ui.ctx(), &theme);
+                    let field = crate::ui::affordances::text_edit(
+                        ui,
+                        egui::TextEdit::singleline(&mut text),
+                    );
+                    field.request_focus();
+                });
+                for clipped in &out.shapes {
+                    rect_strokes(&clipped.shape, &mut strokes);
+                }
+            }
+
+            let ring = focus_ring(&theme);
+            assert!(
+                strokes
+                    .iter()
+                    .any(|s| s.color == ring.color && s.width == ring.width),
+                "{palette}: a focused field painted no accent ring; strokes were {strokes:?}"
+            );
+            // And the defect itself, named: the near-black chip-label
+            // colour must not be what outlines a field.
+            assert!(
+                !strokes.iter().any(|s| s.color == theme.selection_text),
+                "{palette}: the focus ring is still `selection_text`, which is \
+                 darker than the field it outlines"
+            );
+        }
+    }
+
+    /// The ring has to be visible against BOTH of a field's grounds, and
+    /// the field's interior is the darker one on the dark palettes — which
+    /// is the trap #1283 hit when `control_border` was first tuned against
+    /// the field alone.
+    #[test]
+    fn the_focus_ring_clears_three_to_one_on_the_field_and_the_window() {
+        for (palette, theme) in all_palettes() {
+            let ring = focus_ring(&theme).color;
+            for (ground, name) in [
+                (theme.field_fill, "field_fill"),
+                (theme.window_fill, "window"),
+            ] {
+                let ratio = contrast_ratio(ring, ground);
+                assert!(
+                    ratio >= 3.0,
+                    "{palette}: focus ring is {ratio:.2}:1 on {name} — a state cue \
+                     needs WCAG's 3:1"
+                );
+            }
+            // Same width as the resting edge: egui compensates its margins
+            // by `expansion - stroke.width`, so a wider ring would shift
+            // the text inside the field the moment it was focused — the
+            // #1281 class of defect, where a colour change is a layout
+            // change.
+            assert_eq!(
+                focus_ring(&theme).width,
+                resting_edge(&theme).width,
+                "{palette}: focus must not resize the field"
             );
         }
     }

@@ -18,7 +18,7 @@
 //! uniforms — follows the drag. Three explicit buttons drive persistence
 //! and discard flows:
 //!
-//! - **Save to PDS** publishes the current `RoomRecord` to the owner's PDS
+//! - **Save** publishes the current `RoomRecord` to the owner's PDS
 //!   as a slim manifest plus content-addressed child generator records in
 //!   one atomic `com.atproto.repo.applyWrites` batch (#697), and syncs the
 //!   value into [`StoredRoomRecord`] on success.
@@ -147,7 +147,7 @@ impl PlacementSort {
     pub fn label(self) -> &'static str {
         match self {
             Self::Order => "Order",
-            Self::Generator => "Generator",
+            Self::Generator => "Item",
             Self::Kind => "Kind",
         }
     }
@@ -460,6 +460,11 @@ pub struct RoomEditorExtras<'w, 's> {
     /// correct cue is otherwise indistinguishable from four kinds of
     /// broken.
     audio_muted: ResMut<'w, crate::audio_mute::AudioMuted>,
+    /// Who is in the world right now (#1269 f293). Every slider move is
+    /// broadcast to all of them the frame it happens, and the only place
+    /// that was ever said was a hover on a warning label that renders at
+    /// 75% of the peer-sync ceiling — i.e. never, in the ordinary case.
+    peers: Query<'w, 's, (), With<crate::state::RemotePeer>>,
     /// The in-flight terrain rebuild (#1249 f63). Present for as long as
     /// the async heightmap job runs, which for a big grid with erosion on
     /// is several seconds during which the World Editor said nothing at
@@ -506,7 +511,7 @@ fn counts_line(ui: &mut egui::Ui, record: &RoomRecord) {
                 .color(caps::tone_color(ui, g_tone)),
         )
         .on_hover_text(format!(
-            "Top-level generators in this world. {}",
+            "Top-level items in this world. {}",
             Cap::Generators.full_reason()
         ));
         ui.label(egui::RichText::new("·").small().weak());
@@ -529,7 +534,7 @@ fn counts_line(ui: &mut egui::Ui, record: &RoomRecord) {
             .on_hover_text(
                 "Buildings and street furniture the road network planted. They count \
                  against the placement cap and the record size like anything else; the \
-                 Lots controls on the RoadNetwork node (Region Assets) tune how many.",
+                 Lots controls on the RoadNetwork part (Items) tune how many.",
             );
         }
     });
@@ -620,10 +625,57 @@ fn live_sync_gauge(ui: &mut egui::Ui, bytes: Option<usize>) {
             "Your unsaved edits reach guests as one peer-to-peer message \
              carrying the whole room. Past {} that message is refused and \
              guests keep seeing your last saved version until you save again. \
-             This is a separate limit from the record size beside \"Save to \
-             PDS\", which measures the largest single record a save writes.",
+             This is a separate limit from the record size beside \"Save\", \
+             which measures the largest single record a save writes.",
             crate::pds::record_size::human_bytes(CEILING),
         ));
+}
+
+/// The recovery banner's words, per cause (#1265 f210).
+///
+/// Pure and separate because the two causes disagree about the one thing
+/// this banner decides: whether the owner is offered a hard delete of the
+/// record on their PDS. The banner used to assert `Decode`'s headline
+/// ("incompatible with this build") over whatever string arrived, so a
+/// server that went away for long enough rendered as "Decode error: PDS
+/// unreachable — …" above a button that destroys a perfectly good world.
+///
+/// **`Unreachable` offers no reset at all.** Not a disabled one, not a
+/// confirmed one: nothing here knows the stored record is bad, and the
+/// non-destructive remedy — travel out through a gateway and back, which
+/// re-reads the record behind #1231's arrival gate — is the whole of what
+/// this state should suggest.
+#[derive(Debug)]
+struct RecoveryBanner {
+    headline: &'static str,
+    /// What labels the raw error underneath. `Decode` names a decode
+    /// error because that is what it is; `Unreachable`'s string is a
+    /// transport failure and calling it a decode error is the lie.
+    detail_prefix: &'static str,
+    body: &'static str,
+    offers_reset: bool,
+}
+
+fn recovery_banner(cause: crate::state::RecoveryCause) -> RecoveryBanner {
+    match cause {
+        crate::state::RecoveryCause::Decode => RecoveryBanner {
+            headline: "⚠ Your stored world can't be read by this version.",
+            detail_prefix: "Decode error",
+            body: "You are currently editing the default homeworld. Click below to \
+                   overwrite the stored copy with this default so the next login \
+                   loads cleanly. Saving will overwrite the stored copy too \
+                   (you'll be asked first).",
+            offers_reset: true,
+        },
+        crate::state::RecoveryCause::Unreachable => RecoveryBanner {
+            headline: "⚠ Couldn't load your world — showing the generated default.",
+            detail_prefix: "Reason",
+            body: "Your stored world is still there; this session just never \
+                   managed to read it. Saving would overwrite it with what you \
+                   see now (you'll be asked first).",
+            offers_reset: false,
+        },
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -655,6 +707,7 @@ pub fn room_admin_ui(
         gizmo_focus,
         mut audio_muted,
         terrain_task,
+        peers,
         mut player_move,
         grammar_diag,
         road_stats,
@@ -762,7 +815,7 @@ pub fn room_admin_ui(
         if let Some((old_name, mut new_name)) = renaming_generator.clone() {
             let outcome = crate::ui::confirm::rename_dialog(
                 ctx,
-                "Rename Generator",
+                "Rename item",
                 &old_name,
                 &mut new_name,
                 |draft| record_mut.generators.contains_key(draft),
@@ -805,7 +858,7 @@ pub fn room_admin_ui(
                             record_mut.traits.insert(applied.clone(), traits);
                         }
                         *selected_generator = Some(applied.clone());
-                        undo_labels.set_room(format!("rename of {old_name} to {applied}"));
+                        undo_labels.set_room(format!("rename {old_name} to {applied}"));
                         // Tree-view ids are keyed on `(root, path)`, so the
                         // rename also has to retarget the current selection at
                         // the new root key — otherwise the tree highlights
@@ -842,18 +895,14 @@ pub fn room_admin_ui(
                         .fill(crate::ui::theme::current(ui.ctx()).danger_surface)
                         .inner_margin(6.0)
                         .corner_radius(4.0);
+                    let words = recovery_banner(rec.cause);
                     banner.show(ui, |ui| {
                         ui.colored_label(
                             crate::ui::theme::current(ui.ctx()).danger_surface_text,
-                            "⚠ Stored room record is incompatible with this build.",
+                            words.headline,
                         );
-                        ui.label(format!("Decode error: {}", rec.reason));
-                        ui.label(
-                            "You are currently editing the default homeworld. Click below \
-                             to overwrite the stored record on your PDS with this default \
-                             so the next login loads cleanly. Saving will overwrite the \
-                             stored copy too (you'll be asked first).",
-                        );
+                        ui.label(format!("{}: {}", words.detail_prefix, rec.reason));
+                        ui.label(words.body);
                         // The non-destructive direction, named (#1230 f33).
                         // Unlike the avatar and inventory banners this is a
                         // sentence rather than a button: re-reading a room
@@ -865,22 +914,23 @@ pub fn room_admin_ui(
                         // it.
                         ui.label(
                             egui::RichText::new(
-                                "If your PDS was only briefly unreachable, travelling out \
-                                 through a gateway and back home reads the stored record \
-                                 again — no logout needed.",
+                                "If your account's server was only briefly unreachable, \
+                                 travelling out through a gateway and back home reads \
+                                 the stored copy again — no logout needed.",
                             )
                             .small(),
                         );
                         // Confirmed reset (#840): this button hard-deletes
                         // and replaces the stored record — never on the
-                        // click itself.
-                        if ui.button("Reset PDS to default").clicked() {
+                        // click itself. Offered ONLY when the cause knows
+                        // the stored record is unreadable (#1265 f210).
+                        if words.offers_reset && ui.button("Reset to default").clicked() {
                             recovery_reset_confirm.request(
                                 "Reset your stored world?",
-                                "Deletes the room record stored on your PDS and \
-                                 replaces it with this default. Whatever the old \
-                                 record contained is gone for good.",
-                                "Reset PDS record",
+                                "Deletes the world stored on your account and replaces \
+                                 it with this default. Whatever the old one contained \
+                                 is gone for good.",
+                                "Reset stored world",
                                 (),
                             );
                         }
@@ -892,7 +942,7 @@ pub fn room_admin_ui(
                             *record_mut = default_record.clone();
                             raw.sync_to(&default_record);
                             needs_broadcast = true;
-                            undo_labels.set_room("reset PDS to default");
+                            undo_labels.set_room("reset to default");
                             // Use the delete-then-put reset path. The vanilla
                             // putRecord upsert can return 500 when the stored
                             // record is incompatible with the current lexicon;
@@ -933,7 +983,7 @@ pub fn room_admin_ui(
                     };
                     let tabs = [
                         (EditorTab::Environment, "Environment"),
-                        (EditorTab::Generators, "Region Assets"),
+                        (EditorTab::Generators, "Items"),
                         (EditorTab::Placements, "Placements"),
                         (EditorTab::Effects, "Effects"),
                         (EditorTab::Raw, raw_label),
@@ -1049,7 +1099,7 @@ pub fn room_admin_ui(
                             "world",
                         );
 
-                        // Pinned re-roll readout (#1005): what "Apply" will
+                        // Pinned re-roll readout (#1005): what "Re-roll" will
                         // roll for each top-level scene axis, each lockable.
                         // The preview derives from the hunted seed — the one
                         // a click will actually build from — not the typed
@@ -1108,10 +1158,11 @@ pub fn room_admin_ui(
                                     rolled.escalation_tier(),
                                 );
                             });
+                        crate::ui::editable::hunt_disclosure_line(ui, start, effective);
                         (action, start, effective)
                     },
                 )
-                // Collapsed: no Apply button was drawn, so there is
+                // Collapsed: no Re-roll button was drawn, so there is
                 // nothing to act on this frame.
                 .unwrap_or((SeedAction::None, did_seed, None));
 
@@ -1148,6 +1199,15 @@ pub fn room_admin_ui(
                         // untouched rather than violate the locks.
                         bevy::log::warn!(
                             "pinned re-roll found no seed matching {scene_pins:?} from {start}"
+                        );
+                        // Said out loud, not only logged (#1268 f69): the
+                        // click otherwise does literally nothing, with the
+                        // axis readout still previewing a world it will
+                        // not build. The line under the seed row says the
+                        // same thing; the toast is for the click.
+                        toasts.error(
+                            "No seed matches these locks — unlock an axis and try again.",
+                            time.elapsed_secs_f64(),
                         );
                     }
                 }
@@ -1280,7 +1340,7 @@ pub fn room_admin_ui(
                                     *selected_prim_path = None;
                                     tree_view_state.set_selected(Vec::new());
                                     needs_broadcast = true;
-                                    undo_labels.set_room("load from PDS");
+                                    undo_labels.set_room("revert to saved");
                                 }
                             }
                             RecordAction::Reset => {
@@ -1327,6 +1387,12 @@ pub fn room_admin_ui(
                             );
                         }
                         live_sync_gauge(ui, *live_sync_bytes);
+                        crate::ui::editable::audience_notice(
+                            ui,
+                            crate::ui::editable::EditVisibility::Live,
+                            peers.iter().count(),
+                            "world",
+                        );
                         counts_line(ui, record_mut);
                         if let Some(truncated) = compile_truncation.as_deref() {
                             ui.label(
@@ -1382,6 +1448,7 @@ pub fn room_admin_ui(
                                 &mut widget_change,
                                 &mut asset_panel,
                                 &mut audio_muted,
+                                peers.iter().count(),
                             );
                         });
                     }
@@ -1661,6 +1728,63 @@ mod truncation_tests {
             app.world()
                 .resource::<crate::world_builder::WorldCompileTruncated>()
                 .announced
+        );
+    }
+}
+
+#[cfg(test)]
+mod recovery_banner_tests {
+    use super::*;
+    use crate::state::RecoveryCause;
+
+    /// #1265 f210. THE SEQUENCE: the owner's PDS is unreachable for the
+    /// whole ten-minute retry budget, the loader installs the generated
+    /// default, and the World Editor opens on "⚠ Stored room record is
+    /// incompatible with this build. / Decode error: PDS unreachable — …"
+    /// over a button that hard-deletes the healthy record.
+    ///
+    /// Two claims, both untrue in that state, and the second is the
+    /// destructive one. This pins both.
+    #[test]
+    fn only_a_decode_failure_offers_to_destroy_the_stored_world() {
+        let decode = recovery_banner(RecoveryCause::Decode);
+        assert!(
+            decode.offers_reset,
+            "a record this build cannot read is exactly what the overwrite is for"
+        );
+
+        let unreachable = recovery_banner(RecoveryCause::Unreachable);
+        assert!(
+            !unreachable.offers_reset,
+            "nothing here knows the stored world is bad, so nothing may destroy it"
+        );
+    }
+
+    /// The copy half: an unreachable server must not be reported as a
+    /// decode problem, and must not claim anything about this build.
+    #[test]
+    fn an_unreachable_server_is_not_reported_as_a_decode_error() {
+        let unreachable = recovery_banner(RecoveryCause::Unreachable);
+        assert!(
+            !unreachable.detail_prefix.contains("Decode"),
+            "the string under this prefix is a transport failure: {:?}",
+            unreachable.detail_prefix
+        );
+        assert!(
+            !unreachable.headline.contains("this version")
+                && !unreachable.headline.contains("read by"),
+            "an outage says nothing about schema compatibility: {:?}",
+            unreachable.headline
+        );
+
+        // The control: the wording this was mistaken FOR is still what the
+        // decode arm says, so the test would notice the two collapsing
+        // back into one string.
+        let decode = recovery_banner(RecoveryCause::Decode);
+        assert_eq!(decode.detail_prefix, "Decode error");
+        assert!(
+            decode.headline.contains("read by this version"),
+            "{decode:?}"
         );
     }
 }

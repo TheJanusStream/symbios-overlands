@@ -167,6 +167,12 @@ pub(super) fn draw_environment_tab(
     egui::CollapsingHeader::new("Distance fog")
         .default_open(false)
         .show(ui, |ui| {
+            // #1268 f66. These six were the app's most jargon-dense
+            // labels and the only surface an owner has for learning what
+            // they control — and until `color_picker` returned a
+            // `Response` (this issue) four of them COULD not carry a
+            // hint at all. Extinction and inscattering are the two halves
+            // of the same physical model and neither name says so.
             fp_slider(
                 ui,
                 "Visibility (m)",
@@ -174,11 +180,29 @@ pub(super) fn draw_environment_tab(
                 50.0,
                 2_000.0,
                 dirty,
+            )
+            .on_hover_text(
+                "Roughly how far you can see before the fog closes in. Lower is \
+                 hazier; the cloud deck dissolves at this distance too.",
             );
-            color_picker_rgba(ui, "Fog colour", &mut env.fog_color, dirty);
-            color_picker(ui, "Extinction", &mut env.fog_extinction, dirty);
-            color_picker(ui, "Inscattering", &mut env.fog_inscattering, dirty);
-            color_picker_rgba(ui, "Sun glow", &mut env.fog_sun_color, dirty);
+            color_picker_rgba(ui, "Fog colour", &mut env.fog_color, dirty).on_hover_text(
+                "The colour distant things fade towards. Alpha is how strongly the \
+                 fog takes over at full distance.",
+            );
+            color_picker(ui, "Extinction", &mut env.fog_extinction, dirty).on_hover_text(
+                "Which colours the air SWALLOWS with distance, per channel. Lower a \
+                 channel and that colour survives further — a low blue gives warm, \
+                 dusty air.",
+            );
+            color_picker(ui, "Inscattering", &mut env.fog_inscattering, dirty).on_hover_text(
+                "Which colours the air ADDS back with distance, per channel — the \
+                 light bouncing around in it. Raise blue for the usual hazy-blue \
+                 horizon.",
+            );
+            color_picker_rgba(ui, "Sun glow", &mut env.fog_sun_color, dirty).on_hover_text(
+                "The colour of the halo the fog picks up when you look towards the \
+                 sun.",
+            );
             fp_slider(
                 ui,
                 "Sun glow exponent",
@@ -186,6 +210,10 @@ pub(super) fn draw_environment_tab(
                 0.0,
                 200.0,
                 dirty,
+            )
+            .on_hover_text(
+                "How tightly that halo hugs the sun. Low spreads it across the whole \
+                 sky; high keeps it to a small disc.",
             );
         });
 
@@ -257,7 +285,7 @@ pub(super) fn draw_environment_tab(
                 ui,
                 &mut env.ambient_audio,
                 "environment",
-                "Room ambient",
+                "World ambient",
                 dirty,
                 audio_editor,
                 assets,
@@ -284,7 +312,7 @@ fn draw_arrival_point(
                 .checkbox(&mut enabled, "Set a custom arrival point")
                 .on_hover_text(
                     "Where visitors come to rest when they enter without a specific \
-                     destination link — including through another room's gateway. \
+                     destination link — including through another world's gateway. \
                      Off: they scatter near the world origin.",
                 )
                 .changed()

@@ -108,7 +108,7 @@ pub fn visit_block_reason(
     guarded: bool,
 ) -> Option<&'static str> {
     if peer.did.is_none() {
-        return Some("Still identifying — their overland is addressed by account.");
+        return Some("Still identifying — their world is addressed by account.");
     }
     if already_here {
         return Some("You're already in their world.");
@@ -532,7 +532,7 @@ pub fn people_ui(
                                          peer hasn't identified itself yet. Their messages \
                                          are already being dropped until it does.",
                                     );
-                                    // "Meet someone → visit their overland"
+                                    // "Meet someone → visit their world"
                                     // finally has a UI path (#845). Routed
                                     // through the unsaved-edits guard exactly
                                     // like gateway travel; `target_pos: None`
@@ -565,7 +565,7 @@ pub fn people_ui(
                                             egui::Button::small(egui::Button::new("Visit")),
                                         )
                                         .on_hover_text(format!(
-                                            "Travel to {}'s overland",
+                                            "Travel to {}'s world",
                                             label.addressed()
                                         ));
                                     let visit = match visit_blocked {
@@ -792,9 +792,14 @@ pub fn incoming_offer_ui(
             .map(crate::pds::record_size::human_bytes)
             .unwrap_or_else(|| "size unknown".to_owned());
         ui.label(
-            egui::RichText::new(format!("{} · {}", dialog.generator.kind_tag(), size_text))
-                .small()
-                .color(crate::ui::theme::current(ui.ctx()).text_weak),
+            egui::RichText::new(format!(
+                "{} · {size_text}",
+                // #1267 f214: a visitor deciding whether to accept a gift
+                // was told what kind of thing it is as "BlobGroup".
+                crate::pds::GeneratorKind::display_name(dialog.generator.kind_tag()),
+            ))
+            .small()
+            .color(crate::ui::theme::current(ui.ctx()).text_weak),
         );
         ui.separator();
         // Lifted out of the `if let Some(live)` (#1220 f302): a missing
@@ -803,7 +808,7 @@ pub fn incoming_offer_ui(
         match live_inventory.as_deref() {
             Some(live) => {
                 let len = live.0.generators.len();
-                ui.label(format!("Your stash: {len}/{cap}"));
+                ui.label(format!("Your inventory: {len}/{cap}"));
                 if len >= cap {
                     ui.colored_label(
                         crate::ui::theme::current(ui.ctx()).status.error,
@@ -1027,8 +1032,8 @@ pub fn incoming_offer_ui(
             if inventory_recovery.is_some() {
                 toasts.info(
                     format!(
-                        "Saved \"{}\" locally — your stash could not be loaded, so open \
-                         Inventory to save it deliberately.",
+                        "Saved \"{}\" locally — your inventory could not be loaded, so \
+                         open Inventory to save it deliberately.",
                         dialog.item_name
                     ),
                     now,

@@ -267,7 +267,8 @@ pub fn chat_ui(
                             };
                             ui.colored_label(colour, count);
                         }
-                        let response = ui.add(
+                        let response = crate::ui::affordances::text_edit(
+                            ui,
                             egui::TextEdit::singleline(&mut input)
                                 // The limit made visible before it is
                                 // hit, rather than as an amputation

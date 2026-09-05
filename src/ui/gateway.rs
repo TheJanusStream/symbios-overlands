@@ -180,7 +180,8 @@ pub fn gateway_picker_ui(
             ui.label("Go to a handle or DID:");
             let resolving = !resolve_tasks.is_empty();
             ui.horizontal(|ui| {
-                let entry = ui.add_enabled(
+                let entry = crate::ui::affordances::text_edit_enabled(
+                    ui,
                     !resolving,
                     egui::TextEdit::singleline(&mut picker.destination)
                         .hint_text("@alice.bsky.social")
@@ -207,9 +208,10 @@ pub fn gateway_picker_ui(
             }
 
             ui.separator();
-            ui.label("…or a mutual follow of this room's owner:");
+            ui.label("…or a mutual follow of this world's owner:");
             ui.add_space(4.0);
-            ui.add(
+            crate::ui::affordances::text_edit(
+                ui,
                 egui::TextEdit::singleline(&mut picker.search)
                     // "Filter this list", not "Search" (#1232 f24): it has
                     // only ever matched the rows already fetched, and the
@@ -291,7 +293,7 @@ pub fn gateway_picker_ui(
                         // visitor can be expected to infer from "No
                         // matches." — and the row above is the way out.
                         ui.label(if query.is_empty() {
-                            "This room's owner has no mutual follows yet — \
+                            "This world's owner has no mutual follows yet — \
                              enter a handle above to go somewhere."
                         } else {
                             "No mutual follows match that filter — enter a \

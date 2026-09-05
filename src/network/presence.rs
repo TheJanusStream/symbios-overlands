@@ -548,7 +548,7 @@ impl PeerStatus {
                  were, and a gift or a visit won't be answered.",
             ),
             Self::AvatarUnavailable => String::from(
-                "Couldn't load the avatar they published, so you're seeing a stand-in \
+                "Couldn't load the avatar they saved, so you're seeing a stand-in \
                  body. Still retrying.",
             ),
             Self::NameUnavailable => {
@@ -556,7 +556,7 @@ impl PeerStatus {
             }
             Self::OutfitIncomplete { missing } => format!(
                 "{missing} item{} they're wearing couldn't be loaded for you, so you're \
-                 seeing them without {}. Still retrying — other people in the room may \
+                 seeing them without {}. Still retrying — other people in this world may \
                  see them differently.",
                 if *missing == 1 { "" } else { "s" },
                 if *missing == 1 { "it" } else { "them" },

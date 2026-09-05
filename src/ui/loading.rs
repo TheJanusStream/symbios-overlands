@@ -328,6 +328,13 @@ pub fn loading_ui(
     loading_clock: Res<LoadingClock>,
     session: Option<Res<AtprotoSession>>,
     current_room: Option<Res<CurrentRoomDid>>,
+    // #1267 f34: the heading printed a stranger's DID verbatim — 32
+    // characters, centred, the most prominent text in the app — while
+    // every travel surface routes the same value through `travel_label`.
+    // The cache is empty for a stranger this early, which is fine: the
+    // ladder's last rung elides the identifier instead of printing it
+    // whole.
+    profiles: Option<Res<crate::avatar::BskyProfileCache>>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -438,13 +445,18 @@ pub fn loading_ui(
             // known until their profile loads in-game.
             match (session.as_deref(), current_room.as_deref()) {
                 (Some(s), Some(room)) if room.0 == s.did => {
-                    ui.heading(format!("Loading your overland — @{}", s.handle));
+                    ui.heading(format!("Loading your world — @{}", s.handle));
                 }
                 (_, Some(room)) => {
-                    ui.heading(format!("Loading the overland of {}", room.0));
+                    let name = match profiles.as_deref() {
+                        Some(cache) => crate::ui::travel::travel_label(cache, &room.0, None),
+                        None => crate::network::presence::PeerLabel::new(None, Some(&room.0))
+                            .addressed(),
+                    };
+                    ui.heading(format!("Loading {name}'s world"));
                 }
                 _ => {
-                    ui.heading("Generating the overlands…");
+                    ui.heading("Generating your world…");
                 }
             }
             // Live elapsed line (C-5): amber past the warn point, red past
@@ -471,32 +483,31 @@ pub fn loading_ui(
             // everything below the recipe row waits on it.
             ui.allocate_ui(egui::vec2(ROWS_WIDTH, 0.0), |ui| {
                 ui.vertical(|ui| {
-                    if draw_row(ui, "World recipe (room record)", room_status)
-                        == RowAction::RetryNow
-                    {
+                    if draw_row(ui, "Your world's recipe", room_status) == RowAction::RetryNow {
                         retry_now::<RoomRecord>(&mut commands, &rows.room_retries, now);
                     }
-                    if draw_row(ui, "Terrain heightmap", terrain_status) == RowAction::RestartFailed
+                    if draw_row(ui, "Shaping the landscape", terrain_status)
+                        == RowAction::RestartFailed
                     {
                         // Dropping the marker is the whole restart: the
                         // start condition it blocks re-fires next frame.
                         commands.remove_resource::<crate::terrain::TerrainGenFailed>();
                     }
-                    if draw_row(ui, "Avatar record", avatar_status) == RowAction::RetryNow {
+                    if draw_row(ui, "Your avatar", avatar_status) == RowAction::RetryNow {
                         retry_now::<AvatarRecord>(&mut commands, &rows.avatar_retries, now);
                     }
-                    if draw_row(ui, "Inventory", inventory_status) == RowAction::RetryNow {
+                    if draw_row(ui, "Your inventory", inventory_status) == RowAction::RetryNow {
                         retry_now::<InventoryRecord>(&mut commands, &rows.inventory_retries, now);
                     }
-                    draw_row(ui, "Ambient soundscape", ambient_status);
+                    draw_row(ui, "Composing the soundtrack", ambient_status);
                     draw_row(
                         ui,
                         if world_building {
                             // Honest warning: the compile can pause the app
                             // for a few seconds (single-threaded on wasm).
-                            "Building world — may pause a few seconds"
+                            "Building the world — may pause a few seconds"
                         } else {
-                            "Building world"
+                            "Building the world"
                         },
                         world_status,
                     );

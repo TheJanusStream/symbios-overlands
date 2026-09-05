@@ -346,6 +346,7 @@ fn a_recovery_marker_outlives_a_failed_write_and_retires_on_a_landed_one() {
         app.add_systems(Update, symbios_overlands::ui::room::poll_publish_tasks);
         app.init_resource::<PublishFeedback<RoomRecord>>();
         app.insert_resource(RoomRecordRecovery {
+            cause: symbios_overlands::state::RecoveryCause::Decode,
             reason: "decode error".into(),
         });
         let published = RoomRecord::default_for_did("did:plc:recovery-room");
@@ -380,6 +381,7 @@ fn a_recovery_marker_outlives_a_failed_write_and_retires_on_a_landed_one() {
         app.add_systems(Update, symbios_overlands::ui::room::poll_publish_tasks);
         app.init_resource::<PublishFeedback<RoomRecord>>();
         app.insert_resource(RoomRecordRecovery {
+            cause: symbios_overlands::state::RecoveryCause::Decode,
             reason: "decode error".into(),
         });
         let published = RoomRecord::default_for_did("did:plc:recovery-room");

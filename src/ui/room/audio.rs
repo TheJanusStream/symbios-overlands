@@ -269,7 +269,7 @@ fn draw_patch_summary(ui: &mut egui::Ui, patch: &SovereignAudioPatch) {
     let out = patch.graph.output.0;
     ui.label(
         egui::RichText::new(format!(
-            "AudioPatch — {n} node{}, output #{out}, seed {}",
+            "Sound patch — {n} node{}, output #{out}, seed {}",
             if n == 1 { "" } else { "s" },
             patch.seed,
         ))
@@ -284,7 +284,7 @@ fn draw_sequence_summary(ui: &mut egui::Ui, recipe: &SovereignSequenceRecipe) {
     let events: usize = recipe.tracks.iter().map(|t| t.events.len()).sum();
     ui.label(
         egui::RichText::new(format!(
-            "SequenceRecipe — {:.0} BPM, {instruments} instrument{}, {} track{}, {events} event{}",
+            "Sequence — {:.0} BPM, {instruments} instrument{}, {} track{}, {events} event{}",
             recipe.bpm.0,
             if instruments == 1 { "" } else { "s" },
             recipe.tracks.len(),

@@ -1251,7 +1251,7 @@ mod tests {
     }
 
     /// #1122. Sequence: a peer wears a circlet, sculpts their face, then
-    /// presses Save to PDS. The records their references name now hold new
+    /// presses Save. The records their references name now hold new
     /// bytes at the SAME rkeys — so the obvious fix, re-broadcasting the
     /// record on publish success, changes nothing: the rule above correctly
     /// carries the pre-save resolution forward and the peer keeps the old

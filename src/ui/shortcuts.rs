@@ -27,7 +27,7 @@
 //!   reply is two keystrokes away and typing never steers the avatar.
 //! * **Ctrl+S — save the front-most dirty editor.** Routed through
 //!   [`PublishShortcut`] into the shared Save/Load/Reset row, so it is
-//!   IDENTICAL to clicking "Save to PDS" — same dirty gate, same
+//!   IDENTICAL to clicking "Save" — same dirty gate, same
 //!   record-size hard-ceiling block. On wasm a capture-phase JS handler
 //!   swallows the browser's own save dialog (see
 //!   `install_ctrl_s_blocker` — wasm-only, so not linkable from a
@@ -178,7 +178,7 @@ impl EditorKind {
 /// Pending Ctrl+S publish request (#836). The shortcut system decides
 /// WHICH editor (front-most open + dirty) and parks it here; that
 /// editor's Save/Load/Reset row takes it on its next render and treats
-/// it exactly like a "Save to PDS" click.
+/// it exactly like a "Save" click.
 #[derive(Resource, Default)]
 pub struct PublishShortcut {
     pending: Option<(EditorKind, u8)>,
@@ -232,7 +232,7 @@ impl EditorDirtyState<'_> {
     /// [`avatar_is_dirty`](crate::pds::avatar::avatar_is_dirty). This doc
     /// used to claim all three were the same derivation, which is how the
     /// avatar arm stayed on `records_differ` after the Save row moved off
-    /// it — a green, enabled "Save to PDS" button beside a Ctrl+S that did
+    /// it — a green, enabled "Save" button beside a Ctrl+S that did
     /// nothing at all for a sculpted body.
     fn dirty(&self, kind: EditorKind) -> bool {
         match kind {
@@ -1153,7 +1153,7 @@ mod tests {
     /// sculpt slider (or nudge a worn prop's offset), press Ctrl+S. The
     /// chord filters its candidate windows on `dirty(kind)`, so an avatar
     /// this gate calls clean is never even requested — the keypress does
-    /// nothing at all, while the green "Save to PDS" button beside it is
+    /// nothing at all, while the green "Save" button beside it is
     /// enabled and works. This gate asked `records_differ`, which cannot
     /// see a rigged edit.
     #[test]

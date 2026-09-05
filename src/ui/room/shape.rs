@@ -41,15 +41,15 @@ pub(super) fn draw_shape_forge(
                 .small()
                 .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
-            if ui
-                .add(
-                    egui::TextEdit::multiline(grammar_source)
-                        .font(egui::TextStyle::Monospace)
-                        .code_editor()
-                        .desired_rows(12)
-                        .desired_width(f32::INFINITY),
-                )
-                .changed()
+            if crate::ui::affordances::text_edit(
+                ui,
+                egui::TextEdit::multiline(grammar_source)
+                    .font(egui::TextStyle::Monospace)
+                    .code_editor()
+                    .desired_rows(12)
+                    .desired_width(f32::INFINITY),
+            )
+            .changed()
             {
                 *dirty = true;
             }
@@ -64,13 +64,13 @@ pub(super) fn draw_shape_forge(
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Root rule");
-                if ui
-                    .add(
-                        egui::TextEdit::singleline(root_rule)
-                            .desired_width(120.0)
-                            .hint_text("Lot"),
-                    )
-                    .changed()
+                if crate::ui::affordances::text_edit(
+                    ui,
+                    egui::TextEdit::singleline(root_rule)
+                        .desired_width(120.0)
+                        .hint_text("Lot"),
+                )
+                .changed()
                 {
                     *dirty = true;
                 }

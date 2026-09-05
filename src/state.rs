@@ -355,7 +355,7 @@ pub struct PendingSpawnPlacement {
     pub yaw_deg: Option<f32>,
 }
 
-/// Outcome of the most recent "Save to PDS" round-trip for one
+/// Outcome of the most recent "Save" round-trip for one
 /// editable record. Carried inside the per-record [`PublishFeedback`]
 /// resource and rendered verbatim by the shared
 /// [`crate::ui::editable::publish_status_line`], so every editor's
@@ -431,17 +431,44 @@ impl<R: Send + Sync + 'static> Default for PublishFeedback<R> {
     }
 }
 
+/// What kept the loader from installing the owner's real record (#1265 f210).
+///
+/// The two causes have **opposite remedies**, and the room banner used to
+/// assert the first one whatever had happened. A decode failure is permanent
+/// — the record on the PDS exists, this build cannot read it, no amount of
+/// retrying helps, and deliberately overwriting it is the way out. An
+/// unreachable server is the reverse: the stored record is very probably
+/// healthy and simply unread, and that same overwrite is a hard delete of it.
+/// So the cause has to travel with the reason string; a free-text `reason`
+/// alone let "PDS unreachable — …" render under the headline "incompatible
+/// with this build", above a button that destroys the record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryCause {
+    /// The stored record was fetched and could not be decoded against this
+    /// build's schema (lexicon drift, a partially-migrated field). Permanent,
+    /// and the one cause that knows the stored record is unusable *here*.
+    Decode,
+    /// The record was never read at all — the retry budget ran out, or the
+    /// identity did not resolve. Says nothing about the stored record's
+    /// health, so nothing may be offered that destroys it.
+    Unreachable,
+}
+
 /// Present when the room-record fetch fell through to the default homeworld
-/// because the PDS response could not be decoded against the current
-/// `RoomRecord` schema (e.g. an old record saved against a since-changed
-/// lexicon). The world editor shows a recovery banner and a "Reset PDS to
-/// default" button while this resource is set, so the owner can deliberately
-/// overwrite the incompatible stored record instead of being stuck in a
-/// retry loop during Loading.
+/// without reading the owner's real record — either the PDS response could
+/// not be decoded against the current `RoomRecord` schema, or the fetch never
+/// succeeded ([`RecoveryCause`]). The world editor shows a recovery banner
+/// while this resource is set, and on `Decode` only it also offers the
+/// deliberate overwrite that gets the owner out of a permanently unreadable
+/// record.
 #[derive(Resource, Debug, Clone)]
 pub struct RoomRecordRecovery {
-    /// Human-readable decode error reported by `serde_json` / reqwest, shown
-    /// in the banner so the owner understands why recovery is active.
+    /// Which of the two situations this is — the banner's headline, its
+    /// detail prefix and whether the destructive reset is offered at all
+    /// all branch on it.
+    pub cause: RecoveryCause,
+    /// Human-readable decode or fetch error, shown in the banner so the
+    /// owner understands why recovery is active.
     pub reason: String,
 }
 
@@ -654,7 +681,7 @@ impl Default for LocalSettings {
 
 /// The owner's **live** inventory record — the in-memory copy the Inventory
 /// window mutates in place. Divergence from [`StoredInventoryRecord`] drives
-/// the "Save to PDS" button's dirty indicator.
+/// the "Save" button's dirty indicator.
 #[derive(Resource, Clone)]
 pub struct LiveInventoryRecord(pub InventoryRecord);
 

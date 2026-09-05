@@ -125,7 +125,13 @@ impl Emote {
             .filter_map(|emote| emote.keywords().first().copied())
             .collect();
         format!(
-            "Say {} — and your avatar gestures as you type.",
+            // #1269 f136: the gesture is raised inside the SUBMIT branch,
+            // after the message is pushed and immediately before the
+            // broadcast — never while typing. This line is the only place
+            // in the app that documents keyword emotes at all, so a hint
+            // that misdescribes the trigger sends a first-session user
+            // looking for a bug.
+            "Say {} — and your avatar gestures when you send it.",
             examples.join(", ")
         )
     }

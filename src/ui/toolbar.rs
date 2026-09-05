@@ -297,7 +297,7 @@ fn anomaly_slot_sense(has_anomaly: bool) -> egui::Sense {
 ///
 /// `toolbar_ui` was at Bevy's 16-parameter `IntoSystem` ceiling exactly —
 /// an over-ceiling system fails at app build with a trait error naming
-/// none of this — and #1232 f251's "Travel to my overland" needs two more
+/// none of this — and #1232 f251's "Travel to my world" needs two more
 /// (`TravelingTo` and `UnsavedGuard`) to disable itself with a reason. So
 /// the chip's own six move into a struct first, the way `people_ui` got
 /// `RosterDeps` (#1223 f291).
@@ -406,7 +406,7 @@ pub fn toolbar_ui(
                 &mut p.chat,
                 chat_label,
                 CHAT_TOGGLE_WIDTH,
-                "Chat — talk with everyone in this overland (Enter)",
+                "Chat — talk with everyone in this world (Enter)",
             );
             panels_dirty |= toggle_with_badge(
                 ui,
@@ -421,7 +421,7 @@ pub fn toolbar_ui(
                 .changed();
             panels_dirty |= ui
                 .toggle_value(&mut p.inventory, "Inventory")
-                .on_hover_text("Inventory — your saved item blueprints")
+                .on_hover_text("Inventory — the items you own")
                 .changed();
             panels_dirty |= ui
                 .toggle_value(&mut p.catalogue, "Catalogue")
@@ -430,7 +430,7 @@ pub fn toolbar_ui(
             if owns_room {
                 panels_dirty |= ui
                     .toggle_value(&mut p.world_editor, "World Editor")
-                    .on_hover_text("World Editor — reshape this overland (you own it)")
+                    .on_hover_text("World Editor — reshape this world (you own it)")
                     .changed();
             } else {
                 // Rendered disabled instead of hidden (#851): the silent
@@ -494,9 +494,9 @@ pub fn toolbar_ui(
                         if let Some(room) = chip.current_room.as_deref() {
                             ui.separator();
                             ui.label(if owns_room {
-                                "Current overland: yours"
+                                "Current world: yours"
                             } else {
-                                "Current overland:"
+                                "Current world:"
                             });
                             if !owns_room {
                                 ui.monospace(
@@ -564,7 +564,7 @@ pub fn toolbar_ui(
                         let go_home = ui
                             .add_enabled(
                                 home_blocked.is_none(),
-                                egui::Button::new("Travel to my overland"),
+                                egui::Button::new("Travel to my world"),
                             )
                             .on_hover_text("Go back to your own world");
                         let go_home = match home_blocked {
@@ -808,13 +808,28 @@ impl PilotedChassis {
     /// Player-facing name for the sheet's "Piloting:" heading (#834) —
     /// the rows already swap live with the chassis (#803), but without
     /// this the window never said WHICH chassis they describe.
+    ///
+    /// **Read from the preset's own `DISPLAY_LABEL`, not spelled again
+    /// here** (#1266 f167). This sheet's footer sends the reader one click
+    /// away to the Locomotion picker; the two lists used to agree on
+    /// Airplane and nothing else, so choosing "Car" and opening Controls
+    /// said you were piloting a "Skiff" — a vehicle the picker does not
+    /// offer. There is no way for a user to resolve a rename they can see
+    /// both halves of, so the string exists once.
+    ///
+    /// `Unrecognised` has no preset by definition, so its words are its
+    /// own.
     fn label(self) -> &'static str {
+        use crate::pds::avatar::locomotion::{
+            AirplaneParams, CarParams, HelicopterParams, HoverBoatParams, HumanoidParams,
+            LocomotionPreset,
+        };
         match self {
-            Self::OnFoot => "On foot",
-            Self::Boat => "Boat",
-            Self::Skiff => "Skiff",
-            Self::Airship => "Airship",
-            Self::Airplane => "Airplane",
+            Self::OnFoot => HumanoidParams::DISPLAY_LABEL,
+            Self::Boat => HoverBoatParams::DISPLAY_LABEL,
+            Self::Skiff => CarParams::DISPLAY_LABEL,
+            Self::Airship => HelicopterParams::DISPLAY_LABEL,
+            Self::Airplane => AirplaneParams::DISPLAY_LABEL,
             Self::Unrecognised => "Unknown vehicle",
         }
     }
@@ -1349,6 +1364,60 @@ mod tests {
             piloted_chassis(false, false, false, true, false),
             PilotedChassis::Airplane
         );
+    }
+
+    /// #1266 f167. THE SEQUENCE: pick "Car" in Avatar › Locomotion, open
+    /// Controls to learn the keys, and the sheet says you are piloting a
+    /// "Skiff" — so you go looking for the skiff you did not choose. Only
+    /// Airplane agreed, and this window's own footer sends the reader
+    /// straight into the mismatch.
+    ///
+    /// This asserts the SHARED SOURCE rather than the five strings: a
+    /// second list of names is the defect, so a test that spells them
+    /// again would be the defect in test form.
+    #[test]
+    fn the_controls_sheet_names_a_chassis_the_picker_offers() {
+        use crate::pds::avatar::locomotion::LocomotionConfig;
+
+        let offered: Vec<&str> = LocomotionConfig::pickers()
+            .iter()
+            .map(|(_, label, _)| *label)
+            .collect();
+
+        for chassis in [
+            PilotedChassis::OnFoot,
+            PilotedChassis::Boat,
+            PilotedChassis::Skiff,
+            PilotedChassis::Airship,
+            PilotedChassis::Airplane,
+        ] {
+            assert!(
+                offered.contains(&chassis.label()),
+                "the sheet says {:?} but the picker offers {offered:?}",
+                chassis.label()
+            );
+        }
+
+        // The control: the five are distinct, so a mapping that collapsed
+        // two chassis onto one preset would not pass by accident.
+        let mut named: Vec<&str> = [
+            PilotedChassis::OnFoot,
+            PilotedChassis::Boat,
+            PilotedChassis::Skiff,
+            PilotedChassis::Airship,
+            PilotedChassis::Airplane,
+        ]
+        .iter()
+        .map(|c| c.label())
+        .collect();
+        named.sort_unstable();
+        named.dedup();
+        assert_eq!(named.len(), 5, "two chassis share a name");
+
+        // And the one arm with no preset behind it keeps its own words —
+        // it must not borrow a name from a vehicle the record does not
+        // describe (#1241 f161).
+        assert!(!offered.contains(&PilotedChassis::Unrecognised.label()));
     }
 
     #[test]

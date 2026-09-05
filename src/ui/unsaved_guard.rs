@@ -141,9 +141,9 @@ impl GuardNotice {
     /// The dialog line.
     pub fn text(&self) -> String {
         match self {
-            Self::PublishFailed(error) => format!("Publish failed — {error}"),
+            Self::PublishFailed(error) => format!("Save failed — {error}"),
             Self::StillDirty => String::from(
-                "The save finished, but unsaved edits remain — publish again, or discard them.",
+                "The save finished, but unsaved edits remain — save again, or discard them.",
             ),
         }
     }
@@ -198,9 +198,9 @@ pub struct GuardLabels {
 
 pub fn guard_labels(action: &GuardedAction) -> GuardLabels {
     let (publish, discard, stay) = match action {
-        GuardedAction::PortalTravel { .. } => ("Publish & travel", "Discard & travel", "Stay here"),
-        GuardedAction::Logout => ("Publish & log out", "Discard & log out", "Cancel"),
-        GuardedAction::Quit => ("Publish & quit", "Discard & quit", "Cancel"),
+        GuardedAction::PortalTravel { .. } => ("Save & travel", "Discard & travel", "Stay here"),
+        GuardedAction::Logout => ("Save & log out", "Discard & log out", "Cancel"),
+        GuardedAction::Quit => ("Save & quit", "Discard & quit", "Cancel"),
     };
     GuardLabels {
         publish,
@@ -529,7 +529,7 @@ pub fn unsaved_guard_ui(
     // user is most likely to be reacting quickly.
     let mut answered = false;
     let modal = egui::Modal::new(egui::Id::new("unsaved-guard")).show(ctx, |ui| {
-        ui.heading("Unpublished changes");
+        ui.heading("Unsaved changes");
         ui.add_space(4.0);
 
         let mut names: Vec<&str> = Vec::new();
@@ -544,10 +544,7 @@ pub fn unsaved_guard_ui(
                 names.push("Inventory");
             }
         }
-        ui.label(format!(
-            "You have unpublished edits to: {}.",
-            names.join(", ")
-        ));
+        ui.label(format!("You have unsaved edits to: {}.", names.join(", ")));
         ui.label(travel_discard_line(&guard.action));
 
         if let Some(notice) = &guard.notice {
@@ -564,7 +561,7 @@ pub fn unsaved_guard_ui(
         if guard.phase == GuardPhase::Publishing {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label("Publishing…");
+                ui.label("Saving…");
             });
             ui.add_space(4.0);
             // The non-destructive exit is named for what it does (#1206):
@@ -624,7 +621,7 @@ pub fn unsaved_guard_ui(
             if ui
                 .add_enabled(can_publish, egui::Button::new(continue_publish))
                 .on_disabled_hover_text(if blocked.is_empty() {
-                    String::from("Publishing needs a signed-in session.")
+                    String::from("Saving needs a signed-in session.")
                 } else {
                     crate::ui::editable::publish_blocked_hover(&blocked)
                 })
@@ -1070,7 +1067,7 @@ mod tests {
         assert_eq!(
             GuardNotice::StillDirty.text(),
             String::from(
-                "The save finished, but unsaved edits remain — publish again, or discard them."
+                "The save finished, but unsaved edits remain — save again, or discard them."
             )
         );
     }

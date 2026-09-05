@@ -63,7 +63,7 @@ pub(super) fn draw_detail_panel(
         ui.vertical_centered(|ui| {
             ui.add_space(40.0);
             ui.label(
-                egui::RichText::new("Select a generator from the tree to edit.")
+                egui::RichText::new("Select an item from the tree to edit.")
                     .color(crate::ui::theme::current(ui.ctx()).text_weak),
             );
             ui.add_space(8.0);
@@ -140,10 +140,10 @@ pub(super) fn draw_detail_panel(
                 };
                 ui.label(egui::RichText::new(text).small().color(colour))
                     .on_hover_text(
-                        "A region asset is a blueprint; a placement is where \
-                         a copy of it stands. An asset with no placements is \
+                        "An item is the thing you build; a placement is where \
+                         a copy of it stands. An item with no placements is \
                          still saved, and still counts against this world's \
-                         asset limit.",
+                         item limit.",
                     );
             }
         } else {
@@ -199,7 +199,7 @@ pub(super) fn draw_detail_panel(
                 crate::ui::theme::current(ui.ctx()).status.warn,
                 format!(
                     "This node grows no roads: only the first {} RoadNetwork nodes \
-                     placed directly under the Terrain generator are read. Move it \
+                     placed directly under the Terrain item are read. Move it \
                      there — or remove it if those slots are taken.",
                     crate::pds::room::MAX_ROAD_NETWORKS
                 ),
@@ -393,7 +393,7 @@ pub(crate) fn lot_clamp_lines(
     if clamps.generator_cap_skips > 0 {
         lines.push((
             format!(
-                "{} lots skipped — the world is at its {}-generator limit",
+                "{} lots skipped — the world is at its {}-item limit",
                 clamps.generator_cap_skips,
                 crate::pds::sanitize::limits::MAX_GENERATORS
             ),
@@ -554,11 +554,14 @@ fn draw_road_editor(
                 st.synced_to = config.seed;
             }
             let parse_ok = st.text.trim().parse::<u64>().is_ok();
-            let mut field = egui::TextEdit::singleline(&mut st.text).desired_width(150.0);
-            if !parse_ok {
-                field = field.text_color(crate::ui::theme::current(ui.ctx()).status.error);
-            }
-            let resp = ui.add(field).on_hover_text(
+            let refused = (!parse_ok).then(|| crate::ui::theme::current(ui.ctx()).status.error);
+            let resp = crate::ui::affordances::text_edit(
+                ui,
+                egui::TextEdit::singleline(&mut st.text)
+                    .desired_width(150.0)
+                    .text_color_opt(refused),
+            )
+            .on_hover_text(
                 "Street-layout seed. Type a number and press Enter to apply — \
              the same seed reproduces the same streets. Terrain is untouched.",
             );
@@ -645,7 +648,7 @@ fn draw_road_editor(
             });
             ui.label(
                 egui::RichText::new(
-                    "Offset from the room origin; the district slides back inside \
+                    "Offset from the world origin; the district slides back inside \
                      the map when pushed past an edge.",
                 )
                 .small()
@@ -735,7 +738,7 @@ fn draw_road_editor(
         .show(ui, |ui| {
             ui.label(
                 egui::RichText::new(
-                    "Overrides the room theme's road look. Unchecked = theme \
+                    "Overrides the world theme's road look. Unchecked = theme \
                      default. Colour edits apply instantly (no rebuild).",
                 )
                 .small()
@@ -758,7 +761,7 @@ fn draw_road_editor(
                     // f58): this row is the twenty-fifth picker in the
                     // editor and the only one that bypassed it.
                     if let Some(c) = slot
-                        && super::super::widgets::edit_srgb_rgb(ui, &mut c.0)
+                        && super::super::widgets::edit_srgb_rgb(ui, &mut c.0).changed()
                     {
                         undo_label.set(format!("road {label}"));
                         *dirty = true;
@@ -875,7 +878,7 @@ fn draw_road_editor(
                 undo_label.set("lot density".to_string());
                 *dirty = true;
             }
-            // Building-theme override (#892): "Room theme" or an explicit
+            // Building-theme override (#892): "World theme" or an explicit
             // archetype, stored as a lenient label string.
             // #1251 f390: the combo used to print the raw stored string as
             // its selected text, so a label this build does not know read as
@@ -888,7 +891,7 @@ fn draw_road_editor(
             ui.horizontal(|ui| {
                 ui.label("Theme:");
                 let current = if lots.theme_override.trim().is_empty() || unrecognised_theme {
-                    "Room theme".to_string()
+                    "World theme".to_string()
                 } else {
                     lots.theme_override.clone()
                 };
@@ -896,7 +899,7 @@ fn draw_road_editor(
                     .selected_text(current)
                     .show_ui(ui, |ui| {
                         if ui
-                            .selectable_label(lots.theme_override.trim().is_empty(), "Room theme")
+                            .selectable_label(lots.theme_override.trim().is_empty(), "World theme")
                             .clicked()
                             && !lots.theme_override.is_empty()
                         {
@@ -925,7 +928,7 @@ fn draw_road_editor(
                 super::super::widgets::unrecognised_value_line(
                     ui,
                     "building theme",
-                    Some("the room's own theme is growing instead"),
+                    Some("the world's own theme is growing instead"),
                 );
             }
             ui.horizontal(|ui| {
@@ -1032,7 +1035,7 @@ fn draw_portal_editor(
     );
 
     ui.add_space(4.0);
-    ui.label("Exit position (world space in the target room)");
+    ui.label("Exit position (world space in the destination)");
     ui.horizontal(|ui| {
         // The ranges the sanitiser already enforces (`pds::sanitize`'s
         // Portal arm): ±10 km horizontally, −1 km to 10 km vertically. The
@@ -1372,7 +1375,7 @@ fn draw_generator_detail(
         GeneratorKind::Unknown => {
             ui.colored_label(
                 crate::ui::theme::current(ui.ctx()).status.warn,
-                "Unknown generator type — editable only via the Raw JSON tab.",
+                "Unknown item type — editable only via the Raw JSON tab.",
             );
         }
     }
@@ -1476,6 +1479,6 @@ mod lot_clamp_tests {
         assert!(lines[1].1);
         assert!(lines[2].0.contains("3 furniture spots"), "{}", lines[2].0);
         assert!(lines[2].0.contains("per district"), "{}", lines[2].0);
-        assert!(lines[3].0.contains("generator limit"), "{}", lines[3].0);
+        assert!(lines[3].0.contains("item limit"), "{}", lines[3].0);
     }
 }

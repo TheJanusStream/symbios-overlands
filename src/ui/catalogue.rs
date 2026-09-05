@@ -377,7 +377,8 @@ pub(crate) fn catalogue_ui(
             // ── Top bar: search + view-mode selector ──
             ui.horizontal(|ui| {
                 ui.label("Search:");
-                ui.add(
+                crate::ui::affordances::text_edit(
+                    ui,
                     egui::TextEdit::singleline(&mut browser.search)
                         .hint_text("name / theme")
                         .desired_width(150.0),
@@ -688,7 +689,11 @@ fn detail_panel(
             // a fitted item, that it sizes itself — the category's
             // flagship property, visible before anything is worn.
             if let Some(socket) = entry.wear_socket() {
-                row(ui, "Worn at", socket.name().to_string());
+                row(
+                    ui,
+                    "Worn at",
+                    crate::pds::avatar::socket_label(socket.name()).to_string(),
+                );
                 if let Some(fit) = entry.wear_fit() {
                     let text = match fit {
                         crate::catalogue::WearFit::HeadBand { inner_diameter } => format!(
@@ -818,8 +823,8 @@ fn inventory_row(
         if ui
             .button("Copy to inventory & wear")
             .on_hover_text(format!(
-                "Add a copy to your inventory as \"{name}\" and wear it at the {} socket",
-                socket.name()
+                "Add a copy to your inventory as \"{name}\" and wear it on your {}",
+                crate::pds::avatar::socket_label(socket.name()).to_lowercase()
             ))
             .clicked()
         {

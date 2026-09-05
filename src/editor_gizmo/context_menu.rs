@@ -57,7 +57,7 @@ use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use transform_gizmo_bevy::GizmoTarget;
 
-use crate::pds::{Fp, Fp3, Fp4, Generator, Placement, RoomRecord, TransformData};
+use crate::pds::{Fp, Fp3, Fp4, Generator, GeneratorKind, Placement, RoomRecord, TransformData};
 use crate::player::RiggedRoot;
 use crate::player::attachments::LocalAttachment;
 use crate::state::{
@@ -482,7 +482,7 @@ pub(super) fn scene_context_menu_ui(
                     .button("Edit this part")
                     .on_hover_text(
                         "Open the item's part tree on the exact part under the cursor — \
-                         the region-asset editor, on your worn copy",
+                         the same editor the World Editor uses, on your worn copy",
                     )
                     .clicked()
             {
@@ -563,9 +563,21 @@ pub(super) fn scene_context_menu_ui(
             }
         }
         if has_object {
-            if picked_prim.is_some() && ui.button("Select item").clicked() {
-                *chosen.borrow_mut() = Some(MenuChoice::SelectItem);
-                ui.close();
+            // Root or child, named apart (#1266). "item" is the whole
+            // buildable and "part" is a node inside it, and this menu is
+            // where the two used to collide: one "Delete item" destroyed a
+            // world item and its placements, another destroyed a single
+            // part, and nothing on either row said which.
+            if let Some(prim) = &picked_prim {
+                let label = if prim.path.is_empty() {
+                    "Select item"
+                } else {
+                    "Select part"
+                };
+                if ui.button(label).clicked() {
+                    *chosen.borrow_mut() = Some(MenuChoice::SelectItem);
+                    ui.close();
+                }
             }
             if picked_placement.is_some() && ui.button("Select placement").clicked() {
                 *chosen.borrow_mut() = Some(MenuChoice::SelectPlacement);
@@ -577,7 +589,7 @@ pub(super) fn scene_context_menu_ui(
                 // same restriction as Shift-copy-drag; duplicating the
                 // PLACEMENT is the meaningful operation there.
                 let can_dup = !prim.path.is_empty();
-                let dup = ui.add_enabled(can_dup, egui::Button::new("Duplicate item"));
+                let dup = ui.add_enabled(can_dup, egui::Button::new("Duplicate part"));
                 let dup = if can_dup {
                     dup.on_hover_text(
                         "Clone this sub-part in place (edits every instance) — \
@@ -585,7 +597,7 @@ pub(super) fn scene_context_menu_ui(
                     )
                 } else {
                     dup.on_disabled_hover_text(
-                        "A blueprint root has no sibling slot — duplicate the placement instead",
+                        "An item's root has no sibling slot — duplicate the placement instead",
                     )
                 };
                 if dup.clicked() {
@@ -607,9 +619,9 @@ pub(super) fn scene_context_menu_ui(
             }
             if let Some(prim) = &picked_prim {
                 let label = if prim.path.is_empty() {
-                    "Delete item (and its placements)"
+                    "Delete the whole item (and its placements)"
                 } else {
-                    "Delete item"
+                    "Delete this part"
                 };
                 if crate::ui::affordances::danger_menu_button(ui, label).clicked() {
                     *chosen.borrow_mut() = Some(MenuChoice::DeleteItem);
@@ -629,7 +641,17 @@ pub(super) fn scene_context_menu_ui(
         }
         ui.menu_button("Create new…", |ui| {
             for kind_tag in ROOM_ROOT_KINDS {
-                if ui.button(*kind_tag).clicked() {
+                // The wire tag builds the item; the name and the blurb are
+                // what the owner is offered (#1267 f214). This list used to
+                // be the serde discriminants verbatim, with no hover on any
+                // entry, on the primary creation surface of the feature the
+                // product is built around.
+                let blurb = GeneratorKind::blurb(kind_tag);
+                let mut button = ui.button(GeneratorKind::display_name(kind_tag));
+                if !blurb.is_empty() {
+                    button = button.on_hover_text(blurb);
+                }
+                if button.clicked() {
                     *chosen.borrow_mut() = Some(MenuChoice::Create {
                         prefix: kind_tag.to_lowercase(),
                         generator: Box::new(Generator::from_kind(make_default_for_kind(kind_tag))),

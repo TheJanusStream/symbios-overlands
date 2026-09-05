@@ -554,7 +554,8 @@ pub fn login_ui(
                 };
 
                 ui.label(egui::RichText::new("Destination").strong());
-                let dest_resp = ui.add(
+                let dest_resp = crate::ui::affordances::text_edit(
+                    ui,
                     egui::TextEdit::singleline(&mut form.target_did)
                         .hint_text("@friend.bsky.social — blank for your own world")
                         .desired_width(f32::INFINITY),
@@ -680,7 +681,7 @@ pub fn login_ui(
                 } else if redirecting {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label("Contacting your PDS…");
+                        ui.label("Contacting your data server…");
                     });
                     if ui.button("Cancel").clicked() {
                         // Dropping the task aborts the discovery round-trip.
@@ -997,10 +998,9 @@ pub fn login_ui(
                         let reroll =
                             ui.add_enabled(world_backdrop_visible, egui::Button::new("New world"));
                         let reroll = if world_backdrop_visible {
-                            reroll
-                                .on_hover_text("Seed a different overland behind the login screen")
+                            reroll.on_hover_text("Seed a different world behind the login screen")
                         } else {
-                            reroll.on_disabled_hover_text("Building the backdrop overland…")
+                            reroll.on_disabled_hover_text("Building the backdrop world…")
                         };
                         if reroll.clicked() {
                             commands.insert_resource(crate::attract::AttractReroll);

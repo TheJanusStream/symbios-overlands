@@ -222,7 +222,7 @@ pub fn handle_generator_drop(
         // A true viewport release in a room the user doesn't own — the
         // drag used to just vanish (#831).
         toasts.warn(
-            "Only the overland's owner can place items here — drop on a \
+            "Only this world's owner can place items here — drop on a \
              peer in the People list to gift instead.",
             time.elapsed_secs_f64(),
         );

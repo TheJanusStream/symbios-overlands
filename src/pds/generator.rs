@@ -2014,9 +2014,18 @@ impl GeneratorKind {
         self.common().is_some()
     }
 
-    /// Short human-readable tag for the variant — used by the UI combo box
-    /// to show the current kind and to key into
+    /// Short **wire** tag for the variant — the serialized `$type`
+    /// discriminant, and the key into
     /// `ui::room::construct::make_default_for_kind`.
+    ///
+    /// **Not a label.** These are CamelCase serde tags, and until #1267
+    /// they were the display text of every buildable kind: the creation
+    /// menu handed the owner a bare list reading "BlobGroup", "LSystem",
+    /// "Superellipsoid", "ParticleSystem", with no descriptions anywhere,
+    /// and a visitor deciding whether to accept a gift was told its kind
+    /// as "BlobGroup". Use [`display_name`](Self::display_name) and
+    /// [`blurb`](Self::blurb) for anything a person reads; this stays
+    /// exactly as it is, because it is on the wire.
     pub fn kind_tag(&self) -> &'static str {
         match self {
             GeneratorKind::Terrain(_) => "Terrain",
@@ -2045,6 +2054,89 @@ impl GeneratorKind {
             GeneratorKind::Sign { .. } => "Sign",
             GeneratorKind::ParticleSystem(..) => "ParticleSystem",
             GeneratorKind::Unknown => "Unknown",
+        }
+    }
+
+    /// What a person is told this kind is (#1267 f214).
+    ///
+    /// Keyed on the wire tag rather than on `self`, so the creation menus —
+    /// which offer tags, not constructed values — can name what they are
+    /// offering without building one of each first. An unrecognised tag
+    /// comes back as itself: a menu that silently dropped an entry it
+    /// could not name would be worse than one that shows the raw word.
+    ///
+    /// The names are the *thing*, not the algorithm behind it: a
+    /// `Superellipsoid` is a rounded box to everybody who is not
+    /// implementing one, and `LSystem` is how the plant is grown, not what
+    /// it is.
+    pub fn display_name(tag: &str) -> &str {
+        match tag {
+            "Terrain" => "Terrain",
+            "Water" => "Water",
+            "RoadNetwork" => "Roads",
+            "Portal" => "Portal",
+            "Gateway" => "Gateway",
+            "LSystem" => "Plant",
+            "Shape" => "Shape grammar",
+            "Cuboid" => "Box",
+            "Sphere" => "Sphere",
+            "Cylinder" => "Cylinder",
+            "Capsule" => "Capsule",
+            "Cone" => "Cone",
+            "Torus" => "Ring",
+            "Plane" => "Flat panel",
+            "Tetrahedron" => "Tetrahedron",
+            "Tube" => "Tube",
+            "Bevel" => "Bevelled box",
+            "Wedge" => "Wedge",
+            "Helix" => "Helix",
+            "Superellipsoid" => "Rounded box",
+            "Spine" => "Swept shape",
+            "Lathe" => "Turned profile",
+            "BlobGroup" => "Blob group",
+            "Sign" => "Sign",
+            "ParticleSystem" => "Particles",
+            other => other,
+        }
+    }
+
+    /// One line saying what this kind is FOR, for the hover beside
+    /// [`display_name`](Self::display_name). Empty for a tag with nothing
+    /// worth saying — the callers skip the hover rather than attach a
+    /// blank one.
+    ///
+    /// The Catalogue proved this affordable: its leaves have hovered
+    /// `entry.description()` since they shipped, while the primary
+    /// creation surface for the owner-only feature the product is built
+    /// around had none.
+    pub fn blurb(tag: &str) -> &'static str {
+        match tag {
+            "Terrain" => "The ground itself — height, erosion and the materials on it",
+            "Water" => "One water surface across the whole world",
+            "RoadNetwork" => "Streets and junctions, with buildings along them",
+            "Portal" => "A doorway to somebody else's world",
+            "Gateway" => "A doorway to the people you and the owner both follow",
+            "LSystem" => "A tree, vine or shrub grown from a grammar",
+            "Shape" => "A structure grown by rules — split, repeat, taper",
+            "Cuboid" => "A box",
+            "Sphere" => "A ball",
+            "Cylinder" => "A rod or disc",
+            "Capsule" => "A rod with rounded ends",
+            "Cone" => "A cone or a truncated one",
+            "Torus" => "A doughnut ring",
+            "Plane" => "A flat rectangle with no thickness",
+            "Tetrahedron" => "A four-faced pyramid",
+            "Tube" => "A pipe — a cylinder with the middle taken out",
+            "Bevel" => "A box with its edges cut back",
+            "Wedge" => "A ramp",
+            "Helix" => "A spiral — a ramp, a spring or a screw",
+            "Superellipsoid" => "A box you can round off towards a ball",
+            "Spine" => "A profile swept along a curve you draw",
+            "Lathe" => "A profile spun around an axis, like a vase",
+            "BlobGroup" => "Soft shapes that melt into one another",
+            "Sign" => "A flat panel carrying an image or text",
+            "ParticleSystem" => "A continuous emitter — smoke, sparks, dust",
+            _ => "",
         }
     }
 

@@ -31,15 +31,15 @@ pub(super) fn draw_lsystem_forge(
     egui::CollapsingHeader::new("Source code")
         .default_open(true)
         .show(ui, |ui| {
-            if ui
-                .add(
-                    egui::TextEdit::multiline(source_code)
-                        .font(egui::TextStyle::Monospace)
-                        .code_editor()
-                        .desired_rows(10)
-                        .desired_width(f32::INFINITY),
-                )
-                .changed()
+            if crate::ui::affordances::text_edit(
+                ui,
+                egui::TextEdit::multiline(source_code)
+                    .font(egui::TextStyle::Monospace)
+                    .code_editor()
+                    .desired_rows(10)
+                    .desired_width(f32::INFINITY),
+            )
+            .changed()
             {
                 *dirty = true;
             }
@@ -47,15 +47,15 @@ pub(super) fn draw_lsystem_forge(
     egui::CollapsingHeader::new("Finalization code")
         .default_open(false)
         .show(ui, |ui| {
-            if ui
-                .add(
-                    egui::TextEdit::multiline(finalization_code)
-                        .font(egui::TextStyle::Monospace)
-                        .code_editor()
-                        .desired_rows(6)
-                        .desired_width(f32::INFINITY),
-                )
-                .changed()
+            if crate::ui::affordances::text_edit(
+                ui,
+                egui::TextEdit::multiline(finalization_code)
+                    .font(egui::TextStyle::Monospace)
+                    .code_editor()
+                    .desired_rows(6)
+                    .desired_width(f32::INFINITY),
+            )
+            .changed()
             {
                 *dirty = true;
             }

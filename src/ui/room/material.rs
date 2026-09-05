@@ -34,8 +34,15 @@ pub(super) fn draw_material_forge(
     dirty: &mut bool,
     assets: &mut super::assets::AssetPanel<'_>,
 ) {
-    drag_u32(ui, "Texture size", &mut mat.texture_size, 16, 4096, dirty);
-    fp_slider(ui, "Tile scale", &mut mat.tile_scale, 1.0, 500.0, dirty);
+    // #1268 f66: this whole forge carried no hover text and no prose.
+    drag_u32(ui, "Texture size", &mut mat.texture_size, 16, 4096, dirty).on_hover_text(
+        "Pixels across one generated texture. Bigger is sharper up close and \
+         costs memory on every device that loads this world.",
+    );
+    fp_slider(ui, "Tile scale", &mut mat.tile_scale, 1.0, 500.0, dirty).on_hover_text(
+        "How many times the texture repeats across the terrain. Higher packs the \
+         pattern tighter; too high and it reads as noise.",
+    );
 
     // Canonical palette labels for the R/G/B/A splat channels. Users may
     // swap any layer for a different texture generator via the per-layer
@@ -82,6 +89,16 @@ fn draw_splat_rule(ui: &mut egui::Ui, rule: &mut SovereignSplatRule, dirty: &mut
     // WORST of the four: `SovereignSplatRule` has no `Sanitize` impl
     // anywhere, so an inverted band was never corrected and never
     // flagged — it simply matched nothing, for good.
+    // The band this layer paints in, in fractions of the terrain's full
+    // range — not metres (#1268 f66).
+    ui.label(
+        egui::RichText::new(
+            "Where this layer shows: 0 is the lowest ground in the world and 1 the \
+             highest, 0 slope is flat and 1 is a cliff.",
+        )
+        .small()
+        .color(crate::ui::theme::current(ui.ctx()).text_weak),
+    );
     super::widgets::fp_range_sliders(
         ui,
         "Height min",
@@ -102,7 +119,10 @@ fn draw_splat_rule(ui: &mut egui::Ui, rule: &mut SovereignSplatRule, dirty: &mut
         1.0,
         dirty,
     );
-    fp_slider(ui, "Sharpness", &mut rule.sharpness, 0.05, 8.0, dirty);
+    fp_slider(ui, "Sharpness", &mut rule.sharpness, 0.05, 8.0, dirty).on_hover_text(
+        "How abruptly this layer gives way at the edges of its band. Low blends \
+         into its neighbours; high draws a hard line.",
+    );
 }
 
 /// The `uv_transform` rows every material editor shares (#957): pattern
@@ -194,7 +214,8 @@ pub(super) fn draw_texture_bridge_opts(
     egui::ComboBox::from_id_salt(format!("{}_tex_ty", salt))
         .selected_text(texture.label())
         .show_ui(ui, |ui| {
-            ui.add(
+            crate::ui::affordances::text_edit(
+                ui,
                 egui::TextEdit::singleline(&mut filter)
                     .hint_text("Filter…")
                     .desired_width(160.0),

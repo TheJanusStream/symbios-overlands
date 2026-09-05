@@ -46,7 +46,7 @@
 //!
 //! Three explicit buttons drive persistence and discard flows:
 //!
-//!   * **Save to PDS** writes the current `LiveAvatarRecord` to the
+//!   * **Save** writes the current `LiveAvatarRecord` to the
 //!     owner's PDS via `com.atproto.repo.putRecord` and then syncs the
 //!     value into [`StoredAvatarRecord`] on success.
 //!   * **Revert to saved** drops all in-flight edits by copying
@@ -592,7 +592,7 @@ fn tab_disabled_reason(tab: AvatarTab, rigged: bool) -> Option<&'static str> {
              Sculpt it on the Body tab.",
         ),
         AvatarTab::Attachments if !rigged => Some(
-            "Attachments dress a rigged body; you're wearing a construction-kit one. \
+            "Wearables dress a rigged body; you're wearing a construction-kit one. \
              Switch on the Body tab first.",
         ),
         _ => None,
@@ -659,6 +659,13 @@ pub fn avatar_ui(
         // it — the editor is a reader, not the owner.
         attachments::LocalBody,
     ),
+    // Who is here (#1269 f293). A construction-kit body is broadcast as it
+    // is sculpted; a rigged one is not — see `audience_notice` below,
+    // which is the only place either fact is stated. A free parameter, not
+    // a member of the tuple above: that tuple is at Bevy's 16-param
+    // `IntoSystem` ceiling and a seventeenth member fails to compile with
+    // an error that names `Curve`, not this.
+    peers: Query<(), With<crate::state::RemotePeer>>,
 ) {
     // `ResMut::deref_mut` unconditionally flips the change tick, so
     // mutating `live.0` inside the egui closure would otherwise mark the
@@ -727,7 +734,7 @@ pub fn avatar_ui(
                 ui.horizontal(|ui| {
                     let tabs = [
                         (AvatarTab::Body, "Body"),
-                        (AvatarTab::Attachments, "Attachments"),
+                        (AvatarTab::Attachments, "Wearables"),
                         (AvatarTab::Visuals, "Visuals"),
                         (AvatarTab::Locomotion, "Locomotion"),
                     ];
@@ -945,10 +952,11 @@ pub fn avatar_ui(
                                         rolled.wear_tier(),
                                     );
                                 });
+                            crate::ui::editable::hunt_disclosure_line(ui, start, effective);
                             (reroll, start, effective)
                         },
                     )
-                    // Collapsed: no Apply button was drawn, so there is
+                    // Collapsed: no Re-roll button was drawn, so there is
                     // nothing to act on this frame.
                     .unwrap_or((SeedAction::None, did_seed, None));
 
@@ -969,6 +977,11 @@ pub fn avatar_ui(
                             // record untouched rather than violate the locks.
                             bevy::log::warn!(
                                 "pinned re-roll found no seed matching {avatar_pins:?} from {start}"
+                            );
+                            // Said out loud, not only logged (#1268 f69).
+                            toasts.error(
+                                "No seed matches these locks — unlock an axis and try again.",
+                                time.elapsed_secs_f64(),
                             );
                         }
                     }
@@ -1074,7 +1087,7 @@ pub fn avatar_ui(
                             RecordAction::Load => {
                                 if let Some(stored) = &stored {
                                     live_mut.0 = stored.0.clone();
-                                    undo_labels.set_avatar("load from PDS");
+                                    undo_labels.set_avatar("revert to saved");
                                 }
                             }
                             RecordAction::Reset => {
@@ -1112,6 +1125,26 @@ pub fn avatar_ui(
                             );
                         }
 
+                        // #1269 f111 + f293. The two body kinds have
+                        // OPPOSITE live-preview semantics in this one
+                        // window and neither was stated anywhere but the
+                        // module source: a construction-kit body's record
+                        // IS the broadcast payload, while a rigged body's
+                        // rides a `serde(skip)` field, so peers keep
+                        // rendering the owner's last SAVED body until a
+                        // publish lands. An owner sculpting a face for ten
+                        // minutes in a room full of visitors was
+                        // performing for nobody.
+                        crate::ui::editable::audience_notice(
+                            ui,
+                            if live_mut.0.body.rigged_ref().is_some() {
+                                crate::ui::editable::EditVisibility::SavedOnly
+                            } else {
+                                crate::ui::editable::EditVisibility::Live
+                            },
+                            peers.iter().count(),
+                            "avatar",
+                        );
                         publish_status_line(ui, &feedback.status, time.elapsed_secs_f64(), dirty);
                     });
 
@@ -1273,14 +1306,24 @@ pub fn avatar_ui(
                     AvatarTab::Visuals => {
                         ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
                             // The tree edits a generator body's tree; a
-                            // rigged body has no tree to draw and gets its
-                            // own editor sections with #1059.
+                            // rigged body has no tree to draw. #1265 f101:
+                            // this used to promise the rigged editor was
+                            // still coming (it shipped, as the Body tab)
+                            // and to advise a bare re-roll, which lands
+                            // back on a rigged body whenever
+                            // `ChassisFamily::for_seed` rolls `Humanoid` —
+                            // one of four families, so a coin flip. The
+                            // Chassis pin row below is the deterministic
+                            // control, so the advice routes through it and
+                            // names the three families by the labels that
+                            // row actually shows (`ChassisFamily::label`).
                             let Some(visuals) = live_mut.0.body.visuals_mut() else {
                                 ui.label(
                                     egui::RichText::new(
-                                        "This avatar wears a rigged body — its editor \
-                                         arrives with the wardrobe work (#1059). Re-roll \
-                                         to switch back to a generator chassis.",
+                                        "You're wearing a rigged body — sculpt it on the \
+                                         Body tab. For a construction-kit body instead, \
+                                         open Seed & re-roll below, lock Chassis to \
+                                         Hover-boat, Airship or Land-skiff, and re-roll.",
                                     )
                                     .small()
                                     .weak(),
@@ -1325,15 +1368,21 @@ pub fn avatar_ui(
                             .auto_shrink([true, false])
                             .max_height(body_height)
                             .show(ui, |ui| {
-                                // The full-body edit freeze (#814) makes
-                                // tuning feel like editing a statue; the
-                                // sanctioned preview path existed only in
-                                // code comments until #830.
+                                // #1265 f109: this used to teach a
+                                // collapse-the-window workaround for the
+                                // #814 full-body freeze. #1103 reversed
+                                // that freeze — `holds_avatar_still` is
+                                // exactly `has_gizmo_selection` now, and
+                                // `release_hidden_selections` clears every
+                                // avatar-side selection when a tab that
+                                // cannot show it is picked, so no gizmo can
+                                // be aimed while this tab is on screen.
+                                // Name the gizmo, not the window.
                                 ui.label(
                                     egui::RichText::new(
-                                        "⏵ Collapse this window (double-click its title \
-                                         bar) to test-drive — physics resumes while it's \
-                                         collapsed, reopen to keep tuning.",
+                                        "⏵ Drive with WASD while this window is open — \
+                                         your avatar only holds still while a gizmo is \
+                                         aimed at it.",
                                     )
                                     .small()
                                     .weak(),
@@ -1453,7 +1502,7 @@ pub fn avatar_ui(
         if !undo_labels.avatar_pending() {
             undo_labels.set_avatar(match editor.selected_tab {
                 AvatarTab::Body => "body edit",
-                AvatarTab::Attachments => "attachment edit",
+                AvatarTab::Attachments => "wearable edit",
                 AvatarTab::Visuals => "visuals edit",
                 AvatarTab::Locomotion => "locomotion edit",
             });
@@ -1586,8 +1635,11 @@ pub(crate) fn spawn_publish_avatar_task(
             )
             .await
         };
-        crate::config::http::run_or(fut, Err(crate::config::http::timed_out("avatar publish")))
-            .await
+        crate::config::http::run_or(
+            fut,
+            Err(crate::config::http::timed_out("Saving your avatar")),
+        )
+        .await
     });
     commands.spawn(PublishAvatarTask {
         task,
@@ -1630,13 +1682,13 @@ pub fn poll_publish_avatar_tasks(
             &mut task.task,
             spawned_at,
             time.elapsed_secs_f64(),
-            "avatar publish",
+            "Saving your avatar",
         ) else {
             continue;
         };
         commands.entity(entity).despawn();
         if crate::ui::room::stale_result(
-            "avatar publish",
+            "Saving your avatar",
             &task.did,
             session.as_deref().map(|s| s.did.as_str()),
         ) {
@@ -1681,6 +1733,12 @@ pub fn poll_publish_avatar_tasks(
                     );
                 }
                 feedback.status = PublishStatus::Success { at_secs: now };
+                crate::ui::editable::report_publish_success(
+                    RecordKind::Avatar,
+                    &panels,
+                    &mut toasts,
+                    now,
+                );
                 session_log.info(
                     now,
                     EventPayload::RecordWriteCompleted {

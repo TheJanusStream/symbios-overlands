@@ -49,7 +49,7 @@ pub use locomotion::{
     AirplaneParams, CarParams, HelicopterParams, HoverBoatParams, HumanoidParams, LocomotionConfig,
     LocomotionPickerEntry, LocomotionPreset,
 };
-pub use wardrobe::{AttachmentRecord, EngineAvatarRecord, EngineProfileRecord};
+pub use wardrobe::{AttachmentRecord, EngineAvatarRecord, EngineProfileRecord, socket_label};
 
 use super::AVATAR_COLLECTION;
 use super::xrpc::{FetchError, XrpcError, decode_record_json, resolve_pds_outcome};

@@ -207,11 +207,11 @@ pub(super) fn draw_attachments_tab(
     }
 
     let Some(rig) = record.body.rigged_mut() else {
-        ui.label("Attachments dress a rigged body — switch on the Body tab first.");
+        ui.label("Wearables dress a rigged body — switch on the Body tab first.");
         return outcome;
     };
     if rig.resolved.is_none() {
-        ui.label("This body's wardrobe record has not resolved; nothing to dress yet.");
+        ui.label("This body hasn't loaded yet — nothing to dress until it does.");
         return outcome;
     }
 
@@ -234,20 +234,22 @@ pub(super) fn draw_attachments_tab(
                     // Named by its inventory provenance when it has one
                     // (#1096); a prop attached from a bare generator falls
                     // back to socket + record key.
-                    let socket_label = match attachment.record.socket() {
-                        Some(socket) => socket.name().to_string(),
+                    // #1267 f220: the engine's kebab identifier was the
+                    // display text here. `socket_label` is the reading.
+                    let worn_at = match attachment.record.socket() {
+                        Some(socket) => crate::pds::avatar::socket_label(socket.name()).to_string(),
                         None => format!("{} (unknown socket)", attachment.record.socket),
                     };
                     let title = match attachment.record.source.as_deref() {
-                        Some(source) => format!("{source} — {socket_label}"),
-                        None => format!("{socket_label} — {}", attachment.rkey),
+                        Some(source) => format!("{source} — {worn_at}"),
+                        None => format!("{worn_at} — {}", attachment.rkey),
                     };
                     // An in-world pick (#1062) opens the row it landed on and
                     // scrolls it into view; every other frame the header keeps
                     // whatever openness the owner left it at.
                     let force_open = (focus_selected && is_selected).then_some(true);
                     let header = egui::CollapsingHeader::new(title)
-                        .id_salt(("attachment", index))
+                        .id_salt(("wearable-row", index))
                         .open(force_open)
                         .show(ui, |ui| {
                             // Gizmo aim (#1062): the row IS the target, the
@@ -269,7 +271,12 @@ pub(super) fn draw_attachments_tab(
                             // usually wrong for the new socket, but predictable;
                             // zeroing it re-seats via the engine on next spawn.
                             ui.horizontal_wrapped(|ui| {
-                                ui.label("socket");
+                                // "Worn at", not the lowercase word
+                                // "socket" — which was also the only
+                                // lowercase inline label on this panel,
+                                // sitting beside "Re-seat", "Edit parts"
+                                // and "Take off" (#1267 f220).
+                                ui.label("Worn at");
                                 for socket in symbios_avatar::Socket::ALL {
                                     let picked = attachment.record.socket == socket.name();
                                     // #1256 f103: `Socket::ALL` includes
@@ -285,18 +292,25 @@ pub(super) fn draw_attachments_tab(
                                     let response = ui
                                         .add_enabled(
                                             has || picked,
-                                            egui::Button::selectable(picked, socket.name()),
+                                            egui::Button::selectable(
+                                                picked,
+                                                crate::pds::avatar::socket_label(socket.name()),
+                                            ),
                                         )
                                         .on_disabled_hover_text(format!(
                                             "This body has no {} — a prop seated there would \
                                              not be worn at all.",
-                                            socket.name()
+                                            crate::pds::avatar::socket_label(socket.name())
+                                                .to_lowercase()
                                         ));
                                     if response.clicked() && !picked {
                                         attachment.record.socket = socket.name().to_string();
                                         outcome.changed = true;
-                                        outcome.label =
-                                            Some(format!("move prop to {}", socket.name()));
+                                        outcome.label = Some(format!(
+                                            "move prop to the {}",
+                                            crate::pds::avatar::socket_label(socket.name())
+                                                .to_lowercase()
+                                        ));
                                     }
                                 }
                             });
@@ -390,7 +404,7 @@ pub(super) fn draw_attachments_tab(
                                     match existing {
                                         Some(source) => state.replace_confirm.request(
                                             format!("Replace \"{source}\" in your inventory?"),
-                                            "The stash copy is replaced by this worn one — its \
+                                            "The stored copy is replaced by this worn one — its \
                                              geometry, socket, fit and offset. Inventory changes \
                                              cannot be undone.",
                                             "Replace",
@@ -467,7 +481,7 @@ pub(super) fn draw_attachments_tab(
             // were last saved with. Anything else in the stash is decor.
             ui.separator();
             let Some(did) = did else {
-                ui.small("Log in to wear items — worn props live in your repo.");
+                ui.small("Sign in to wear items — worn items are saved to your account.");
                 return;
             };
             let Some(inventory) = inventory.as_deref() else {
@@ -476,8 +490,12 @@ pub(super) fn draw_attachments_tab(
             };
             if worn_count >= MAX_AVATAR_ATTACHMENTS {
                 ui.small(format!(
-                    "Wearing {MAX_AVATAR_ATTACHMENTS} props — the fan-out cap; take one off to \
-                     wear another."
+                    // Word-for-word the sentence the other cap site
+                    // reaches (#1267 f224): the same limit used to be
+                    // described two completely different ways a hundred
+                    // lines apart, so an owner who hit it from both
+                    // surfaces could not tell it was one limit.
+                    "All {MAX_AVATAR_ATTACHMENTS} slots are full — take something off first."
                 ));
                 return;
             }
@@ -513,7 +531,10 @@ pub(super) fn draw_attachments_tab(
                             ui.selectable_value(
                                 &mut state.pick_item,
                                 Some((*name).clone()),
-                                format!("{name} ({socket})"),
+                                format!(
+                                    "{name} ({})",
+                                    crate::pds::avatar::socket_label(socket).to_lowercase()
+                                ),
                             );
                         }
                     });
@@ -603,19 +624,18 @@ pub(crate) fn wear_blocked_reason(
     };
     let Some(rig) = avatar.body.rigged_ref() else {
         return Some(String::from(
-            "Vehicles carry no attachments — pilot a body to wear this.",
+            "Vehicles wear nothing — pilot a body to wear this.",
         ));
     };
     let Some(resolved) = rig.resolved.as_ref() else {
         return Some(String::from(
-            "This body's wardrobe record could not be resolved — the Avatar \
-             window's Body tab can wear a fresh one.",
+            "This body couldn't be loaded — the Avatar window's Body tab can \
+             start a fresh one.",
         ));
     };
     if resolved.attachments.len() >= MAX_AVATAR_ATTACHMENTS {
         return Some(format!(
-            "All {MAX_AVATAR_ATTACHMENTS} attachment slots are taken — take \
-             something off first."
+            "All {MAX_AVATAR_ATTACHMENTS} slots are full — take something off first."
         ));
     }
     None
@@ -1002,8 +1022,11 @@ mod tests {
     #[test]
     fn the_unresolved_body_is_refused_in_words_that_name_the_way_out() {
         let reason = wear_blocked_reason(Some(&unresolved()), true).expect("refused");
+        // #1267 f224 reworded this: "resolved" and "wardrobe record" are
+        // engine vocabulary on a control an ordinary visitor operates.
+        // The two facts the sentence has to carry are unchanged.
         assert!(
-            reason.contains("could not be resolved"),
+            reason.contains("couldn't be loaded"),
             "names the state: {reason}"
         );
         assert!(reason.contains("Body tab"), "names the way out: {reason}");
@@ -1351,5 +1374,56 @@ mod misleading_controls_tests {
         let mut pick: Option<String> = None;
         retain_live_pick(&mut pick, &names);
         assert!(pick.is_none());
+    }
+}
+
+#[cfg(test)]
+mod socket_label_tests {
+    use crate::pds::avatar::socket_label;
+
+    /// #1267 f220. THE SEQUENCE: wear your first item and read "Wear this
+    /// item at the left-hand socket", then pick from a row of chips
+    /// reading "crown left-shoulder right-hip left-foot" under a lowercase
+    /// label saying "socket". Those are `symbios_avatar::Socket::name`'s
+    /// stable kebab identifiers, and Inventory is the designated wear
+    /// surface for every user, not a developer tool.
+    #[test]
+    fn no_socket_reaches_a_label_as_its_wire_identifier() {
+        let mut raw = Vec::new();
+        for socket in symbios_avatar::Socket::ALL {
+            let name = socket.name();
+            let label = socket_label(name);
+            if label == name || label.contains('-') {
+                raw.push(format!("{name} -> {label}"));
+            }
+        }
+        assert!(
+            raw.is_empty(),
+            "sockets still shown as engine identifiers:\n  {}",
+            raw.join("\n  ")
+        );
+    }
+
+    /// Distinct, so the picker never offers one word for two places.
+    #[test]
+    fn every_socket_reads_differently() {
+        let mut labels: Vec<&str> = symbios_avatar::Socket::ALL
+            .iter()
+            .map(|s| socket_label(s.name()))
+            .collect();
+        let before = labels.len();
+        labels.sort_unstable();
+        labels.dedup();
+        assert_eq!(before, labels.len(), "two sockets share a label");
+    }
+
+    /// The control, and the forward-compatibility answer: a socket name
+    /// written by a newer build has no reading here and comes back as
+    /// itself, because printing the raw name is more use than printing
+    /// nothing. This is also what keeps the test above honest — it would
+    /// pass on a table that simply title-cased everything.
+    #[test]
+    fn an_unknown_socket_name_survives_as_itself() {
+        assert_eq!(socket_label("third-arm"), "third-arm");
     }
 }

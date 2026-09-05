@@ -53,7 +53,7 @@ pub(super) fn draw_tree_panel(
     // The editor's one-node clipboard (#1244 f422).
     clipboard: &mut Option<Generator>,
 ) {
-    ui.heading("Generators");
+    ui.heading("Items");
     ui.add_space(2.0);
 
     let allowed_root_kinds = source.allowed_kinds_for_root();
@@ -161,7 +161,8 @@ pub(super) fn draw_tree_panel(
     // find, so the avatar's single-root trees are unchanged.
     let multi_root = source.allow_multiple_roots();
     if multi_root {
-        ui.add(
+        crate::ui::affordances::text_edit(
+            ui,
             egui::TextEdit::singleline(filter)
                 .desired_width(f32::INFINITY)
                 .hint_text("Filter assets…"),
@@ -214,10 +215,10 @@ pub(super) fn draw_tree_panel(
                         // actually produces, because the compiler builds
                         // only from placements and a fresh root is
                         // invisible until one exists.
-                        "(no region assets — click \"+ New\" above; a new asset needs \
+                        "(no items — click \"+ New\" above; a new item needs \
                          a placement before it appears in the world)"
                     } else {
-                        "(no assets match the filter)"
+                        "(no items match the filter)"
                     })
                     .small()
                     .color(crate::ui::theme::current(ui.ctx()).text_weak),
@@ -544,7 +545,7 @@ fn build_tree_node(
         }
         if ui
             .button("Copy")
-            .on_hover_text("Hold a copy of this node — paste it under any row, in any asset")
+            .on_hover_text("Hold a copy of this part — paste it under any row, in any item")
             .clicked()
         {
             *pending.borrow_mut() = Some(PendingAction::Copy(menu_id.clone()));
@@ -555,7 +556,7 @@ fn build_tree_node(
                 menu_allows_children && menu_has_clipboard,
                 egui::Button::new("Paste as child"),
             )
-            .on_hover_text("Add the copied node under this one")
+            .on_hover_text("Add the copied part under this one")
             .on_disabled_hover_text(if menu_has_clipboard {
                 "This kind holds no children"
             } else {
@@ -597,7 +598,7 @@ fn build_tree_node(
                 menu_inventory.is_some() && !stash_full,
                 egui::Button::new("Save to Inventory"),
             )
-            .on_hover_text("Copy this node into your inventory as a reusable blueprint")
+            .on_hover_text("Copy this part into your inventory as a reusable item")
             .on_disabled_hover_text(if stash_full {
                 format!("Inventory full ({cap}/{cap}) — remove an item first")
             } else {

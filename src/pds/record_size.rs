@@ -80,7 +80,7 @@ pub fn serialized_record_bytes<T: Serialize>(record: &T) -> Option<usize> {
     serde_json::to_vec(record).ok().map(|v| v.len())
 }
 
-/// What the size readout beside "Save to PDS" knows about one editor's
+/// What the size readout beside "Save" knows about one editor's
 /// next save (#1207): the largest single record it would write, *which*
 /// record that is, and whether some part of it cannot be written at all.
 ///

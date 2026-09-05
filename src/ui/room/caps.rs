@@ -76,11 +76,11 @@ impl Cap {
     pub(crate) fn full_reason(self) -> String {
         let max = self.max();
         match self {
-            Self::Generators => format!("World full ({max}/{max} generators) — delete one first"),
+            Self::Generators => format!("World full ({max}/{max} items) — delete one first"),
             Self::Placements => format!("World full ({max}/{max} placements) — delete one first"),
             Self::Recipes => format!("Recipe limit reached ({max}/{max}) — delete one first"),
             Self::NodesPerGenerator => {
-                format!("This generator is full ({max} nodes) — delete a node first")
+                format!("This item is full ({max} parts) — delete a part first")
             }
             Self::Depth => format!("Nesting limit reached ({max} levels)"),
             Self::MaterialSlots => format!("All {max} material slots are used"),
@@ -92,10 +92,10 @@ impl Cap {
     /// The `Label N/cap` readout and its tone.
     pub(crate) fn readout(self, used: usize) -> (String, CapTone) {
         let label = match self {
-            Self::Generators => "Generators",
+            Self::Generators => "Items",
             Self::Placements => "Placements",
             Self::Recipes => "Recipes",
-            Self::NodesPerGenerator => "Nodes",
+            Self::NodesPerGenerator => "Parts",
             Self::Depth => "Depth",
             Self::MaterialSlots => "Material slots",
             Self::SweepPoints => "Points",

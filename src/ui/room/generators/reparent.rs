@@ -444,14 +444,14 @@ pub(crate) fn request_root_delete(
     let placements = source.placement_ref_count(root);
     let body = if placements > 0 {
         format!(
-            "Deletes the generator \"{root}\" AND removes the {placements} \
+            "Deletes the item \"{root}\" AND removes the {placements} \
              placement{} referencing it from the world. Undo (Ctrl+Z) \
              can restore it this session.",
             if placements == 1 { "" } else { "s" },
         )
     } else {
         format!(
-            "Deletes the generator \"{root}\" and everything under it. \
+            "Deletes the item \"{root}\" and everything under it. \
              Undo (Ctrl+Z) can restore it this session."
         )
     };
