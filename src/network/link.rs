@@ -10,17 +10,48 @@
 //! blaming the recipient for not answering.
 //!
 //! Every one of those is the same missing fact, so this module supplies it
-//! once. [`track_link_state`] writes [`LinkState`] from three signals the
-//! upstream plugin already publishes and overlands ignored:
+//! once. [`track_link_state`] writes [`LinkState`] from signals the upstream
+//! plugin already publishes and overlands ignored:
 //!
 //! * `resource_exists::<MatchboxSocket>` — a socket *object* exists. The
 //!   plugin removes the resource when the message loop dies, which is the
 //!   only observable trace a local outage leaves (`open_socket`'s
 //!   `any_channel_closed()` teardown branch).
+//! * `MatchboxSocket::id()` — the relay welcomed us and assigned our
+//!   `PeerId`. This, not the socket's existence, is what "connected" means.
 //! * [`LocalSocketReopened`] — a fresh socket was just spawned; the relay
 //!   has not answered yet.
-//! * [`WelcomeHandshakeComplete`] — the relay welcomed us and assigned our
-//!   `PeerId`. This, not the socket's existence, is what "connected" means.
+//!
+//! ## A message is not a state (#1279)
+//!
+//! The welcome was originally read from the `WelcomeHandshakeComplete`
+//! *message*, and that was the bug. Bevy messages are double-buffered and
+//! readable for about two frames; upstream writes that one **exactly once
+//! per socket** (`detect_welcome_handshake` early-returns forever after,
+//! guarded by its own `welcomed_peer_id`); and this module's reader was
+//! registered `run_if(in_state(AppState::InGame))`. But
+//! `ui::login::complete::install_completed_session` inserts
+//! `SymbiosMultiuserConfig` and only *then* sets `AppState::Loading`, so the
+//! socket opens and the relay answers during `Loading` — 0.65 s and 1.9 s
+//! before `InGame` in the two login segments of the session log that
+//! reported this. The message expired unread, no second one was ever
+//! written, and [`LinkPhase::Connected`] became unreachable for the life of
+//! the socket. Six surfaces then told the same wrong story, because #1213
+//! deliberately made this the one connection fact.
+//!
+//! So the phase is now derived from a **durable** fact instead. `socket.id()`
+//! answers from a `OnceCell` that upstream's own detector fills from the same
+//! welcome, so it is true on every frame of the socket's life after the relay
+//! answers, and false again the moment a fresh socket replaces it. Nothing
+//! here can miss an edge any more, because there is no edge to miss:
+//! [`next_phase`] is a pure function of what is true *now*, with no history
+//! parameter at all. Widening the run condition alone would have fixed the
+//! reported symptom and left the mechanism — any later ordering change,
+//! state gate or two-frame stall would have silently dropped the fact again.
+//!
+//! [`LocalSocketReopened`] survives as an edge, and only an edge: it covers
+//! the single frame in which `open_socket` has queued a new socket but the
+//! resource has not been inserted yet.
 //!
 //! Everything else in the tranche reads [`LinkState`]; nothing else reads
 //! the three signals. The user-facing wording lives here too — the chip
@@ -35,7 +66,7 @@ use bevy_symbios_multiuser::prelude::*;
 use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::EventPayload;
 use crate::protocol::OverlandsMessage;
-use crate::state::{ChatHistory, RemotePeer};
+use crate::state::{AppState, ChatHistory, RemotePeer};
 
 /// What the client currently knows about its own relay link.
 ///
@@ -261,52 +292,87 @@ pub struct LinkNarration {
     expected_teardown: bool,
 }
 
-/// The phase transition, as a pure function of the three upstream signals.
+/// May the link be tracked in this app state?
+///
+/// A named function rather than an inline `in_state(..).or(in_state(..))` so
+/// the window is one testable fact instead of a run condition nobody can
+/// assert on — the gate being wrong by one state is exactly what #1279 was.
+///
+/// `Loading` is in the window because that is when the relay actually
+/// answers: `install_completed_session` inserts `SymbiosMultiuserConfig`
+/// before it sets `Loading`, so the socket opens, the welcome lands, and the
+/// world is still compiling. `Login` is out — no session exists there, and
+/// leaving it out is what keeps [`reset_link_state`]'s clean slate clean.
+pub(crate) fn link_is_tracked(state: Res<State<AppState>>) -> bool {
+    matches!(state.get(), AppState::Loading | AppState::InGame)
+}
+
+/// The phase, as a pure function of what is true *this frame*.
 ///
 /// Split out from [`track_link_state`] because `MatchboxSocket` wraps a live
 /// `WebRtcSocket` and cannot be constructed in a test — the transition table
 /// is the part worth pinning, and this is the shape that lets a test pin it.
 ///
+/// There is deliberately no `current` parameter (#1279). The phase used to be
+/// latched forward from the previous frame because the welcome arrived as a
+/// message that had to be caught in a two-frame window; `peer_id_assigned` is
+/// durable, so the answer can be recomputed from scratch every frame and a
+/// system that does not run for a while cannot come back holding a stale one.
+///
 /// Order matters. `open_socket` writes [`LocalSocketReopened`] in the same
 /// frame it queues `commands.open_socket(..)`, so the resource is still
 /// absent on the frame the reopen fires: checking `socket_present` first
-/// would read that frame as `Down`.
+/// would read that frame as `Down` and flicker the chip on every reconnect.
+/// `reopened` outranks `peer_id_assigned` for the same reason it outranks
+/// everything — it means *this socket is not the one you were connected to*.
+/// Upstream cannot in fact raise both at once (every teardown branch of
+/// `manage_socket` removes `MatchboxSocket` and returns, so the fresh-open
+/// path that writes the reopen only runs on a later frame, with no socket
+/// resource present to carry an id), but the ordering states the intent.
 pub(crate) fn next_phase(
-    current: LinkPhase,
     socket_present: bool,
     reopened: bool,
-    welcomed: bool,
+    peer_id_assigned: bool,
 ) -> LinkPhase {
-    if welcomed {
-        // The relay answered. Authoritative regardless of anything else
-        // observed this frame.
-        LinkPhase::Connected
-    } else if reopened {
+    if reopened {
         // A brand-new socket: whatever we were, we are waiting again.
         LinkPhase::Connecting
-    } else if !socket_present {
-        LinkPhase::Down
-    } else if current.is_up() {
+    } else if peer_id_assigned {
+        // The relay answered *this* socket and named us.
         LinkPhase::Connected
-    } else {
-        // A socket object exists and no welcome has landed yet.
+    } else if socket_present {
+        // A socket object exists and no welcome has landed on it yet.
         LinkPhase::Connecting
+    } else {
+        LinkPhase::Down
     }
 }
 
-/// Write [`LinkState`] from the three upstream signals. The single writer.
+/// Write [`LinkState`] from the upstream signals. The single writer.
+///
+/// Runs under [`link_is_tracked`], not `in_state(InGame)`: the welcome lands
+/// during `Loading` (#1279).
 pub(super) fn track_link_state(
-    socket: Option<Res<MatchboxSocket>>,
+    socket: Option<ResMut<MatchboxSocket>>,
     mut reopened: MessageReader<LocalSocketReopened>,
-    mut welcomed: MessageReader<WelcomeHandshakeComplete>,
     time: Res<Time>,
     mut link: ResMut<LinkState>,
 ) {
-    // Both readers are drained unconditionally: leaving one un-read would
-    // let a stale event re-fire on the frame after the other one moved us.
+    // Drained unconditionally: an un-read message would re-fire on the frame
+    // after something else moved us.
     let reopened_now = reopened.read().count() > 0;
-    let welcomed_now = welcomed.read().count() > 0;
-    let next = next_phase(link.phase, socket.is_some(), reopened_now, welcomed_now);
+    // `WebRtcSocket::id` needs `&mut` because it lazily drains the id channel
+    // into a `OnceCell` — but only until the cell is filled, after which it
+    // answers from the cell. So reading it here cannot steal the signal from
+    // upstream's `detect_welcome_handshake`: whichever of us drains the
+    // channel first initialises the same cell, and the other still sees
+    // `Some`. Nothing in the app or the plugin filters on
+    // `Changed<MatchboxSocket>`, so the `ResMut` costs only the flag.
+    let (socket_present, peer_id_assigned) = match socket {
+        Some(mut socket) => (true, socket.id().is_some()),
+        None => (false, false),
+    };
+    let next = next_phase(socket_present, reopened_now, peer_id_assigned);
     // Guarded-dirty (#879): read through `Res`-style deref (which does not
     // flag), write only on a real transition.
     if link.phase != next {
@@ -474,8 +540,7 @@ mod tests {
         }
     }
 
-    /// The three signals compose into exactly three states, and the reopen
-    /// edge outranks the socket's absence — `open_socket` writes
+    /// The reopen edge outranks the socket's absence — `open_socket` writes
     /// `LocalSocketReopened` in the frame it *queues* the socket, so the
     /// resource is still gone when the message arrives. Reading presence
     /// first would render that frame "Offline" and flicker the chip on
@@ -483,34 +548,30 @@ mod tests {
     #[test]
     fn a_reopen_outranks_the_socket_not_being_there_yet() {
         assert_eq!(
-            next_phase(LinkPhase::Down, false, true, false),
+            next_phase(false, true, false),
             LinkPhase::Connecting,
             "the frame a socket is queued is Connecting, not Down"
         );
+        // …and it outranks an assigned id too: that id would belong to the
+        // socket being replaced, not to the one just queued.
+        assert_eq!(next_phase(true, true, true), LinkPhase::Connecting);
     }
 
-    /// A welcome is authoritative: it is the only signal that means the
-    /// relay accepted us, and nothing observed alongside it changes that.
+    /// An assigned `PeerId` is what "connected" means, and it is the only
+    /// thing that means it.
     #[test]
-    fn a_welcome_is_authoritative() {
-        for present in [false, true] {
-            for reopened in [false, true] {
-                assert_eq!(
-                    next_phase(LinkPhase::Down, present, reopened, true),
-                    LinkPhase::Connected,
-                );
-            }
-        }
+    fn an_assigned_peer_id_is_what_connected_means() {
+        assert_eq!(next_phase(true, false, true), LinkPhase::Connected);
+        // The two ways to not be connected stay distinguishable.
+        assert_eq!(next_phase(true, false, false), LinkPhase::Connecting);
+        assert_eq!(next_phase(false, false, false), LinkPhase::Down);
     }
 
     /// The whole point of the resource: the socket resource vanishing is
     /// the ONLY trace a dead message loop leaves, and it must read as Down.
     #[test]
     fn a_removed_socket_is_down() {
-        assert_eq!(
-            next_phase(LinkPhase::Connected, false, false, false),
-            LinkPhase::Down,
-        );
+        assert_eq!(next_phase(false, false, false), LinkPhase::Down);
     }
 
     /// A live socket with no welcome yet is not "connected". This is the
@@ -518,22 +579,27 @@ mod tests {
     /// showed a normal room, and every send was dropped.
     #[test]
     fn a_socket_without_a_welcome_is_only_connecting() {
-        assert_eq!(
-            next_phase(LinkPhase::Down, true, false, false),
-            LinkPhase::Connecting,
-        );
+        assert_eq!(next_phase(true, false, false), LinkPhase::Connecting);
     }
 
-    /// Once welcomed we stay Connected while the socket lives — the welcome
-    /// message fires once per socket, so a steady state that re-derived
-    /// "connected" from this frame's messages would fall back to Connecting
-    /// on the very next frame.
+    /// THE MECHANISM behind #1279: the phase carries no history, so a
+    /// tracker that was not allowed to run for a hundred frames comes back
+    /// with the right answer rather than a stale one.
+    ///
+    /// The old table took the previous phase and latched `Connected`
+    /// forward, because the welcome arrived as a message that had to be
+    /// caught inside a two-frame window. That is what made a single missed
+    /// read permanent. `next_phase` now has no parameter that could carry a
+    /// missed edge: for one set of live facts there is exactly one answer,
+    /// whatever happened before.
     #[test]
-    fn connected_persists_while_the_socket_lives() {
-        assert_eq!(
-            next_phase(LinkPhase::Connected, true, false, false),
-            LinkPhase::Connected,
-        );
+    fn the_phase_is_derived_not_latched() {
+        // A socket that has been welcomed reads Connected on the FIRST
+        // frame it is ever asked about — no prior Connected required.
+        assert_eq!(next_phase(true, false, true), LinkPhase::Connected);
+        // And a socket that has not been reads Connecting even if the
+        // caller has been Connected all session: nothing latches.
+        assert_eq!(next_phase(true, false, false), LinkPhase::Connecting);
     }
 
     /// `up_continuously_since` is the predicate the gift-expiry wording
@@ -677,10 +743,10 @@ mod tests {
     }
 
     /// THE SEQUENCE: the link drops, is announced, and comes back. The
-    /// recovery half was entirely mute before #1213 — upstream emits
-    /// `LocalSocketReopened` and `WelcomeHandshakeComplete` on every
-    /// reconnect and overlands read neither — so even a user who worked out
-    /// what had happened was never told the client had fixed it.
+    /// recovery half was entirely mute before #1213 — upstream reopens the
+    /// socket and is welcomed again on every reconnect, and overlands
+    /// observed neither — so even a user who worked out what had happened
+    /// was never told the client had fixed it.
     #[test]
     fn a_reconnect_is_announced_after_a_loss_was() {
         let mut app = narration_app();
@@ -815,7 +881,6 @@ mod tests {
         app.init_resource::<LinkState>();
         app.init_resource::<Changes>();
         app.add_message::<LocalSocketReopened>();
-        app.add_message::<WelcomeHandshakeComplete>();
         app.add_systems(Update, (track_link_state, count).chain());
 
         // Steady Down: no socket, no messages, nothing to say.
@@ -828,16 +893,16 @@ mod tests {
             "a steady phase must not re-write the resource, saw {baseline} writes"
         );
 
-        // One edge, then steady again.
+        // One edge, then steady again. `LocalSocketReopened` is the only
+        // signal a socketless test app can raise — and it is the only one
+        // left that is a message at all.
         app.world_mut()
-            .resource_mut::<Messages<WelcomeHandshakeComplete>>()
-            .write(WelcomeHandshakeComplete {
-                local_peer_id: peer(1),
-            });
+            .resource_mut::<Messages<LocalSocketReopened>>()
+            .write(LocalSocketReopened);
         app.update();
         assert_eq!(
             app.world().resource::<LinkState>().phase(),
-            LinkPhase::Connected
+            LinkPhase::Connecting
         );
         let after_edge = app.world().resource::<Changes>().0;
         assert_eq!(after_edge, baseline + 1, "the edge is exactly one write");
@@ -853,5 +918,193 @@ mod tests {
             after_edge + 1,
             "settling back to Down is one write, not one per frame"
         );
+    }
+
+    /// An app with the real tracker under its real run condition and a real
+    /// `AppState`. `MatchboxSocket` cannot be built here, so the socket half
+    /// of the signals is exercised by [`next_phase`] in the sequence test
+    /// below; what THIS app can prove is the half #1279 actually got wrong
+    /// — which states the tracker is allowed to observe at all.
+    fn gated_tracker_app() -> App {
+        let mut app = App::new();
+        // `MinimalPlugins` carries no `StatesPlugin`, and `init_state`
+        // panics without the `StateTransition` schedule it installs.
+        app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin));
+        app.init_state::<AppState>();
+        app.init_resource::<LinkState>();
+        app.add_message::<LocalSocketReopened>();
+        app.add_systems(Update, track_link_state.run_if(link_is_tracked));
+        app
+    }
+
+    fn enter(app: &mut App, state: AppState) {
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(state);
+        // One update to apply the transition, one to run in the new state.
+        app.update();
+        app.update();
+    }
+
+    /// THE SEQUENCE, first half (#1279): the relay answers while the world
+    /// is still compiling, and the tracker has to be watching by then.
+    ///
+    /// `install_completed_session` inserts `SymbiosMultiuserConfig` and only
+    /// THEN sets `Loading`, so the socket opens and the welcome lands during
+    /// `Loading` — 0.65 s and 1.9 s before `InGame` in the two login
+    /// segments of the session log that reported this. Registered
+    /// `run_if(in_state(InGame))`, the tracker was not running yet and the
+    /// phase stayed `Down`; because the welcome was a message written once
+    /// per socket, it never got another chance.
+    #[test]
+    fn the_tracker_is_watching_from_loading_not_from_in_game() {
+        assert!(!link_is_tracked_in(AppState::Login));
+        assert!(link_is_tracked_in(AppState::Loading));
+        assert!(link_is_tracked_in(AppState::InGame));
+
+        let mut app = gated_tracker_app();
+
+        // Login: no session, nothing to track — the tracker must not run.
+        app.world_mut()
+            .resource_mut::<Messages<LocalSocketReopened>>()
+            .write(LocalSocketReopened);
+        app.update();
+        assert_eq!(
+            app.world().resource::<LinkState>().phase(),
+            LinkPhase::Down,
+            "the login screen has no link to report on"
+        );
+
+        // Loading: the socket is opening. THIS is the window the old gate
+        // missed, and a signal raised here must move the phase.
+        enter(&mut app, AppState::Loading);
+        app.world_mut()
+            .resource_mut::<Messages<LocalSocketReopened>>()
+            .write(LocalSocketReopened);
+        app.update();
+        assert_eq!(
+            app.world().resource::<LinkState>().phase(),
+            LinkPhase::Connecting,
+            "a relay signal during Loading must be observed, not dropped"
+        );
+    }
+
+    /// `link_is_tracked` as a plain predicate — the run condition is a
+    /// system, so this is the shape a test can assert on.
+    fn link_is_tracked_in(state: AppState) -> bool {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin));
+        app.init_state::<AppState>();
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(state);
+        app.update();
+        app.world_mut()
+            .run_system_once(link_is_tracked)
+            .expect("the condition runs")
+    }
+
+    /// THE SEQUENCE, in full (#1279): the relay welcomes us during
+    /// `Loading`, and the phase is `Connected` by the time the player is in
+    /// the world — and stays that way, for as many frames as the socket
+    /// lives.
+    ///
+    /// This is the whole bug in one replay. Each step is the live facts of
+    /// one frame — the app state, whether the socket resource exists,
+    /// whether a reopen fired, and whether the relay has assigned our
+    /// `PeerId` — and the assertion is what a user reading the toolbar chip
+    /// would see. The old code failed the `InGame` steps: the welcome was a
+    /// message, `next_phase` could only reach `Connected` through it, and
+    /// the frames that could have read it were frames the tracker was gated
+    /// out of.
+    #[test]
+    fn the_relay_welcomes_us_during_loading_and_we_are_connected_in_the_world() {
+        // (state, socket_present, reopened, peer_id_assigned, expected)
+        let login = [
+            // Sign-in complete: the config is inserted, `Loading` begins,
+            // and upstream queues the socket in the same frame it writes
+            // the reopen — the resource is not there yet.
+            (AppState::Loading, false, true, false, LinkPhase::Connecting),
+            // The socket resource lands. Still no answer from the relay.
+            (AppState::Loading, true, false, false, LinkPhase::Connecting),
+            // ~1.5 s of world compile with the handshake in flight.
+            (AppState::Loading, true, false, false, LinkPhase::Connecting),
+            // The relay welcomes us and names us. STILL IN `Loading` — this
+            // is the frame the old tracker was not running for, 0.65 s
+            // before the loading gate opened.
+            (AppState::Loading, true, false, true, LinkPhase::Connected),
+            (AppState::Loading, true, false, true, LinkPhase::Connected),
+            // The loading gate opens. Nothing about the link changed here,
+            // and nothing needs to have been remembered across the edge.
+            (AppState::InGame, true, false, true, LinkPhase::Connected),
+            (AppState::InGame, true, false, true, LinkPhase::Connected),
+        ];
+        for (i, (state, present, reopened, assigned, want)) in login.iter().enumerate() {
+            assert!(
+                link_is_tracked_in(state.clone()),
+                "step {i}: the tracker must be running in {state:?}"
+            );
+            assert_eq!(
+                next_phase(*present, *reopened, *assigned),
+                *want,
+                "step {i} of the login sequence"
+            );
+        }
+
+        // A thousand frames later — long past any message's two-frame life
+        // — the same live facts still read Connected. The chip that was
+        // stuck on "Connecting…" for a whole session is the assertion this
+        // one replaces.
+        assert_eq!(next_phase(true, false, true), LinkPhase::Connected);
+        assert_eq!(LinkPhase::Connected.chip_label(), "Connected");
+    }
+
+    /// THE SEQUENCE, repeated (#1279): log out and log in again.
+    ///
+    /// `reset_link_state` runs `OnExit(InGame)`, so the second login starts
+    /// from a cleared `LinkState` exactly as the first did — which is why
+    /// the reported bug happened TWICE in one session log rather than once.
+    /// A fix that only worked on the first login would leave the second
+    /// stuck, so the relogin is asserted end to end.
+    #[test]
+    fn a_relogin_reconnects_and_says_so() {
+        let mut app = gated_tracker_app();
+        app.init_resource::<LinkNarration>();
+
+        // First session: reach Connecting under the real gate, then the
+        // welcome (which needs a socket) via the table.
+        enter(&mut app, AppState::Loading);
+        app.world_mut()
+            .resource_mut::<Messages<LocalSocketReopened>>()
+            .write(LocalSocketReopened);
+        app.update();
+        assert_eq!(
+            app.world().resource::<LinkState>().phase(),
+            LinkPhase::Connecting
+        );
+        enter(&mut app, AppState::InGame);
+
+        // Log out: the reset clears the state and the narration edge.
+        app.world_mut()
+            .run_system_once(reset_link_state)
+            .expect("reset runs");
+        assert_eq!(app.world().resource::<LinkState>().phase(), LinkPhase::Down);
+        enter(&mut app, AppState::Login);
+
+        // Second login. The gate must open again — a fix that latched
+        // anything into the first session would leave this one at Down.
+        enter(&mut app, AppState::Loading);
+        app.world_mut()
+            .resource_mut::<Messages<LocalSocketReopened>>()
+            .write(LocalSocketReopened);
+        app.update();
+        assert_eq!(
+            app.world().resource::<LinkState>().phase(),
+            LinkPhase::Connecting,
+            "the second login must be tracked exactly like the first"
+        );
+        // And the durable welcome is just as reachable the second time:
+        // nothing about it is consumed by the first session.
+        assert_eq!(next_phase(true, false, true), LinkPhase::Connected);
     }
 }

@@ -166,6 +166,21 @@ impl Plugin for NetworkPlugin {
             .init_resource::<link::LinkState>()
             .init_resource::<link::LinkNarration>()
             .insert_resource(SmootherConfigRes::from_fixed_timestep(fixed_timestep_secs))
+            // #1279: the link is TRACKED from `Loading`, not from `InGame`.
+            // The relay answers while the world is still compiling — the
+            // socket config is inserted just before the `Loading` transition
+            // — so a tracker gated on `InGame` starts observing after the one
+            // signal that means "connected" has already happened. It is
+            // registered apart from the chain below precisely because it
+            // needs the wider window; `narrate_link_state` must NOT have it,
+            // since it toasts and sweeps ghost peers and neither belongs on
+            // the loading screen.
+            .add_systems(
+                Update,
+                link::track_link_state
+                    .run_if(link::link_is_tracked)
+                    .before(link::narrate_link_state),
+            )
             .add_systems(
                 Update,
                 (
@@ -175,7 +190,6 @@ impl Plugin for NetworkPlugin {
                     // so a queued `Disconnected` for one of them cannot print
                     // a "left the room." line for a peer we already know we
                     // lost ourselves (#1213 f398 + f402).
-                    link::track_link_state,
                     link::narrate_link_state,
                     lifecycle::handle_peer_connections,
                     // Before the dispatcher: the relay's session map is the
