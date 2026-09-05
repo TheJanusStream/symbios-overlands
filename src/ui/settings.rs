@@ -66,6 +66,40 @@ pub fn settings_ui(
             ui.small("Applies immediately; remembered on this machine.");
 
             ui.add_space(8.0);
+            // The other half of the accessibility surface (#1259 f239).
+            // The palette picker used to be all of it: there was no
+            // text-size control anywhere, and egui's own Ctrl+plus was
+            // undocumented and forgotten at every launch. The slider and
+            // the shortcut are one setting — `theme::sync_ui_scale` reads
+            // the keyboard zoom back out — so this number is always what
+            // is on screen, however the user got there.
+            ui.strong("Interface size");
+            ui.horizontal(|ui| {
+                dirty |= ui
+                    .add(
+                        egui::Slider::new(
+                            &mut s.ui_scale,
+                            crate::config::ui::UI_SCALE_MIN..=crate::config::ui::UI_SCALE_MAX,
+                        )
+                        .fixed_decimals(2)
+                        .suffix("x"),
+                    )
+                    .on_hover_text(
+                        "Scales all text and controls. Ctrl+plus and Ctrl+minus \
+                         do the same thing from anywhere.",
+                    )
+                    .changed();
+                if ui
+                    .button("Reset")
+                    .on_hover_text("Back to the default size.")
+                    .clicked()
+                {
+                    s.ui_scale = 1.0;
+                    dirty = true;
+                }
+            });
+
+            ui.add_space(8.0);
             ui.separator();
             ui.strong("Camera");
             ui.label("Ground avoidance:");

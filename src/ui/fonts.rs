@@ -117,6 +117,24 @@ fn build_font_definitions(cjk: Option<Vec<u8>>) -> egui::FontDefinitions {
     defs
 }
 
+/// Size of `TextStyle::Small`, raised from egui's stock 9.0 (#1259
+/// f243).
+///
+/// 9 pt was the app's floor and it was reserved for exactly the text a
+/// confused user most needs to read: the whole toast body — the only
+/// success/failure channel there is — the login *Details* disclosure
+/// carrying the raw error chain, anomaly descriptions tinted with the
+/// severity ramp, the peer build-incompatibility chip and the avatar
+/// recovery banner. There are ~100 `.small()` call sites and the three
+/// load-bearing ones are promoted to Body outright; this raises the
+/// floor under all the rest.
+///
+/// 11 and not 13: `Small` still has to READ as a quieter tier beside
+/// Body, or every timestamp and unit suffix starts competing with the
+/// text it annotates. It scales with the #1259 f239 UI-scale control on
+/// top of this, since `zoom_factor` multiplies point sizes.
+pub const SMALL_TEXT_SIZE: f32 = 11.0;
+
 /// Install the base font set at startup. Same self-retrying latch shape
 /// as `theme::apply_theme_on_change`: the egui context may not exist on
 /// the first frame, and this must not silently give up.
@@ -128,6 +146,16 @@ pub fn install_base_fonts(mut contexts: EguiContexts, mut installed: Local<bool>
         return;
     };
     ctx.set_fonts(build_font_definitions(None));
+    // Both bases: the app pins `theme_preference` per palette
+    // (`theme::apply_theme`), so a light palette reads the light `Style`
+    // and a dark one the dark. `Context::set_visuals` assigns
+    // `style.visuals` alone, so the theme picker cannot undo this.
+    ctx.all_styles_mut(|style| {
+        style.text_styles.insert(
+            egui::TextStyle::Small,
+            egui::FontId::new(SMALL_TEXT_SIZE, egui::FontFamily::Proportional),
+        );
+    });
     *installed = true;
 }
 

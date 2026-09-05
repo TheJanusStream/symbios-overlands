@@ -535,6 +535,22 @@ pub struct LocalSettings {
     /// for the user who would rather have an uncluttered view of a busy
     /// room than a name over everybody in it.
     pub show_peer_nametags: bool,
+    /// Interface scale, applied as egui's `zoom_factor` (#1259 f239).
+    ///
+    /// The app shipped with no text-size control of any kind, so the
+    /// three-palette picker was the whole of its accessibility surface —
+    /// and egui's built-in Ctrl+plus / Ctrl+minus, which has always
+    /// worked, was documented nowhere and forgotten at every launch
+    /// because nothing serialises egui's `Options`. This field is the
+    /// durable home for it: [`crate::ui::theme::sync_ui_scale`] pushes it
+    /// into the context AND reads the keyboard zoom back out, so the two
+    /// controls are one setting.
+    ///
+    /// Clamped to
+    /// [`crate::config::ui::UI_SCALE_MIN`]..=[`crate::config::ui::UI_SCALE_MAX`]
+    /// on the way in: a prefs file naming 0.05 would leave the UI
+    /// unreadable with no way to reach the slider that fixes it.
+    pub ui_scale: f32,
     /// Follow `Url` asset references — images and sounds a record names by
     /// web address — as opposed to the ATProto ones (`AtprotoBlob`,
     /// `DidPfp`), which stay inside Bluesky infrastructure (#1248 f298).
@@ -626,6 +642,7 @@ impl Default for LocalSettings {
             login_world_backdrop: true,
             effects_intensity: EffectsIntensity::default(),
             show_peer_nametags: true,
+            ui_scale: 1.0,
             load_external_assets: true,
         }
     }

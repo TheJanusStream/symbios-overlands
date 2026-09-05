@@ -1469,17 +1469,41 @@ pub(crate) mod ui {
     // `crate::ui::layout` since #833 — defaults are computed from the
     // screen rect there, not pixel constants here.
 
+    /// Interface-scale bounds for the #1259 f239 control, and the floor
+    /// and ceiling any persisted or keyboard-driven value is clamped to.
+    ///
+    /// 0.8 is the smallest step that still leaves the 9-to-11 pt `Small`
+    /// tier readable; 2.0 is where the 1280x720 toolbar's ~1100 pt of
+    /// non-wrapping controls stop fitting at all (see #1261). Both ends
+    /// have to stay reachable BY THE SLIDER — a scale a user cannot undo
+    /// from inside the app is a lockout.
+    pub const UI_SCALE_MIN: f32 = 0.8;
+    pub const UI_SCALE_MAX: f32 = 2.0;
+
     pub mod diagnostics {
         /// Severity → HUD colour `[R, G, B]` — the single map the diagnostics
         /// event-log tint, the anomaly badges/pills, the per-metric dots and the
         /// toolbar worst-active dot all read (C-6), so a warning is the same
         /// amber everywhere. Trace/Info are neutral greys; Warn amber, Error
-        /// orange-red, Critical red.
-        pub const SEVERITY_TRACE_RGB: [u8; 3] = [96, 96, 96];
+        /// orange, Critical red.
+        ///
+        /// **Widened by #1259 f236.** The old ramp was three oranges: Warn
+        /// `[210,170,90]` and Error `[210,120,90]` were identical in R and B,
+        /// 50 apart in G, a 1.47:1 luminance ratio — and Error and Critical
+        /// were 40 apart in channel-sum. Severity was legible only to
+        /// somebody comparing two dots side by side. The steps now clear the
+        /// palette's own distinctness bar AND fall monotonically in
+        /// luminance (Warn 0.557 → Error 0.307 → Critical 0.182), so the
+        /// ramp still ranks correctly in greyscale or under any of the
+        /// dichromacies — hue is no longer carrying it alone.
+        ///
+        /// Trace was `[96,96,96]`: 2.71:1 against the window, under WCAG's
+        /// 3:1 floor, on a tier that tints whole event-log lines.
+        pub const SEVERITY_TRACE_RGB: [u8; 3] = [130, 130, 130];
         pub const SEVERITY_INFO_RGB: [u8; 3] = [220, 220, 220];
-        pub const SEVERITY_WARN_RGB: [u8; 3] = [210, 170, 90];
-        pub const SEVERITY_ERROR_RGB: [u8; 3] = [210, 120, 90];
-        pub const SEVERITY_CRITICAL_RGB: [u8; 3] = [220, 90, 90];
+        pub const SEVERITY_WARN_RGB: [u8; 3] = [240, 190, 60];
+        pub const SEVERITY_ERROR_RGB: [u8; 3] = [245, 110, 30];
+        pub const SEVERITY_CRITICAL_RGB: [u8; 3] = [225, 45, 60];
     }
 
     pub mod login {

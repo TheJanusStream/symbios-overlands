@@ -330,6 +330,11 @@ pub fn run() {
             (
                 ui::theme::sync_theme_from_settings,
                 ui::theme::apply_theme_on_change,
+                // Interface scale (#1259 f239) rides the same slot: it
+                // reads the context's zoom back out as well as writing
+                // it, so the Ctrl+plus shortcut and the Settings slider
+                // are one persisted setting.
+                ui::theme::sync_ui_scale,
                 // Fonts ride the same Update slot (#858): base install is
                 // a self-retrying one-shot; detect/poll are change-gated
                 // and drive the at-most-once lazy CJK swap.

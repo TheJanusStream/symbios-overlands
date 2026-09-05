@@ -38,6 +38,92 @@ use bevy_egui::egui;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Lay a window's fixed footer against its bottom edge, so the
+/// scrollable body above it can be given **exactly** what is left
+/// (#1280). Pair with [`fill_above`], which the closure calls last.
+///
+/// # The bug this exists to make unwriteable
+///
+/// The idiom it replaces guessed the footer's height:
+///
+/// ```ignore
+/// const INPUT_RESERVE_HEIGHT: f32 = 44.0;
+/// let scroll_height = (ui.available_height() - INPUT_RESERVE_HEIGHT).max(60.0);
+/// egui::ScrollArea::vertical()
+///     .auto_shrink([true, false])
+///     .max_height(scroll_height)
+/// ```
+///
+/// `auto_shrink[1] == false` means the scroll area always *claims*
+/// `max_height`, so the window's measured content comes to
+/// `(available_height - guess) + the footer's real height`. The moment
+/// the footer outgrows the guess by a pixel the content is taller than
+/// the window — and egui's `Resize` responds like this on every frame it
+/// is not being actively dragged (`egui-0.35.0/src/containers/resize.rs`,
+/// `Resize::begin`):
+///
+/// ```ignore
+/// // We are not being actively resized, so auto-expand to include size of last frame.
+/// state.desired_size = state.desired_size.max(state.last_content_size);
+/// ```
+///
+/// `desired_size` never decreases on its own, so the overshoot is added
+/// to the window *every frame*: `available_height` grows, the scroll area
+/// grows with it, and the window climbs until `constrain_to` clamps it at
+/// the screen edge. That is #1280 — Chat filled the viewport in under a
+/// second once #1141 and #1213 had each added a line below its input row.
+///
+/// # Why the replacement is a fixed point
+///
+/// The footer is laid out FIRST, in a bottom-up `Ui`, so its height is
+/// *measured*; [`fill_above`] then hands the body a `Ui` whose available
+/// height is the true remainder. A `ScrollArea` with
+/// `auto_shrink([true, false])` and **no `max_height`** fills exactly
+/// that, so content height == available height on every frame and
+/// `desired_size.max(..)` is a no-op.
+///
+/// The closure adds the footer BOTTOM-MOST FIRST — a bottom-up layout
+/// stacks upward — and ends with [`fill_above`]:
+///
+/// ```ignore
+/// layout::bottom_anchored(ui, |ui| {
+///     ui.small(hint_line());     // sits at the very bottom
+///     ui.horizontal(|ui| { .. }); // the input row, above it
+///     layout::fill_above(ui, |ui| {
+///         egui::ScrollArea::vertical()
+///             .auto_shrink([true, false])
+///             .show(ui, |ui| { .. });
+///     });
+/// });
+/// ```
+///
+/// Splitting this into two calls rather than taking `body` and `footer`
+/// closures together is deliberate: the two halves of a chat window
+/// touch the same state (the footer sends a message, the body renders
+/// the history), and two closures alive at once cannot both borrow it.
+pub fn bottom_anchored<R>(
+    ui: &mut egui::Ui,
+    footer_then_body: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), footer_then_body)
+        .inner
+}
+
+/// The scrollable remainder above a [`bottom_anchored`] footer: draws
+/// the separator that divides them, then runs `body` in a normal
+/// top-down `Ui` sized to whatever the footer left.
+///
+/// **Do not set `max_height` on a scroll area inside `body`** — that is
+/// the guess this pair exists to delete (see [`bottom_anchored`]).
+pub fn fill_above<R>(ui: &mut egui::Ui, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    ui.separator();
+    // Back to top-down: a bottom-up `Ui` would emit a scrollback in
+    // reverse, and everything inside the scroll area wants the ordinary
+    // reading direction.
+    ui.with_layout(egui::Layout::top_down(egui::Align::Min), body)
+        .inner
+}
+
 /// Gap between a computed window rect and its neighbours / the screen
 /// edges. Matches the ~10px the old absolute constants used.
 const MARGIN: f32 = 10.0;
@@ -330,6 +416,197 @@ fn resolve_overlaps(
         }
     }
     last_in_bounds
+}
+
+/// #1280, as a law rather than two fixes: no window may size a scroll
+/// area by subtracting a guessed footer height.
+///
+/// `available_height() - <anything>` is the signature of the defect —
+/// the number on the right is a prediction of how tall the widgets
+/// BELOW the scroll area will turn out to be, and every one of those
+/// predictions is wrong the day somebody adds a line. Chat's was 44 pt
+/// and two lines were added under it; the Inventory's was 80 pt with a
+/// wrapping error line one failure away from breaking it.
+///
+/// [`bottom_anchored`] + [`fill_above`] measure the footer instead, so
+/// there is a supported way to do this and the scan can be strict.
+#[cfg(test)]
+mod reserve_scan {
+    /// Every `.rs` under `src/ui`.
+    fn ui_sources() -> Vec<std::path::PathBuf> {
+        let mut found = Vec::new();
+        let mut stack = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui")];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("src/ui is readable") {
+                let path = entry.expect("dir entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    found.push(path);
+                }
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn no_window_sizes_a_scroll_area_by_subtracting_a_guessed_reserve() {
+        let sources = ui_sources();
+        assert!(sources.len() > 20, "the walk found no UI sources");
+        let mut offenders = Vec::new();
+        for path in &sources {
+            // This file is where the defect is defined, deliberately
+            // REPRODUCED (`growth::the_guessed_reserve_is_what_grows` is
+            // the negative control) and scanned for.
+            if path.ends_with("layout.rs") {
+                continue;
+            }
+            let source = std::fs::read_to_string(path).expect("UI source is readable");
+            for (i, line) in source.lines().enumerate() {
+                // Comments are where the defect gets EXPLAINED — both
+                // fixed sites quote the line they used to run.
+                if line.trim_start().starts_with("//") {
+                    continue;
+                }
+                if line.contains("available_height() -") {
+                    offenders.push(format!(
+                        "{}:{}: {}",
+                        path.strip_prefix(env!("CARGO_MANIFEST_DIR"))
+                            .unwrap_or(path)
+                            .display(),
+                        i + 1,
+                        line.trim()
+                    ));
+                }
+            }
+        }
+        offenders.sort();
+        assert!(
+            offenders.is_empty(),
+            "a guessed footer reserve grows its window without bound (#1280) — \
+             measure the footer with `layout::bottom_anchored` + \
+             `layout::fill_above` instead:\n  {}",
+            offenders.join("\n  ")
+        );
+    }
+}
+
+/// #1280: a window whose scroll area is sized from a GUESSED footer
+/// reserve grows without bound. These drive a real (headless) egui
+/// context for a run of frames and read the height the `Resize` state
+/// settles on.
+///
+/// The negative control is the point: `the_guessed_reserve_is_what_grows`
+/// reproduces the defect with the exact idiom `chat_ui` and
+/// `inventory_ui` used, so the passing case and the failing case do not
+/// look alike. Without it this file could assert stability against a
+/// layout that was never capable of growing.
+#[cfg(test)]
+mod growth {
+    use bevy_egui::egui;
+
+    const SCREEN: f32 = 600.0;
+    /// The guess, deliberately smaller than the footer below.
+    const RESERVE: f32 = 10.0;
+    /// How tall the window asks to be to begin with.
+    const START_HEIGHT: f32 = 200.0;
+
+    /// A footer that is unambiguously taller than `RESERVE` — three
+    /// labels, the shape of Chat's note + input row + emote hint.
+    fn footer(ui: &mut egui::Ui) {
+        ui.label("one");
+        ui.label("two");
+        ui.label("three");
+    }
+
+    fn body(ui: &mut egui::Ui) {
+        ui.label("a short scrollback");
+    }
+
+    /// Run one resizable window for `frames` frames and return the
+    /// height it ended up at.
+    fn settle(frames: usize, contents: impl Fn(&mut egui::Ui)) -> f32 {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, SCREEN));
+        let mut height = 0.0_f32;
+        for _ in 0..frames {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            // egui 0.35 renamed `Context::run` to `run_ui` and hands the
+            // closure a root `Ui`; the window still goes on the context.
+            let _ = ctx.run_ui(input, |ui| {
+                let response = egui::Window::new("growth")
+                    .default_pos(egui::Pos2::ZERO)
+                    .default_size(egui::vec2(300.0, START_HEIGHT))
+                    .constrain_to(screen)
+                    .resizable(true)
+                    .show(ui.ctx(), |ui| contents(ui));
+                if let Some(r) = response {
+                    height = r.response.rect.height();
+                }
+            });
+        }
+        height
+    }
+
+    /// THE DEFECT, reproduced: reserve a constant for a footer that is
+    /// taller than it, claim the rest with `auto_shrink([true, false])`,
+    /// and egui's `Resize` — which only ever takes the MAX of its
+    /// desired size and last frame's content — walks the window to the
+    /// bottom of the screen.
+    #[test]
+    fn the_guessed_reserve_is_what_grows() {
+        let guessed = |ui: &mut egui::Ui| {
+            let scroll_height = (ui.available_height() - RESERVE).max(60.0);
+            egui::ScrollArea::vertical()
+                .id_salt("guessed")
+                .auto_shrink([true, false])
+                .max_height(scroll_height)
+                .show(ui, body);
+            ui.separator();
+            footer(ui);
+        };
+        let early = settle(2, guessed);
+        let late = settle(40, guessed);
+        assert!(
+            late > early + 50.0,
+            "the reserve idiom was supposed to grow: {early:.0} -> {late:.0}"
+        );
+        assert!(
+            late > SCREEN * 0.75,
+            "it should run to the screen edge, not stop somewhere: {late:.0}"
+        );
+    }
+
+    /// The fix: measure the footer instead of predicting it, and the
+    /// content height equals the available height on every frame, so
+    /// `desired_size.max(last_content_size)` has nothing to add.
+    #[test]
+    fn a_measured_footer_does_not_grow_the_window() {
+        let measured = |ui: &mut egui::Ui| {
+            super::bottom_anchored(ui, |ui| {
+                footer(ui);
+                super::fill_above(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .id_salt("measured")
+                        .auto_shrink([true, false])
+                        .show(ui, body);
+                });
+            });
+        };
+        let early = settle(4, measured);
+        let late = settle(40, measured);
+        assert!(
+            (late - early).abs() < 1.0,
+            "the window drifted between frame 4 and frame 40: {early:.1} -> {late:.1}"
+        );
+        assert!(
+            late < SCREEN * 0.6,
+            "it should still be near its default size, not filling the screen: {late:.0}"
+        );
+    }
 }
 
 #[cfg(test)]

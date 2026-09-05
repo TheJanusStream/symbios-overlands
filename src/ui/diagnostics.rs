@@ -139,7 +139,11 @@ fn render_anomaly_section(ui: &mut egui::Ui, invariants: &InvariantRegistry) {
                 crate::ui::affordances::status_dot(ui, color);
                 // Human description up front (#837); the raw rule id and
                 // when it last fired live in the hover for debugging.
-                ui.label(egui::RichText::new(*description).small().color(color))
+                // Body, not `.small()` (#1259 f243): this line is what a
+                // user is pointed at when something has gone wrong, and
+                // it is tinted with the severity ramp on top — the Trace
+                // tier put it at 9 pt AND low contrast at once.
+                ui.label(egui::RichText::new(*description).color(color))
                     .on_hover_text(format!(
                         "{id} — last fired {}",
                         crate::format_elapsed_ts(*last_fired)
@@ -231,13 +235,25 @@ fn anomaly_badge(ui: &mut egui::Ui, invariants: &InvariantRegistry, metric_id: &
         return;
     };
     if let Some((_, sev, st)) = invariants.active_badges().find(|(id, _, _)| *id == rule_id) {
+        let colour = severity_color(ui, sev);
+        crate::ui::affordances::status_dot(ui, colour);
+        // The rule's human description BESIDE the dot (#1260 f240). The
+        // pill was a painted circle whose whole meaning lived in a
+        // pointer tooltip: no text in any input mode, and egui opens a
+        // tooltip for a pointer and never for keyboard focus. The
+        // Active Anomalies list has said this in words since #837; the
+        // per-metric pill was the one that never did.
+        let description = invariants.rule_description(rule_id).unwrap_or(rule_id);
         // `last_fired_secs` is a session timestamp, not an age — format it
         // like the event log's stamps instead of reading as "Ns ago" (#837).
-        crate::ui::affordances::status_dot(ui, severity_color(ui, sev)).on_hover_text(format!(
-            "{rule_id} — last fired {}: {}",
-            crate::format_elapsed_ts(st.last_fired_secs),
-            st.last_detail
-        ));
+        crate::ui::affordances::hint(
+            ui.label(egui::RichText::new(description).small().color(colour)),
+            &format!(
+                "{rule_id} — last fired {}: {}",
+                crate::format_elapsed_ts(st.last_fired_secs),
+                st.last_detail
+            ),
+        );
     }
 }
 

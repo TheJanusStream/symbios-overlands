@@ -374,18 +374,20 @@ pub fn login_ui(
     // Hero wordmark + tagline, centred. Mirrors the HTML loading
     // screen's teal wordmark so loading → login reads as
     // one continuous brand surface instead of a visual-language reset.
-    // Over the live world backdrop the hero text needs its own contrast
-    // guarantee — a translucent panel of the theme's window fill. Over
-    // the flat gradient (whose colours the theme already vouches for)
-    // it stays chromeless.
-    let hero_frame = if world_backdrop_visible {
-        egui::Frame::new()
-            .fill(theme.0.window_fill.gamma_multiply(0.85))
-            .corner_radius(10.0)
-            .inner_margin(12.0)
-    } else {
-        egui::Frame::new()
-    };
+    //
+    // The hero carries its own contrast guarantee — a translucent panel
+    // of the theme's window fill — over BOTH backdrops (#1258 f237).
+    // It used to be chromeless over the flat gradient, on the reasoning
+    // that those were "colours the theme already vouches for"; the
+    // measurement said otherwise. In the light palette the 32 pt
+    // wordmark in `theme.accent` sat at 2.08:1 over its own sky and the
+    // 15 pt taglines at 3.12:1, both failing even the large-text
+    // threshold. Over the frame they are 4.6:1 and 5.7:1 — and this is
+    // the screen a user meets before they have a theme picker.
+    let hero_frame = egui::Frame::new()
+        .fill(theme.0.window_fill.gamma_multiply(HERO_FRAME_ALPHA))
+        .corner_radius(10.0)
+        .inner_margin(12.0);
     let hero = egui::Area::new(egui::Id::new("login-hero"))
         .anchor(
             egui::Align2::CENTER_TOP,
@@ -875,7 +877,12 @@ pub fn login_ui(
                     ui.colored_label(crate::ui::theme::current(ui.ctx()).status.error, friendly);
                     if let Some(raw) = details {
                         ui.collapsing("Details", |ui| {
-                            ui.small(raw);
+                            // Body, not `.small()` (#1259 f243): this is
+                            // the raw error chain, opened by somebody who
+                            // is already stuck and about to paste it
+                            // somewhere. It was the smallest type on the
+                            // screen.
+                            ui.label(raw);
                         });
                     }
                     // The cheap retry the copy has always promised (#1228
@@ -1003,6 +1010,13 @@ pub fn login_ui(
     }
 }
 
+/// Opacity of the hero's frame over whichever backdrop is showing. Not
+/// 1.0 so the world (or the sky) still reads through it as depth; not
+/// lower, because the frame is the hero's whole contrast guarantee —
+/// the `hero_contrast` guards measure the text against exactly this
+/// blend.
+const HERO_FRAME_ALPHA: f32 = 0.85;
+
 /// Full-screen vertical gradient (zenith → horizon) painted on egui's
 /// background layer, beneath every `Area`. Colours come from the
 /// semantic theme ([`crate::ui::theme::Theme::backdrop_top`] /
@@ -1036,6 +1050,64 @@ fn card_frame(theme: &crate::ui::theme::Theme) -> egui::Frame {
             spread: 0,
             color: egui::Color32::from_black_alpha(80),
         })
+}
+
+/// #1258 f237: the login hero is the only screen a user meets before
+/// they can reach the theme picker, so its text owes AA on whatever is
+/// behind it — and what is behind it is one of two things, the attract
+/// world or [`paint_backdrop`]'s flat gradient.
+///
+/// Neither is measurable directly (a terrain render, and a gradient
+/// whose sampled band depends on where the hero lands), so the guard
+/// measures the surface that stands between them and the text: the
+/// hero's own frame, composited over the gradient's two ENDPOINTS,
+/// which bracket every band it can sample. The world backdrop is
+/// darker than the light palette's sky at every point that matters,
+/// so the pale end of the gradient is the worst case for both.
+#[cfg(test)]
+mod hero_contrast {
+    use crate::ui::theme::{Theme, composite_over, contrast_ratio};
+
+    /// WCAG AA for normal text. The taglines are 15 pt, the wordmark 32
+    /// pt (large text, 3:1) — held to the stricter figure because both
+    /// clear it and a regression should be loud.
+    const AA_TEXT: f32 = 4.5;
+
+    #[test]
+    fn hero_reads_over_every_backdrop() {
+        for (palette, t) in [
+            ("dark", Theme::dark()),
+            ("light", Theme::light()),
+            ("high_contrast", Theme::high_contrast()),
+        ] {
+            let frame = t.window_fill.gamma_multiply(super::HERO_FRAME_ALPHA);
+            for (edge, sky) in [("top", t.backdrop_top), ("bottom", t.backdrop_bottom)] {
+                let behind = composite_over(frame, sky);
+                let wordmark = contrast_ratio(t.accent, behind);
+                assert!(
+                    wordmark >= AA_TEXT,
+                    "{palette}: wordmark is {wordmark:.2}:1 over the {edge} of the backdrop"
+                );
+                let tagline = contrast_ratio(t.text_weak, behind);
+                assert!(
+                    tagline >= AA_TEXT,
+                    "{palette}: tagline is {tagline:.2}:1 over the {edge} of the backdrop"
+                );
+            }
+        }
+    }
+
+    /// The frame is the guarantee, so it may not become a no-op: an
+    /// alpha at 1.0 would hide the world it sits on, and the unframed
+    /// arm this replaced is what let the light wordmark ship at 2.08:1.
+    #[test]
+    fn the_hero_frame_is_translucent_and_present() {
+        const { assert!(super::HERO_FRAME_ALPHA > 0.5 && super::HERO_FRAME_ALPHA < 1.0) };
+        let fill = Theme::light()
+            .window_fill
+            .gamma_multiply(super::HERO_FRAME_ALPHA);
+        assert!(fill.a() < 255, "the hero frame stopped being translucent");
+    }
 }
 
 /// Source-scanning guards for the two WASM-only login paths (#1228).

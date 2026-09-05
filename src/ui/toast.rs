@@ -14,18 +14,20 @@
 //! flows migrate onto this channel issue by issue; the Diagnostics
 //! landmark-copy and log-export statuses are the founding consumers.
 //!
-//! Severity colours reuse the diagnostics map
-//! ([`crate::ui::diagnostics::severity_color`]) so a warning reads the
-//! same amber here as in the event log and anomaly badges; `Success`
-//! keeps the exact green the migrated Diagnostics toasts used. No new
-//! palette is invented — consolidation belongs to the theming epic
-//! (#816).
+//! Severity is carried by THREE cues, not one (#1259 f236): the
+//! painted dot, a glyph before the text ([`crate::ui::affordances`]'s
+//! `CHECK` / `WARNING` / `CROSS`), and the wording of the message
+//! itself. The dot used to be the whole of the chrome's signal, and it
+//! read from the diagnostics severity RAMP — a gradient built to rank
+//! severities in a debugging HUD, on which Warn and Error sat 1.47:1
+//! apart and both plainly orange. It reads the semantic
+//! `status.ok/warn/error/info` set now, which the palette's own
+//! distinctness guard covers.
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::config::ui::toast as cfg;
-use crate::diagnostics::event::Severity;
 
 /// What flavour of feedback a toast carries; drives only its accent
 /// colour. Deliberately smaller than the diagnostics [`Severity`]
@@ -39,15 +41,38 @@ pub enum ToastKind {
 }
 
 impl ToastKind {
-    /// Dot colour from the active theme (#856): the Success green is the
-    /// semantic ok (was its own config green), the rest ride the same
-    /// severity ramp as the diagnostics HUD.
+    /// Dot colour from the active theme's SEMANTIC status set (#1259
+    /// f236), not the diagnostics severity ramp it used to borrow.
+    ///
+    /// The ramp is an ordered gradient for a debugging HUD, and it read
+    /// as one: in Dark, Warn `(210,170,90)` and Error `(210,120,90)`
+    /// were 1.47:1 apart and both plainly orange — which was the entire
+    /// difference between "saved with a caution" and "the save failed"
+    /// in the app's only success/failure channel. `status.ok/warn/
+    /// error/info` are the four the palette's own distinctness guard
+    /// has always covered.
     fn color(self, th: &crate::ui::theme::Theme) -> egui::Color32 {
         match self {
-            ToastKind::Info => th.status.severity(Severity::Info),
+            ToastKind::Info => th.status.info,
             ToastKind::Success => th.status.ok,
-            ToastKind::Warn => th.status.severity(Severity::Warn),
-            ToastKind::Error => th.status.severity(Severity::Error),
+            ToastKind::Warn => th.status.warn,
+            ToastKind::Error => th.status.error,
+        }
+    }
+
+    /// The severity token drawn before the text, so the chrome carries a
+    /// SHAPE and not only a hue (WCAG 1.4.1) — under deuteranopia the
+    /// warn and error dots desaturate toward each other.
+    ///
+    /// `Info` has none: it is the absence of a verdict, and the missing
+    /// glyph is itself the signal. See [`crate::ui::affordances`] for
+    /// why no fourth code point was invented.
+    fn glyph(self) -> Option<&'static str> {
+        match self {
+            ToastKind::Info => None,
+            ToastKind::Success => Some(crate::ui::affordances::CHECK),
+            ToastKind::Warn => Some(crate::ui::affordances::WARNING),
+            ToastKind::Error => Some(crate::ui::affordances::CROSS),
         }
     }
 }
@@ -173,14 +198,18 @@ pub fn toast_ui(mut contexts: EguiContexts, mut toasts: ResMut<Toasts>, time: Re
             for toast in toasts.queue.iter().rev() {
                 egui::Frame::window(&ui.ctx().global_style()).show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        crate::ui::affordances::status_dot(
-                            ui,
-                            toast.kind.color(&crate::ui::theme::current(ui.ctx())),
-                        );
-                        ui.add(
-                            egui::Label::new(egui::RichText::new(&toast.text).small())
-                                .wrap_mode(egui::TextWrapMode::Wrap),
-                        );
+                        let colour = toast.kind.color(&crate::ui::theme::current(ui.ctx()));
+                        crate::ui::affordances::status_dot(ui, colour);
+                        // Dot AND glyph: the dot is the app's shared status
+                        // idiom and reads fastest, the glyph is what
+                        // survives a colour-blind reader (#1259 f236).
+                        if let Some(glyph) = toast.kind.glyph() {
+                            ui.colored_label(colour, glyph);
+                        }
+                        // Body, not `.small()`: this is the app's only
+                        // "something just happened" channel and it was set
+                        // in the smallest type on the screen (#1259 f243).
+                        ui.add(egui::Label::new(&toast.text).wrap_mode(egui::TextWrapMode::Wrap));
                         if ui
                             .small_button(crate::ui::affordances::CROSS)
                             .on_hover_text("Dismiss")

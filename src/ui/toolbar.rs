@@ -132,9 +132,10 @@ const WORDMARK_WIDTH: f32 = 148.0;
 const CHAT_TOGGLE_WIDTH: f32 = 84.0;
 /// Reserved width of the People toggle, sized for "People (99+)".
 const PEOPLE_TOGGLE_WIDTH: f32 = 100.0;
-/// Reserved slot width of the anomaly dot, occupied even while healthy
-/// so the dot appearing/vanishing stops shifting the Controls button.
-const ANOMALY_DOT_WIDTH: f32 = 14.0;
+/// Reserved slot width of the anomaly dot AND its count, occupied even
+/// while healthy so the dot appearing/vanishing stops shifting the
+/// Controls button. Sized for the widest count `badge_count` prints.
+const ANOMALY_DOT_WIDTH: f32 = 40.0;
 /// Reserved width of the connection chip (#1213), sized for its widest
 /// label ("Connecting…") plus the state dot — same contract as the badges
 /// above, so a link that flaps never shifts the account chip beside it.
@@ -174,6 +175,24 @@ fn badge_count(n: usize) -> String {
         format!("{BADGE_COUNT_CAP}+")
     } else {
         n.to_string()
+    }
+}
+
+/// How the reserved anomaly slot senses input (#1260 f248).
+///
+/// `Sense::click()` is `interactive()`, and `interactive()` is what makes
+/// an allocated rect Tab-reachable. The slot used to take one
+/// unconditionally, so on a healthy session — the common case, when
+/// nothing is painted there — keyboard focus landed on a blank gap
+/// between Diagnostics and Settings that showed nothing, said nothing
+/// and did nothing on Enter. `Sense::hover()` keeps the reservation (the
+/// dot appearing must not shift the Controls button) and drops the tab
+/// stop.
+fn anomaly_slot_sense(has_anomaly: bool) -> egui::Sense {
+    if has_anomaly {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
     }
 }
 
@@ -482,15 +501,31 @@ pub fn toolbar_ui(
                     .response
                     .on_hover_text("Account — identity, share your spot, log out");
                 }
-                // Master mute. The icon shows the current state; the hover
-                // text names the action a click performs.
-                let (icon, action) = if audio_muted.0 {
-                    ("🔇", "Unmute all audio")
-                } else {
-                    ("🔊", "Mute all audio")
-                };
-                if ui.button(icon).on_hover_text(action).clicked() {
-                    audio_muted.0 = !audio_muted.0;
+                // Master mute, as a labelled toggle rather than a bare
+                // emoji (#1260 f240). The action word used to live only
+                // in the hover, which egui opens for a pointer and never
+                // for keyboard focus — so tabbing onto it gave a
+                // keyboard-only user a glyph and nothing else. A
+                // `toggle_value` also matches the People roster's "Mute"
+                // checkbox, so the same word means the same thing in
+                // both places, and its checked state is a second cue.
+                //
+                // Guarded-dirty (#879): `&mut audio_muted.0` through the
+                // `ResMut` would mark the resource changed every frame.
+                let mut muted = audio_muted.0;
+                let label = format!("{} Mute", if muted { "🔇" } else { "🔊" });
+                let mute_resp = ui.toggle_value(&mut muted, label);
+                if crate::ui::affordances::hint(
+                    mute_resp,
+                    if muted {
+                        "All audio is muted. Click to hear the world again."
+                    } else {
+                        "Silence all audio — the world, other people and effects."
+                    },
+                )
+                .changed()
+                {
+                    audio_muted.0 = muted;
                 }
                 panels_dirty |= ui
                     .toggle_value(&mut p.diagnostics, "Diagnostics")
@@ -502,23 +537,48 @@ pub fn toolbar_ui(
                 // panel closed. The slot is reserved even while healthy so
                 // the dot's appearance doesn't shift the Controls button;
                 // clicking it opens Diagnostics on the worst tab (#835).
+                //
+                // The slot senses a CLICK only while there is something to
+                // click (#1260 f248). It used to sense one unconditionally,
+                // and `Sense::click()` is `interactive()`, which is what
+                // makes a rect Tab-reachable — so on a healthy session,
+                // the common case, keyboard focus landed on a 14-point gap
+                // that painted nothing, said nothing and did nothing on
+                // Enter. `Sense::hover()` is not interactive, so the
+                // reservation stays and the tab stop goes.
+                let worst = invariants.worst_active();
                 let slot = egui::vec2(ANOMALY_DOT_WIDTH, ui.spacing().interact_size.y);
-                let (dot_rect, dot_resp) = ui.allocate_exact_size(slot, egui::Sense::click());
-                if let Some(worst) = invariants.worst_active() {
+                let (dot_rect, dot_resp) =
+                    ui.allocate_exact_size(slot, anomaly_slot_sense(worst.is_some()));
+                if let Some(worst) = worst {
                     // Painted circle, not a "●" glyph — U+25CF is
                     // tofu in the proportional family (#861).
-                    ui.painter().circle_filled(
-                        dot_rect.center(),
-                        4.5,
-                        crate::ui::diagnostics::severity_color(ui, worst),
-                    );
+                    let colour = crate::ui::diagnostics::severity_color(ui, worst);
                     let n = invariants.active_badges().count();
-                    let dot_resp = dot_resp
-                        .on_hover_cursor(egui::CursorIcon::PointingHand)
-                        .on_hover_text(format!(
+                    ui.painter().circle_filled(
+                        dot_rect.left_center() + egui::vec2(6.0, 0.0),
+                        4.5,
+                        colour,
+                    );
+                    // The COUNT beside the dot, not only in the hover
+                    // (#1260 f240): a painted circle carries no text in
+                    // any input mode, and the tooltip that explained it
+                    // opens for a pointer and never for keyboard focus.
+                    // Drawn inside the reserved slot, so nothing shifts.
+                    ui.painter().text(
+                        dot_rect.left_center() + egui::vec2(14.0, 0.0),
+                        egui::Align2::LEFT_CENTER,
+                        badge_count(n),
+                        egui::TextStyle::Body.resolve(ui.style()),
+                        colour,
+                    );
+                    let dot_resp = crate::ui::affordances::hint(
+                        dot_resp.on_hover_cursor(egui::CursorIcon::PointingHand),
+                        &format!(
                             "{n} active anomal{} — click to open Diagnostics",
                             if n == 1 { "y" } else { "ies" }
-                        ));
+                        ),
+                    );
                     if dot_resp.clicked() {
                         panels_dirty |= !p.diagnostics;
                         p.diagnostics = true;
@@ -826,6 +886,15 @@ const GLOBAL_ROWS: &[ControlRow] = &[
     ControlRow {
         keys: "Ctrl+Z / Ctrl+Shift+Z",
         action: "undo / redo in the open editor",
+    },
+    // egui has always bound these (#1259 f239) — `zoom_with_keyboard`
+    // defaults on — and until now the app said so nowhere and forgot the
+    // result at every launch. `theme::sync_ui_scale` reads the zoom back
+    // into the persisted setting, so a user who finds the shortcut keeps
+    // what they chose, and Settings shows them the same number.
+    ControlRow {
+        keys: "Ctrl+plus / Ctrl+minus",
+        action: "make the interface bigger / smaller (also in Settings)",
     },
     // Not a key: the unstuck command (#1240 f159) has no binding that does
     // not collide with movement, and the sheet is the only place that can
@@ -1449,6 +1518,23 @@ mod tests {
         }
     }
 
+    /// #1260 f248: no dead tab stop where nothing is drawn.
+    ///
+    /// The claim under test is egui's, not ours — `Sense::interactive()`
+    /// is `CLICK | DRAG`, and only an interactive rect can take focus —
+    /// so asserting the sense is asserting the tab stop.
+    #[test]
+    fn the_healthy_anomaly_slot_is_not_a_tab_stop() {
+        assert!(
+            !anomaly_slot_sense(false).interactive(),
+            "a healthy session reserves the slot but must not be focusable in it"
+        );
+        assert!(
+            anomaly_slot_sense(true).senses_click(),
+            "with an anomaly showing, the dot is the click-through to Diagnostics"
+        );
+    }
+
     /// **The sheet names the unstuck command** (#1240 f159). It has no key
     /// binding — there is no free key that does not collide with movement
     /// — so the sheet is the only surface that can tell anyone it exists,
@@ -1474,7 +1560,13 @@ mod tests {
     #[test]
     fn global_rows_cover_every_bound_shortcut() {
         let keys: Vec<&str> = GLOBAL_ROWS.iter().map(|r| r.keys).collect();
-        for expected in ["Enter", "Esc", "Ctrl+S", "Ctrl+Z / Ctrl+Shift+Z"] {
+        for expected in [
+            "Enter",
+            "Esc",
+            "Ctrl+S",
+            "Ctrl+Z / Ctrl+Shift+Z",
+            "Ctrl+plus / Ctrl+minus",
+        ] {
             assert!(keys.contains(&expected), "global rows lost {expected}");
         }
         for row in GLOBAL_ROWS {

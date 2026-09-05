@@ -15,12 +15,26 @@
 //!   [`crate::ui::confirm::danger_button`] — filled, white label.
 //! * **Delete (menus)** — a context/tree menu's destructive row is
 //!   [`danger_menu_button`]: error-red text, no fill (a filled button
-//!   inside a menu reads as a different widget class), no `−` prefix —
-//!   the colour is the signal.
+//!   inside a menu reads as a different widget class), prefixed with
+//!   [`CROSS`].
+//!
+//!   **This reverses a recorded decision, deliberately (#1260 f247).**
+//!   #815/#859 settled on "no `−` prefix — the colour is the signal",
+//!   and colour alone is not a signal: under deuteranopia or protanopia
+//!   the dark palette's `status.error` desaturates toward the same grey
+//!   as the neutral rows beside it, so for roughly 8% of male users the
+//!   one irreversible row in a menu looked exactly like the rest of it
+//!   (WCAG 1.4.1). The reasoning behind the original decision survives
+//!   intact and is still honoured — a menu row must not turn into a
+//!   filled button — and [`remove_button`] had already paired its fill
+//!   with a glyph, so the codebase owned the redundant-cue pattern and
+//!   was declining to use it in the one place the actions are
+//!   irreversible. `✖` and not `−`: the glyph says *delete*, and `−`
+//!   is [`remove_button`]'s, which means *take out of this list*.
 //! * **Done/valid** — [`CHECK`] in `status.ok`, via [`ok_label`] for
-//!   the common glyph+text case; failures pair with [`CROSS`]. Both are
-//!   pinned to emoji-font-backed code points — see the constants' docs
-//!   for the tofu story (#861).
+//!   the common glyph+text case; failures pair with [`CROSS`] and
+//!   cautions with [`WARNING`]. All three are pinned to font-backed
+//!   code points — see the constants' docs for the tofu story (#861).
 //! * **Status dot** — [`status_dot`]: a *painted* circle, because the
 //!   `●` glyph only exists in the monospace font (#861).
 
@@ -37,6 +51,17 @@ pub const CHECK: &str = "✔";
 /// THE cross/failure glyph, for the same reason: `✗`/`✕` exist in no
 /// shipped font; `✖` (U+2716) renders via the emoji fallbacks.
 pub const CROSS: &str = "✖";
+
+/// THE caution glyph, completing the trio (#1259 f236). `⚠` (U+26A0)
+/// was already proven drawable by the #1257 hosted-editor guard, and
+/// every literal in `src/ui` goes through
+/// `fonts::tests::every_ui_label_glyph_is_in_the_base_font_set`, so
+/// this one is covered twice over.
+///
+/// There is deliberately NO info glyph. `ToastKind::Info` carries no
+/// verdict, and inventing a fourth code point is how `✓`, `●` and `◈`
+/// each shipped as tofu (#861, #1105).
+pub const WARNING: &str = "⚠";
 
 /// A done/valid/saved label: `✔ text` in the theme's ok green.
 pub fn ok_label(ui: &mut egui::Ui, text: impl std::fmt::Display) -> egui::Response {
@@ -57,13 +82,46 @@ pub fn remove_button(ui: &mut egui::Ui, hover: &str) -> egui::Response {
     .on_hover_text(hover)
 }
 
-/// A destructive row inside a context/tree menu: error-red text, plain
-/// background. Menus keep their uniform row look — colour alone marks
-/// the danger, matching the #838 confirm treatment that follows the
-/// click.
+/// A destructive row inside a context/tree menu: error-red text and a
+/// [`CROSS`], plain background. Menus keep their uniform row look — no
+/// fill, matching the #838 confirm treatment that follows the click —
+/// but the danger is carried by a shape as well as a hue, so it is
+/// perceivable without colour vision. See the module docs for why this
+/// reverses #815/#859.
+///
+/// One edit covers every call site: the in-world context menu's "Take
+/// off", per-kind delete and "Delete placement", and the generator
+/// tree's "Delete".
 pub fn danger_menu_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
     let error = theme::current(ui.ctx()).status.error;
-    ui.button(egui::RichText::new(label).color(error))
+    ui.button(egui::RichText::new(danger_menu_label(label)).color(error))
+}
+
+/// The text [`danger_menu_button`] draws — pure, so the redundant cue is
+/// a fact a test can hold rather than a line of render code nothing can
+/// see (#1260 f247).
+fn danger_menu_label(label: &str) -> String {
+    format!("{CROSS} {label}")
+}
+
+/// A hover tooltip that a KEYBOARD user can also reach (#1260 f240).
+///
+/// egui's tooltip gate is purely pointer-driven — `should_show_tooltip`
+/// reads hover position, movement, scroll and click timings and has no
+/// `has_focus()` path anywhere in it — so every control whose meaning
+/// lives only in `on_hover_text` is unlabelled to anyone tabbing
+/// through. Use this instead of `on_hover_text` wherever the hover
+/// carries meaning that exists nowhere else on screen.
+///
+/// It does not make hover-only text acceptable: a control whose PURPOSE
+/// is only in a tooltip should get a visible label. This is for the
+/// elaboration that follows one.
+pub fn hint(response: egui::Response, text: &str) -> egui::Response {
+    let response = response.on_hover_text(text);
+    if response.has_focus() {
+        response.show_tooltip_text(text);
+    }
+    response
 }
 
 /// The status-colour dot that precedes badge/presence rows. PAINTED,
@@ -83,9 +141,32 @@ mod tests {
     /// The tofu glyphs must not sneak back in: U+2713/U+2717 exist in
     /// no font this app ships (#861) — the constants are the single
     /// source, pinned to the emoji-font-backed code points.
+    /// #1260 f247: a destructive menu row must carry a SHAPE, not only a
+    /// hue.
+    ///
+    /// This assertion is the reversal of a written decision (#815/#859
+    /// chose colour alone), so it is worth stating what would put the
+    /// old behaviour back: dropping the prefix here. Under deuteranopia
+    /// the dark palette's `status.error` desaturates toward the grey of
+    /// the neutral rows beside it, and the actions behind this control
+    /// are the irreversible ones.
+    #[test]
+    fn a_destructive_menu_row_is_not_signalled_by_colour_alone() {
+        let label = danger_menu_label("Delete placement");
+        assert!(
+            label.starts_with(CROSS),
+            "the danger row lost its glyph: {label}"
+        );
+        assert!(label.ends_with("Delete placement"), "{label}");
+        // NOT the remove_button minus: `−` means "take out of this list",
+        // `✖` means delete. Two idioms, two glyphs.
+        assert!(!label.contains('−'), "{label}");
+    }
+
     #[test]
     fn glyph_constants_are_the_renderable_variants() {
         assert_eq!(CHECK, "\u{2714}");
         assert_eq!(CROSS, "\u{2716}");
+        assert_eq!(WARNING, "\u{26A0}");
     }
 }
