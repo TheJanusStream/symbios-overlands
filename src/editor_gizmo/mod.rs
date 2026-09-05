@@ -208,46 +208,97 @@ pub fn draw_gizmo_frame_toggle(
 }
 
 /// Snap toggle + increment fields (#827), rendered beside the
-/// World/Local toggle in both editors. The increments only appear while
-/// snapping is on, keeping the idle tab bar lean.
+/// World/Local toggle in both editors.
+///
+/// The three increments live in a POPUP hanging off the checkbox, not
+/// inline (#1261 f156). Inline, ticking Snap appended three `DragValue`s
+/// to a plain non-wrapping `ui.horizontal` that already held five tab
+/// labels, two separators and the World/Local pair — so everything to
+/// the right of the checkbox jumped about 190 px on the tick, and the
+/// things to the right are Undo and Redo. At the room editor's 820 pt
+/// default width they were pushed off the edge entirely: layout jitter
+/// under the cursor, and it displaced the recovery affordance for the
+/// very precision edits Snap was just switched on to make.
+///
+/// A popup keeps the bar's width constant whether snapping is on or
+/// off, which is the property that was missing.
 fn draw_snap_controls(ui: &mut egui::Ui, pref: &mut GizmoFramePref) -> bool {
     let mut changed = false;
     ui.separator();
-    changed |= ui
+    let snap = ui
         .checkbox(&mut pref.snap, "Snap")
-        .on_hover_text("Snap gizmo drags to fixed increments")
-        .changed();
+        .on_hover_text("Snap gizmo drags to fixed increments");
+    changed |= snap.changed();
     if !pref.snap {
         return changed;
     }
-    changed |= ui
-        .add(
-            egui::DragValue::new(&mut pref.snap_distance)
-                .speed(0.1)
-                .range(0.01..=100.0)
-                .suffix(" m"),
-        )
-        .on_hover_text("Translation increment")
-        .changed();
-    changed |= ui
-        .add(
-            egui::DragValue::new(&mut pref.snap_angle_deg)
-                .speed(1.0)
-                .range(1.0..=90.0)
-                .suffix("°"),
-        )
-        .on_hover_text("Rotation increment")
-        .changed();
-    changed |= ui
-        .add(
-            egui::DragValue::new(&mut pref.snap_scale)
-                .speed(0.05)
-                .range(0.01..=2.0)
-                .suffix("×"),
-        )
-        .on_hover_text("Scale increment")
-        .changed();
+    // One fixed-width button in place of three variable fields, so the
+    // bar's geometry does not move when snapping is toggled. A
+    // `menu_button` and not a hand-rolled popup: it is the idiom the
+    // context menu and the account chip already use, and it owns its own
+    // open state.
+    let steps = ui.menu_button("Steps…", |ui| {
+        ui.set_min_width(180.0);
+        changed |= snap_increment_row(
+            ui,
+            "Move",
+            &mut pref.snap_distance,
+            0.1,
+            0.01..=100.0,
+            " m",
+            "Translation increment",
+        );
+        changed |= snap_increment_row(
+            ui,
+            "Turn",
+            &mut pref.snap_angle_deg,
+            1.0,
+            1.0..=90.0,
+            "°",
+            "Rotation increment",
+        );
+        changed |= snap_increment_row(
+            ui,
+            "Scale",
+            &mut pref.snap_scale,
+            0.05,
+            0.01..=2.0,
+            "×",
+            "Scale increment",
+        );
+    });
+    steps
+        .response
+        .on_hover_text("Translation, rotation and scale increments");
     changed
+}
+
+/// One labelled increment field inside the Snap popup. Labelled, because
+/// the inline row identified all three by their unit suffix alone.
+fn snap_increment_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut f32,
+    speed: f32,
+    range: std::ops::RangeInclusive<f32>,
+    suffix: &str,
+    hover: &str,
+) -> bool {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add(
+                egui::DragValue::new(value)
+                    .speed(speed)
+                    .range(range)
+                    .suffix(suffix),
+            )
+            .on_hover_text(hover)
+            .changed()
+        })
+        .inner
+    })
+    .inner
 }
 
 /// Marker attached to a prim while it is serving as the gizmo target.

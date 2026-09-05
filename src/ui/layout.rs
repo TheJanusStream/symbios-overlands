@@ -124,6 +124,29 @@ pub fn fill_above<R>(ui: &mut egui::Ui, body: impl FnOnce(&mut egui::Ui) -> R) -
         .inner
 }
 
+/// A persisted rect, nudged onto the current screen — or `None` when it
+/// cannot be made to fit and the computed layout should run again
+/// (#1261 f45).
+///
+/// Sliding is enough for the common case (a window parked near the right
+/// edge of a wider display), and it preserves the arrangement the user
+/// made, which is the whole point of persisting it. A rect that is
+/// simply too BIG for this screen cannot be preserved — shrinking it
+/// would invent a size the user never chose — so that one falls through
+/// to `place_in` and re-tidies.
+fn fit_to_screen(
+    pos: egui::Pos2,
+    size: egui::Vec2,
+    avail: egui::Rect,
+) -> Option<(egui::Pos2, egui::Vec2)> {
+    if size.x > avail.width() || size.y > avail.height() {
+        return None;
+    }
+    let x = pos.x.clamp(avail.left(), avail.right() - size.x);
+    let y = pos.y.clamp(avail.top(), avail.bottom() - size.y);
+    Some((egui::pos2(x, y), size))
+}
+
 /// Gap between a computed window rect and its neighbours / the screen
 /// edges. Matches the ~10px the old absolute constants used.
 const MARGIN: f32 = 10.0;
@@ -292,13 +315,26 @@ impl WindowChrome<'_> {
     }
 
     /// Default position + size for `id`: the persisted rect when this
-    /// machine has one, otherwise the slot default staggered around the
-    /// currently-open windows. Cheap to call every frame — egui only
-    /// consumes `default_pos`/`default_size` on a window's first show.
+    /// machine has one **that still fits this screen**, otherwise the slot
+    /// default staggered around the currently-open windows. Cheap to call
+    /// every frame — egui only consumes `default_pos`/`default_size` on a
+    /// window's first show.
+    ///
+    /// The fit check is #1261 f45. A persisted rect used to short-circuit
+    /// unconditionally, which meant the whole #833 staggering machinery —
+    /// and everything its acceptance tests exercise — was dead for every
+    /// window after its first appearance on a machine. Undock a laptop
+    /// from a 4K monitor and the rects that were tidy at 3840x2160 arrive
+    /// off the side of a 1280x720 screen, with "delete prefs.json" as the
+    /// only recovery. `constrain_to` at each call site clamps position
+    /// but never size, so a window sized on the big display keeps that
+    /// size on the small one.
     pub fn place(&self, id: UiWindow, ctx: &egui::Context) -> (egui::Pos2, egui::Vec2) {
         let avail = self.available_rect(ctx);
-        if let Some(&[x, y, w, h]) = self.layout.rects.get(id.key()) {
-            return (egui::pos2(x, y), egui::vec2(w, h));
+        if let Some(&[x, y, w, h]) = self.layout.rects.get(id.key())
+            && let Some(fitted) = fit_to_screen(egui::pos2(x, y), egui::vec2(w, h), avail)
+        {
+            return fitted;
         }
         let taken: Vec<egui::Rect> = self
             .live
@@ -321,6 +357,30 @@ impl WindowChrome<'_> {
         if self.layout.rects.get(id.key()) != Some(&stored) {
             self.layout.rects.insert(id.key().to_owned(), stored);
         }
+    }
+
+    /// Forget every persisted rect, so the next open of each window runs
+    /// the computed staggering again (#1261 f45).
+    ///
+    /// The #833 guarantee — open World Editor, Inventory and People in
+    /// any order and get zero overlap — held only until each window had
+    /// been shown once, because [`remember`](Self::remember) writes a
+    /// rect on the very first frame and [`place`](Self::place) returns it
+    /// thereafter. From then on a machine inherits whatever geometry its
+    /// first session happened to produce, and the recovery path was
+    /// "delete prefs.json". This is the recovery path.
+    ///
+    /// Returns whether anything was actually forgotten, so the caller can
+    /// say so — and so a click on an already-tidy layout does not dirty
+    /// the prefs resource. The live open-set is deliberately untouched:
+    /// it is this frame's fact about which windows are up, and clearing
+    /// it would make the re-tidy stagger around nothing.
+    pub fn reset_layout(&mut self) -> bool {
+        if self.layout.rects.is_empty() {
+            return false;
+        }
+        self.layout.rects.clear();
+        true
     }
 }
 
@@ -649,6 +709,74 @@ mod tests {
         }
     }
 
+    /// #1261 f45: a persisted rect is honoured while it still fits, and
+    /// falls through to the computed layout when it does not.
+    ///
+    /// THE SEQUENCE: arrange the windows on a docked 3840x2160 monitor,
+    /// undock, open them on the laptop. Before this, `place` returned the
+    /// stored rect unconditionally, so they arrived off the side of the
+    /// screen — and `constrain_to` at each call site clamps position but
+    /// never size, so a window sized on the big display kept that size.
+    #[test]
+    fn a_persisted_rect_that_no_longer_fits_gives_way_to_the_computed_layout() {
+        let avail = default_avail();
+
+        // Inside the screen already: returned untouched, because the
+        // arrangement the user made is the whole point of persisting it.
+        let (pos, size) = fit_to_screen(egui::pos2(300.0, 100.0), egui::vec2(400.0, 300.0), avail)
+            .expect("a rect that fits is kept");
+        assert_eq!(pos, egui::pos2(300.0, 100.0));
+        assert_eq!(size, egui::vec2(400.0, 300.0));
+
+        // Off the right edge of a narrower screen: SLID back on, size
+        // intact. Sliding preserves the arrangement; re-tidying would
+        // throw it away for a window that only needed nudging.
+        let (pos, size) = fit_to_screen(egui::pos2(3000.0, 100.0), egui::vec2(400.0, 300.0), avail)
+            .expect("a rect that can be slid on is kept");
+        assert_eq!(size, egui::vec2(400.0, 300.0));
+        assert!(avail.contains_rect(egui::Rect::from_min_size(pos, size)));
+
+        // Above the toolbar — the #833 defect, from the other direction.
+        let (pos, _) =
+            fit_to_screen(egui::pos2(300.0, 0.0), egui::vec2(400.0, 300.0), avail).expect("kept");
+        assert!(pos.y >= avail.top(), "{pos:?} is under the toolbar");
+
+        // Simply too big for this screen: `None`, so `place` re-tidies.
+        // Shrinking instead would invent a size the user never chose.
+        assert!(
+            fit_to_screen(egui::pos2(0.0, 30.0), egui::vec2(4000.0, 300.0), avail).is_none(),
+            "a rect wider than the screen cannot be preserved"
+        );
+        assert!(fit_to_screen(egui::pos2(0.0, 30.0), egui::vec2(400.0, 3000.0), avail).is_none());
+    }
+
+    /// #1261 f45: and there is a way to ask for the tidy-up by hand.
+    ///
+    /// `reset_layout` reports whether it forgot anything, which is what
+    /// keeps a click on an already-tidy layout from dirtying the prefs
+    /// resource and re-arming the save debounce for nothing.
+    #[test]
+    fn resetting_an_empty_layout_changes_nothing() {
+        let mut layout = WindowLayout::default();
+        assert!(layout.rects.is_empty());
+        // The same shape `WindowChrome::reset_layout` runs, on the field
+        // it owns — the `SystemParam` itself needs a World to build.
+        let forgot = if layout.rects.is_empty() {
+            false
+        } else {
+            layout.rects.clear();
+            true
+        };
+        assert!(!forgot);
+
+        layout
+            .rects
+            .insert(UiWindow::People.key().to_owned(), [1.0, 2.0, 3.0, 4.0]);
+        assert!(!layout.rects.is_empty());
+        layout.rects.clear();
+        assert!(layout.rects.is_empty(), "a reset forgets every window");
+    }
+
     #[test]
     fn acceptance_trio_never_overlaps_in_any_open_order() {
         // #833 acceptance: on a 1280x720 window, opening World Editor +
@@ -713,6 +841,52 @@ mod tests {
         let (pos, size) = place_in(UiWindow::Chat.slot(), &[], avail);
         assert_eq!(pos.x, avail.right() - size.x - MARGIN);
         assert_eq!(pos.y, avail.top() + MARGIN);
+    }
+
+    /// #1261 f43: the toast stack must not open in the corner the
+    /// right-anchored window column owns.
+    ///
+    /// The toast area is a real pointer area at `Order::Foreground` —
+    /// deliberately, so a click on a toast cannot fall through to the 3D
+    /// scene — which also means it eats clicks on whatever is under it.
+    /// It used to be anchored `RIGHT_TOP`, which is where all five of
+    /// these windows open, so for the toast's full life it covered their
+    /// title bars and swallowed clicks on them.
+    ///
+    /// This asserts the STRUCTURE rather than a pixel overlap, because
+    /// the stack's height depends on how many toasts are up and how far
+    /// each wraps: the five windows open against the top edge, and the
+    /// toast offset is measured from the opposite one.
+    #[test]
+    fn the_toast_stack_does_not_open_in_the_window_column() {
+        use crate::config::ui::toast as toast_cfg;
+        let avail = default_avail();
+        for id in [
+            UiWindow::Chat,
+            UiWindow::People,
+            UiWindow::Inventory,
+            UiWindow::Controls,
+            UiWindow::Settings,
+        ] {
+            let (pos, size) = place_in(id.slot(), &[], avail);
+            assert_eq!(
+                pos.y,
+                avail.top() + MARGIN,
+                "{id:?} does not open against the top edge any more — recheck the toast corner"
+            );
+            assert_eq!(pos.x, avail.right() - size.x - MARGIN, "{id:?}");
+        }
+        // Both offsets are measured from the bottom-right corner, so
+        // both must be negative — a positive y puts the stack straight
+        // back on top of the window column. `const` block because clippy
+        // is right that this is a compile-time fact; it is still the fact
+        // the test exists to hold.
+        const {
+            assert!(
+                toast_cfg::ANCHOR_OFFSET[1] < 0.0 && toast_cfg::ANCHOR_OFFSET[0] < 0.0,
+                "the toast anchor moved off the bottom-right corner"
+            )
+        };
     }
 
     #[test]

@@ -3,9 +3,12 @@
 //! The single app-wide channel for "something just happened" feedback:
 //! any system pushes a [`Toast`] into the [`Toasts`] resource and
 //! [`toast_ui`] renders the queue as a stack of small framed rows
-//! anchored to the top-right of the screen (below the toolbar), each
-//! expiring after [`crate::config::ui::toast::DURATION_SECS`] or on its
-//! ✕ button.
+//! anchored to the BOTTOM-right of the screen, each expiring after
+//! [`crate::config::ui::toast::DURATION_SECS`] or on its ✕ button. The
+//! corner matters: the area is a real pointer area at
+//! `Order::Foreground`, so wherever it sits it eats clicks — and the
+//! top-right it used to occupy is where all five right-anchored windows
+//! open (#1261 f43).
 //!
 //! Before this existed every surface hand-rolled its own transient
 //! status (`Local<Option<(String, f64)>>` pairs in the Diagnostics
@@ -189,13 +192,16 @@ pub fn toast_ui(mut contexts: EguiContexts, mut toasts: ResMut<Toasts>, time: Re
 
     let mut dismissed: Option<u64> = None;
     egui::Area::new(egui::Id::new("overlands-toasts"))
-        .anchor(egui::Align2::RIGHT_TOP, cfg::ANCHOR_OFFSET)
+        .anchor(egui::Align2::RIGHT_BOTTOM, cfg::ANCHOR_OFFSET)
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
             ui.set_max_width(cfg::MAX_WIDTH);
-            // Newest first, so fresh feedback lands where the eye
-            // already is (directly under the toolbar).
-            for toast in toasts.queue.iter().rev() {
+            // Oldest first, so the NEWEST row sits against the corner
+            // (#1261 f43). With a bottom anchor the stack grows upward,
+            // so this keeps fresh feedback at a fixed spot and pushes
+            // the older rows away from it — the other order would move
+            // the newest toast every time one arrived.
+            for toast in toasts.queue.iter() {
                 egui::Frame::window(&ui.ctx().global_style()).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         let colour = toast.kind.color(&crate::ui::theme::current(ui.ctx()));

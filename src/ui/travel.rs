@@ -347,8 +347,26 @@ pub fn portal_prompt_ui(
     guard: Option<Res<UnsavedGuard>>,
     profile_cache: Res<BskyProfileCache>,
     names: Res<PortalNames>,
+    // A gateway underfoot outranks a portal nearby (#1261 f35) — see the
+    // gate below.
+    gateway_dismissed: Option<Res<crate::ui::gateway::GatewayDismissed>>,
 ) {
     if traveling.is_some() || guard.is_some() {
+        return;
+    }
+    // #1261 f35: the gateway re-open chip anchors at exactly this point —
+    // `CENTER_BOTTOM` with a -24 offset — so standing in a gateway zone
+    // within 7 m of an owner-placed portal drew two opaque cards of
+    // different widths through each other. This window is
+    // `.interactable(false)`, so nothing was stealing the chip's clicks;
+    // the damage was that neither card could be read.
+    //
+    // The chip wins because it is about where the player IS STANDING and
+    // it is the one with a control on it. The picker, which the chip
+    // replaces, sits at -64 and never collided — that offset is the
+    // evidence the stacking was reasoned about for two of the three
+    // surfaces and not the third.
+    if gateway_dismissed.is_some() {
         return;
     }
     let Ok(player_tf) = players.single() else {

@@ -90,7 +90,7 @@ fn needs_cjk(text: &str) -> bool {
 /// Build the app's font set: Noto Sans primary, egui's embedded fonts
 /// as tail, plus — once loaded — the CJK fallback at the very end of
 /// both families.
-fn build_font_definitions(cjk: Option<Vec<u8>>) -> egui::FontDefinitions {
+pub(crate) fn build_font_definitions(cjk: Option<Vec<u8>>) -> egui::FontDefinitions {
     let mut defs = egui::FontDefinitions::default();
     defs.font_data.insert(
         "noto-sans".to_owned(),

@@ -178,6 +178,76 @@ fn badge_count(n: usize) -> String {
     }
 }
 
+/// Longest `@handle` the account chip prints before it elides (#1261
+/// f235). ATProto handles are domains and a custom one is unbounded —
+/// `@someone.a-very-long-custom-domain.example` is a legal handle, and
+/// the chip drew it in full at whatever width it came to.
+const HANDLE_CHIP_MAX_CHARS: usize = 22;
+
+/// The account chip's label: `@handle`, elided at its first label when
+/// the whole thing is too long for a toolbar to promise (#1261 f235).
+///
+/// Pure so the width measurement and the render read the same string —
+/// [`trailing_needed`] measures exactly what gets drawn. The full handle
+/// stays in the chip's hover text and in the menu it opens, so nothing
+/// is lost, only deferred.
+fn account_chip_label(handle: &str) -> String {
+    let full = format!("@{handle}");
+    if full.chars().count() <= HANDLE_CHIP_MAX_CHARS {
+        return full;
+    }
+    // The first label is the part that identifies a person; the rest is
+    // the domain they happen to be hosted under.
+    let head = handle.split('.').next().unwrap_or(handle);
+    let head: String = head.chars().take(HANDLE_CHIP_MAX_CHARS - 2).collect();
+    format!("@{head}…")
+}
+
+/// Width a text button will occupy, MEASURED — the galley plus the
+/// spacing egui adds around it (#1261 f235).
+///
+/// Measured and not tabulated, because the answer moves with the font,
+/// the `Small`/`Body` sizes and the #1259 f239 zoom factor, and a
+/// tabulated constant would be a prediction that goes stale exactly the
+/// way #1280's footer reserve did.
+fn button_width(ui: &egui::Ui, text: &str) -> f32 {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let galley = ui
+        .ctx()
+        .fonts_mut(|f| f.layout_no_wrap(text.to_owned(), font, egui::Color32::PLACEHOLDER));
+    galley.size().x + 2.0 * ui.spacing().button_padding.x + ui.spacing().item_spacing.x
+}
+
+/// The four controls that fold into the `…` menu when the bar runs out
+/// of room, in the order they are drawn right-to-left. Named once so the
+/// measurement and the render cannot drift —
+/// `every_measured_label_is_a_label_this_file_draws` is what holds them
+/// together.
+const TRAILING_LABELS: [&str; 4] = ["🔊 Mute", "Diagnostics", "Settings", "Controls"];
+
+/// The left group's variable-width toggles. Measurement only: the render
+/// spells them out because each carries its own hover text and the World
+/// Editor one has an ownership branch. The Chat, People and wordmark
+/// slots are not here — they have reserved-width constants of their own.
+#[cfg(test)]
+const LEADING_LABELS: [&str; 4] = ["Avatar", "Inventory", "Catalogue", "World Editor"];
+
+/// Width the trailing group needs to draw everything unfolded.
+///
+/// The connection chip, the account chip and the anomaly slot are NOT in
+/// here: they never fold. A link state, who you are signed in as, and a
+/// session that has gone wrong are the three things a bar this size must
+/// keep saying.
+fn trailing_needed(ui: &egui::Ui, account_chip: &str) -> f32 {
+    LINK_CHIP_WIDTH
+        + ANOMALY_DOT_WIDTH
+        + button_width(ui, account_chip)
+        + TRAILING_LABELS
+            .iter()
+            .map(|label| button_width(ui, label))
+            .sum::<f32>()
+}
+
 /// How the reserved anomaly slot senses input (#1260 f248).
 ///
 /// `Sense::click()` is `interactive()`, and `interactive()` is what makes
@@ -355,6 +425,27 @@ pub fn toolbar_ui(
                          is editable when you're home.",
                     );
             }
+            // #1261 f235: the bar is one non-wrapping row with no overflow
+            // policy at all. At 1280x720 it fits; at a 1024-CSS-px browser
+            // window, at 125% OS scaling, or after two presses of the
+            // #1259 f239 zoom, the TAIL of the right-to-left group runs
+            // leftward past its own rect and overpaints the toggles there.
+            // The refuter corrected the direction the finding claimed: in
+            // `right_to_left` items are placed from the right edge in ADD
+            // order, so the account chip — added first — is the most
+            // protected item, and Controls and Settings, added last, are
+            // the first to collide.
+            //
+            // The room is MEASURED, not thresholded: `trailing_needed`
+            // lays out the real labels at the live font and zoom, so the
+            // policy fires when the bar actually runs out of room rather
+            // than at a pixel count somebody guessed once.
+            let account_chip = chip
+                .session
+                .as_deref()
+                .map(|sess| account_chip_label(&sess.handle))
+                .unwrap_or_default();
+            let trailing_overflows = trailing_needed(ui, &account_chip) > ui.available_width();
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // Connection chip (#1213). Drawn FIRST in the right-to-left
                 // layout so it owns the far-right corner, ahead of the
@@ -367,7 +458,7 @@ pub fn toolbar_ui(
                 // 2-click route to logout and location sharing (#835);
                 // Diagnostics keeps its duplicates.
                 if let Some(sess) = chip.session.as_deref() {
-                    ui.menu_button(format!("@{}", sess.handle), |ui| {
+                    ui.menu_button(account_chip_label(&sess.handle), |ui| {
                         ui.horizontal(|ui| {
                             crate::avatar::draw_avatar_icon(
                                 ui,
@@ -499,38 +590,57 @@ pub fn toolbar_ui(
                         }
                     })
                     .response
-                    .on_hover_text("Account — identity, share your spot, log out");
+                    .on_hover_text(format!(
+                        "@{} — identity, share your spot, log out",
+                        sess.handle
+                    ));
                 }
-                // Master mute, as a labelled toggle rather than a bare
-                // emoji (#1260 f240). The action word used to live only
-                // in the hover, which egui opens for a pointer and never
-                // for keyboard focus — so tabbing onto it gave a
-                // keyboard-only user a glyph and nothing else. A
-                // `toggle_value` also matches the People roster's "Mute"
-                // checkbox, so the same word means the same thing in
-                // both places, and its checked state is a second cue.
+                // The four collapsible controls, folded into a `…` menu
+                // when the bar cannot hold them (#1261 f235). Folded
+                // rather than clipped: Log out has exactly one route (the
+                // account chip's menu) and the theme picker a low-vision
+                // user needs has exactly one (Settings), so the failure
+                // mode this replaces was losing both with no error and no
+                // keyboard alternative.
                 //
-                // Guarded-dirty (#879): `&mut audio_muted.0` through the
-                // `ResMut` would mark the resource changed every frame.
-                let mut muted = audio_muted.0;
-                let label = format!("{} Mute", if muted { "🔇" } else { "🔊" });
-                let mute_resp = ui.toggle_value(&mut muted, label);
-                if crate::ui::affordances::hint(
-                    mute_resp,
-                    if muted {
-                        "All audio is muted. Click to hear the world again."
-                    } else {
-                        "Silence all audio — the world, other people and effects."
-                    },
-                )
-                .changed()
-                {
-                    audio_muted.0 = muted;
+                // Drawn in a closure so the bar and the menu are the same
+                // code — a second copy is how the two would drift.
+                let mut trailing =
+                    |ui: &mut egui::Ui, p: &mut UiPanels, panels_dirty: &mut bool| {
+                        // Master mute, as a labelled toggle rather than a bare
+                        // emoji (#1260 f240). The action word used to live only
+                        // in the hover, which egui opens for a pointer and never
+                        // for keyboard focus — so tabbing onto it gave a
+                        // keyboard-only user a glyph and nothing else. A
+                        // `toggle_value` also matches the People roster's "Mute"
+                        // checkbox, so the same word means the same thing in
+                        // both places, and its checked state is a second cue.
+                        //
+                        // Guarded-dirty (#879): `&mut audio_muted.0` through the
+                        // `ResMut` would mark the resource changed every frame.
+                        let mut muted = audio_muted.0;
+                        let label = format!("{} Mute", if muted { "🔇" } else { "🔊" });
+                        let mute_resp = ui.toggle_value(&mut muted, label);
+                        if crate::ui::affordances::hint(
+                            mute_resp,
+                            if muted {
+                                "All audio is muted. Click to hear the world again."
+                            } else {
+                                "Silence all audio — the world, other people and effects."
+                            },
+                        )
+                        .changed()
+                        {
+                            audio_muted.0 = muted;
+                        }
+                        *panels_dirty |= ui
+                            .toggle_value(&mut p.diagnostics, "Diagnostics")
+                            .on_hover_text("Diagnostics — session health, metrics, and logs")
+                            .changed();
+                    };
+                if !trailing_overflows {
+                    trailing(ui, p, &mut panels_dirty);
                 }
-                panels_dirty |= ui
-                    .toggle_value(&mut p.diagnostics, "Diagnostics")
-                    .on_hover_text("Diagnostics — session health, metrics, and logs")
-                    .changed();
                 // Worst-active anomaly dot (D-6): a severity-coloured ●
                 // beside the Diagnostics toggle whenever an invariant is
                 // violated, so a broken session is visible even with the
@@ -590,14 +700,31 @@ pub fn toolbar_ui(
                 // Added AFTER the dot in this right-to-left layout so the
                 // dot stays glued to the Diagnostics toggle it belongs to
                 // (visual order: … Controls · Settings · ● · Diagnostics).
-                panels_dirty |= ui
-                    .toggle_value(&mut p.settings, "Settings")
-                    .on_hover_text("Settings — theme & client preferences")
-                    .changed();
-                panels_dirty |= ui
-                    .toggle_value(&mut p.controls, "Controls")
-                    .on_hover_text("Controls — movement & camera cheat-sheet")
-                    .changed();
+                let tail = |ui: &mut egui::Ui, p: &mut UiPanels, panels_dirty: &mut bool| {
+                    *panels_dirty |= ui
+                        .toggle_value(&mut p.settings, "Settings")
+                        .on_hover_text("Settings — theme & client preferences")
+                        .changed();
+                    *panels_dirty |= ui
+                        .toggle_value(&mut p.controls, "Controls")
+                        .on_hover_text("Controls — movement & camera cheat-sheet")
+                        .changed();
+                };
+                if trailing_overflows {
+                    // One `…` in place of the four, holding them in the
+                    // order they would have appeared left-to-right on a
+                    // bar with room. The anomaly dot above stays on the
+                    // bar whatever happens: a session that has gone wrong
+                    // must not be able to hide inside a menu.
+                    ui.menu_button("…", |ui| {
+                        tail(ui, p, &mut panels_dirty);
+                        trailing(ui, p, &mut panels_dirty);
+                    })
+                    .response
+                    .on_hover_text("More — Controls, Settings, Diagnostics and Mute");
+                } else {
+                    tail(ui, p, &mut panels_dirty);
+                }
             });
         });
     });
@@ -1516,6 +1643,111 @@ mod tests {
         for verb in ["take off", "re-seat", "wear"] {
             assert!(printed.to_lowercase().contains(verb), "{verb}: {printed}");
         }
+    }
+
+    /// #1261 f235: the account chip's label is unbounded, and it is the
+    /// item the right-to-left layout protects hardest — so a long
+    /// custom-domain handle spends width that Controls and Settings, at
+    /// the tail of the same group, are the first to lose.
+    #[test]
+    fn a_long_handle_elides_to_the_part_that_names_a_person() {
+        // Short enough to print whole: the overwhelmingly common case.
+        assert_eq!(
+            account_chip_label("alice.bsky.social"),
+            "@alice.bsky.social"
+        );
+        // A legal ATProto handle is a domain, and a domain has no bound.
+        let long = account_chip_label("someone.a-very-long-custom-domain.example");
+        assert_eq!(long, "@someone…");
+        assert!(long.chars().count() <= HANDLE_CHIP_MAX_CHARS);
+        // Even when the first label alone is the whole problem.
+        let head_only = account_chip_label(&"z".repeat(200));
+        assert!(
+            head_only.chars().count() <= HANDLE_CHIP_MAX_CHARS,
+            "{head_only}"
+        );
+        assert!(head_only.starts_with('@') && head_only.ends_with('…'));
+    }
+
+    /// The width measurement must name buttons this file actually draws.
+    ///
+    /// [`trailing_needed`] decides whether the bar folds, and it decides
+    /// it by laying out [`TRAILING_LABELS`]. If a label is renamed in the
+    /// render and not here, the bar keeps reserving room for a button
+    /// that no longer exists — or, worse, stops reserving room for one
+    /// that does, which is the #1280 shape again: an arithmetic
+    /// prediction about widgets, drifting away from the widgets.
+    #[test]
+    fn every_measured_label_is_a_label_this_file_draws() {
+        let source = include_str!("toolbar.rs");
+        for label in TRAILING_LABELS.iter().chain(LEADING_LABELS.iter()) {
+            // The mute button builds its label from the live state glyph
+            // ("🔇 Mute" / "🔊 Mute"), so for a glyph-prefixed label match
+            // on the words after it. Everything else matches whole.
+            let needle = match label.strip_prefix(|c: char| !c.is_ascii()) {
+                Some(rest) => rest.trim_start(),
+                None => label,
+            };
+            assert!(
+                source.contains(&format!("\"{needle}\"")),
+                "the width measurement names {label:?}, which this file no longer draws"
+            );
+        }
+    }
+
+    /// #1261 f235, measured with the app's own fonts rather than argued
+    /// from the review's ~1100 pt estimate.
+    ///
+    /// THE SEQUENCE: a browser window narrowed to 1024 CSS px — or
+    /// 1280x720 at 125% OS scaling, or two presses of the #1259 f239
+    /// zoom. The bar is one non-wrapping `ui.horizontal`, so the tail of
+    /// the right-to-left group runs leftward past its own rect and
+    /// overpaints the toggles there. Losing that tail means losing
+    /// Settings (the theme picker a low-vision user needs) and Controls,
+    /// with no error and no keyboard alternative.
+    ///
+    /// The claim is a LOWER bound: it adds only the reserved-width
+    /// constants and the labels both arrays name, and ignores separators
+    /// and the account menu's own padding. The real bar is wider than
+    /// this, so a failure here is unambiguous.
+    #[test]
+    fn the_bar_does_not_fit_a_1024_point_viewport_and_folds() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::ui::fonts::build_font_definitions(None));
+        let mut measured = (0.0_f32, 0.0_f32);
+        // Fonts are not available until the context has run a pass.
+        let _ = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1920.0, 200.0),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                let leading = WORDMARK_WIDTH
+                    + CHAT_TOGGLE_WIDTH
+                    + PEOPLE_TOGGLE_WIDTH
+                    + LEADING_LABELS
+                        .iter()
+                        .map(|label| button_width(ui, label))
+                        .sum::<f32>();
+                // A handle already elided by `account_chip_label`, so this
+                // is the WIDEST the chip can be — not a pathological one.
+                let chip = account_chip_label(&"z".repeat(200));
+                measured = (leading, trailing_needed(ui, &chip));
+            },
+        );
+        let (leading, trailing) = measured;
+        assert!(leading > 0.0 && trailing > 0.0, "nothing was measured");
+        assert!(
+            leading + trailing > 1024.0,
+            "the bar was supposed to overflow 1024 pt: {leading:.0} + {trailing:.0}"
+        );
+        assert!(
+            leading + trailing < 1600.0,
+            "and to fit a full-width desktop unfolded: {leading:.0} + {trailing:.0}"
+        );
     }
 
     /// #1260 f248: no dead tab stop where nothing is drawn.

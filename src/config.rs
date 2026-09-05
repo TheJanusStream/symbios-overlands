@@ -1619,9 +1619,19 @@ pub(crate) mod ui {
         /// Foreground layer.
         pub const MAX_TEXT_CHARS: usize = 240;
 
-        /// Anchor offset from the screen's top-right corner: clear of
-        /// the window edge and below the toolbar strip.
-        pub const ANCHOR_OFFSET: [f32; 2] = [-12.0, 40.0];
+        /// Anchor offset from the screen's BOTTOM-right corner: clear of
+        /// both window edges.
+        ///
+        /// Moved off the top-right by #1261 f43. Every right-anchored
+        /// window in `ui::layout` — Chat, People, Inventory, Controls,
+        /// Settings — opens at `avail.top() + MARGIN` in that same
+        /// corner, and the toast area is a real pointer area at
+        /// `Order::Foreground`, so a stack of up to `MAX_VISIBLE` rows
+        /// covered their title bars and ate clicks on them for the
+        /// toast's full life. The bottom strip is claimed by nothing in
+        /// `UiWindow::slot()`; only the transient gateway chip and
+        /// portal prompt live down there, and both are centred.
+        pub const ANCHOR_OFFSET: [f32; 2] = [-12.0, -12.0];
     }
 
     /// Drag-to-place drop preview (`crate::ui::inventory::drop`, #831):

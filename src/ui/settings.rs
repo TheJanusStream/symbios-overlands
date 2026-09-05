@@ -30,8 +30,17 @@ pub fn settings_ui(
     clipboard: Res<crate::boot_params::ClipboardQueue>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
     time: Res<Time>,
+    // Whether "Reset window layout" has been pressed while this window
+    // has been open (#1261 f45). A `Local` and not a frame-local, because
+    // the confirmation has to outlive the click that produced it — the
+    // windows it affects re-tidy on their NEXT open, which may be minutes
+    // away, and a one-frame flash is indistinguishable from nothing
+    // having happened.
+    mut layout_reset: Local<bool>,
 ) {
     if !panels.settings {
+        // Closing the window ends the statement it was making.
+        *layout_reset = false;
         return;
     }
     let Ok(ctx) = contexts.ctx_mut() else {
@@ -257,6 +266,34 @@ pub fn settings_ui(
                 )
                 .changed();
             ui.small("(this device only — not saved to your PDS)");
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.strong("Windows");
+            // #1261 f45: the #833 non-overlap guarantee held only until
+            // each window had been shown once — `remember` persists a
+            // rect on the very first frame and `place` returns it
+            // thereafter, so the staggering machinery was dead from then
+            // on and a machine inherited whatever geometry its first
+            // session produced. `place` re-tidies a rect that no longer
+            // fits the screen now, but a merely MESSY arrangement is the
+            // user's own and only they can say when they are done with
+            // it. This is that button.
+            ui.horizontal(|ui| {
+                if ui
+                    .button("Reset window layout")
+                    .on_hover_text(
+                        "Forget where every window was left, so they lay themselves \
+                         out again next time you open them. Nothing else changes.",
+                    )
+                    .clicked()
+                {
+                    *layout_reset = chrome.reset_layout();
+                }
+                if *layout_reset {
+                    crate::ui::affordances::ok_label(ui, "Windows will re-tidy when reopened");
+                }
+            });
 
             ui.add_space(8.0);
             ui.separator();
