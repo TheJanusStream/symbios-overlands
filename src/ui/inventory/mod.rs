@@ -542,128 +542,130 @@ pub fn inventory_ui(
             // single frame of lag on an indicator, against a window that
             // could climb off the screen.
             crate::ui::layout::bottom_anchored(ui, |ui| {
-                // Shared Save / Load / Reset row + status line
-                // (`ui::editable`), identical to the World and Avatar
-                // editors. Dirty is derived (a serialized diff against the stored
-                // snapshot) so the row needs no per-edit flag; Inventory now
-                // also gets Load-from-PDS (revert) and Reset-to-default
-                // (empty the stash) — it previously had Publish only.
-                //
-                // Both baselines are cached (#1135, the #674 pattern): the stored
-                // side re-serializes only when the resource changes and the empty
-                // default only once, so an open panel serializes the LIVE stash
-                // ONCE per frame instead of three whole trees. The comparisons are
-                // value-identical to `records_differ` — `Option<Value>` on both
-                // sides, `.ok()` semantics preserved — so dirty and can_reset are
-                // frame-accurate exactly as before.
-                if state
-                    .stored_baseline
-                    .as_ref()
-                    .is_none_or(|(tick, _)| *tick != stored.last_changed())
-                {
-                    state.stored_baseline =
-                        Some((stored.last_changed(), serde_json::to_value(&stored.0).ok()));
-                }
-                if state.default_baseline.is_none() {
-                    state.default_baseline =
-                        Some(serde_json::to_value(InventoryRecord::default()).ok());
-                }
-                let live_value = serde_json::to_value(&live.0).ok();
-                let dirty = match state.stored_baseline.as_ref() {
-                    Some((_, baseline)) => *baseline != live_value,
-                    None => true,
-                };
-                let can_reset = state
-                    .default_baseline
-                    .as_ref()
-                    .is_none_or(|baseline| *baseline != live_value);
-                // Publishing is blocked while over the cap (#841) — the red
-                // header line explains; mirrors the hard-ceiling size block.
-                let within_cap = live.0.generators.len() <= crate::config::state::MAX_INVENTORY_ITEMS;
-                // `session` + `refresh_ctx` are guaranteed present (the early
-                // return above bails otherwise), so a publish is always
-                // attemptable while dirty.
-                //
-                // Size readout: the stash is one record PER ITEM (#696), so
-                // the per-record budget applies to the largest single item —
-                // not the whole stash. Same throttled cache as the other
-                // editors, custom measurement.
-                let now = time.elapsed_secs_f64();
-                crate::ui::editable::refresh_size_readout(
-                    &mut *feedback,
-                    &live.0,
-                    now,
-                    crate::pds::inventory::measure_publish,
-                );
-                let size = feedback.live_size.clone();
-                let ctrl_s = publish_shortcut.take(crate::ui::shortcuts::EditorKind::Inventory);
-                let mut do_publish = false;
-                match save_load_reset_row(
-                    ui,
-                    crate::ui::editable::SaveRow {
-                        kind: RecordKind::Inventory,
-                        dirty,
-                        can_publish: within_cap,
-                        can_reset,
-                        size: &size,
-                        publish_shortcut: ctrl_s,
-                        status: &mut feedback.status,
-                        // Inventory has no undo stack (#866) — keep the modal.
-                        confirm: Some(&mut state.row_confirm),
-                        reset: crate::ui::editable::ResetWording::EmptyStash {
-                            items: live.0.generators.len(),
-                        },
-                    },
-                ) {
-                    RecordAction::None => {}
-                    RecordAction::Refused(reason) => {
-                        toasts.info(crate::ui::editable::ctrl_s_refused(&reason), now);
+                crate::ui::layout::footer(ui, |ui| {
+                    // Shared Save / Load / Reset row + status line
+                    // (`ui::editable`), identical to the World and Avatar
+                    // editors. Dirty is derived (a serialized diff against the stored
+                    // snapshot) so the row needs no per-edit flag; Inventory now
+                    // also gets Load-from-PDS (revert) and Reset-to-default
+                    // (empty the stash) — it previously had Publish only.
+                    //
+                    // Both baselines are cached (#1135, the #674 pattern): the stored
+                    // side re-serializes only when the resource changes and the empty
+                    // default only once, so an open panel serializes the LIVE stash
+                    // ONCE per frame instead of three whole trees. The comparisons are
+                    // value-identical to `records_differ` — `Option<Value>` on both
+                    // sides, `.ok()` semantics preserved — so dirty and can_reset are
+                    // frame-accurate exactly as before.
+                    if state
+                        .stored_baseline
+                        .as_ref()
+                        .is_none_or(|(tick, _)| *tick != stored.last_changed())
+                    {
+                        state.stored_baseline =
+                            Some((stored.last_changed(), serde_json::to_value(&stored.0).ok()));
                     }
-                    RecordAction::Publish => {
-                        // Clobber protection (#840): while the session is
-                        // degraded, saving this (empty-default) stash would
-                        // wipe whatever is actually stored — ask first.
-                        match recovery.as_deref() {
-                            Some(rec) => crate::ui::editable::request_overwrite_confirm(
-                                &mut state.publish_guard,
-                                RecordKind::Inventory,
-                                &rec.reason,
-                            ),
-                            None => do_publish = true,
+                    if state.default_baseline.is_none() {
+                        state.default_baseline =
+                            Some(serde_json::to_value(InventoryRecord::default()).ok());
+                    }
+                    let live_value = serde_json::to_value(&live.0).ok();
+                    let dirty = match state.stored_baseline.as_ref() {
+                        Some((_, baseline)) => *baseline != live_value,
+                        None => true,
+                    };
+                    let can_reset = state
+                        .default_baseline
+                        .as_ref()
+                        .is_none_or(|baseline| *baseline != live_value);
+                    // Publishing is blocked while over the cap (#841) — the red
+                    // header line explains; mirrors the hard-ceiling size block.
+                    let within_cap = live.0.generators.len() <= crate::config::state::MAX_INVENTORY_ITEMS;
+                    // `session` + `refresh_ctx` are guaranteed present (the early
+                    // return above bails otherwise), so a publish is always
+                    // attemptable while dirty.
+                    //
+                    // Size readout: the stash is one record PER ITEM (#696), so
+                    // the per-record budget applies to the largest single item —
+                    // not the whole stash. Same throttled cache as the other
+                    // editors, custom measurement.
+                    let now = time.elapsed_secs_f64();
+                    crate::ui::editable::refresh_size_readout(
+                        &mut *feedback,
+                        &live.0,
+                        now,
+                        crate::pds::inventory::measure_publish,
+                    );
+                    let size = feedback.live_size.clone();
+                    let ctrl_s = publish_shortcut.take(crate::ui::shortcuts::EditorKind::Inventory);
+                    let mut do_publish = false;
+                    match save_load_reset_row(
+                        ui,
+                        crate::ui::editable::SaveRow {
+                            kind: RecordKind::Inventory,
+                            dirty,
+                            can_publish: within_cap,
+                            can_reset,
+                            size: &size,
+                            publish_shortcut: ctrl_s,
+                            status: &mut feedback.status,
+                            // Inventory has no undo stack (#866) — keep the modal.
+                            confirm: Some(&mut state.row_confirm),
+                            reset: crate::ui::editable::ResetWording::EmptyStash {
+                                items: live.0.generators.len(),
+                            },
+                        },
+                    ) {
+                        RecordAction::None => {}
+                        RecordAction::Refused(reason) => {
+                            toasts.info(crate::ui::editable::ctrl_s_refused(&reason), now);
+                        }
+                        RecordAction::Publish => {
+                            // Clobber protection (#840): while the session is
+                            // degraded, saving this (empty-default) stash would
+                            // wipe whatever is actually stored — ask first.
+                            match recovery.as_deref() {
+                                Some(rec) => crate::ui::editable::request_overwrite_confirm(
+                                    &mut state.publish_guard,
+                                    RecordKind::Inventory,
+                                    &rec.reason,
+                                ),
+                                None => do_publish = true,
+                            }
+                        }
+                        RecordAction::Load => {
+                            live.0 = stored.0.clone();
+                        }
+                        RecordAction::Reset => {
+                            // The baseline above is the default's serialized FORM; the
+                            // record itself is `default()`, which for an inventory is
+                            // simply empty and costs nothing to rebuild here.
+                            live.0 = InventoryRecord::default();
                         }
                     }
-                    RecordAction::Load => {
-                        live.0 = stored.0.clone();
+                    if state
+                        .publish_guard
+                        .show(ui.ctx(), "inventory-recovery-publish")
+                        .is_some()
+                    {
+                        // Acknowledged. The marker retires when the poll system
+                        // sees the write land (#1199), not here.
+                        do_publish = true;
                     }
-                    RecordAction::Reset => {
-                        // The baseline above is the default's serialized FORM; the
-                        // record itself is `default()`, which for an inventory is
-                        // simply empty and costs nothing to rebuild here.
-                        live.0 = InventoryRecord::default();
+                    if do_publish {
+                        feedback.status = PublishStatus::Publishing { since_secs: now };
+                        spawn_publish_inventory_task(
+                            &mut commands,
+                            &session,
+                            &refresh_ctx,
+                            live.0.clone(),
+                            stored.0.clone(),
+                            now,
+                        );
                     }
-                }
-                if state
-                    .publish_guard
-                    .show(ui.ctx(), "inventory-recovery-publish")
-                    .is_some()
-                {
-                    // Acknowledged. The marker retires when the poll system
-                    // sees the write land (#1199), not here.
-                    do_publish = true;
-                }
-                if do_publish {
-                    feedback.status = PublishStatus::Publishing { since_secs: now };
-                    spawn_publish_inventory_task(
-                        &mut commands,
-                        &session,
-                        &refresh_ctx,
-                        live.0.clone(),
-                        stored.0.clone(),
-                        now,
-                    );
-                }
 
-                publish_status_line(ui, &feedback.status, now, dirty);
+                    publish_status_line(ui, &feedback.status, now, dirty);
+                });
 
                 crate::ui::layout::fill_above(ui, |ui| {
                     egui::ScrollArea::vertical()

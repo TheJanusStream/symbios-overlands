@@ -192,34 +192,29 @@ pub fn chat_ui(
     // prefs save debounce — local copy in, write back only on the ✕
     // click (the Settings window's idiom).
     let mut open = panels.chat;
-    let response =
-        egui::Window::new("Chat")
-            .open(&mut open)
-            .default_pos(pos)
-            .default_size(size)
-            .constrain_to(chrome.available_rect(ctx))
-            .resizable(true)
-            .collapsible(true)
-            .show(ctx, |ui| {
-                // The footer is laid out FIRST, bottom-up, so its height is
-                // MEASURED rather than guessed, and the scrollback gets exactly
-                // what is left. This used to reserve a constant 44 pt for
-                // "the separator + input row" and hand the scroll area
-                // `available_height() - 44` with `auto_shrink([true, false])`,
-                // which claims that height whether or not the content fills it.
-                // Two lines have been added below the input since — #1141's
-                // emote hint and #1213's composer note — so the measured content
-                // ran taller than the window every frame, and egui's `Resize`
-                // never shrinks on its own: the window climbed to the full
-                // screen height within a second of being opened (#1280).
-                crate::ui::layout::bottom_anchored(ui, |ui| {
-                    // The keyword emotes have no command syntax to discover and,
-                    // until this line, no surface anywhere in the UI (#1141) —
-                    // #1068 shipped a feature findable only by typing one of its
-                    // words by accident. Sourced from the keyword table so the
-                    // examples cannot name a word that no longer gestures.
-                    ui.small(crate::player::emote::Emote::hint_line());
-
+    let response = egui::Window::new("Chat")
+        .open(&mut open)
+        .default_pos(pos)
+        .default_size(size)
+        .constrain_to(chrome.available_rect(ctx))
+        .resizable(true)
+        .collapsible(true)
+        .show(ctx, |ui| {
+            // The footer is laid out FIRST, bottom-up, so its height is
+            // MEASURED rather than guessed, and the scrollback gets exactly
+            // what is left. This used to reserve a constant 44 pt for
+            // "the separator + input row" and hand the scroll area
+            // `available_height() - 44` with `auto_shrink([true, false])`,
+            // which claims that height whether or not the content fills it.
+            // Two lines have been added below the input since — #1141's
+            // emote hint and #1213's composer note — so the measured content
+            // ran taller than the window every frame, and egui's `Resize`
+            // never shrinks on its own: the window climbed to the full
+            // screen height within a second of being opened (#1280). The
+            // footer keeps ordinary reading order inside `layout::footer`;
+            // only the block as a whole is bottom-anchored (#1282).
+            crate::ui::layout::bottom_anchored(ui, |ui| {
+                crate::ui::layout::footer(ui, |ui| {
                     // Right-to-left layout: Send first (pinned to the right edge),
                     // then the TextEdit whose `desired_width` is set to whatever
                     // horizontal space remains — so widening the window stretches
@@ -327,131 +322,142 @@ pub fn chat_ui(
                         ui.colored_label(crate::ui::theme::current(ui.ctx()).status.warn, note);
                     }
 
-                    crate::ui::layout::fill_above(ui, |ui| {
-                        // No `max_height`: `fill_above` already handed us
-                        // exactly the space the footer left, and setting one
-                        // here is what put the guess back (#1280).
-                        egui::ScrollArea::vertical()
-                            .id_salt("chat_scroll")
-                            .auto_shrink([true, false])
-                            .stick_to_bottom(true)
-                            .show(ui, |ui| {
-                                for entry in &chat.messages {
-                                    if entry.did.as_deref().is_some_and(|did| {
-                                        is_muted(did, &muted_here, &deps.muted_dids)
-                                    }) {
-                                        continue;
-                                    }
-                                    ui.horizontal_wrapped(|ui| {
-                                        // Local wall-clock HH:MM (#846) — the old stamp
-                                        // was minutes-since-app-launch, meaningless
-                                        // across peers and sessions.
-                                        ui.colored_label(
-                                            crate::ui::theme::current(ui.ctx()).text_weak,
-                                            format!(
-                                                "[{}]",
-                                                crate::state::clock_hhmm(entry.at_epoch_secs)
-                                            ),
-                                        );
-                                        let author = author_now(entry, &names);
-                                        // Profile icon by DID, or a same-sized tile
-                                        // carrying the author's initial (#1225 f351) so
-                                        // the row layout doesn't shift between
-                                        // cache-miss and cache-hit frames AND the miss
-                                        // still says whose row this is.
-                                        draw_avatar_icon(
-                                            ui,
-                                            entry.did.as_deref(),
-                                            Some(author),
-                                            &deps.profile_cache,
-                                            AVATAR_ICON_PX,
-                                        );
-                                        let is_mutual = entry
-                                            .did
-                                            .as_deref()
-                                            .is_some_and(|d| mutual_dids.contains(d));
-                                        // Accent star for mutuals, info-blue author
-                                        // tag (#856) — same roles the People window
-                                        // uses, formerly bespoke config golds/blues.
-                                        let th = crate::ui::theme::current(ui.ctx());
-                                        let unknown = entry
-                                            .did
-                                            .as_deref()
-                                            .is_some_and(|d| unknown_dids.contains(d));
-                                        let (tag_color, tag_text) = if is_mutual {
-                                            (th.accent, format!("★ [{author}]"))
-                                        } else if unknown {
-                                            (th.status.info, format!("? [{author}]"))
-                                        } else {
-                                            (th.status.info, format!("[{author}]"))
-                                        };
-                                        // The author tag is the mute affordance (#1222
-                                        // f296). The remedy for a flood used to be two
-                                        // windows away — leave the chat, open People,
-                                        // find the row among a dozen, tick a box — and it
-                                        // arrived after the damage was permanent. The
-                                        // action belongs on the message in front of you.
-                                        // Own lines are not offered it: you are not a
-                                        // peer, and muting yourself is not a thing.
-                                        let can_mute = entry.did.as_deref().is_some_and(|did| {
-                                            session.as_deref().is_none_or(|s| s.did != did)
-                                        });
-                                        let tag =
-                                            ui.add(
-                                                egui::Label::new(
-                                                    egui::RichText::new(tag_text).color(tag_color),
-                                                )
-                                                .sense(if can_mute {
-                                                    egui::Sense::click()
-                                                } else {
-                                                    egui::Sense::hover()
-                                                }),
-                                            );
-                                        let tag = if is_mutual {
-                                            tag.on_hover_text("You and this peer follow each other")
-                                        } else if unknown {
-                                            tag.on_hover_text(
-                                                "Couldn't check whether you follow each other. \
+                    // The keyword emotes have no command syntax to discover and,
+                    // until this line, no surface anywhere in the UI (#1141) —
+                    // #1068 shipped a feature findable only by typing one of its
+                    // words by accident. Sourced from the keyword table so the
+                    // examples cannot name a word that no longer gestures.
+                    ui.small(crate::player::emote::Emote::hint_line());
+                });
+
+                crate::ui::layout::fill_above(ui, |ui| {
+                    // No `max_height`: `fill_above` already handed us
+                    // exactly the space the footer left, and setting one
+                    // here is what put the guess back (#1280).
+                    egui::ScrollArea::vertical()
+                        .id_salt("chat_scroll")
+                        .auto_shrink([true, false])
+                        .stick_to_bottom(true)
+                        .show(ui, |ui| {
+                            for entry in &chat.messages {
+                                if entry
+                                    .did
+                                    .as_deref()
+                                    .is_some_and(|did| is_muted(did, &muted_here, &deps.muted_dids))
+                                {
+                                    continue;
+                                }
+                                ui.horizontal_wrapped(|ui| {
+                                    // Local wall-clock HH:MM (#846) — the old stamp
+                                    // was minutes-since-app-launch, meaningless
+                                    // across peers and sessions.
+                                    ui.colored_label(
+                                        crate::ui::theme::current(ui.ctx()).text_weak,
+                                        format!(
+                                            "[{}]",
+                                            crate::state::clock_hhmm(entry.at_epoch_secs)
+                                        ),
+                                    );
+                                    let author = author_now(entry, &names);
+                                    // Profile icon by DID, or a same-sized tile
+                                    // carrying the author's initial (#1225 f351) so
+                                    // the row layout doesn't shift between
+                                    // cache-miss and cache-hit frames AND the miss
+                                    // still says whose row this is.
+                                    draw_avatar_icon(
+                                        ui,
+                                        entry.did.as_deref(),
+                                        Some(author),
+                                        &deps.profile_cache,
+                                        AVATAR_ICON_PX,
+                                    );
+                                    let is_mutual = entry
+                                        .did
+                                        .as_deref()
+                                        .is_some_and(|d| mutual_dids.contains(d));
+                                    // Accent star for mutuals, info-blue author
+                                    // tag (#856) — same roles the People window
+                                    // uses, formerly bespoke config golds/blues.
+                                    let th = crate::ui::theme::current(ui.ctx());
+                                    let unknown = entry
+                                        .did
+                                        .as_deref()
+                                        .is_some_and(|d| unknown_dids.contains(d));
+                                    let (tag_color, tag_text) = if is_mutual {
+                                        (th.accent, format!("★ [{author}]"))
+                                    } else if unknown {
+                                        (th.status.info, format!("? [{author}]"))
+                                    } else {
+                                        (th.status.info, format!("[{author}]"))
+                                    };
+                                    // The author tag is the mute affordance (#1222
+                                    // f296). The remedy for a flood used to be two
+                                    // windows away — leave the chat, open People,
+                                    // find the row among a dozen, tick a box — and it
+                                    // arrived after the damage was permanent. The
+                                    // action belongs on the message in front of you.
+                                    // Own lines are not offered it: you are not a
+                                    // peer, and muting yourself is not a thing.
+                                    let can_mute = entry.did.as_deref().is_some_and(|did| {
+                                        session.as_deref().is_none_or(|s| s.did != did)
+                                    });
+                                    let tag = ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(tag_text).color(tag_color),
+                                        )
+                                        .sense(
+                                            if can_mute {
+                                                egui::Sense::click()
+                                            } else {
+                                                egui::Sense::hover()
+                                            },
+                                        ),
+                                    );
+                                    let tag = if is_mutual {
+                                        tag.on_hover_text("You and this peer follow each other")
+                                    } else if unknown {
+                                        tag.on_hover_text(
+                                            "Couldn't check whether you follow each other. \
                                              Trying again shortly.",
-                                            )
-                                        } else if can_mute {
-                                            tag.on_hover_text("Right-click to mute this person")
-                                        } else {
-                                            tag
-                                        };
-                                        if can_mute {
-                                            tag.context_menu(|ui| {
-                                                if ui
-                                                    .button(format!("Mute {author}"))
-                                                    .on_hover_text(
-                                                        "Hides their avatar, chat, audio and gift \
+                                        )
+                                    } else if can_mute {
+                                        tag.on_hover_text("Right-click to mute this person")
+                                    } else {
+                                        tag
+                                    };
+                                    if can_mute {
+                                        tag.context_menu(|ui| {
+                                            if ui
+                                                .button(format!("Mute {author}"))
+                                                .on_hover_text(
+                                                    "Hides their avatar, chat, audio and gift \
                                                      offers — including what they have already \
                                                      said. Persists across sessions.",
-                                                    )
-                                                    .clicked()
-                                                    && let Some(did) = entry.did.clone()
-                                                {
-                                                    mute_request = Some(did);
-                                                    ui.close();
-                                                }
-                                            });
-                                        }
-                                        ui.label(&entry.text);
-                                        // A line of ours that reached nobody says so,
-                                        // in weak text so a normal conversation is not
-                                        // visually noisy (#1213).
-                                        if let Some(suffix) = entry.delivery.suffix() {
-                                            ui.colored_label(
-                                                crate::ui::theme::current(ui.ctx()).text_weak,
-                                                suffix,
-                                            );
-                                        }
-                                    });
-                                }
-                            });
-                    });
+                                                )
+                                                .clicked()
+                                                && let Some(did) = entry.did.clone()
+                                            {
+                                                mute_request = Some(did);
+                                                ui.close();
+                                            }
+                                        });
+                                    }
+                                    ui.label(&entry.text);
+                                    // A line of ours that reached nobody says so,
+                                    // in weak text so a normal conversation is not
+                                    // visually noisy (#1213).
+                                    if let Some(suffix) = entry.delivery.suffix() {
+                                        ui.colored_label(
+                                            crate::ui::theme::current(ui.ctx()).text_weak,
+                                            suffix,
+                                        );
+                                    }
+                                });
+                            }
+                        });
                 });
             });
+        });
     if chat.draft != input {
         chat.draft = input;
     }

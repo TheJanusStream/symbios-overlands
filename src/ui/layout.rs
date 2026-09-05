@@ -82,13 +82,17 @@ use std::collections::HashMap;
 /// that, so content height == available height on every frame and
 /// `desired_size.max(..)` is a no-op.
 ///
-/// The closure adds the footer BOTTOM-MOST FIRST — a bottom-up layout
-/// stacks upward — and ends with [`fill_above`]:
+/// The closure wraps its footer in [`footer`] — which restores ordinary
+/// reading order inside it — and ends with [`fill_above`]:
 ///
 /// ```ignore
 /// layout::bottom_anchored(ui, |ui| {
-///     ui.small(hint_line());     // sits at the very bottom
-///     ui.horizontal(|ui| { .. }); // the input row, above it
+///     layout::footer(ui, |ui| {
+///         // in ordinary reading order, top to bottom
+///         if let Some(note) = .. { ui.label(note); }
+///         ui.horizontal(|ui| { .. });  // the input row
+///         ui.small(hint_line());
+///     });
 ///     layout::fill_above(ui, |ui| {
 ///         egui::ScrollArea::vertical()
 ///             .auto_shrink([true, false])
@@ -109,6 +113,19 @@ pub fn bottom_anchored<R>(
         .inner
 }
 
+/// The footer itself, in ordinary reading order (#1282).
+///
+/// [`bottom_anchored`] stacks upward, so a footer written straight into
+/// it comes out bottom-first — the Inventory's status line ended up
+/// *above* the Save row it reports on. Wrapping the whole footer in one
+/// top-down child puts the block at the bottom and leaves its insides
+/// reading normally, which also means a caller never has to reason
+/// about the direction at all.
+pub fn footer<R>(ui: &mut egui::Ui, contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    ui.with_layout(egui::Layout::top_down(egui::Align::Min), contents)
+        .inner
+}
+
 /// The scrollable remainder above a [`bottom_anchored`] footer: draws
 /// the separator that divides them, then runs `body` in a normal
 /// top-down `Ui` sized to whatever the footer left.
@@ -117,11 +134,28 @@ pub fn bottom_anchored<R>(
 /// the guess this pair exists to delete (see [`bottom_anchored`]).
 pub fn fill_above<R>(ui: &mut egui::Ui, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
     ui.separator();
-    // Back to top-down: a bottom-up `Ui` would emit a scrollback in
-    // reverse, and everything inside the scroll area wants the ordinary
-    // reading direction.
-    ui.with_layout(egui::Layout::top_down(egui::Align::Min), body)
-        .inner
+    // The remainder, claimed as a FIXED rect (#1282). `with_layout`
+    // advances the parent's cursor by the CHILD's `min_rect`, so a body
+    // that reports more than the space it was handed — a `ScrollArea`
+    // hitting its `min_scrolled_size` floor, a row wider than the
+    // window, anything carrying a minimum of its own — passes that
+    // excess up to `Resize`, which takes the max and never gives it
+    // back. Advancing by the rect we MEANT to give makes the fixed
+    // point a guarantee instead of something that happens to hold for
+    // the bodies we tried.
+    //
+    // Back to top-down inside it: a bottom-up `Ui` would emit a
+    // scrollback in reverse, and everything in a scroll area wants the
+    // ordinary reading direction.
+    let rect = ui.available_rect_before_wrap();
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(rect)
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+    );
+    let out = body(&mut child);
+    ui.advance_cursor_after_rect(rect);
+    out
 }
 
 /// A persisted rect, nudged onto the current screen — or `None` when it
@@ -637,6 +671,43 @@ mod growth {
         assert!(
             late > SCREEN * 0.75,
             "it should run to the screen edge, not stop somewhere: {late:.0}"
+        );
+    }
+
+    /// #1282: the cap holds even when the BODY asks for more than it was
+    /// given.
+    ///
+    /// The other half of #1280's fix, and the half that took a second
+    /// pass. Measuring the footer makes content height equal available
+    /// height *for a well-behaved body* — but a `ScrollArea` at its
+    /// `min_scrolled_size` floor, a row wider than the window, or any
+    /// widget with a minimum of its own reports more than it was handed,
+    /// and `with_layout` passed that straight up to `Resize`, which
+    /// takes the max and never gives it back. `fill_above` now advances
+    /// the parent by the rect it MEANT to give.
+    ///
+    /// The body here is deliberately absurd — a rect four times the
+    /// window's height — because the guarantee has to be structural, not
+    /// a property of the bodies that happen to be in the app today.
+    #[test]
+    fn an_oversized_body_cannot_grow_the_window() {
+        let greedy = |ui: &mut egui::Ui| {
+            super::bottom_anchored(ui, |ui| {
+                footer(ui);
+                super::fill_above(ui, |ui| {
+                    ui.allocate_space(egui::vec2(50.0, SCREEN * 4.0));
+                });
+            });
+        };
+        let early = settle(4, greedy);
+        let late = settle(40, greedy);
+        assert!(
+            (late - early).abs() < 1.0,
+            "a greedy body walked the window: {early:.1} -> {late:.1}"
+        );
+        assert!(
+            late < SCREEN * 0.6,
+            "the window followed its content off the screen: {late:.0}"
         );
     }
 

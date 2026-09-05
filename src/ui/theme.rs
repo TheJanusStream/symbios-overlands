@@ -489,10 +489,14 @@ impl Theme {
             danger_surface_text: egui::Color32::from_rgb(255, 230, 230),
             window_fill: egui::Color32::from_gray(10),
             panel_fill: egui::Color32::from_gray(10),
-            // Lifted clear of the window so a field is a surface and not
-            // a void; `border` at 1.5 pt is what actually draws its
-            // edge (7.34:1 against this fill, 8.52:1 against the
-            // window).
+            // Lifted off `window_fill` so a field is at least a surface
+            // and not a void. Only 1.16:1, and deliberately not more:
+            // a fill light enough to clear 3:1 against a `from_gray(10)`
+            // window is a mid grey, and egui draws hint text at
+            // `text_color().gamma_multiply(0.6)` — around gray-135 here
+            // — which would land at about 1.4:1 on it. The contrast a
+            // field needs has to come from its edge (#1283), not from
+            // making its interior pale enough to swallow the hint.
             field_fill: egui::Color32::from_gray(28),
             chart_fill: egui::Color32::from_gray(20),
             chart_fill_deep: egui::Color32::from_gray(14),
@@ -704,16 +708,29 @@ pub fn visuals_for(theme: &Theme) -> egui::Visuals {
     visuals.window_stroke = egui::Stroke::new(theme.border_stroke_width, theme.border);
     visuals.warn_fg_color = theme.status.warn;
     visuals.error_fg_color = theme.status.error;
-    // A text field is a surface with an edge, in every palette (#1258
-    // f233). egui writes neither: `extreme_bg_color` keeps the base's
-    // value — `from_gray(10)` under high contrast's `from_gray(10)`
-    // window, 1.00:1 — and `widgets.inactive.bg_stroke` is
-    // `Stroke::NONE` in BOTH bases, so a resting field has no border
-    // either. `inactive.bg_stroke` also strokes a resting button, which
-    // is deliberate and in the dark palette invisible: `border` there
-    // is `from_gray(60)`, exactly the button fill it draws on.
+    // A text field's interior is a surface the palette owns (#1258
+    // f233): egui never wrote `extreme_bg_color`, so a `TextEdit`
+    // inherited the base's `from_gray(10)` under high contrast's
+    // `from_gray(10)` window — a field at 1.00:1, invisible on the
+    // palette written for people who cannot see faint ones.
+    //
+    // **It gets no BORDER here, and that is a reversal (#1281).**
+    // #1258 also set `widgets.inactive.bg_stroke`, which is the stroke
+    // egui gives a resting `TextEdit` — and which every button shares.
+    // `Style::button_style` computes
+    // `inner_margin = button_padding - bg_stroke.width`, so that margin
+    // plus stroke stays constant and a widget does not resize as its
+    // state changes; but `Button::show` throws the frame away for an
+    // unselected `toggle_value` or `selectable_label`, keeping the
+    // shrunken margin and losing the stroke that paid for it. Every
+    // unselected toggle in the app came out 2 pt narrower at rest than
+    // under the pointer, so the toolbar, every editor tab bar and the
+    // gizmo World/Local pair shoved their neighbours about on hover.
+    // Stock egui is safe only because that stroke is `NONE` there.
+    //
+    // The border a text field is still owed has to come from the
+    // field's OWN frame rather than a shared widget tier: #1283.
     visuals.extreme_bg_color = theme.field_fill;
-    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(theme.border_stroke_width, theme.border);
     visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, theme.border);
     // Widget label colours, from the PALETTE and for every base (#1258
     // f232/f238). This used to run only under `egui::Theme::Light`,
@@ -1024,44 +1041,120 @@ mod tests {
         }
     }
 
-    /// #1258 f233: a resting text field must be findable.
+    /// #1258 f233 / #1281: the palette owns a text field's interior, and
+    /// **no widget tier carries a resting stroke**.
     ///
-    /// egui gives it neither cue — `extreme_bg_color` keeps the base's
-    /// value (`from_gray(10)` under high contrast's `from_gray(10)`
-    /// window: 1.00:1) and `widgets.inactive.bg_stroke` is
-    /// `Stroke::NONE` in both bases — so the whole signal was the hint
-    /// text, which 8 of 19 `TextEdit` sites do not pass.
+    /// Two halves, and the second is the one with teeth. egui never
+    /// wrote `extreme_bg_color`, so a `TextEdit` inherited the base's
+    /// `from_gray(10)` under high contrast's `from_gray(10)` window —
+    /// 1.00:1. That half stands.
     ///
-    /// The 3:1 boundary threshold is asserted for the two palettes that
-    /// exist for legibility. Dark's edge is `border` = `from_gray(60)`
-    /// on a `from_gray(10)` field, 1.79:1: visible, under the
-    /// threshold, and left there deliberately — raising it means
-    /// raising the border that also rims every dark button, and the
-    /// dark look is validated by #857.
+    /// The other half was giving `widgets.inactive.bg_stroke` a width,
+    /// and it is reverted: `Style::button_style` subtracts the stroke
+    /// width from `button_padding` so that margin plus stroke is
+    /// constant, and `Button::show` then discards the frame for an
+    /// unselected `toggle_value`/`selectable_label` — keeping the
+    /// shrunken margin without the stroke that paid for it. So this
+    /// asserts the ABSENCE, which is what a future palette edit could
+    /// reintroduce without anything looking like a layout change.
     #[test]
-    fn a_resting_text_field_has_an_edge_in_every_palette() {
+    fn the_palette_owns_the_field_fill_and_no_resting_stroke() {
         for (palette, t) in all_palettes() {
             let v = visuals_for(&t);
-            let edge = v.widgets.inactive.bg_stroke;
-            assert!(
-                edge.width > 0.0 && edge.color != t.field_fill,
-                "{palette}: a resting text field has no edge"
-            );
             assert_eq!(
                 v.text_edit_bg_color(),
                 t.field_fill,
                 "{palette}: the palette does not own the field's fill"
             );
-            if palette != "dark" {
-                let r = contrast_ratio(edge.color, t.field_fill);
+            assert_eq!(
+                v.widgets.inactive.bg_stroke.width, 0.0,
+                "{palette}: a resting widget stroke resizes every unselected toggle \
+                 on hover (#1281) — a field's border belongs to the field's own \
+                 frame (#1283)"
+            );
+        }
+    }
+
+    /// #1281: hovering a widget must not move the widget after it.
+    ///
+    /// The regression this catches came from a PALETTE edit, and nothing
+    /// about a palette edit looks like a layout change — so the guard
+    /// measures what a user actually sees: where the next widget in a
+    /// row lands, at rest and under the pointer, in a real egui context.
+    ///
+    /// `toggle_value` and `selectable_label` are here because they are
+    /// what the toolbar and every editor tab bar are made of, and
+    /// because they are the pair that discards its frame at rest. The
+    /// plain `Button` cases stayed stable throughout and would not have
+    /// caught it.
+    #[test]
+    fn hovering_a_widget_does_not_move_the_one_after_it() {
+        /// Where the label after `kind` lands, and whether the hover
+        /// actually registered — a probe that never hovers would pass
+        /// this test while proving nothing.
+        fn next_widget_x(theme: &Theme, kind: &str, hover: bool) -> (f32, bool) {
+            let ctx = egui::Context::default();
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 200.0));
+            let mut next_x = 0.0_f32;
+            let mut hovered = false;
+            let mut target =
+                egui::Rect::from_min_size(egui::pos2(20.0, 20.0), egui::vec2(5.0, 5.0));
+            let mut toggled = false;
+            // Five passes: `Button::show` reads LAST frame's response to
+            // pick its state, so a size that depends on state needs two
+            // to settle — and an oscillation needs more to show itself.
+            for pass in 0..5 {
+                let mut input = egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                };
+                if hover && pass > 0 {
+                    input
+                        .events
+                        .push(egui::Event::PointerMoved(target.center()));
+                }
+                let _ = ctx.run_ui(input, |ui| {
+                    ui.ctx().set_visuals(visuals_for(theme));
+                    egui::Area::new("probe".into())
+                        .fixed_pos(egui::pos2(10.0, 10.0))
+                        .show(ui.ctx(), |ui| {
+                            ui.horizontal(|ui| {
+                                let r = match kind {
+                                    "button" => ui.button("Example"),
+                                    "toggle_value" => ui.toggle_value(&mut toggled, "Example"),
+                                    "selectable_label" => ui.selectable_label(false, "Example"),
+                                    "small_button" => ui.small_button("Example"),
+                                    "menu_button" => ui.menu_button("Example", |_| {}).response,
+                                    _ => unreachable!("unknown widget kind {kind}"),
+                                };
+                                target = r.rect;
+                                hovered = r.hovered();
+                                next_x = ui.label("after").rect.left();
+                            });
+                        });
+                });
+            }
+            (next_x, hovered)
+        }
+
+        for (palette, theme) in all_palettes() {
+            for kind in [
+                "button",
+                "toggle_value",
+                "selectable_label",
+                "small_button",
+                "menu_button",
+            ] {
+                let (at_rest, _) = next_widget_x(&theme, kind, false);
+                let (under_pointer, hovered) = next_widget_x(&theme, kind, true);
                 assert!(
-                    r >= AA_LARGE,
-                    "{palette}: field edge is {r:.2}:1 against the field"
+                    hovered,
+                    "{palette}/{kind}: the probe never hovered, so it proves nothing"
                 );
-                let outer = contrast_ratio(edge.color, t.window_fill);
                 assert!(
-                    outer >= AA_LARGE,
-                    "{palette}: field edge is {outer:.2}:1 against the window"
+                    (at_rest - under_pointer).abs() < 0.01,
+                    "{palette}/{kind}: hovering moves the next widget by {:.1} pt",
+                    under_pointer - at_rest
                 );
             }
         }
@@ -1189,15 +1282,27 @@ mod tests {
             );
         }
 
-        // A button's label on the button, and the button's own edge:
-        // the surfaces f232 found still wearing the stock dark chrome.
+        // A button's label on the button — one of the two surfaces f232
+        // found still wearing the stock dark chrome.
         let btn = contrast_ratio(
             hv.widgets.inactive.fg_stroke.color,
             hv.widgets.inactive.weak_bg_fill,
         );
         assert!(btn >= AAA_TEXT, "high contrast button text is {btn:.2}:1");
-        let rim = contrast_ratio(hv.widgets.inactive.bg_stroke.color, hc.window_fill);
-        assert!(rim >= AA_LARGE, "high contrast button edge is {rim:.2}:1");
+        // The other surface — the button's own BOUNDARY — is not
+        // asserted, and the omission is deliberate rather than an
+        // oversight. #1258 gave it a bright resting stroke; #1281 took
+        // that back, because the stroke is shared with every widget tier
+        // and resized every unselected toggle in the app on hover. What
+        // remains is the stock fill against the window, `from_gray(60)`
+        // on `from_gray(10)`, 1.79:1 — under WCAG 1.4.11 and recorded
+        // as such. Fixing it means the palette owning the widget FILLS
+        // as well as their label colours, which is #1283's subject.
+        let boundary = contrast_ratio(hv.widgets.inactive.weak_bg_fill, hc.window_fill);
+        assert!(
+            boundary > 1.0,
+            "a button has to be distinguishable from the window somehow"
+        );
 
         assert!(hc.border_stroke_width > dark.border_stroke_width);
     }
