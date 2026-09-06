@@ -1136,6 +1136,162 @@ mod placement {
         );
     }
 
+    /// Which container an anchored, auto-sized control sits in (#1290).
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    enum Anchored {
+        /// A bare `egui::Area` — the login screen's "New world" chip.
+        Area,
+        /// A non-resizable, title-bar-less `egui::Window` — both approach
+        /// prompts.
+        Window,
+    }
+
+    /// Draw an anchored, auto-sized control repeatedly and report the
+    /// width its content settles at, before and after a palette switch
+    /// (#1290).
+    ///
+    /// **The hazard this measures.** An `Area` with no explicit size hands
+    /// its `Ui` a `max_rect` built from the size it MEASURED last pass —
+    /// once settled, `ui.available_width()` is exactly the content's own
+    /// width. That is an equilibrium with no slack in it: any pass where
+    /// the content wants even one point more, a wrappable widget wraps
+    /// instead of growing, the area measures NARROWER, and the next pass
+    /// offers that narrower width. It only ever ratchets down, and it
+    /// never recovers.
+    ///
+    /// The frame matters and is not decoration: its stroke and inner
+    /// margin are what consume the slack, and `Theme::border_stroke_width`
+    /// is the term that differs between palettes. A probe without one
+    /// measures a control that has room to grow and reports no defect.
+    ///
+    /// Two settle passes before the switch and six after — the latch needs
+    /// one pass to bite and a recovery, if there were one, would take
+    /// another.
+    fn anchored_width_across_a_palette_switch(
+        container: Anchored,
+        content: impl Fn(&mut egui::Ui) -> egui::Rect,
+    ) -> (f32, f32) {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 720.0));
+        let pass = |theme: &crate::ui::theme::Theme| {
+            let mut width = 0.0_f32;
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                // `apply_theme`, not `set_visuals`: the palette is read
+                // back through `theme::current`, which only `apply_theme`
+                // stashes in the context data map (#1284's lesson).
+                crate::ui::theme::apply_theme(ui.ctx(), theme);
+                // The login card's chrome, spelled out rather than shared:
+                // `border_stroke_width` is the term under test and a
+                // helper would hide it.
+                let frame = egui::Frame::new()
+                    .fill(theme.window_fill)
+                    .stroke(egui::Stroke::new(theme.border_stroke_width, theme.border))
+                    .inner_margin(8.0);
+                match container {
+                    Anchored::Area => {
+                        egui::Area::new(egui::Id::new("latch-probe"))
+                            .anchor(egui::Align2::RIGHT_BOTTOM, [-16.0, -16.0])
+                            .show(ui.ctx(), |ui| {
+                                frame.show(ui, |ui| width = content(ui).width());
+                            });
+                    }
+                    Anchored::Window => {
+                        egui::Window::new("latch-probe")
+                            .title_bar(false)
+                            .resizable(false)
+                            .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -24.0])
+                            .show(ui.ctx(), |ui| width = content(ui).width());
+                    }
+                }
+            });
+            width
+        };
+        let mut settled = 0.0;
+        for _ in 0..2 {
+            settled = pass(&crate::ui::theme::Theme::dark());
+        }
+        let mut after = 0.0;
+        for _ in 0..6 {
+            after = pass(&crate::ui::theme::Theme::high_contrast());
+        }
+        (settled, after)
+    }
+
+    /// No anchored control collapses when the palette changes (#1290).
+    ///
+    /// The sequence the owner hit: switch the theme with the login
+    /// screen's own picker (#1276 f39, which is what first made this
+    /// reachable at all) and the "New world" chip becomes one character
+    /// wide, reading "New / worl / d", and stays that way.
+    ///
+    /// **High contrast is the trigger and one point is the whole margin.**
+    /// Every palette settles this chip at the same 70.8 pt on its own —
+    /// no palette is wrong. But high contrast's `border_stroke_width` is a
+    /// point wider (#1283 gave controls a real frame), so the pass that
+    /// switches into it offers 69.8 pt of content width for a label that
+    /// needs 70.8. One point, and the ratchet does the rest: 70.8 -> 41.6,
+    /// latched, with no recovery.
+    ///
+    /// A palette switch stands in for the general trigger. A font swap
+    /// (the lazy CJK load, #858), an interface-scale change (#1259 f239)
+    /// and a longer resolved handle all perturb the width the same way;
+    /// the palette is simply the one a user can now reach from the login
+    /// screen in one click.
+    #[test]
+    fn an_anchored_control_does_not_latch_narrow_when_the_palette_changes() {
+        // The control: the shape as it shipped. A wrapping button in an
+        // anchored `Area` really does collapse, so the assertions below
+        // are not describing a palette that happens not to perturb it.
+        let (before, after) = anchored_width_across_a_palette_switch(Anchored::Area, |ui| {
+            ui.add(egui::Button::new("New world")).rect
+        });
+        assert!(
+            after < before - 1.0,
+            "the control must latch: {before:.1} -> {after:.1}"
+        );
+
+        // The fix, on the site that was reported.
+        let (before, after) = anchored_width_across_a_palette_switch(Anchored::Area, |ui| {
+            ui.add(egui::Button::new("New world").wrap_mode(egui::TextWrapMode::Extend))
+                .rect
+        });
+        assert!(
+            after >= before - 0.01,
+            "the \"New world\" chip shrank from {before:.1} to {after:.1}"
+        );
+    }
+
+    /// An anchored non-resizable `egui::Window` does NOT carry the `Area`
+    /// latch (#1290) — recorded so the two approach prompts are not
+    /// "fixed" for a defect they never had.
+    ///
+    /// A `Window` wraps its `Area` in a `Resize`, which keeps its own
+    /// remembered size and — unlike a bare area — lets its content ASK for
+    /// more room and grows to it. That is the whole difference, and it is
+    /// the same one #898 recorded from the other direction: a `ScrollArea`
+    /// collapses to a slit inside an auto-sized `Area` and behaves inside
+    /// a `Window`, because only one of the two has a real max rect.
+    #[test]
+    fn an_anchored_window_recovers_where_a_bare_area_latches() {
+        let wrapping = |ui: &mut egui::Ui| ui.add(egui::Button::new("New world")).rect;
+        let (area_before, area_after) =
+            anchored_width_across_a_palette_switch(Anchored::Area, wrapping);
+        let (win_before, win_after) =
+            anchored_width_across_a_palette_switch(Anchored::Window, wrapping);
+        assert!(
+            area_after < area_before - 1.0,
+            "the area control must latch: {area_before:.1} -> {area_after:.1}"
+        );
+        assert!(
+            win_after >= win_before - 0.01,
+            "a window is supposed to recover: {win_before:.1} -> {win_after:.1}"
+        );
+    }
+
     /// The control: the pre-#1285 idiom really did put the footer at the
     /// top, so the assertions above are not describing a coincidence.
     ///

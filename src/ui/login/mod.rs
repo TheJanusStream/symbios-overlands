@@ -1064,8 +1064,19 @@ pub fn login_ui(
                 card_frame(&theme.0)
                     .inner_margin(cfg::REROLL_INNER_MARGIN)
                     .show(ui, |ui| {
-                        let reroll =
-                            ui.add_enabled(world_backdrop_visible, egui::Button::new("New world"));
+                        // `Extend`, never wrap (#1290). An anchored,
+                        // auto-sized `Area` offers its content exactly the
+                        // width it measured last pass, so a wrappable
+                        // two-word chip sits on a knife edge: the pass that
+                        // switches palette offers a point less than high
+                        // contrast's wider control stroke needs, the label
+                        // wraps to "New / worl / d", the area measures the
+                        // wrapped width, and it never recovers. A chip this
+                        // short has no business wrapping in either case.
+                        let reroll = ui.add_enabled(
+                            world_backdrop_visible,
+                            egui::Button::new("New world").wrap_mode(egui::TextWrapMode::Extend),
+                        );
                         let reroll = if world_backdrop_visible {
                             reroll.on_hover_text("Seed a different world behind the login screen")
                         } else {
