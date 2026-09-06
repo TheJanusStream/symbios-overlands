@@ -37,9 +37,22 @@
 //! **Right-button conflict.** Camera orbit is bound to the right mouse button
 //! (`camera::gate_camera_on_gui`, `bevy_panorbit_camera`), so the menu cannot
 //! open on right-*press*. [`detect_scene_right_click`] instead discriminates a
-//! click from a drag: it records the cursor at press and opens the menu on
-//! release only when the pointer stayed within [`DRAG_THRESHOLD_PX`]. A real
-//! drag orbits the camera and never spawns a menu, so the two never fight.
+//! click from a drag ([`RightDrag`]) and opens the menu on release only when
+//! the pointer travelled less than [`DRAG_THRESHOLD_PX`]. A real drag orbits
+//! the camera and never spawns a menu, so the two never fight.
+//!
+//! That travel is accumulated from `MouseMotion`, **not** measured between the
+//! press and release cursor positions (#1296). The camera drag confines or
+//! locks the pointer for the length of the gesture (`camera::drag_cursor_grab`,
+//! added by #1242 f171), and under `CursorGrabMode::Locked` — which is what
+//! the browser build gets, because the web backend implements pointer lock and
+//! not confinement — the OS cursor stops moving, so `Window::cursor_position`
+//! returns the SAME point for the whole orbit. Every orbit therefore looked
+//! like a click, and released into a context menu. `MouseMotion` is the signal
+//! that survives pointer lock (winit synthesises it from `movementX/Y`), and
+//! it is the same one `bevy_panorbit_camera` orbits on — so the menu and the
+//! camera now agree about what happened by construction rather than by
+//! coincidence.
 //!
 //! The menu itself is an egui [`egui::Popup`] of kind [`egui::PopupKind::Menu`]
 //! anchored at the click position; egui owns its close behaviour (click,
@@ -52,6 +65,7 @@
 use std::cell::RefCell;
 
 use bevy::ecs::hierarchy::ChildOf;
+use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
@@ -71,20 +85,63 @@ use crate::ui::room::{EditorTab, GenNodeId, RoomEditorState};
 use crate::ui::toolbar::UiPanels;
 use crate::world_builder::{AvatarVisualPrim, PlacementMarker, PrimMarker};
 
-/// Screen-space travel (px) beyond which a held right button is an orbit
-/// DRAG rather than a click. Below it, the release opens the context menu.
+/// Pointer travel (px) beyond which a held right button is an orbit DRAG
+/// rather than a click. Below it, the release opens the context menu.
 const DRAG_THRESHOLD_PX: f32 = 6.0;
+
+/// The right-button gesture: press, motion, release.
+///
+/// Accumulates PATH LENGTH from `AccumulatedMouseMotion` rather than net
+/// displacement between two cursor positions, which matters twice over
+/// (#1296):
+///
+/// * A locked pointer reports no cursor movement at all, so a displacement
+///   test cannot see an orbit — see the module docs. This is the bug.
+/// * Displacement shrinks again when a gesture comes back on itself, so
+///   measuring it needs a separate `dragged` flag latched across frames to
+///   stop an orbit that returns near its origin reading as a click. The
+///   previous code carried that flag and it was correct; path length simply
+///   does not need it, because travel only ever grows. One less piece of
+///   state to keep in step with the button.
+///
+/// The threshold is there to forgive the pixel or two of hand jitter in a real
+/// click, not to allow a small orbit.
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+struct RightDrag {
+    /// Pixels travelled since the right button went down; `None` between a
+    /// release and the next press, which is also how a release whose press
+    /// was never seen (focus gained mid-gesture) is rejected.
+    travel: Option<f32>,
+}
+
+impl RightDrag {
+    /// The button went down: start measuring.
+    fn press(&mut self) {
+        self.travel = Some(0.0);
+    }
+
+    /// Add one frame's motion. A no-op unless the button is down, so motion
+    /// between gestures cannot leak into the next one.
+    fn moved(&mut self, delta: Vec2) {
+        if let Some(travel) = &mut self.travel {
+            *travel += delta.length();
+        }
+    }
+
+    /// The button came up, ending the gesture. `true` when it was a click —
+    /// a press and release with the pointer essentially still — and so
+    /// should open the menu.
+    fn release(&mut self) -> bool {
+        matches!(self.travel.take(), Some(travel) if travel <= DRAG_THRESHOLD_PX)
+    }
+}
 
 /// State backing the in-scene right-click menu: the press-phase click-vs-drag
 /// tracker plus the resolved hit that an open menu acts on.
 #[derive(Resource, Default)]
 pub(super) struct SceneContextMenu {
-    /// Cursor position at the last right-button press; `None` between a
-    /// release and the next press. Seeds the click-vs-drag comparison.
-    press_origin: Option<Vec2>,
-    /// Set once the pointer travels past [`DRAG_THRESHOLD_PX`] while the
-    /// right button is held — the gesture is an orbit drag, not a click.
-    dragged: bool,
+    /// Click-vs-drag tracker for the held right button.
+    drag: RightDrag,
     /// Whether the menu is currently shown. Driven open by
     /// [`detect_scene_right_click`]; egui's `open_bool` flips it back to
     /// closed on click / click-outside / Escape.
@@ -188,6 +245,7 @@ enum MenuChoice {
 pub(super) fn detect_scene_right_click(
     mut contexts: EguiContexts,
     mouse: Res<ButtonInput<MouseButton>>,
+    mouse_motion: Res<AccumulatedMouseMotion>,
     gizmo_targets: Query<&GizmoTarget>,
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
@@ -205,22 +263,17 @@ pub(super) fn detect_scene_right_click(
     // so a gesture only counts as a menu click if the pointer barely moved
     // between press and release.
     if mouse.just_pressed(MouseButton::Right) {
-        menu.press_origin = cursor_now;
-        menu.dragged = false;
+        menu.drag.press();
     }
-    if mouse.pressed(MouseButton::Right)
-        && let (Some(origin), Some(now)) = (menu.press_origin, cursor_now)
-        && origin.distance(now) > DRAG_THRESHOLD_PX
-    {
-        menu.dragged = true;
-    }
+    // `AccumulatedMouseMotion` is this frame's summed `MouseMotion`, reset
+    // by Bevy every frame, so there is no reader cursor to keep drained and
+    // no backlog that could leak into the next gesture.
+    menu.drag.moved(mouse_motion.delta);
 
     if !mouse.just_released(MouseButton::Right) {
         return;
     }
-    let was_click = menu.press_origin.is_some() && !menu.dragged;
-    menu.press_origin = None;
-    if !was_click {
+    if !menu.drag.release() {
         return;
     }
 
@@ -1112,6 +1165,91 @@ pub(super) fn close_scene_context_menu(mut menu: ResMut<SceneContextMenu>) {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    /// #1296. THE REGRESSION, stated in the terms that made it invisible: an
+    /// orbit under a locked pointer moves the view without the cursor
+    /// position changing by one pixel. The old test compared the press and
+    /// release cursor positions, so it saw a still pointer and called the
+    /// orbit a click — and every camera orbit released into a context menu.
+    ///
+    /// `RightDrag` is fed the same `MouseMotion` the camera orbits on, which
+    /// is why this can be asserted at all: there is no cursor position in it.
+    #[test]
+    fn an_orbit_that_never_moves_the_cursor_is_still_a_drag() {
+        let mut drag = RightDrag::default();
+        drag.press();
+        // A pointer-locked orbit: forty frames of motion, cursor pinned.
+        for _ in 0..40 {
+            drag.moved(Vec2::new(3.0, -2.0));
+        }
+        assert!(
+            !drag.release(),
+            "an orbit must not open the menu, however still the OS cursor was"
+        );
+    }
+
+    #[test]
+    fn a_still_click_opens_the_menu() {
+        let mut drag = RightDrag::default();
+        drag.press();
+        assert!(
+            drag.release(),
+            "press and release with no motion is a click"
+        );
+    }
+
+    #[test]
+    fn hand_jitter_inside_the_threshold_is_still_a_click() {
+        let mut drag = RightDrag::default();
+        drag.press();
+        // Five frames of sub-pixel tremor: 5px travelled, under the 6px
+        // threshold. This is what the threshold exists to forgive.
+        for _ in 0..5 {
+            drag.moved(Vec2::new(1.0, 0.0));
+        }
+        assert!(drag.release(), "a click with a shaky hand is still a click");
+    }
+
+    /// Not a regression — the previous code got this right too, with a
+    /// latched `dragged` flag. Pinned because dropping that flag is only
+    /// safe while travel accumulates, so this is the property that replaced
+    /// it: an orbit out and back is still an orbit, with no latch to forget.
+    #[test]
+    fn travel_is_path_length_not_displacement() {
+        let mut drag = RightDrag::default();
+        drag.press();
+        // Net displacement zero, path length 40px.
+        drag.moved(Vec2::new(20.0, 0.0));
+        drag.moved(Vec2::new(-20.0, 0.0));
+        assert!(
+            !drag.release(),
+            "an orbit that returns to its start still orbited"
+        );
+    }
+
+    #[test]
+    fn a_release_without_a_press_is_not_a_click() {
+        // Focus arriving mid-gesture, or the press consumed elsewhere: there
+        // is no gesture to end, and a menu must not appear from one.
+        let mut drag = RightDrag::default();
+        assert!(!drag.release(), "a release with no press opens nothing");
+    }
+
+    #[test]
+    fn motion_between_gestures_does_not_leak_into_the_next() {
+        let mut drag = RightDrag::default();
+        drag.press();
+        drag.moved(Vec2::new(50.0, 50.0));
+        assert!(!drag.release(), "the drag itself");
+        // The pointer keeps moving with no button held — the ordinary case,
+        // since the detector drains `MouseMotion` every frame.
+        drag.moved(Vec2::new(500.0, 500.0));
+        drag.press();
+        assert!(
+            drag.release(),
+            "a clean click after a long mouse move is still a click"
+        );
+    }
 
     /// Minimal empty room to add into. `RoomRecord` has no `Default`, but its
     /// `Environment` / `ContactEffects` sub-records do, so we only spell out
