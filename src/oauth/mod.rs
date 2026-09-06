@@ -44,6 +44,7 @@
 //!   (compiled only on native).
 
 mod auth_flow;
+pub mod capped_fetch;
 mod discovery;
 #[cfg(not(target_arch = "wasm32"))]
 mod native_server;
@@ -194,7 +195,14 @@ pub struct OauthClientRes(pub Arc<OAuthClient>);
 
 impl Default for OauthClientRes {
     fn default() -> Self {
-        Self(Arc::new(OAuthClient::new(client_metadata())))
+        // Not `OAuthClient::new`: that installs proto-blue's own
+        // `ReqwestFetcher`, whose body read has no ceiling (#1176). See
+        // [`capped_fetch`] for why the cap belongs in the transport and
+        // not at the call sites the issue named.
+        Self(Arc::new(OAuthClient::with_fetch_handler(
+            client_metadata(),
+            Arc::new(capped_fetch::CappedFetcher::new()),
+        )))
     }
 }
 

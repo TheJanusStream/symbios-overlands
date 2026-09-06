@@ -103,10 +103,15 @@ pub async fn complete_authorization(
     }
     let dpop_jwk = pending.auth_state.dpop_key.clone();
     let dpop_key = dpop_key_from_jwk(&dpop_jwk).map_err(|e| format!("dpop_key_from_jwk: {e}"))?;
-    let oauth_session = Arc::new(OAuthSession::new(
+    // `with_fetch_handler`, not `new`: the session gets the same capped
+    // transport as the client (#1176). A session built with `new` would
+    // silently fall back to proto-blue's uncapped `ReqwestFetcher` for
+    // every authenticated request made after login.
+    let oauth_session = Arc::new(OAuthSession::with_fetch_handler(
         token_set,
         dpop_key,
         oauth_client.dpop_nonces().clone(),
+        Arc::new(crate::oauth::capped_fetch::CappedFetcher::new()),
     ));
 
     let http = crate::config::http::default_client();

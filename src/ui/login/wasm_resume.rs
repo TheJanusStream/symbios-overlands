@@ -181,10 +181,13 @@ fn spawn_resume_task(
         let fut = async move {
             let dpop_key =
                 dpop_key_from_jwk(&blob.dpop_jwk).map_err(|e| format!("dpop_key_from_jwk: {e}"))?;
-            let oauth_session = Arc::new(OAuthSession::new(
+            // Same capped transport as the fresh-login path (#1176); a
+            // resumed session is the one that runs longest.
+            let oauth_session = Arc::new(OAuthSession::with_fetch_handler(
                 blob.token_set.clone(),
                 dpop_key,
                 client.dpop_nonces().clone(),
+                Arc::new(crate::oauth::capped_fetch::CappedFetcher::new()),
             ));
             let refresh_ctx = crate::oauth::OauthRefreshCtx {
                 client: client.clone(),

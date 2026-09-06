@@ -1148,7 +1148,12 @@ pub(crate) mod glyph_coverage_tests {
     /// renders — so a module that hands `src/ui` a string to draw verbatim
     /// has to name itself here.
     /// Every `.rs` file under `rel`, recursively.
-    fn rust_sources_under(rel: &str) -> Vec<std::path::PathBuf> {
+    ///
+    /// `pub(crate)` for the same reason [`non_test_source`] is: the OAuth
+    /// transport scan in `oauth::capped_fetch` walks the whole of `src`
+    /// rather than `src/ui`, and a second copy of this walk is how two
+    /// scans drift apart.
+    pub(crate) fn rust_sources_under(rel: &str) -> Vec<std::path::PathBuf> {
         let mut out = Vec::new();
         let mut stack = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(rel)];
         while let Some(dir) = stack.pop() {
