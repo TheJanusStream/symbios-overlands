@@ -475,11 +475,12 @@ pub(super) fn apply_splat_textures(
         // is allocated zeroed at startup, so enabling it now is inert
         // until the stamper writes contacts — backward-compatible.
         //
-        // wasm32 (WebGL2) skips this binding entirely — see the note on
-        // `SplatExtension::stains_tex` in `crate::splat`: the GLES backend
-        // caps fragment shaders at 16 texture slots and the splat material
-        // already sits at that ceiling, so the stains overlay is gated off
-        // and the consumer assignments below are unreachable on wasm.
+        // wasm32 skips this binding entirely, on WebGPU as well as WebGL2 —
+        // see the note on `SplatExtension::stains_tex` in `crate::splat`:
+        // the GLES backend caps fragment shaders at 16 texture slots and the
+        // splat material already sits at that ceiling, so the stains overlay
+        // is gated off by TARGET (#1131) and the consumer assignments below
+        // are unreachable on wasm.
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(stains) = stains.as_ref() {
             mat.extension.stains_tex = stains.handle.clone();

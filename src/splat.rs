@@ -90,8 +90,12 @@ pub const SPLAT_TEXTURE_BIND_SLOTS: u32 = 3;
 /// PBR textures, the splat material already sits right at that ceiling; the
 /// stains overlay was the +1 that pushed pipeline creation into a panic at
 /// wgpu-hal-27.0.4/src/gles/device.rs:87 (`self.sampler_map[16]` overflow).
-/// Native + WebGPU keep the feature; WebGL2 simply skips the avatar-stains
-/// overlay (terrain renders as it did before #245 landed).
+/// Native keeps the feature; **every wasm build skips it** (terrain renders
+/// as it did before #245 landed). The gate is on the target, not the adapter:
+/// a browser session that lands on WebGPU has no 16-slot ceiling and still
+/// loses the overlay, because the `cfg` cannot know which backend wgpu will
+/// pick at startup. Gating at runtime on the adapter's limits is #1131; until
+/// then a native peer leaves footprints a web peer beside them cannot see.
 ///
 /// The corresponding bindings in `assets/shaders/splat.wgsl` are guarded
 /// by `#ifdef STAINS_BINDING`, and [`SplatExtension::specialize`] emits
