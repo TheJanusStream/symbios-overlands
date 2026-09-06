@@ -772,9 +772,16 @@ pub(crate) fn chunk_writes(ordered: Vec<RepoWrite>) -> Result<Vec<Vec<RepoWrite>
     for write in ordered {
         let bytes = write.wire_bytes();
         if bytes > MAX_APPLY_WRITES_BYTES {
+            // Name the record, not just its size. This used to say only "a
+            // single record is 127.2 KiB", which told the owner the save was
+            // broken without telling them what to remove (#1293). The key is
+            // in hand here, and callers that know what their rkeys MEAN refuse
+            // earlier with the name (`inventory::plan_item_writes`).
+            let (collection, rkey) = write.key();
+            let short = collection.rsplit('.').next().unwrap_or(collection);
             return Err(format!(
-                "a single record is {} — past the {} the PDS accepts in one request; \
-                 remove content from it and retry",
+                "a single record ({short}/{rkey}) is {} — past the {} the PDS accepts in \
+                 one request; remove content from it and retry",
                 crate::pds::record_size::human_bytes(bytes),
                 crate::pds::record_size::human_bytes(MAX_APPLY_WRITES_BYTES),
             ));

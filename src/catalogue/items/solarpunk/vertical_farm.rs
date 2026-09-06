@@ -38,8 +38,7 @@ use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
     CONCRETE_PALE, CROP_GREEN, GLASS_CLEAN, GROW_PINK, LEAF_GREEN, PV_BLUE, SOIL_DARK, STEEL_GREY,
-    STEEL_WHITE, TIMBER_WARM, WATER_BLUE, concrete, crop_tufts, foliage, pane_grid, pv, steel,
-    timber, water,
+    STEEL_WHITE, TIMBER_WARM, concrete, crop_tufts, foliage, pane_grid, pv, steel, timber,
 };
 
 // --- Dimensions. Everything below derives from these. ----------------------
@@ -106,6 +105,23 @@ const GLAZE_LAP: f32 = 0.06;
 /// Street-level openings: the entrance screen and the produce dock.
 const ENTRY_H: f32 = 2.4;
 const DOCK_H: f32 = 2.6;
+
+/// The roof parapet: handrail height, and the baluster pitch of its four runs.
+///
+/// `util::BALUSTER_PITCH` (0.42 m) is calibrated for a prop you stand next to
+/// — a boardwalk, a porch. This parapet rings a 5.4 × 4.2 roof twelve metres
+/// up, and at 0.42 m it was forty-six balusters, sixty-two nodes and 17% of
+/// this entry's whole record for uprights that are under a pixel wide from the
+/// street (#1293). Widened until it still reads as *balusters*, which is the
+/// property #972 lesson 24 names — see-through — rather than as a count. The
+/// same call the harbour tavern's eleven-metre gallery makes, for the same
+/// reason.
+const ROOF_PITCH: f32 = util::BALUSTER_PITCH * 1.6;
+const RAIL_H: f32 = 0.95;
+
+/// The roof water tank, sitting on the deck.
+const TANK_R: f32 = 0.7;
+const TANK_H: f32 = 1.0;
 
 // --- Palette local to this entry. ------------------------------------------
 
@@ -418,9 +434,9 @@ fn entrance(parts: &mut Vec<Generator>) {
     ));
     parts.extend(crop_tufts(
         [bx, FLOOR + 0.95, FRONT + 1.1],
-        [1.3, 0.35],
+        [1.3, 0.0],
         4,
-        2,
+        1,
         0.28,
         foliage(CROP_GREEN),
     ));
@@ -495,9 +511,9 @@ fn dock(parts: &mut Vec<Generator>) {
         ));
         parts.extend(crop_tufts(
             [bx + cx, FLOOR + h, FRONT + 1.15 + (i % 2) as f32 * 0.35],
-            [0.4, 0.3],
+            [0.4, 0.0],
             2,
-            2,
+            1,
             0.22,
             foliage(CROP_GREEN),
         ));
@@ -628,11 +644,16 @@ fn grow_deck(k: usize, above: Generator) -> Generator {
                 SOIL_DARK,
                 0.08,
             ));
+            // One row, not two. A tray bed 0.24 m deep planted 4 x 2 puts its
+            // two rows 0.24 m apart under clumps 0.29 m across, so the back row
+            // sat inside the front one: sixteen racks paying eight nodes each
+            // to show five (#1293). Widened to five across instead, which
+            // closes the gaps the four-across row had and costs three fewer.
             parts.extend(crop_tufts(
                 [bx, ry + 0.11, *rz],
-                [bw - 0.55, 0.24],
-                4,
-                2,
+                [bw - 0.5, 0.0],
+                5,
+                1,
                 0.26,
                 foliage(CROP_GREEN),
             ));
@@ -664,7 +685,7 @@ fn grow_deck(k: usize, above: Generator) -> Generator {
 // --- The roof. -------------------------------------------------------------
 
 /// Roof slab, and on it the parapet railing, the solar array on its canted
-/// frame, the water tank on its stand and the roof garden.
+/// frame, the water tank and the roof garden.
 fn roof() -> Generator {
     let center = [0.0, TOWER_TOP + 0.16, 0.0];
     let deck = prim(
@@ -679,27 +700,47 @@ fn roof() -> Generator {
     let top = TOWER_TOP + 0.32;
 
     // Railing round all four sides. A railing is not a plate: what makes it
-    // read as one is that you can see through it (#972 lesson 24).
+    // read as one is that you can see through it (#972 lesson 24) — so this is
+    // thinned, never plated (#1293).
     let (hx, hz) = (W * 0.5 + 0.03, D * 0.5 + 0.03);
     let mut parts = Vec::new();
+    let mut ring: Vec<Generator> = Vec::new();
     for sz in [-1.0_f32, 1.0] {
-        parts.extend(util::railing(
+        ring.extend(util::railing(
             [-hx, top, sz * hz],
             [hx, top, sz * hz],
-            0.95,
-            util::BALUSTER_PITCH,
+            RAIL_H,
+            ROOF_PITCH,
             steel(STEEL_WHITE),
         ));
     }
     for sx in [-1.0_f32, 1.0] {
-        parts.extend(util::railing(
+        ring.extend(util::railing(
             [sx * hx, top, -hz],
             [sx * hx, top, hz],
-            0.95,
-            util::BALUSTER_PITCH,
+            RAIL_H,
+            ROOF_PITCH,
             steel(STEEL_WHITE),
         ));
     }
+    // Four runs meeting at four corners emit each corner post TWICE, at
+    // byte-identical translations: `util::railing` posts both ends of every
+    // run, and the run along +X ends where the run along +Z begins. Two
+    // co-located solids are four nodes of record that render as one post, so
+    // the ring keeps the first of each.
+    let mut seats: Vec<[f32; 3]> = Vec::new();
+    ring.retain(|g| {
+        let t = g.transform.translation.0;
+        if seats
+            .iter()
+            .any(|s| s.iter().zip(&t).all(|(a, b)| (a - b).abs() < 1e-5))
+        {
+            return false;
+        }
+        seats.push(t);
+        true
+    });
+    parts.extend(ring);
 
     // Solar array on a canted frame over the back half. The tilt carries only
     // the panel itself — a turned node with offset children spins them out of
@@ -728,22 +769,29 @@ fn roof() -> Generator {
         }
     }
 
-    // Water tank on a stand, over the core.
-    for (sx, sz) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
-        parts.push(prim(
-            solid(cuboid_tapered([0.1, 0.7, 0.1], 0.0, steel(STEEL_GREY))),
-            [-1.7 + sx * 0.5, top + 0.35, -1.2 + sz * 0.5],
-            id_quat(),
-        ));
-    }
+    // Water tank, standing on the roof deck over the core.
+    //
+    // It used to stand on four 0.7 m legs with a 0.9 m square of `water` laid
+    // over its lid. Neither survived a close render (#1293): a closed drum's
+    // top face is already there, so the blue square read as a painted lid
+    // inscribed on a 1.4 m white cylinder rather than as water — and it is the
+    // one prim in this block that a tank has no reason to show, since you
+    // cannot see into a sealed tank from the street. The legs went with it:
+    // four 0.1 m sticks holding a 1.4 m drum a knee's height off a deck are
+    // detail at the same scale as the balusters beside them, and a tank sitting
+    // on its deck is what a roof tank does.
+    //
+    // `cylinder_tapered` is (radius, height, ..) and centres on the given
+    // point, so a 1.0 m drum whose base is on `top` is centred at `top + 0.5`.
     parts.push(prim(
-        solid(cylinder_tapered(0.7, 1.0, 14, 0.05, steel(STEEL_WHITE))),
-        [-1.7, top + 1.2, -1.2],
-        id_quat(),
-    ));
-    parts.push(prim(
-        cuboid_tapered([0.9, 0.05, 0.9], 0.0, water(WATER_BLUE)),
-        [-1.7, top + 1.72, -1.2],
+        solid(cylinder_tapered(
+            TANK_R,
+            TANK_H,
+            14,
+            0.05,
+            steel(STEEL_WHITE),
+        )),
+        [-1.7, top + TANK_H * 0.5, -1.2],
         id_quat(),
     ));
 
@@ -757,9 +805,9 @@ fn roof() -> Generator {
         ));
         parts.extend(crop_tufts(
             [*x, top + 0.4, z],
-            [0.8, 0.9],
+            [0.8, 0.7],
             3,
-            3,
+            2,
             0.36,
             foliage(CROP_GREEN),
         ));
@@ -1142,13 +1190,26 @@ mod tests {
         }
     }
 
-    /// The roof is railed on all four sides, with balusters. Balusters are the
-    /// rail height less the handrail's own stock, so a selector matching on the
-    /// exact height finds only the end posts (#972 lesson 24).
+    /// The roof is railed on all four sides, and you can see through it.
+    ///
+    /// Balusters are the rail height less the handrail's own stock, so a
+    /// selector matching on the exact height finds only the end posts (#972
+    /// lesson 24).
+    ///
+    /// The floor here is deliberately **not** a count. It was `>= 30`, which
+    /// was 46 balusters at `util::BALUSTER_PITCH` reported as a floor of 30 —
+    /// so it read as a judgement about density while actually pinning the pitch
+    /// this parapet happened to ship with, and #1293 could not widen the pitch
+    /// without tripping it. What lesson 24 states is that a railing is not a
+    /// plate *because you can see through it*, so that is what is checked:
+    /// every run has balusters, and the clear gap between them is wider than
+    /// the baluster itself. A plate fails it; a picket fence fails it; a coarse
+    /// balustrade passes, which is right, because the property is see-through
+    /// and not crowded.
     #[test]
     fn the_roof_is_railed_on_every_side() {
         let mut posts: Vec<[f32; 3]> = Vec::new();
-        let mut balusters = 0;
+        let mut balusters: Vec<([f32; 3], f32)> = Vec::new();
         walk(&VerticalFarm.build(""), [0.0; 3], &mut |g, at| {
             let GeneratorKind::Cuboid { size, .. } = &g.kind else {
                 return;
@@ -1160,10 +1221,48 @@ mod tests {
             if (sx - 0.11).abs() < 1e-3 && (sz - 0.11).abs() < 1e-3 {
                 posts.push(at);
             } else if sx < 0.09 && sz < 0.09 {
-                balusters += 1;
+                balusters.push((at, sx.max(sz)));
             }
         });
-        assert!(balusters >= 30, "only {balusters} balusters round the roof");
+        // Four runs meeting at four corners, each corner posted once. Six would
+        // mean the ring re-emitted a corner it already had (#1293).
+        assert_eq!(
+            posts.len(),
+            4,
+            "the parapet has {} end posts; four runs share four corners",
+            posts.len()
+        );
+        // Each of the four runs, taken as the balusters standing on its own
+        // line, is open: sorted along the run, no neighbouring pair is closer
+        // than one baluster's own stock apart.
+        let (hx, hz) = (W * 0.5 + 0.03, D * 0.5 + 0.03);
+        for (axis, line) in [(2usize, hz), (0, hx)] {
+            for side in [-1.0_f32, 1.0] {
+                let along = 2 - axis;
+                let mut run: Vec<f32> = balusters
+                    .iter()
+                    .filter(|(at, _)| (at[axis] - side * line).abs() < 0.02)
+                    .map(|(at, _)| at[along])
+                    .collect();
+                run.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                assert!(
+                    run.len() >= 4,
+                    "only {} balusters on the run at {axis}={}",
+                    run.len(),
+                    side * line
+                );
+                let stock = balusters[0].1;
+                for w in run.windows(2) {
+                    assert!(
+                        w[1] - w[0] > stock * 2.0,
+                        "vertical_farm: two balusters {} m apart on a {stock} m stock — that \
+                         is a picket fence, and a railing reads as a railing because you can \
+                         see through it (#972 lesson 24)",
+                        w[1] - w[0]
+                    );
+                }
+            }
+        }
         for sx in [-1.0_f32, 1.0] {
             assert!(
                 posts

@@ -481,6 +481,28 @@ fn plan_item_writes(
                 value,
             }
         };
+        // The request cap, checked HERE because here is the only place that
+        // knows the item's name (#1293).
+        //
+        // `preflight` above bounds a record against the 900 KiB hard ceiling
+        // and `xrpc::chunk_writes` bounds a write against the 120 KiB the PDS
+        // accepts in one request — so an item between the two passed the check
+        // that could name it and failed the one that could not. What the owner
+        // saw was "a single record is 127.2 KiB", on a save that then failed
+        // for every later rename, delete and accepted gift, with nothing to say
+        // WHICH of their items had done it. Same limit, same arithmetic, said
+        // where the name is in scope.
+        let bytes = write.wire_bytes();
+        if bytes > super::xrpc::MAX_APPLY_WRITES_BYTES {
+            return Err(format!(
+                "\"{name}\" is {} — larger than the {} the PDS accepts in one request, and a \
+                 record cannot be split across requests, so this item alone fails the whole \
+                 save. Remove content from it, or remove it from your inventory, and save \
+                 again.",
+                super::record_size::human_bytes(bytes),
+                super::record_size::human_bytes(super::xrpc::MAX_APPLY_WRITES_BYTES),
+            ));
+        }
         writes.push(write);
     }
 
@@ -591,9 +613,11 @@ mod cap_tests {
         let p90 = sizes[sizes.len() * 9 / 10];
 
         // The walk can carry a full cap of p90-heavy items. Not the MAX
-        // item: one 130 KiB entry exists and a stash of 500 of those is not
-        // a case the budget is meant to serve — the per-item record budget
-        // is what speaks to that.
+        // item: the heaviest entry is several times the p90 and a stash of
+        // 500 of those is not a case the budget is meant to serve — the
+        // per-item record budget is what speaks to that, and
+        // `every_catalogue_entry_fits_one_apply_writes_batch` is what keeps
+        // the heaviest one savable at all.
         let heavy = MAX_INVENTORY_ITEMS * p90;
         assert!(
             heavy <= MAX_INVENTORY_FETCH_BYTES,
@@ -602,6 +626,65 @@ mod cap_tests {
         );
         // And the ordinary case has room to spare.
         assert!(MAX_INVENTORY_ITEMS * median * 4 <= MAX_INVENTORY_FETCH_BYTES);
+    }
+
+    /// Every catalogue entry, copied into a stash, still saves (#1293).
+    ///
+    /// The canary behind the Vertical Farm fix. One entry serialized to
+    /// 130,207 B as an `InventoryItemRecord` — 7,327 B past the
+    /// `MAX_APPLY_WRITES_BYTES` a record may occupy in one `applyWrites`
+    /// request — and because a record cannot be split across requests and
+    /// `publish_inventory_record` hands the whole diff to `chunk_writes` in
+    /// one go, copying that one item out of the Catalogue stopped the owner's
+    /// **entire inventory** from saving: every later rename, delete and
+    /// accepted gift failed too.
+    ///
+    /// So this is not a budget on the catalogue, it is a wire limit on a
+    /// record, and a second entry must not be able to do it again. The
+    /// per-record `preflight` cannot stand in for it: that ceiling is 900 KiB
+    /// and this limit is 120 KiB, which is exactly the "measured per record vs
+    /// per request" split #1115 recorded.
+    ///
+    /// The failure names the slug and the size, because the refusal that
+    /// shipped named a size and not an item, and that is the whole reason
+    /// nobody could act on it.
+    #[test]
+    fn every_catalogue_entry_fits_one_apply_writes_batch() {
+        let cap = crate::pds::xrpc::MAX_APPLY_WRITES_BYTES;
+        let mut over: Vec<(&str, usize)> = Vec::new();
+        let mut largest = ("", 0usize);
+        for entry in crate::catalogue::ENTRIES {
+            let g = entry.build("did:plc:canary");
+            let item = InventoryItemRecord::new(entry.name(), &g, None);
+            // The write, not the record: what the limit measures is the
+            // record's bytes plus the `$type`/`collection`/`rkey` the write
+            // wraps it in, which is what `chunk_writes` weighs.
+            let write = RepoWrite::Create {
+                collection: INVENTORY_ITEM_COLLECTION.into(),
+                rkey: item_rkey(entry.name()),
+                value: serde_json::to_value(&item).expect("catalogue entries serialize"),
+            };
+            let bytes = write.wire_bytes();
+            if bytes > cap {
+                over.push((entry.slug(), bytes));
+            }
+            if bytes > largest.1 {
+                largest = (entry.slug(), bytes);
+            }
+        }
+        assert!(
+            over.is_empty(),
+            "these catalogue entries cannot be saved to a stash at all — each is one \
+             `applyWrites` write larger than the {cap} B the PDS accepts in one request, \
+             so copying one out of the Catalogue breaks EVERY later inventory save: {over:?}"
+        );
+        // The catalogue is walked, not merely iterated over an empty list: a
+        // guard that measures nothing passes forever (#1293).
+        assert!(
+            largest.1 > cap / 4,
+            "the heaviest entry measured is {largest:?} — suspect the walk before believing \
+             the catalogue got light"
+        );
     }
 }
 
