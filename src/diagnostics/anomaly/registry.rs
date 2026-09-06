@@ -27,6 +27,21 @@ pub struct RuleRuntimeState {
     pub last_detail: String,
 }
 
+/// The severity floor for anything that reads as an ALARM: the toolbar's
+/// worst-active dot and the click-through it offers (#1271 f184).
+///
+/// Two shipped rules are [`Severity::Info`] — `runtime.orphan_avatar_visual`
+/// and `runtime.memory_retention_across_rebuilds` — and before this the dot
+/// fired for either of them. A user who has learned that the dot means "open
+/// this, something is wrong" clicks it and finds a note. An alarm that fires
+/// for information is an alarm that gets ignored, and it is ignored for the
+/// Critical that arrives twenty minutes later.
+///
+/// Info rules are not silenced, only demoted: they still carry a per-metric
+/// pill, a tab-label count and a row in the Active Anomalies strip, which is
+/// where a note belongs.
+pub const ALARM_FLOOR: Severity = Severity::Warn;
+
 /// The rule set + ledger, resident as a Bevy resource for the live engine and
 /// constructed standalone by the offline analyzer.
 #[derive(Resource, Default)]
@@ -111,31 +126,78 @@ impl InvariantRegistry {
     /// A rule's human-readable one-liner, for the GUI badge text (#837 —
     /// the ids alone read as internal identifiers, not player language).
     pub fn rule_description(&self, id: RuleId) -> Option<&'static str> {
+        self.header_of(id).map(|h| h.description)
+    }
+
+    /// The precise statement behind a rule's badge, for the hover (#1271
+    /// f409). `None` when the description already says it exactly.
+    pub fn rule_technical(&self, id: RuleId) -> Option<&'static str> {
+        self.header_of(id).and_then(|h| h.technical)
+    }
+
+    fn header_of(&self, id: RuleId) -> Option<&crate::diagnostics::anomaly::RuleHeader> {
         self.rules
             .iter()
             .find(|r| r.header().id == id)
-            .map(|r| r.header().description)
+            .map(|r| r.header())
     }
 
-    /// The worst severity currently active — for the toolbar warning dot.
-    pub fn worst_active(&self) -> Option<Severity> {
-        self.active_badges().map(|(_, sev, _)| sev).max()
+    /// The worst severity currently active at or above `min` — for the
+    /// toolbar warning dot.
+    ///
+    /// The floor is a parameter and not a default because there is no
+    /// safe default: the toolbar wants [`ALARM_FLOOR`] and a test
+    /// asserting "did anything at all fire" wants [`Severity::Trace`],
+    /// and a caller that picks the wrong one silently either lights an
+    /// alarm for trivia or hides a Critical. Passing it is the reminder.
+    pub fn worst_active(&self, min: Severity) -> Option<Severity> {
+        self.active_badges()
+            .map(|(_, sev, _)| sev)
+            .filter(|sev| *sev >= min)
+            .max()
     }
 
-    /// The subsystem owning the worst currently-active badge — the
-    /// toolbar dot's click target routes to the matching Diagnostics
-    /// tab (#835). Ties resolve to the first rule in registration
-    /// order, which is stable within a build.
-    pub fn worst_active_subsystem(&self) -> Option<Subsystem> {
+    /// How many currently-violated rules sit at or above `min` — the
+    /// count the toolbar dot prints beside itself. It has to share the
+    /// dot's floor: a dot that appears for one Warn while saying "3"
+    /// because two Info rules are also live is counting something the
+    /// user cannot see.
+    pub fn active_count_at_least(&self, min: Severity) -> usize {
+        self.active_badges()
+            .filter(|(_, sev, _)| *sev >= min)
+            .count()
+    }
+
+    /// The header of the worst currently-active badge at or above `min`.
+    /// Ties resolve to the first rule in registration order, which is
+    /// stable within a build.
+    fn worst_header(&self, min: Severity) -> Option<&crate::diagnostics::anomaly::RuleHeader> {
         self.rules
             .iter()
-            .filter_map(|r| {
-                let h = r.header();
-                let st = self.state.get(h.id)?;
-                st.currently_violated.then_some((h.severity, h.subsystem))
+            .map(|r| r.header())
+            .filter(|h| {
+                h.severity >= min && self.state.get(h.id).is_some_and(|st| st.currently_violated)
             })
-            .max_by_key(|(sev, _)| *sev)
-            .map(|(_, subsystem)| subsystem)
+            .max_by_key(|h| h.severity)
+    }
+
+    /// The subsystem owning the worst currently-active badge at or above
+    /// `min` — the toolbar dot's click target routes to the matching
+    /// Diagnostics tab (#835).
+    pub fn worst_active_subsystem(&self, min: Severity) -> Option<Subsystem> {
+        self.worst_header(min).map(|h| h.subsystem)
+    }
+
+    /// What the worst currently-active badge at or above `min` SAYS — the
+    /// toolbar dot's hover (#1271 f409).
+    ///
+    /// The dot used to say only "{n} active anomalies — click to open
+    /// Diagnostics", naming neither the subsystem nor the problem, so a
+    /// user who noticed it could not tell whether it was about their
+    /// connection without opening a panel and picking the right tab. The
+    /// rule already carries a sentence for exactly this.
+    pub fn worst_active_description(&self, min: Severity) -> Option<&'static str> {
+        self.worst_header(min).map(|h| h.description)
     }
 
     /// Count currently-violated rules whose subsystem is `subsystem` — the
@@ -176,6 +238,7 @@ mod tests {
             severity: Severity::Warn,
             debounce,
             description: "test",
+            technical: None,
             when_state: None,
         }
     }
@@ -230,12 +293,40 @@ mod tests {
         let mut reg = InvariantRegistry::default();
         reg.register(AlwaysBad(header("a", DebouncePolicy::OncePerCondition)));
         // Not violated until noted.
-        assert!(reg.worst_active().is_none());
+        assert!(reg.worst_active(Severity::Trace).is_none());
         reg.note_verdict("a", DebouncePolicy::OncePerCondition, &violated(), 0.0);
-        assert_eq!(reg.worst_active(), Some(Severity::Warn));
+        assert_eq!(reg.worst_active(Severity::Trace), Some(Severity::Warn));
         assert_eq!(reg.active_badges().count(), 1);
         reg.clear_violation("a");
-        assert!(reg.worst_active().is_none());
+        assert!(reg.worst_active(Severity::Trace).is_none());
+    }
+
+    /// #1271 f184. `runtime.orphan_avatar_visual` is `Severity::Info` and
+    /// `runtime.frame_time_spike` is `Severity::Warn`; the toolbar dot must
+    /// see the second and not the first, while the badge strip sees both.
+    #[test]
+    fn the_alarm_floor_hides_info_rules_from_the_toolbar_dot() {
+        let mut reg = default_registry();
+        let d = DebouncePolicy::OncePerCondition;
+        reg.note_verdict("runtime.orphan_avatar_visual", d, &violated(), 0.0);
+
+        // The control: this is exactly the state that used to light the dot.
+        assert_eq!(reg.worst_active(Severity::Trace), Some(Severity::Info));
+        assert_eq!(reg.active_badges().count(), 1, "the strip still lists it");
+        assert_eq!(reg.worst_active(ALARM_FLOOR), None, "no dot for a note");
+        assert_eq!(reg.active_count_at_least(ALARM_FLOOR), 0);
+        assert_eq!(reg.worst_active_subsystem(ALARM_FLOOR), None);
+
+        // A real alarm lights it, and the count it prints is the alarm
+        // count — not the two badges the strip is showing.
+        reg.note_verdict("runtime.frame_time_spike", d, &violated(), 1.0);
+        assert_eq!(reg.worst_active(ALARM_FLOOR), Some(Severity::Warn));
+        assert_eq!(reg.active_badges().count(), 2);
+        assert_eq!(reg.active_count_at_least(ALARM_FLOOR), 1);
+        assert_eq!(
+            reg.worst_active_subsystem(ALARM_FLOOR),
+            Some(Subsystem::Runtime)
+        );
     }
 
     #[test]

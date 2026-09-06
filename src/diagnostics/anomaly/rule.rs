@@ -60,7 +60,26 @@ pub struct RuleHeader {
     pub subsystem: Subsystem,
     pub severity: Severity,
     pub debounce: DebouncePolicy,
+    /// The badge's FACE text, and the only sentence most people will
+    /// ever read about this rule (#1271 f409).
+    ///
+    /// It is UI copy: `ui::diagnostics` renders it verbatim in the Active
+    /// Anomalies strip and beside every per-metric pill, and
+    /// `ui::fonts::glyph_coverage_tests::rule_prose_is_ui_copy` holds it to
+    /// the same product vocabulary as every other label in the app. Write
+    /// what has gone wrong for the person reading it and, where there is
+    /// one, what to try. The mechanism goes in [`technical`](Self::technical).
     pub description: &'static str,
+    /// The precise statement of the condition, for the hover.
+    ///
+    /// `None` when [`description`](Self::description) already says it
+    /// exactly — a rule like "you keep being put back at the start" has no
+    /// second layer to peel. Where the two differ, this is the half that
+    /// may name a threshold, a metric or a subsystem; it is still read by
+    /// a person, so it stays clear of the product's own vocabulary rules
+    /// (no "PDS", the place is a "world"), and the raw numbers belong in
+    /// the verdict detail rather than here.
+    pub technical: Option<&'static str>,
     /// Only evaluate the live body while in this state (`None` = always).
     pub when_state: Option<AppState>,
 }
@@ -131,12 +150,131 @@ pub trait Rule: Send + Sync {
     fn is_replayable(&self) -> bool {
         false
     }
+
+    /// Whether this rule carries an [`eval`](Rule::eval) body — i.e. it can
+    /// ever be violated LIVE, and so can ever badge a row in the HUD.
+    /// Defaults to `false`; override to `true` alongside a real `eval` impl.
+    ///
+    /// The mirror of [`is_replayable`](Rule::is_replayable), and it exists
+    /// for the same reason turned inside out (#1272 f173). `eval`'s own
+    /// contract already says `None` means "no live body", but that answer
+    /// only arrives when there is a `LiveCtx` to pass — and the thing that
+    /// needed to know was `ui::diagnostics`' `METRIC_RULE_TABLE`, which is a
+    /// `const` mapping metric rows to rules. Five of its fourteen rows were
+    /// mapped to rules that could never light, so those rows read as
+    /// "checked and healthy" while nothing checked them.
+    ///
+    /// `rule::live_bodies_are_declared` pins this against the real `eval`
+    /// bodies in both directions.
+    fn has_live_body(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::diagnostics::event::EventPayload;
+    use crate::diagnostics::names;
+    use crate::diagnostics::registry::MetricKind;
+
+    /// A `LiveCtx` over `metrics` with every optional reading PRESENT, so
+    /// a rule that returns `None` under it is returning `None` because it
+    /// has no live body — not because an input was missing.
+    ///
+    /// This is what makes [`live_bodies_are_declared`] a real check rather
+    /// than a tautology: handed an empty context, half the live-bodied
+    /// rules answer `None` too, and the guard would pass while proving
+    /// nothing.
+    pub(crate) fn settled_ctx(metrics: &MetricsRegistry) -> LiveCtx<'_> {
+        LiveCtx {
+            now_secs: 600.0,
+            state: AppState::InGame,
+            metrics,
+            loading_elapsed_secs: Some(5.0),
+            ingame_elapsed_secs: Some(600.0),
+            player_y: Some(10.0),
+            ground_y: Some(9.5),
+            nan_body_count: 0,
+            orphan_avatar_count: 0,
+            respawns_recent: 0,
+            colliders_seen_ingame: true,
+            oldest_pending_job: Some(("heightmap", 0.5)),
+        }
+    }
+
+    /// Every named metric observed enough times that a rule reading a
+    /// WINDOW (mesh-handle growth, the rebuild-delta rules, the glare
+    /// flag's sustained samples) has one to read.
+    pub(crate) fn warmed_metrics() -> MetricsRegistry {
+        let mut m = MetricsRegistry::default();
+        m.preseed(names::ALL);
+        for i in 0..16 {
+            for (name, kind) in names::ALL {
+                match kind {
+                    MetricKind::Gauge => m.observe_gauge(name, 1.0),
+                    MetricKind::Histogram => m.observe_hist(name, 1.0),
+                    MetricKind::Counter => m.incr(name),
+                }
+            }
+            m.sample_counters();
+            let _ = i;
+        }
+        m
+    }
+
+    /// `has_live_body()` must agree with whether `eval` actually answers,
+    /// in BOTH directions (#1272 f173) — the same two-way pinning
+    /// `replay::replayable_rule_set_is_pinned` gives the replay side.
+    ///
+    /// A rule that gains an `eval` and forgets the override goes on
+    /// reading as "analyzer only" in the panel; one that declares a live
+    /// body it does not have puts an unreachable dot back on a row.
+    #[test]
+    fn live_bodies_are_declared() {
+        let metrics = warmed_metrics();
+        let cx = settled_ctx(&metrics);
+        let registry = crate::diagnostics::anomaly::default_registry();
+        let mut wrong = Vec::new();
+        for rule in registry.rules() {
+            let declared = rule.has_live_body();
+            let answers = rule.eval(&cx).is_some();
+            if declared != answers {
+                wrong.push(format!(
+                    "{}: has_live_body() = {declared} but eval() {} under a settled context",
+                    rule.header().id,
+                    if answers { "answered" } else { "returned None" }
+                ));
+            }
+        }
+        assert!(
+            registry.rules().len() > 20,
+            "the registry handed back {} rules",
+            registry.rules().len()
+        );
+        assert!(wrong.is_empty(), "{}", wrong.join("\n  "));
+
+        // Controls, both ways round. A guard that cannot see either
+        // mistake passes forever.
+        struct DeclaresButHasNone;
+        impl Rule for DeclaresButHasNone {
+            fn header(&self) -> &RuleHeader {
+                &TOY_HEADER
+            }
+            fn has_live_body(&self) -> bool {
+                true
+            }
+        }
+        assert!(DeclaresButHasNone.has_live_body());
+        assert!(
+            DeclaresButHasNone.eval(&cx).is_none(),
+            "an unreachable dot back on a row is what this direction catches"
+        );
+        // `EntitySpikeToy` below has a real `eval` and does NOT override,
+        // which is the forgot-the-override direction.
+        assert!(!EntitySpikeToy.has_live_body());
+        assert!(EntitySpikeToy.eval(&cx).is_some());
+    }
 
     /// A trivial rule implementing BOTH bodies, to exercise the trait surface.
     struct EntitySpikeToy;
@@ -146,6 +284,7 @@ mod tests {
         severity: Severity::Warn,
         debounce: DebouncePolicy::OncePerCondition,
         description: "entity count over 10",
+        technical: None,
         when_state: None,
     };
     impl Rule for EntitySpikeToy {

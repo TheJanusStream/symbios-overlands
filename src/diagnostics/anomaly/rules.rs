@@ -80,7 +80,10 @@ const WARDROBE_UNRESOLVED: RuleHeader = RuleHeader {
     subsystem: Subsystem::Network,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "a peer's wardrobe record did not resolve — they stand as a bare chassis",
+    description: "someone here is showing as a plain figure — their look could not be loaded",
+    technical: Some(
+        "a peer's wardrobe record resolved with no body, so they render as a bare chassis",
+    ),
     when_state: None,
 };
 impl Rule for WardrobeUnresolved {
@@ -127,7 +130,11 @@ const ASSET_FETCH_FAILING: RuleHeader = RuleHeader {
     subsystem: Subsystem::Network,
     severity: Severity::Warn,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "room assets are failing to fetch — images, sounds or terrain layers are missing",
+    description: "pictures, sounds or ground textures in this world are failing to load",
+    technical: Some(
+        "three or more asset fetches failed for one class this session — usually a host that \
+         is down or a batch of references pointing at a moved bucket",
+    ),
     when_state: None,
 };
 impl Rule for AssetFetchFailing {
@@ -175,12 +182,16 @@ const LOADING_GATE_STALL: RuleHeader = RuleHeader {
     subsystem: Subsystem::Loading,
     severity: Severity::Critical,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "loading gate exceeded its time budget",
+    description: "this world is taking much longer than usual to open",
+    technical: Some("the sign-in to in-world gate ran past its 120 s budget"),
     when_state: Some(AppState::Loading),
 };
 impl Rule for LoadingGateStall {
     fn header(&self) -> &RuleHeader {
         &LOADING_GATE_STALL
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn is_replayable(&self) -> bool {
         true
@@ -215,7 +226,8 @@ const RECORD_FETCH_EXHAUSTED: RuleHeader = RuleHeader {
     subsystem: Subsystem::Loading,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "a PDS record fetch exhausted its retry budget",
+    description: "something stored on your account could not be fetched after several tries",
+    technical: Some("a record fetch against the account's data server exhausted its retries"),
     when_state: None,
 };
 impl Rule for RecordFetchExhausted {
@@ -252,7 +264,9 @@ const AMBIENT_BAKE_STALL: RuleHeader = RuleHeader {
     subsystem: Subsystem::Offload,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "ambient audio bake did not finish within its budget",
+    description: "background sound for this world is taking too long to prepare — you may hear \
+                  silence",
+    technical: Some("the ambient audio bake did not finish within its 30 s budget"),
     when_state: None,
 };
 impl Rule for AmbientBakeStall {
@@ -290,12 +304,17 @@ const TASK_NEVER_RESOLVES: RuleHeader = RuleHeader {
     subsystem: Subsystem::Offload,
     severity: Severity::Critical,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "an offloaded job never reported completion or failure",
+    description: "a background task stopped responding — part of this world may never finish \
+                  loading",
+    technical: Some("an offloaded job never reported completion or failure"),
     when_state: None,
 };
 impl Rule for TaskNeverResolves {
     fn header(&self) -> &RuleHeader {
         &TASK_NEVER_RESOLVES
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn is_replayable(&self) -> bool {
         true
@@ -357,7 +376,8 @@ const PEER_CHURN_SPIKE: RuleHeader = RuleHeader {
     subsystem: Subsystem::Network,
     severity: Severity::Warn,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "an unusual burst of peers leaving in a short window",
+    description: "a lot of people left this world at once — the connection may be dropping them",
+    technical: Some("more than 10 peer departures inside a 300 s window"),
     when_state: None,
 };
 impl Rule for PeerChurnSpike {
@@ -366,6 +386,35 @@ impl Rule for PeerChurnSpike {
     }
     fn is_replayable(&self) -> bool {
         true
+    }
+    fn has_live_body(&self) -> bool {
+        true
+    }
+    /// Live: departures inside the counter's retained window (#1272 f173).
+    ///
+    /// It was replay-only, and `ui::diagnostics` mapped the "Leaves
+    /// (session)" row to it anyway — so that row carried a dot that could
+    /// never light, which reads as a check that passed. The counter ring
+    /// (#1271 f179) is what makes a windowed count expressible at all;
+    /// before it there was nothing live to threshold but a session total,
+    /// and a session total cannot say "spike".
+    ///
+    /// **The live window is the ring's, which is SHORTER than the replay
+    /// window, and the limit is deliberately the same number.** That makes
+    /// the live body a strict subset: it fires only on a burst tight enough
+    /// to fit inside the retained window, so it can never claim a spike the
+    /// analyzer would not also find. Matching the replay window exactly
+    /// would need a ring five times longer for a `Warn` nobody acts on
+    /// mid-session.
+    fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
+        let leaves = cx
+            .metrics
+            .counter_window_rise(names::NET_PEER_DISCONNECTED_COUNT)?;
+        Some(if leaves as usize > CHURN_LIMIT {
+            Verdict::violated(format!("{leaves} people left in the last few minutes"))
+        } else {
+            Verdict::Clear
+        })
     }
     fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
         let leaves: Vec<f64> = events
@@ -398,7 +447,9 @@ const OFFER_ACCEPTANCE_ANOMALY: RuleHeader = RuleHeader {
     subsystem: Subsystem::Network,
     severity: Severity::Warn,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "offer accept/decline ratio is extreme (possible automation)",
+    description: "item offers here are being answered in a pattern that does not look like a \
+                  person",
+    technical: Some("item-offer accept ratio outside 10–90% over at least 10 offers"),
     when_state: None,
 };
 impl Rule for OfferAcceptanceAnomaly {
@@ -407,6 +458,37 @@ impl Rule for OfferAcceptanceAnomaly {
     }
     fn is_replayable(&self) -> bool {
         true
+    }
+    fn has_live_body(&self) -> bool {
+        true
+    }
+    /// Live: the same ratio over the two counters the replay's
+    /// `ItemOfferUserResponded` events increment (#1272 f173) — accepted
+    /// and declined are the two arms of a user's answer, and the busy
+    /// auto-decline is counted separately and excluded from both, exactly
+    /// as the replay excludes it.
+    ///
+    /// **Cumulative on purpose**, unlike the two rules #1271 f179 had to
+    /// window. Those thresholded a total that only ever rises, so they
+    /// could never clear. A RATIO is not a total: answering the next few
+    /// offers the other way moves it back inside the band and the rule
+    /// clears itself. It is genuinely level-triggered.
+    fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
+        let acc = cx.metrics.counter(names::NET_OFFER_ACCEPTED_COUNT)?.value();
+        let dec = cx.metrics.counter(names::NET_OFFER_DECLINED_COUNT)?.value();
+        let total = acc + dec;
+        if (total as usize) < MIN_OFFERS_FOR_RATIO {
+            return Some(Verdict::Clear);
+        }
+        let ratio = acc as f64 / total as f64;
+        Some(if !(0.1..=0.9).contains(&ratio) {
+            Verdict::violated(format!(
+                "accept ratio {:.0}% over {total} offers",
+                ratio * 100.0
+            ))
+        } else {
+            Verdict::Clear
+        })
     }
     fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
         let (mut acc, mut total) = (0usize, 0usize);
@@ -443,23 +525,35 @@ const IDENTITY_SPOOF_BURST: RuleHeader = RuleHeader {
     subsystem: Subsystem::Network,
     severity: Severity::Warn,
     debounce: DebouncePolicy::Interval(30.0),
-    description: "repeated spoofed identity claims from peers",
+    description: "someone here keeps claiming to be a different account",
+    technical: Some("repeated spoofed identity claims from peers, rejected on arrival"),
     when_state: None,
 };
 impl Rule for IdentitySpoofBurst {
     fn header(&self) -> &RuleHeader {
         &IDENTITY_SPOOF_BURST
     }
+    fn has_live_body(&self) -> bool {
+        true
+    }
     fn is_replayable(&self) -> bool {
         true
     }
+    /// Live: spoof claims **within the recent window**, not the session
+    /// total (#1271 f179).
+    ///
+    /// It used to threshold the cumulative counter, which never comes back
+    /// down — so three rejected claims in the first minute of a session lit
+    /// the badge for the rest of it, re-firing every 30 seconds into the log,
+    /// and the row looked identical whether it was happening now or an hour
+    /// ago. A `burst` is a rate; the counter's sampled history is what can
+    /// express one, and the latch clears itself once the window empties.
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         let n = cx
             .metrics
-            .counter(names::NET_IDENTITY_SPOOFED_COUNT)?
-            .value();
+            .counter_window_rise(names::NET_IDENTITY_SPOOFED_COUNT)?;
         Some(if n >= SPOOF_LIMIT {
-            Verdict::violated(format!("{n} spoofed identity claims"))
+            Verdict::violated(format!("{n} spoofed identity claims just now"))
         } else {
             Verdict::Clear
         })
@@ -484,7 +578,12 @@ const PEER_PROTOCOL_MISMATCHED: RuleHeader = RuleHeader {
     subsystem: Subsystem::Network,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "a peer speaks a different wire protocol, so messages between the two builds may not decode",
+    description: "someone here is running a different version of Overlands — you may not see \
+                  each other properly",
+    technical: Some(
+        "a peer announced a different wire-protocol version, so messages between the two \
+         builds may not decode",
+    ),
     when_state: None,
 };
 impl Rule for PeerProtocolMismatched {
@@ -521,7 +620,8 @@ const WORLD_DIGEST_MISMATCH: RuleHeader = RuleHeader {
     subsystem: Subsystem::Network,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "two peers derived different worlds from the same record",
+    description: "you and someone else here are seeing different versions of this world",
+    technical: Some("two peers derived different world digests from the same stored record"),
     when_state: None,
 };
 impl Rule for WorldDigestMismatch {
@@ -559,7 +659,8 @@ const SILENT_DECODE_FAILURE: RuleHeader = RuleHeader {
     subsystem: Subsystem::Network,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "a peer payload failed to decode and was silently dropped",
+    description: "a message from someone here could not be read, and was dropped",
+    technical: Some("a peer payload failed to decode and was silently dropped"),
     when_state: None,
 };
 impl Rule for SilentDecodeFailure {
@@ -605,13 +706,20 @@ const GLARE_SUSPECTED: RuleHeader = RuleHeader {
     subsystem: Subsystem::Network,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "relay reported peers in the room but no WebRTC data channel opened \
-                  (offer glare or ICE/NAT failure)",
+    description: "cannot reach the other people here — your network or a firewall may be \
+                  blocking the connection",
+    technical: Some(
+        "the relay reported peers in this world but no WebRTC data channel ever opened — \
+         offer glare, or ICE/NAT traversal failing",
+    ),
     when_state: Some(AppState::InGame),
 };
 impl Rule for GlareSuspected {
     fn header(&self) -> &RuleHeader {
         &GLARE_SUSPECTED
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn is_replayable(&self) -> bool {
         true
@@ -659,45 +767,88 @@ impl Rule for GlareSuspected {
 }
 
 // --- RelayConnectionRejected ------------------------------------------------
+/// What to say about `n` relay refusals whose last status was `status`.
+///
+/// The client is entitled to two different sentences and only ever said one
+/// (#1271 f400). A real 4xx is the relay rejecting the credential we
+/// presented, and "sign in again" is the right advice. **`status == 0` is the
+/// browser**: its WebSocket API hides the handshake status, so the upstream
+/// signaller counts consecutive failures under one token fingerprint and, on
+/// exhaustion, records a rejection with status `0` — which is exactly what a
+/// dropped Wi-Fi connection produces. Reporting that as an expired sign-in
+/// sends the user to fix their account when their laptop lost the network,
+/// and biases the project's own reading of its failure rates. Shared by the
+/// live and replay arms so the panel and the post-mortem cannot disagree.
+fn reject_detail(n: u64, status: u64) -> String {
+    let times = crate::ui::toolbar::plural(n as usize, "time", "times");
+    if status == 0 {
+        format!(
+            "could not reach the world server {n} {times} — no reason given, \
+             which is what a dropped connection looks like from a browser"
+        )
+    } else {
+        format!("the world server refused our sign-in {n} {times} (status {status})")
+    }
+}
+
 struct RelayConnectionRejected;
 const RELAY_CONNECTION_REJECTED: RuleHeader = RuleHeader {
     id: "net.relay_connection_rejected",
     subsystem: Subsystem::Network,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "the relay refused our WebSocket handshake (auth 401 / HTTP 4xx) — \
-                  most often a stale/expired service-auth token",
+    description: "could not reach the world server — usually your connection, though a stale \
+                  sign-in can also do it",
+    technical: Some(
+        "the relay connection was refused. A real 4xx status means it rejected our \
+         service-auth token; in the browser the status is never visible, so an ordinary \
+         outage exhausting the blind-retry budget arrives here too",
+    ),
     when_state: None,
 };
 impl Rule for RelayConnectionRejected {
     fn header(&self) -> &RuleHeader {
         &RELAY_CONNECTION_REJECTED
     }
+    fn has_live_body(&self) -> bool {
+        true
+    }
     fn is_replayable(&self) -> bool {
         true
     }
-    /// Live: the cumulative `net.signal.auth_rejections` gauge is non-zero — the
-    /// relay refused at least one (re)connect this session. Unlike a stalled
+    /// Live: the `net.signal.auth_rejections` gauge ROSE across the recent
+    /// window — the relay refused a connection just now. Unlike a stalled
     /// handshake this leaves no peer_list, so `GlareSuspected` cannot see it.
+    ///
+    /// Windowed, not cumulative (#1271 f179). The gauge is a running total,
+    /// so `>= 1` was true forever after the first refusal: one rejected
+    /// handshake at boot pinned the toolbar's alarm dot for the whole
+    /// session, with no acknowledge control and no way to tell a resolved
+    /// problem from a live one. The rise is the live fact and it falls back
+    /// to zero on its own.
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
-        let n = cx.metrics.gauge(names::NET_SIGNAL_AUTH_REJECTIONS)?.last();
+        let n = cx
+            .metrics
+            .cumulative_window_rise(names::NET_SIGNAL_AUTH_REJECTIONS)?;
         Some(if n >= 1.0 {
-            Verdict::violated(format!("{n:.0} relay handshake rejection(s) this session"))
+            Verdict::violated(reject_detail(
+                n as u64,
+                cx.metrics
+                    .gauge_latest(names::NET_SIGNAL_LAST_REJECT_STATUS)
+                    .unwrap_or(0.0) as u64,
+            ))
         } else {
             Verdict::Clear
         })
     }
-    /// Replay: one verdict per logged rejection.
+    /// Replay: one verdict per logged rejection, splitting on the same
+    /// status the live body reads.
     fn replay(&self, events: &[SessionEvent]) -> Vec<Verdict> {
         events
             .iter()
             .filter_map(|e| match &e.payload {
                 EventPayload::RelayAuthRejected { status, .. } => {
-                    Some(Verdict::violated(if *status == 0 {
-                        "relay refused handshake (auth)".to_string()
-                    } else {
-                        format!("relay refused handshake (HTTP {status})")
-                    }))
+                    Some(Verdict::violated(reject_detail(1, *status)))
                 }
                 _ => None,
             })
@@ -712,13 +863,20 @@ const RELAY_TOKEN_REFRESH_FAILING: RuleHeader = RuleHeader {
     subsystem: Subsystem::Network,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "the relay service-auth token could not be re-minted several times running — \
-                  every reconnect from here presents a stale credential",
+    description: "your sign-in for the world server cannot be renewed — reconnecting will keep \
+                  failing until you sign in again",
+    technical: Some(
+        "the relay service-auth token could not be re-minted several times running, so every \
+         reconnect from here presents a stale credential",
+    ),
     when_state: None,
 };
 impl Rule for RelayTokenRefreshFailing {
     fn header(&self) -> &RuleHeader {
         &RELAY_TOKEN_REFRESH_FAILING
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn is_replayable(&self) -> bool {
         true
@@ -772,6 +930,25 @@ mod tests {
 
     fn ev(t: f64, payload: EventPayload) -> SessionEvent {
         SessionEvent::new(0, t, None, Severity::Info, payload)
+    }
+
+    /// A settled in-game context over `metrics` — the shape the network
+    /// rules' live bodies read.
+    fn ctx_with(metrics: &crate::diagnostics::MetricsRegistry) -> LiveCtx<'_> {
+        LiveCtx {
+            now_secs: 1.0,
+            state: AppState::InGame,
+            metrics,
+            loading_elapsed_secs: None,
+            ingame_elapsed_secs: Some(60.0),
+            player_y: None,
+            ground_y: None,
+            nan_body_count: 0,
+            orphan_avatar_count: 0,
+            respawns_recent: 0,
+            colliders_seen_ingame: false,
+            oldest_pending_job: None,
+        }
     }
 
     /// #1143. The live half of the one rule written for "a worker job never
@@ -1075,6 +1252,107 @@ mod tests {
                 .unwrap()
                 .is_violated()
         );
+    }
+
+    /// #1271 f179. One relay refusal at boot, then a healthy session: the
+    /// badge has to go out on its own, because there is no acknowledge
+    /// control and a permanently-lit alarm is an ignored alarm.
+    ///
+    /// The control is the old condition, asserted on the same registry —
+    /// a rule that cannot see what it replaced passes forever.
+    #[test]
+    fn a_boot_time_relay_refusal_stops_lighting_the_badge() {
+        use crate::diagnostics::MetricsRegistry;
+        use crate::diagnostics::registry::RING_CAP;
+
+        let mut metrics = MetricsRegistry::default();
+        // The refusal lands before the very first 1 Hz scrape, which is
+        // the case a plain newest-minus-oldest window would lose entirely.
+        metrics.observe_gauge(names::NET_SIGNAL_AUTH_REJECTIONS, 1.0);
+        assert!(
+            RelayConnectionRejected
+                .eval(&ctx_with(&metrics))
+                .unwrap()
+                .is_violated(),
+            "the rising edge still has to fire"
+        );
+
+        // A quiet session: the total never moves again.
+        for _ in 0..RING_CAP {
+            metrics.observe_gauge(names::NET_SIGNAL_AUTH_REJECTIONS, 1.0);
+        }
+        assert_eq!(
+            RelayConnectionRejected.eval(&ctx_with(&metrics)),
+            Some(Verdict::Clear),
+            "the latch has to clear itself once the window has passed"
+        );
+        assert!(
+            metrics
+                .gauge_latest(names::NET_SIGNAL_AUTH_REJECTIONS)
+                .unwrap()
+                >= 1.0,
+            "the control: the cumulative test this replaced is still true, \
+             and would still be lighting the toolbar dot"
+        );
+    }
+
+    /// The same shape over the spoof COUNTER, which had no history at all
+    /// until #1271 gave `Counter` one — and whose `Interval(30.0)` debounce
+    /// meant the latch also re-logged itself every 30 s forever.
+    #[test]
+    fn a_boot_time_spoof_burst_stops_lighting_the_badge() {
+        use crate::diagnostics::MetricsRegistry;
+        use crate::diagnostics::registry::RING_CAP;
+
+        let mut metrics = MetricsRegistry::default();
+        metrics.incr_by(names::NET_IDENTITY_SPOOFED_COUNT, SPOOF_LIMIT);
+        metrics.sample_counters();
+        assert!(
+            IdentitySpoofBurst
+                .eval(&ctx_with(&metrics))
+                .unwrap()
+                .is_violated()
+        );
+
+        for _ in 0..RING_CAP {
+            metrics.sample_counters();
+        }
+        assert_eq!(
+            IdentitySpoofBurst.eval(&ctx_with(&metrics)),
+            Some(Verdict::Clear)
+        );
+        assert!(
+            metrics.counter_value(names::NET_IDENTITY_SPOOFED_COUNT) >= SPOOF_LIMIT,
+            "the control: the session total is untouched"
+        );
+
+        // And a fresh burst inside the window fires again.
+        metrics.incr_by(names::NET_IDENTITY_SPOOFED_COUNT, SPOOF_LIMIT);
+        metrics.sample_counters();
+        assert!(
+            IdentitySpoofBurst
+                .eval(&ctx_with(&metrics))
+                .unwrap()
+                .is_violated()
+        );
+    }
+
+    /// #1271 f400. `status == 0` is every wasm rejection, and wasm is the
+    /// deployed target — so the sentence it produces must not name a cause
+    /// the client cannot know.
+    #[test]
+    fn a_status_free_refusal_is_not_reported_as_a_stale_sign_in() {
+        let blind = reject_detail(1, 0);
+        assert!(blind.contains("could not reach"), "{blind}");
+        assert!(
+            !blind.contains("sign-in") && !blind.contains("refused our"),
+            "a browser cannot know it was the credential: {blind}"
+        );
+
+        let refused = reject_detail(2, 401);
+        assert!(refused.contains("refused our sign-in"), "{refused}");
+        assert!(refused.contains("401"), "{refused}");
+        assert!(refused.contains("2 times"), "{refused}");
     }
 
     /// THE SEQUENCE: the PDS refuses `getServiceAuth` several ticks running.

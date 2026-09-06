@@ -53,6 +53,11 @@ impl Plugin for MetricsPlugin {
                 scrape_signal_diagnostics,
                 scrape_audio_diagnostics,
                 scrape_visible_entities,
+                // After every scrape and BEFORE the snapshot: the counter
+                // history ring is what makes "rose recently" answerable
+                // (#1271 f179), and it has to be laid down at a fixed
+                // cadence or its window stops meaning two minutes.
+                sample_counter_history,
                 emit_metric_snapshot,
             )
                 .chain()
@@ -78,6 +83,17 @@ impl Plugin for MetricsPlugin {
             );
         }
     }
+}
+
+/// Push every counter's running total onto its history ring (#1271 f179).
+///
+/// A cumulative counter cannot answer "is this still happening", which is
+/// the question every badge in the HUD is really asking — so the rules that
+/// threshold on one latched for the whole session. One 1 Hz pass over the
+/// counter map gives them the same windowed view the gauges have had since
+/// E-1, and the latch clears itself.
+fn sample_counter_history(mut reg: ResMut<MetricsRegistry>) {
+    reg.sample_counters();
 }
 
 /// One gibibyte in bytes — the `SystemInformationDiagnosticsPlugin` reports
@@ -448,6 +464,14 @@ fn scrape_signal_diagnostics(
         d.answers_received.load(Relaxed) as f64,
     );
     reg.observe_gauge(names::NET_SIGNAL_AUTH_REJECTIONS, auth_rejections as f64);
+    // The CAUSE beside the count (#1271 f400): 0 means the client never saw
+    // a status, which in the browser is every rejection — including the ones
+    // that are only a dead network. The live rule reads this to decide which
+    // sentence it is entitled to say.
+    reg.observe_gauge(
+        names::NET_SIGNAL_LAST_REJECT_STATUS,
+        d.last_reject_status.load(Relaxed) as f64,
+    );
 
     // A relay handshake rejection (chiefly an expired-token 401) leaves no other
     // trace — the socket never opens. Emit one event per new rejection so it

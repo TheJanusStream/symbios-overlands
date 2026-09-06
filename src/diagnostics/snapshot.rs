@@ -20,6 +20,45 @@ fn git_sha() -> String {
         .to_string()
 }
 
+/// The four facts that identify a BUILD, shared by the startup snapshot and
+/// the Diagnostics panel's session block (#1274 f192).
+///
+/// One source, because there were nearly two: the panel needs exactly what
+/// the snapshot record carries, and deriving it a second time from the same
+/// `env!`/`consts` is how two answers to "what build are you on?" come to
+/// disagree after a packaging change.
+pub struct BuildInfo {
+    pub version: String,
+    pub git_sha: String,
+    pub target_arch: String,
+    pub profile: String,
+}
+
+impl BuildInfo {
+    /// One line: `v0.8.0 (abc1234) x86_64 · release`.
+    pub fn line(&self) -> String {
+        format!(
+            "v{} ({}) {} · {}",
+            self.version, self.git_sha, self.target_arch, self.profile
+        )
+    }
+}
+
+/// This build's identity.
+pub fn build_info() -> BuildInfo {
+    BuildInfo {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        git_sha: git_sha(),
+        target_arch: std::env::consts::ARCH.to_string(),
+        profile: if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        }
+        .to_string(),
+    }
+}
+
 /// Build a [`EventPayload::StartupSnapshot`] for the given phase. `session_did`
 /// / `relay` are `None` in the `Boot` phase and filled from the authenticated
 /// session in the `Session` phase (falling back to the boot params' relay when
@@ -36,17 +75,13 @@ pub fn build_startup_snapshot(
         .map(|p| [p.x, p.y.unwrap_or(0.0), p.z]);
     let relay = relay.map(str::to_string).or_else(|| boot.relay.clone());
 
+    let build = build_info();
     EventPayload::StartupSnapshot(Box::new(StartupInfo {
         phase,
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        git_sha: git_sha(),
-        target_arch: std::env::consts::ARCH.to_string(),
-        profile: if cfg!(debug_assertions) {
-            "debug"
-        } else {
-            "release"
-        }
-        .to_string(),
+        version: build.version,
+        git_sha: build.git_sha,
+        target_arch: build.target_arch,
+        profile: build.profile,
         wasm: cfg!(target_arch = "wasm32"),
         boot_target_did: boot.target_did.clone(),
         boot_pos,

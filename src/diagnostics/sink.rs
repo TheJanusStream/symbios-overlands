@@ -101,11 +101,25 @@ impl Sink {
 
     /// The stable `session-latest.jsonl` path, for the native "copy path"
     /// affordance in the Diagnostics panel (A-8). `None` when disabled/wasm.
+    ///
+    /// ABSOLUTE where the filesystem can answer (#1274 f185). The log
+    /// directory defaults to the bare relative `diagnostics`, so the button
+    /// whose own doc-comment says it exists "so a coding agent can be pointed
+    /// straight at the file" was handing over `diagnostics/session-latest.jsonl`
+    /// — a path that resolves against a working directory the panel never shows
+    /// and, for a desktop-launched or packaged build, the user never chose.
+    /// Falls back to the relative form, so a file that does not exist yet still
+    /// shows something rather than nothing.
     pub fn latest_path_display(&self) -> Option<String> {
         match self {
             Sink::Disabled => None,
             #[cfg(not(target_arch = "wasm32"))]
-            Sink::Native(s) => Some(s.latest_path.display().to_string()),
+            Sink::Native(s) => Some(
+                std::fs::canonicalize(&s.latest_path)
+                    .unwrap_or_else(|_| s.latest_path.clone())
+                    .display()
+                    .to_string(),
+            ),
         }
     }
 }

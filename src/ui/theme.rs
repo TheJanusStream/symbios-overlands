@@ -426,7 +426,9 @@ impl Theme {
                 // darkest), so severity survives greyscale. `trace` also
                 // rises off gray-150 (2.4:1) to clear the 3:1 floor.
                 trace: egui::Color32::from_gray(118),
-                info_tier: egui::Color32::from_gray(70),
+                // #1271 f184: was gray-70 — 8.73:1 on this pale window,
+                // louder than Warn (4.50) and Error (6.71). `text_weak`.
+                info_tier: egui::Color32::from_gray(90),
                 warn_tier: egui::Color32::from_rgb(150, 105, 0),
                 error_tier: egui::Color32::from_rgb(170, 30, 0),
                 critical_tier: egui::Color32::from_rgb(120, 0, 20),
@@ -499,7 +501,10 @@ impl Theme {
                 error: egui::Color32::from_rgb(255, 90, 80),
                 info: egui::Color32::from_rgb(130, 190, 255),
                 trace: egui::Color32::from_gray(170),
-                info_tier: egui::Color32::from_gray(255),
+                // #1271 f184: was pure white, 19.80:1 — the loudest
+                // colour in a palette whose loudest colour is Critical.
+                // `text_weak`.
+                info_tier: egui::Color32::from_gray(200),
                 // #1259 f236: (255,200,60) / (255,145,90) / (255,80,80)
                 // were 85 and 75 apart in channel-sum — three shades of
                 // the same alarm on the palette that exists for people
@@ -1015,6 +1020,68 @@ mod tests {
                 "{palette}: the trace tier is {trace:.2}:1 on window_fill"
             );
         }
+    }
+
+    /// The ramp's two NEUTRAL tiers must stay inside the palette's own
+    /// secondary-text band: `trace` no louder than `info`, and `info` no
+    /// louder than `text_weak` (#1271 f184). Loudness here is contrast
+    /// against the window, which for a grey is the whole of its
+    /// prominence — a grey has no hue to carry it.
+    ///
+    /// Info was gray-220 in Dark: **12.56:1 against the window while the
+    /// Warn tier managed 9.95**, so the routine chatter was the brightest
+    /// thing in the event log and an alarm line read as quieter than the
+    /// noise around it.
+    ///
+    /// Two things this rule deliberately does NOT say, both because they
+    /// are not sayable:
+    ///
+    /// **It does not rank the alarm tiers.** Contrast ranks them opposite
+    /// ways in the two bases — on Dark it FALLS with severity (9.95 →
+    /// 5.85 → 3.81, Critical being a deep saturated red on a near-black
+    /// ground) and on Light it RISES (4.50 → 6.71 → 10.74). #1259's
+    /// luminance rule is what orders the alarms; this one only fences the
+    /// quiet end.
+    ///
+    /// **It does not say "Info is quieter than Warn".** That holds in Dark
+    /// (5.12 vs 9.95) and High contrast (11.83 vs 14.20) and is
+    /// unachievable in Light, where the Warn tier is already at 4.50:1 —
+    /// the AA floor — so any tier quieter than it is a tier nobody can
+    /// read. Light's Info lands at 6.38:1, under Error and Critical but
+    /// still over Warn, and that is the floor's price rather than an
+    /// oversight.
+    #[test]
+    fn the_quiet_tiers_stay_inside_the_secondary_text_band() {
+        for (palette, t) in all_palettes() {
+            let s = &t.status;
+            let (trace, info, weak) = (
+                contrast_ratio(s.trace, t.window_fill),
+                contrast_ratio(s.info_tier, t.window_fill),
+                contrast_ratio(t.text_weak, t.window_fill),
+            );
+            assert!(
+                info <= weak + 0.01,
+                "{palette}: the info tier is {info:.2}:1 on window_fill, louder than \
+                 secondary text at {weak:.2}:1 — an Info line is not an alarm"
+            );
+            assert!(
+                trace <= info + 0.01,
+                "{palette}: the trace tier ({trace:.2}:1) out-shouts info ({info:.2}:1)"
+            );
+            // Both tiers tint whole event-log lines, so both owe legibility.
+            assert!(
+                info >= AA_TEXT,
+                "{palette}: the info tier is {info:.2}:1 on window_fill"
+            );
+        }
+        // The control: the value that actually shipped. A rule that
+        // cannot see what it replaced passes forever (#1264's lesson).
+        let dark = Theme::dark();
+        assert!(
+            contrast_ratio(egui::Color32::from_gray(220), dark.window_fill)
+                > contrast_ratio(dark.text_weak, dark.window_fill),
+            "gray-220 on the dark window is what this rule exists to ban"
+        );
     }
 
     /// The severity ramp stays sourced from `config::ui::diagnostics`

@@ -364,6 +364,15 @@ pub(crate) fn catalogue_ui(
         return;
     };
 
+    // Guarded-dirty (#879, generalised by #1274 f177): the search field and
+    // the mode combo below take `&mut` fields of this resource, and
+    // `ResMut::deref_mut` stamps the change tick on ACCESS — so drawing the
+    // window marked it changed on every frame whether or not anybody typed.
+    // Nothing reads this resource's change tick today, and copying its string
+    // in and out each frame to find that out would cost more than the tick
+    // does. If a consumer is ever added, call `set_changed()` on a real edit
+    // rather than deleting this line.
+    let browser = browser.bypass_change_detection();
     // Guarded-dirty (#879): `.open(&mut panels.catalogue)` through the
     // `ResMut` would mark UiPanels changed every frame, starving the
     // prefs save debounce — local copy in, write back only on close.

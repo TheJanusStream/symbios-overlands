@@ -132,10 +132,25 @@ impl Gauge {
     }
 }
 
-/// A monotonically increasing count.
+/// A monotonically increasing count, plus a sampled history so "how much
+/// did this rise recently" is answerable.
+///
+/// The history is a [`Gauge`] rather than a second ring implementation: a
+/// counter sampled at the 1 Hz scrape ([`MetricsRegistry::sample_counters`])
+/// is exactly a gauge of its own running total, and reusing the ring keeps
+/// the two shapes' window semantics identical by construction.
+///
+/// It exists because a cumulative total cannot express "recent" (#1271
+/// f179) — the same sentence [`RecentRespawns`] carries. `net.identity
+/// .spoofed_count` reaching 3 once at boot pinned the toolbar's alarm dot
+/// for the rest of the session with no way to clear it, because the rule
+/// under it was thresholding a number that never comes back down.
+///
+/// [`RecentRespawns`]: crate::diagnostics::anomaly::RecentRespawns
 #[derive(Clone, Debug, Default)]
 pub struct Counter {
     value: u64,
+    history: Gauge,
 }
 
 impl Counter {
@@ -143,8 +158,22 @@ impl Counter {
         self.value = self.value.saturating_add(n);
     }
 
+    /// Push the running total onto the history ring. Driven by the 1 Hz
+    /// scrape, NOT by `incr_by`: the ring's window only means "the last
+    /// ~2 minutes" if its samples are evenly spaced in time, and a
+    /// per-increment push would make a busy counter's window a few
+    /// seconds and a quiet one's the whole session.
+    fn sample(&mut self) {
+        self.history.observe(self.value as f64);
+    }
+
     pub fn value(&self) -> u64 {
         self.value
+    }
+
+    /// The sampled history ring (oldest → newest).
+    pub fn history(&self) -> &Gauge {
+        &self.history
     }
 }
 
@@ -324,6 +353,16 @@ impl MetricsRegistry {
         self.histograms.entry(name).or_default().observe(v);
     }
 
+    /// Push every counter's running total onto its history ring — one call
+    /// from the 1 Hz scrape, so [`counter_window_rise`](Self::counter_window_rise)
+    /// has an evenly-spaced window to measure over. Walks the counter map
+    /// (tens of entries) once a second.
+    pub fn sample_counters(&mut self) {
+        for c in self.counters.values_mut() {
+            c.sample();
+        }
+    }
+
     // ---- Read API (the E-6 stable contract; see the module docs) -----------
     // The published read surface for pillars C (GUI) and D (invariants). These
     // names + shapes are API: a rename ripples into a GUI row and any rule that
@@ -378,6 +417,71 @@ impl MetricsRegistry {
     pub fn gauge_distro(&self, name: &str) -> Option<Distro> {
         let samples = self.ring_slice(name);
         distro(&samples)
+    }
+
+    /// How much a gauge ROSE across its retained ring (newest − oldest),
+    /// or `None` with fewer than two samples.
+    ///
+    /// The windowed counterpart of [`gauge_latest`](Self::gauge_latest), and
+    /// the shape every "is this still happening" rule wants: a cumulative
+    /// total that stopped moving reads as zero here, so a rule written
+    /// against it clears itself with no acknowledge affordance to build
+    /// and no ledger state to keep (#1271 f179).
+    ///
+    /// Negative for a gauge that fell — callers thresholding growth
+    /// compare against a positive bound, so a fall is naturally clear.
+    pub fn gauge_window_rise(&self, name: &str) -> Option<f64> {
+        let g = self.gauges.get(name)?;
+        if g.len() < 2 {
+            return None;
+        }
+        let first = g.iter().next()?;
+        Some(g.last() - first)
+    }
+
+    /// How much a CUMULATIVE gauge rose across the retained window.
+    ///
+    /// The baseline is the oldest retained sample once the ring has
+    /// wrapped, and **0 before that** — the value a session's own running
+    /// total started from. That second half is what stops a first-sample
+    /// blind spot: a relay rejection that lands before the first 1 Hz
+    /// scrape shows up as `1 - 1 = 0` under a plain newest-minus-oldest
+    /// and would never fire live at all, while the log recorded it
+    /// (#1271 f179).
+    ///
+    /// So for the first [`RING_CAP`] samples this answers "since the
+    /// session began" and afterwards a true rolling window. Both are the
+    /// right answer to "is this still happening"; the difference is only
+    /// how long a quiet rule takes to clear itself, which is bounded by
+    /// the ring.
+    ///
+    /// Use [`gauge_window_rise`](Self::gauge_window_rise) instead for a
+    /// gauge that is a LEVEL rather than a total — a mesh-handle count
+    /// baselined at 0 would read its whole value as growth.
+    pub fn cumulative_window_rise(&self, name: &str) -> Option<f64> {
+        Self::rise_over(self.gauges.get(name)?)
+    }
+
+    /// How much a counter rose across its sampled history window, on the
+    /// same baseline rule as [`cumulative_window_rise`](Self::cumulative_window_rise)
+    /// — a counter is a total by construction. `None` until the 1 Hz
+    /// [`sample_counters`](Self::sample_counters) pass has laid down a
+    /// sample.
+    pub fn counter_window_rise(&self, name: &str) -> Option<u64> {
+        Self::rise_over(self.counters.get(name)?.history()).map(|r| r.max(0.0) as u64)
+    }
+
+    /// The shared baseline rule behind the two readers above.
+    fn rise_over(ring: &Gauge) -> Option<f64> {
+        if ring.is_empty() {
+            return None;
+        }
+        let baseline = if ring.len() == RING_CAP {
+            ring.iter().next()?
+        } else {
+            0.0
+        };
+        Some(ring.last() - baseline)
     }
 
     /// Sparkline samples for a gauge (oldest → newest); empty if unknown.

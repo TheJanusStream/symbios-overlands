@@ -336,7 +336,10 @@ mod tests {
                 if rule == "runtime.terrain_collider_missing"
         )));
         // Routed to the badge ledger (Pillar C source).
-        assert_eq!(invariants.worst_active(), Some(Severity::Critical));
+        assert_eq!(
+            invariants.worst_active(Severity::Trace),
+            Some(Severity::Critical)
+        );
         assert!(
             invariants
                 .active_badges()
@@ -416,7 +419,10 @@ mod tests {
                 .currently_violated,
             "rule should be violated in-game with zero colliders"
         );
-        assert_eq!(invariants.worst_active(), Some(Severity::Critical));
+        assert_eq!(
+            invariants.worst_active(Severity::Trace),
+            Some(Severity::Critical)
+        );
 
         // Leave InGame (e.g. logout → Login). The rule is now state-skipped;
         // its badge must clear rather than persist.
@@ -431,7 +437,7 @@ mod tests {
             "badge must clear when the gating state is exited (#632)"
         );
         assert_eq!(
-            invariants.worst_active(),
+            invariants.worst_active(Severity::Trace),
             None,
             "no active badge should remain after the gating state is exited"
         );

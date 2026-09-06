@@ -202,3 +202,18 @@ analyzer). Adding one is a three-step recipe (define a `Rule` with a
 [`src/diagnostics/anomaly/`](../src/diagnostics/anomaly/mod.rs) — run
 `cargo doc --no-deps --document-private-items --open` and open the `anomaly`
 module.
+
+Two things the header owes, both enforced by tests:
+
+- **Its `description` is UI copy.** The panel renders it verbatim in the Active
+  Anomalies strip and beside every per-metric pill, so it is written in the
+  product's own words — what has gone wrong for the person reading it, and what
+  to try. The mechanism goes in `technical`, which the panel hangs on the hover.
+  `ui::fonts::glyph_coverage_tests::rule_prose_is_ui_copy` holds both fields to
+  the same vocabulary as every other label in the app.
+- **Declare the bodies you wrote.** A `replay` body owes `is_replayable() =
+  true`, an `eval` body owes `has_live_body() = true`. Each is pinned to the
+  real body in both directions. The GUI's metric→rule table reads the second to
+  decide whether a row's empty badge means "checked and fine" or "nothing is
+  watching this while you play" — a rule that forgets it turns a row into a
+  check that silently passes.

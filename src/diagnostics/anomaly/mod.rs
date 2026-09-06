@@ -22,13 +22,20 @@
 //! Three steps (only step 1 is ever mandatory):
 //!
 //! 1. **Define the rule** — a unit struct, a `const` [`RuleHeader`] (identity,
-//!    subsystem, severity, firing policy), and an `impl` [`Rule`]. Implement
+//!    subsystem, severity, firing policy and the two sentences the panel
+//!    renders: [`description`](RuleHeader::description) is UI copy in the
+//!    product's own words, [`technical`](RuleHeader::technical) is the
+//!    mechanism behind the hover), and an `impl` [`Rule`]. Implement
 //!    [`eval`](Rule::eval) for LIVE detection (reads a [`LiveCtx`]) and/or
 //!    [`replay`](Rule::replay) for OFFLINE detection (folds the captured event
 //!    log). A rule with *both* runs live and re-derives in the analyzer from one
-//!    definition; if you add a `replay` body, also override
-//!    [`is_replayable`](Rule::is_replayable) to `true` (two drift-guard tests in
-//!    [`replay`] pin the replayable set both directions — keep them in sync).
+//!    definition. **Declare whichever bodies you wrote**: `replay` owes
+//!    [`is_replayable`](Rule::is_replayable) `= true` and `eval` owes
+//!    [`has_live_body`](Rule::has_live_body) `= true`. Both are pinned to the
+//!    real bodies in both directions — the replayable set by two tests in
+//!    [`replay`], the live set by `rule::live_bodies_are_declared` — because
+//!    the GUI's metric→rule table reads the second to decide whether a row's
+//!    empty badge means "checked and fine" or "nothing is watching this".
 //! 2. **Add a [`LiveCtx`] field only if you need a new reading.** Metric-threshold
 //!    rules already have everything via `cx.metrics`; a rule that needs fresh ECS
 //!    state gains a field on [`LiveCtx`] (in [`rule`]) that the [`tick`] system
@@ -58,13 +65,24 @@
 //!     subsystem: Subsystem::Runtime,
 //!     severity: Severity::Warn,
 //!     debounce: DebouncePolicy::Interval(10.0),
-//!     description: "entity count over budget",
+//!     // The badge's face text: UI copy, in the product's own words
+//!     // (#1271 f409). The mechanism goes in `technical`, which the
+//!     // panel hangs on the hover.
+//!     description: "this world is holding more than it can draw smoothly",
+//!     technical: Some("entity count over the 50k budget"),
 //!     when_state: None, // evaluate in every AppState
 //! };
 //!
 //! impl Rule for TooManyEntities {
 //!     fn header(&self) -> &RuleHeader {
 //!         &TOO_MANY_ENTITIES
+//!     }
+//!
+//!     // Declared beside the `eval` below, and pinned to it both ways by
+//!     // `rule::live_bodies_are_declared`. A metric row mapped to a rule
+//!     // that forgot this reads as a check that passed (#1272 f173).
+//!     fn has_live_body(&self) -> bool {
+//!         true
 //!     }
 //!
 //!     // Pure: reads only the `LiveCtx`, never the ECS `World`. `None` means the
@@ -92,7 +110,7 @@ pub mod rules;
 pub mod rules_ecs;
 pub mod tick;
 
-pub use registry::{InvariantRegistry, RuleRuntimeState, default_registry};
+pub use registry::{ALARM_FLOOR, InvariantRegistry, RuleRuntimeState, default_registry};
 pub use replay::{RuleFinding, replay_findings, replay_invariants};
 pub use rule::{DebouncePolicy, LiveCtx, Rule, RuleHeader, RuleId, Verdict};
 pub use tick::{AnomalyPlugin, LoadingClock, RecentRespawns};

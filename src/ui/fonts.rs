@@ -1169,19 +1169,55 @@ pub(crate) mod glyph_coverage_tests {
     /// coverage, never a false pass, which is the same trade the literal
     /// lexer makes.
     pub(crate) fn non_test_source(source: &str) -> &str {
-        // The attribute at column 0 is the crate's convention for a
-        // top-level test module. The `starts_with` arm is for a source
-        // that is nothing but tests: no file in the tree looks like that,
-        // but a caller's synthetic control does, and a helper that
-        // answers wrongly on the simplest input is a helper nobody can
-        // write a control for.
-        if source.starts_with("#[cfg(test)]") {
+        // The cut is at the `#[cfg(test)]` that introduces the test
+        // MODULE, not at the first one in the file.
+        //
+        // It used to be the first one, on the reasoning that an attribute
+        // at column 0 is the crate's convention for a top-level test
+        // module. That stopped being true, and silently: `toolbar.rs`
+        // carries a `#[cfg(test)] const` at line 250 of 1900, and
+        // `room/placements.rs` and `room/generators/tree.rs` each carry a
+        // `#[cfg(test)] thread_local!` counter — so for those three files
+        // every scan built on this helper (the four vocabulary scans, the
+        // glyph law, the raw-number-widget ban, the panel-flag guard) had
+        // been reading the first few hundred lines and calling it the
+        // file. A blind scan passes, which is the failure mode none of
+        // them can report.
+        //
+        // Found by `every_panel_flag_write_is_guarded`'s floor assertion —
+        // the guard count fell by one when a fourth such item was added.
+        // That floor is the only reason this was visible at all.
+        //
+        // The `starts_with` arm is for a source that is nothing but tests:
+        // no file in the tree looks like that, but a caller's synthetic
+        // control does, and a helper that answers wrongly on the simplest
+        // input is a helper nobody can write a control for.
+        if source.starts_with("#[cfg(test)]") && opens_a_module(source, "#[cfg(test)]".len()) {
             return "";
         }
-        match source.find("\n#[cfg(test)]") {
-            Some(at) => &source[..at],
-            None => source,
+        let mut from = 0;
+        while let Some(at) = source[from..].find("\n#[cfg(test)]") {
+            let at = from + at;
+            let after = at + "\n#[cfg(test)]".len();
+            if opens_a_module(source, after) {
+                return &source[..at];
+            }
+            from = after;
         }
+        source
+    }
+
+    /// Whether the line after `at` declares a module — the shape that
+    /// makes a `#[cfg(test)]` the file's test module rather than one
+    /// test-only item among the production code.
+    fn opens_a_module(source: &str, at: usize) -> bool {
+        source[at..].lines().nth(1).is_some_and(|line| {
+            let line = line.trim_start();
+            line.starts_with("mod ")
+                || line.starts_with("pub mod ")
+                || line.starts_with("pub(crate) mod ")
+                || line.starts_with("pub(super) mod ")
+        })
     }
 
     /// Whether `line` constructs a numeric widget the raw way, ignoring
@@ -1692,6 +1728,146 @@ pub(crate) mod glyph_coverage_tests {
         );
     }
 
+    /// The `ResMut` system parameters declared in `source` that are still
+    /// change-detecting where the widgets are drawn.
+    ///
+    /// A param shadowed by `let x = x.bypass_change_detection();` is dropped:
+    /// that IS the fix for a resource with no change-tick consumer, and it is
+    /// the idiom the toolbar has used since #879. Dropping it here is what
+    /// lets the fix be one line at the top of a system rather than a rename
+    /// of every use.
+    fn res_mut_params(source: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for line in source.lines() {
+            let line = line.trim_start();
+            let Some(rest) = line.strip_prefix("mut ") else {
+                continue;
+            };
+            let Some((name, ty)) = rest.split_once(": ") else {
+                continue;
+            };
+            if ty.starts_with("ResMut<") && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                out.push(name.to_string());
+            }
+        }
+        out.sort();
+        out.dedup();
+        out.retain(|name| {
+            !source.contains(&format!("let {name} = {name}.bypass_change_detection()"))
+        });
+        out
+    }
+
+    /// Lines in `source` that hand an egui widget a `&mut` straight through
+    /// one of `params`, as `(line number, the parameter)`.
+    fn resource_fields_handed_to_widgets(source: &str, params: &[String]) -> Vec<(usize, String)> {
+        let mut out = Vec::new();
+        for (n, line) in source.lines().enumerate() {
+            let code = line.split("//").next().unwrap_or("");
+            // A widget CALL, in any of the three shapes this tree writes:
+            // a `ui.` method, an `egui::` constructor (`TextEdit::singleline`
+            // takes its `&mut` at construction, which is where two of the
+            // four live sites were), and `Window::open`.
+            if !code.contains("ui.") && !code.contains("egui::") && !code.contains(".open(") {
+                continue;
+            }
+            for param in params {
+                if code.contains(&format!("&mut {param}.")) {
+                    out.push((n + 1, param.clone()));
+                }
+            }
+        }
+        out
+    }
+
+    /// No egui widget is handed a `&mut` straight through a `ResMut`
+    /// (#1274 f177) — the general form of the rule `panels.*` already has.
+    ///
+    /// Bevy's `ResMut::deref_mut` stamps the change tick on ACCESS and never
+    /// compares, so `ui.checkbox(&mut wireframe.global, ..)` marks
+    /// `WireframeConfig` changed on every frame the tab is drawn, and Bevy
+    /// re-runs `wireframe_config_changed` — and re-uploads the global
+    /// material — on each of them. The file it shipped in documents the
+    /// idiom for `UiPanels` seventy lines further up.
+    ///
+    /// **This is deliberately the general rule rather than a second
+    /// panel-shaped one.** `every_panel_flag_write_is_guarded` knows what a
+    /// panel flag MEANS (a window opening and closing, so its writes are
+    /// bool literals on known edges) and could not be widened without
+    /// losing that. What generalises is the hazard itself — a `&mut`
+    /// reaching a widget through a `ResMut` — and it is one line to state
+    /// over the resources a file actually declares. A rule that only knew
+    /// about `panels` is how the ninth window got written.
+    ///
+    /// The fix is always the same shape: copy the field into a local, hand
+    /// the widget `&mut local`, and write back through the `ResMut` only
+    /// when it differs.
+    #[test]
+    fn no_widget_writes_straight_through_a_resmut() {
+        // Controls. The declaration form, and both the shape that shipped
+        // and the shape that replaced it.
+        let shipped = "    mut wireframe: ResMut<WireframeConfig>,\n\
+                       fn f(ui: &mut Ui) {\n\
+                       ui.checkbox(&mut wireframe.global, \"Wireframe mode\");\n}";
+        assert_eq!(res_mut_params(shipped), vec!["wireframe".to_string()]);
+        assert_eq!(
+            resource_fields_handed_to_widgets(shipped, &res_mut_params(shipped)),
+            vec![(3, "wireframe".to_string())],
+            "the unguarded write-through is what f177 was"
+        );
+        let guarded = "    mut wireframe: ResMut<WireframeConfig>,\n\
+                       ui.checkbox(&mut wireframe_on, \"Wireframe mode\");";
+        assert!(resource_fields_handed_to_widgets(guarded, &res_mut_params(guarded)).is_empty());
+        // A constructor takes its `&mut` before any `ui.` appears.
+        let ctor = "    mut picker: ResMut<GatewayPicker>,\n\
+                    egui::TextEdit::singleline(&mut picker.destination)";
+        assert_eq!(
+            resource_fields_handed_to_widgets(ctor, &res_mut_params(ctor)).len(),
+            1
+        );
+        // A param bypassed at the top of its system is no longer a live
+        // ResMut where the widgets are.
+        let bypassed = "    mut picker: ResMut<GatewayPicker>,\n\
+                        let picker = picker.bypass_change_detection();\n\
+                        egui::TextEdit::singleline(&mut picker.destination)";
+        assert!(res_mut_params(bypassed).is_empty());
+        // A real mutation is not a widget write and stays allowed: the
+        // resource genuinely changed, so its tick SHOULD move.
+        assert!(
+            resource_fields_handed_to_widgets(
+                "    mut signals: ResMut<Signals>,\nlet f = std::mem::take(&mut signals.foreign);",
+                &["signals".to_string()]
+            )
+            .is_empty(),
+            "banning every &mut through a ResMut would ban the writes that mean it"
+        );
+        // A commented-out example is not a call.
+        assert!(
+            resource_fields_handed_to_widgets(
+                "// ui.checkbox(&mut wireframe.global, \"x\")",
+                &["wireframe".to_string()]
+            )
+            .is_empty()
+        );
+
+        let mut faults = Vec::new();
+        let sources = rust_sources_under("src/ui");
+        assert!(sources.len() > 20, "the walk found no sources to scan");
+        for path in sources {
+            let source = std::fs::read_to_string(&path).expect("source is readable");
+            let code = non_test_source(&source);
+            let params = res_mut_params(code);
+            for (line, param) in resource_fields_handed_to_widgets(code, &params) {
+                faults.push(format!(
+                    "{}:{line}: hands a widget `&mut {param}.…` straight through a \
+                     ResMut — copy it into a local and write back on a change",
+                    short(&path)
+                ));
+            }
+        }
+        assert!(faults.is_empty(), "{}", faults.join("\n  "));
+    }
+
     /// UI copy uses one spelling of the words this product says most
     /// (#1264 f225).
     ///
@@ -2066,6 +2242,91 @@ pub(crate) mod glyph_coverage_tests {
         );
     }
 
+    /// Every anomaly rule's two sentences are UI copy, so they answer to
+    /// the same vocabulary the rest of the app does (#1271 f409).
+    ///
+    /// `ui::diagnostics` renders `RuleHeader::description` verbatim in the
+    /// Active Anomalies strip and beside every per-metric pill, and hangs
+    /// `technical` on the hover. Neither string lives under `src/ui`, so
+    /// none of the four scans above could ever see them — and it showed:
+    /// the shipped set said "a PDS record fetch exhausted its retry
+    /// budget" and "relay reported peers in the room but no WebRTC data
+    /// channel opened (offer glare or ICE/NAT failure)", to a user who
+    /// clicked the toolbar's alarm dot expecting to be told what was
+    /// wrong.
+    ///
+    /// The plain-vs-precise split is `technical`'s job; the product's own
+    /// words are not negotiable on either side, so both are scanned.
+    #[test]
+    fn rule_prose_is_ui_copy() {
+        // Controls: the two sentences that actually shipped.
+        assert!(stray_save_vocabulary("a PDS record fetch exhausted its retry budget").is_some());
+        assert!(
+            stray_place_noun("relay reported peers in the room but no data channel opened")
+                .is_some()
+        );
+
+        let registry = crate::diagnostics::anomaly::default_registry();
+        let checks: [fn(&str) -> Option<&'static str>; 5] = [
+            stray_place_noun,
+            stray_buildable_noun,
+            stray_save_vocabulary,
+            stray_worn_noun,
+            us_spelling,
+        ];
+        let mut drift = Vec::new();
+        let mut checked = 0usize;
+        for rule in registry.rules() {
+            let h = rule.header();
+            let both = [
+                ("description", Some(h.description)),
+                ("technical", h.technical),
+            ];
+            for (field, literal) in both {
+                let Some(literal) = literal else { continue };
+                checked += 1;
+                for check in checks {
+                    if let Some(why) = check(literal) {
+                        drift.push(format!("{}.{field}: {why} — {literal:?}", h.id));
+                    }
+                }
+            }
+        }
+        assert!(
+            checked > 30,
+            "the registry handed back {checked} strings — the walk found nothing"
+        );
+        assert!(
+            drift.is_empty(),
+            "anomaly-rule prose the Diagnostics panel renders, in the wrong words:\n  {}",
+            drift.join("\n  ")
+        );
+
+        // The glyph law reaches these strings too, and for the same reason
+        // it could not before: `every_ui_label_glyph_is_in_the_base_font_set`
+        // walks `src/ui`. A rule that reads well and renders as tofu is a
+        // worse badge than the id it replaced.
+        let atlas = BaseAtlas::new();
+        let mut tofu = Vec::new();
+        for rule in registry.rules() {
+            let h = rule.header();
+            for literal in [Some(h.description), h.technical].into_iter().flatten() {
+                for c in literal.chars() {
+                    if !c.is_ascii() && !atlas.draws(c) {
+                        tofu.push(format!("{}: {c} U+{:04X}", h.id, u32::from(c)));
+                    }
+                }
+            }
+        }
+        tofu.sort();
+        tofu.dedup();
+        assert!(
+            tofu.is_empty(),
+            "rule prose the bundled fonts cannot draw:\n  {}",
+            tofu.join("\n  ")
+        );
+    }
+
     /// The helpers the four scans share, checked on the inputs that made
     /// them necessary.
     #[test]
@@ -2109,6 +2370,34 @@ pub(crate) mod glyph_coverage_tests {
         assert_eq!(
             string_literals("let u = \"https://bsky.social/xrpc\";\n"),
             vec!["https://bsky.social/xrpc".to_string()]
+        );
+
+        // The cut is at the test MODULE. A `#[cfg(test)]` on an ordinary
+        // item mid-file used to end the scan there, taking the rest of
+        // three real files with it.
+        let with_a_test_only_item = concat!(
+            "fn a() { \"kept\" }\n",
+            "#[cfg(test)]\n",
+            "const ONLY_FOR_TESTS: u8 = 1;\n",
+            "fn b() { \"also kept\" }\n",
+            "#[cfg(test)]\n",
+            "mod tests { \"cut\" }\n",
+        );
+        let kept = non_test_source(with_a_test_only_item);
+        assert!(
+            kept.contains("also kept"),
+            "the code after a test-only item"
+        );
+        assert!(!kept.contains("\"cut\""), "and the test module still goes");
+        assert!(kept.contains("ONLY_FOR_TESTS"), "the item itself is code");
+        // The control: the old rule cut at the first attribute, so this
+        // is the string that used to disappear.
+        assert_eq!(
+            with_a_test_only_item
+                .find("\n#[cfg(test)]")
+                .map(|at| with_a_test_only_item[..at].contains("also kept")),
+            Some(false),
+            "cutting at the FIRST attribute is what lost it"
         );
 
         // A lifetime does not open a char literal, and a char literal

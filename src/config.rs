@@ -1522,8 +1522,18 @@ pub(crate) mod ui {
         ///
         /// Trace was `[96,96,96]`: 2.71:1 against the window, under WCAG's
         /// 3:1 floor, on a tier that tints whole event-log lines.
+        ///
+        /// **Info quietened by #1271 f184.** It was `[220,220,220]` —
+        /// 12.56:1 on the dark window against the Warn tier's 9.95:1, so
+        /// the routine chatter was the brightest thing in the event log
+        /// and an alarm line was quieter than the noise around it. An
+        /// Info-severity line is secondary text, so the tier is now the
+        /// dark palette's `text_weak` exactly (5.12:1, still clear of AA).
+        /// `ui::theme::the_quiet_tiers_stay_inside_the_secondary_text_band`
+        /// holds the rule for all three palettes; the ramp's ORDER is
+        /// #1259's and is deliberately untouched.
         pub const SEVERITY_TRACE_RGB: [u8; 3] = [130, 130, 130];
-        pub const SEVERITY_INFO_RGB: [u8; 3] = [220, 220, 220];
+        pub const SEVERITY_INFO_RGB: [u8; 3] = [140, 140, 140];
         pub const SEVERITY_WARN_RGB: [u8; 3] = [240, 190, 60];
         pub const SEVERITY_ERROR_RGB: [u8; 3] = [245, 110, 30];
         pub const SEVERITY_CRITICAL_RGB: [u8; 3] = [225, 45, 60];

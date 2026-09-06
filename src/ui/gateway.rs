@@ -139,6 +139,14 @@ pub fn gateway_picker_ui(
     time: Res<Time>,
     resolve_tasks: Query<(), With<GatewayDestinationTask>>,
 ) {
+    // Guarded-dirty (#879, generalised by #1274 f177): the widgets below take
+    // `&mut` fields of this resource, and `ResMut::deref_mut` stamps the change
+    // tick on ACCESS — so drawing the window marked it changed on every frame
+    // whether or not anybody typed. Nothing reads this resource's change tick
+    // today, and copying its strings in and out each frame to find that out
+    // would cost more than the tick does. If a consumer is ever added, call
+    // `set_changed()` on a real edit rather than deleting this line.
+    let picker = picker.bypass_change_detection();
     let Some(room) = current_room.as_deref() else {
         return;
     };

@@ -275,6 +275,32 @@ fn trailing_needed(ui: &egui::Ui, account_chip: &str) -> f32 {
 /// and did nothing on Enter. `Sense::hover()` keeps the reservation (the
 /// dot appearing must not shift the Controls button) and drops the tab
 /// stop.
+/// What the anomaly dot says on hover: the worst active rule's own
+/// sentence, then how many others there are (#1271 f409).
+///
+/// It used to say only "{n} active anomalies — click to open Diagnostics",
+/// which names neither the subsystem nor the problem — so the one
+/// always-visible signal the app has about a broken session could not tell
+/// you whether it was about your connection until you had opened a panel
+/// and guessed a tab. The rules carry a plain sentence each; this is where
+/// the nearest one belongs.
+fn anomaly_dot_hover(worst: Option<&str>, n: usize) -> String {
+    let tail = "click to open Diagnostics";
+    match (worst, n) {
+        (Some(what), 1) => format!("{what} — {tail}"),
+        (Some(what), n) => {
+            let rest = n.saturating_sub(1);
+            format!(
+                "{what} (and {rest} more {}) — {tail}",
+                plural(rest, "anomaly", "anomalies")
+            )
+        }
+        // Unreachable while the dot is painted (it is drawn from the same
+        // ledger), but a hover that says nothing is worse than a generic one.
+        (None, n) => format!("{n} active {} — {tail}", plural(n, "anomaly", "anomalies")),
+    }
+}
+
 fn anomaly_slot_sense(has_anomaly: bool) -> egui::Sense {
     if has_anomaly {
         egui::Sense::click()
@@ -343,6 +369,11 @@ pub fn toolbar_ui(
     // and it said the same thing during an outage as in an empty room.
     link: Res<crate::network::LinkState>,
     mut chip: AccountChip,
+    // Native-only: the wireframe plugin (and the resource it inserts) is
+    // skipped on WASM, where WebGL2 has no `POLYGON_MODE_LINE`.
+    #[cfg(not(target_arch = "wasm32"))] mut wireframe: ResMut<
+        bevy::pbr::wireframe::WireframeConfig,
+    >,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -438,8 +469,8 @@ pub fn toolbar_ui(
                 // visitor hovering it learns the ownership rule.
                 ui.add_enabled(false, egui::Button::selectable(false, "World Editor"))
                     .on_disabled_hover_text(
-                        "Only this overland's owner can edit it. Your own overland \
-                         is editable when you're home.",
+                        "Only this world's owner can edit it. Your own world is \
+                         editable when you're home.",
                     );
             }
             // #1261 f235: the bar is one non-wrapping row with no overflow
@@ -534,7 +565,7 @@ pub fn toolbar_ui(
                                 egui::Button::new("Return to spawn"),
                             )
                             .on_hover_text(
-                                "Puts you back on solid ground in this overland — \
+                                "Puts you back on solid ground in this world — \
                                  for when you are wedged and cannot move",
                             );
                         let unstuck = match stuck_blocked {
@@ -673,7 +704,10 @@ pub fn toolbar_ui(
                 // that painted nothing, said nothing and did nothing on
                 // Enter. `Sense::hover()` is not interactive, so the
                 // reservation stays and the tab stop goes.
-                let worst = invariants.worst_active();
+                // ALARM_FLOOR, not "anything active" (#1271 f184): the
+                // dot is the app's only always-visible health signal, and
+                // it used to fire for the two Info-severity rules too.
+                let worst = invariants.worst_active(crate::diagnostics::anomaly::ALARM_FLOOR);
                 let slot = egui::vec2(ANOMALY_DOT_WIDTH, ui.spacing().interact_size.y);
                 let (dot_rect, dot_resp) =
                     ui.allocate_exact_size(slot, anomaly_slot_sense(worst.is_some()));
@@ -681,7 +715,8 @@ pub fn toolbar_ui(
                     // Painted circle, not a "●" glyph — U+25CF is
                     // tofu in the proportional family (#861).
                     let colour = crate::ui::diagnostics::severity_color(ui, worst);
-                    let n = invariants.active_badges().count();
+                    let n =
+                        invariants.active_count_at_least(crate::diagnostics::anomaly::ALARM_FLOOR);
                     ui.painter().circle_filled(
                         dot_rect.left_center() + egui::vec2(6.0, 0.0),
                         4.5,
@@ -701,17 +736,40 @@ pub fn toolbar_ui(
                     );
                     let dot_resp = crate::ui::affordances::hint(
                         dot_resp.on_hover_cursor(egui::CursorIcon::PointingHand),
-                        &format!(
-                            "{n} active anomal{} — click to open Diagnostics",
-                            if n == 1 { "y" } else { "ies" }
+                        &anomaly_dot_hover(
+                            invariants
+                                .worst_active_description(crate::diagnostics::anomaly::ALARM_FLOOR),
+                            n,
                         ),
                     );
                     if dot_resp.clicked() {
                         panels_dirty |= !p.diagnostics;
                         p.diagnostics = true;
                         *diag_tab = crate::ui::diagnostics::tab_for_subsystem(
-                            invariants.worst_active_subsystem(),
+                            invariants
+                                .worst_active_subsystem(crate::diagnostics::anomaly::ALARM_FLOOR),
                         );
+                    }
+                }
+                // Wireframe mode is a persistent GLOBAL render mode that
+                // can only be entered from one tab of one panel, and
+                // nothing outside that checkbox reflected it (#1274 f191)
+                // — a user who ticked it to see what it did was left with
+                // a world drawn in wire and no way back except remembering
+                // where the checkbox was. Shown only while it is on, and
+                // never folded into the `…` menu, for the same reason the
+                // anomaly dot is not: a mode you cannot see the cause of
+                // must not be able to hide.
+                #[cfg(not(target_arch = "wasm32"))]
+                if wireframe.global {
+                    let th = crate::ui::theme::current(ui.ctx());
+                    let clear = crate::ui::affordances::hint(
+                        ui.button(egui::RichText::new("Wireframe").color(th.status.warn)),
+                        "Wireframe mode is on — every surface is drawn as wire. \
+                         Click to turn it off.",
+                    );
+                    if clear.clicked() {
+                        wireframe.global = false;
                     }
                 }
                 // Added AFTER the dot in this right-to-left layout so the
@@ -1246,7 +1304,7 @@ pub fn controls_hint_ui(
                 ui.add_space(6.0);
                 ui.label(
                     "Walk through a portal doorway — or a gateway — to travel into \
-             another overland.",
+                     another world.",
                 );
                 // Visitor-usable right-click, shown to everyone (#1235 f149).
                 ui.add_space(6.0);
@@ -1345,6 +1403,28 @@ pub fn latch_controls_seen(mut panels: ResMut<UiPanels>, mut was_open: Local<boo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1271 f409. The dot's hover names the problem, not just a count.
+    #[test]
+    fn the_anomaly_dot_hover_says_what_is_wrong() {
+        let what = "cannot reach the other people here";
+        let one = anomaly_dot_hover(Some(what), 1);
+        assert!(one.starts_with(what), "{one}");
+        assert!(one.ends_with("click to open Diagnostics"), "{one}");
+        // The control: the sentence that shipped named nothing at all.
+        assert_ne!(one, "1 active anomaly — click to open Diagnostics");
+
+        let three = anomaly_dot_hover(Some(what), 3);
+        assert!(three.contains("and 2 more anomalies"), "{three}");
+        assert!(anomaly_dot_hover(Some(what), 2).contains("1 more anomaly"));
+
+        // No description to hand out (the ledger and the dot disagreeing)
+        // still says something rather than nothing.
+        assert_eq!(
+            anomaly_dot_hover(None, 2),
+            "2 active anomalies — click to open Diagnostics"
+        );
+    }
 
     #[test]
     fn markers_resolve_to_the_matching_chassis() {

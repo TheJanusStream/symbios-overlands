@@ -243,6 +243,18 @@ pub const NET_SIGNAL_AWAITING_PEERS: &str = "net.signal.awaiting_peers";
 /// handshake this leaves no peer_list/offer/answer trail; the
 /// `RelayConnectionRejected` invariant fires off it.
 pub const NET_SIGNAL_AUTH_REJECTIONS: &str = "net.signal.auth_rejections";
+/// HTTP status of the most recent relay rejection, or `0` for "not known".
+///
+/// The two causes above are not the same problem and must not be reported as
+/// the same problem (#1271 f400). A real `401`/`4xx` is a credential the relay
+/// refused; **`0` is the browser**, whose WebSocket API hides the handshake
+/// status entirely, so the signaller counts consecutive failures and gives up
+/// — which is what an ordinary Wi-Fi drop looks like from inside a tab. Until
+/// this gauge existed the live rule could not tell them apart and said
+/// "stale/expired service-auth token" to everyone, on the target where most
+/// users are. Carried on `EventPayload::RelayAuthRejected` since #712; this is
+/// the live half of the same fact.
+pub const NET_SIGNAL_LAST_REJECT_STATUS: &str = "net.signal.last_reject_status";
 /// Consecutive failures of the relay **service-auth** token refresh (#1215).
 ///
 /// The credential every reconnect presents. Its failure arm used to be a lone
@@ -379,6 +391,7 @@ pub const ALL: &[(&str, MetricKind)] = &[
     (NET_SIGNAL_ANSWERS_RECEIVED, MetricKind::Gauge),
     (NET_SIGNAL_AWAITING_PEERS, MetricKind::Gauge),
     (NET_SIGNAL_AUTH_REJECTIONS, MetricKind::Gauge),
+    (NET_SIGNAL_LAST_REJECT_STATUS, MetricKind::Gauge),
     (NET_RELAY_TOKEN_REFRESH_FAILURES, MetricKind::Gauge),
     (NET_BROADCAST_PAYLOAD_BYTES, MetricKind::Gauge),
     (NET_BROADCAST_OVERSIZE_DROPPED_COUNT, MetricKind::Counter),

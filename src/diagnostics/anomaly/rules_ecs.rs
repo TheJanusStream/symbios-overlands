@@ -35,13 +35,12 @@ pub fn register_ecs_rules(reg: &mut InvariantRegistry) {
 
 /// Growth of a gauge across its retained sparkline window (newest − oldest),
 /// or `None` if it has fewer than two samples.
+///
+/// Thin alias over the registry's own reader (#1271 f179 lifted it there, so
+/// the D-2 rules could share it); kept as a name because these rule bodies
+/// read as prose about growth.
 fn gauge_window_growth(cx: &LiveCtx, name: &str) -> Option<f64> {
-    let g = cx.metrics.gauge(name)?;
-    if g.len() < 2 {
-        return None;
-    }
-    let oldest = g.iter().next()?;
-    Some(g.last() - oldest)
+    cx.metrics.gauge_window_rise(name)
 }
 
 fn gauge_last(cx: &LiveCtx, name: &str) -> Option<f64> {
@@ -55,7 +54,8 @@ const TERRAIN_COLLIDER_MISSING: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Critical,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "no physics collider present in-game (nothing solid to stand on)",
+    description: "there is nothing solid to stand on in this world",
+    technical: Some("no physics collider is present in-game"),
     when_state: Some(AppState::InGame),
 };
 /// In-game dwell before the never-seen arm of `TerrainColliderMissing`
@@ -67,6 +67,9 @@ const TERRAIN_GRACE_SECS: f64 = 5.0;
 impl Rule for TerrainColliderMissing {
     fn header(&self) -> &RuleHeader {
         &TERRAIN_COLLIDER_MISSING
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         // The loading gate guarantees a solid terrain collider before InGame,
@@ -112,12 +115,16 @@ const PLAYER_FELL: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "local player dropped well below the terrain surface (respawn net missed)",
+    description: "you fell through the ground and the safety net missed you",
+    technical: Some("the local player's Y dropped well below the sampled terrain height"),
     when_state: Some(AppState::InGame),
 };
 impl Rule for PlayerFellThroughTerrain {
     fn header(&self) -> &RuleHeader {
         &PLAYER_FELL
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         let (y, ground) = (cx.player_y?, cx.ground_y?);
@@ -139,12 +146,16 @@ const NAN_IN_PHYSICS: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Error,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "a dynamic physics body has a non-finite transform/velocity",
+    description: "something here has an impossible position — physics may behave strangely",
+    technical: Some("a dynamic physics body has a non-finite transform or velocity"),
     when_state: None,
 };
 impl Rule for NanInPhysics {
     fn header(&self) -> &RuleHeader {
         &NAN_IN_PHYSICS
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         Some(if cx.nan_body_count > 0 {
@@ -169,12 +180,16 @@ const ASSET_HANDLE_SPIKE: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Warn,
     debounce: DebouncePolicy::Interval(60.0),
-    description: "mesh-handle count is growing steeply (possible asset leak)",
+    description: "this world keeps taking more memory the longer it stays open",
+    technical: Some("mesh-handle count grew steeply across the ~2 min window — a likely leak"),
     when_state: None,
 };
 impl Rule for AssetHandleSpike {
     fn header(&self) -> &RuleHeader {
         &ASSET_HANDLE_SPIKE
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         let growth = gauge_window_growth(cx, names::RUNTIME_MESH_HANDLE_COUNT)?;
@@ -257,12 +272,18 @@ const ASSET_GROWTH_ACROSS_REBUILDS: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Warn,
     debounce: DebouncePolicy::Interval(60.0),
-    description: "asset handles grew on every recent full rebuild and never fell (leak signature)",
+    description: "memory is not being given back when this world is rebuilt",
+    technical: Some(
+        "asset handles grew on every recent full rebuild and never fell — the leak signature",
+    ),
     when_state: None,
 };
 impl Rule for AssetGrowthAcrossRebuilds {
     fn header(&self) -> &RuleHeader {
         &ASSET_GROWTH_ACROSS_REBUILDS
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         let image = rebuild_deltas(cx, names::RUNTIME_REBUILD_IMAGE_HANDLES);
@@ -314,13 +335,20 @@ const MEMORY_RETENTION_ACROSS_REBUILDS: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Info,
     debounce: DebouncePolicy::Interval(300.0),
-    description: "process memory climbs across full rebuilds while asset handles stay flat \
-                  (allocator retention, not a handle leak)",
+    description: "memory keeps climbing each time this world is rebuilt, even though nothing \
+                  new is being held",
+    technical: Some(
+        "process memory climbs across full rebuilds while asset handles stay flat — \
+         allocator retention rather than a handle leak",
+    ),
     when_state: None,
 };
 impl Rule for MemoryRetentionAcrossRebuilds {
     fn header(&self) -> &RuleHeader {
         &MEMORY_RETENTION_ACROSS_REBUILDS
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         let memory = rebuild_deltas(cx, names::RUNTIME_REBUILD_MEMORY_BYTES)?;
@@ -373,12 +401,16 @@ const SHAPE_MESH_CACHE_GROWTH: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Warn,
     debounce: DebouncePolicy::Interval(60.0),
-    description: "upstream ShapeMeshCache is growing unbounded (known leak)",
+    description: "a shape cache keeps growing and is never trimmed, so memory will climb",
+    technical: Some("the upstream ShapeMeshCache is growing unbounded — a known leak"),
     when_state: None,
 };
 impl Rule for ShapeMeshCacheGrowth {
     fn header(&self) -> &RuleHeader {
         &SHAPE_MESH_CACHE_GROWTH
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         let growth = gauge_window_growth(cx, names::RUNTIME_SHAPE_MESH_CACHE_LEN)?;
@@ -399,12 +431,17 @@ const RESPAWN_THRASHING: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Warn,
     debounce: DebouncePolicy::Interval(10.0),
-    description: "the player is respawning repeatedly in a short window",
+    description: "you keep being put back at the start — something is dropping you through \
+                  the ground",
+    technical: Some("the local player respawned repeatedly inside the recent window"),
     when_state: Some(AppState::InGame),
 };
 impl Rule for RespawnThrashing {
     fn header(&self) -> &RuleHeader {
         &RESPAWN_THRASHING
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         Some(if cx.respawns_recent > RESPAWN_THRASH_LIMIT {
@@ -425,12 +462,16 @@ const ORPHAN_AVATAR_VISUAL: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Info,
     debounce: DebouncePolicy::OncePerCondition,
-    description: "avatar-visual entities are orphaned from any chassis",
+    description: "some figures here have lost their body and may look wrong",
+    technical: Some("avatar-visual entities are orphaned from any chassis"),
     when_state: Some(AppState::InGame),
 };
 impl Rule for OrphanAvatarVisual {
     fn header(&self) -> &RuleHeader {
         &ORPHAN_AVATAR_VISUAL
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         Some(if cx.orphan_avatar_count > 0 {
@@ -451,12 +492,16 @@ const FRAME_TIME_SPIKE: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Warn,
     debounce: DebouncePolicy::Interval(10.0),
-    description: "sustained low frame rate",
+    description: "the picture is running slowly and staying slow",
+    technical: Some("the frame-time gauge held above its budget across the recent window"),
     when_state: None,
 };
 impl Rule for FrameTimeSpike {
     fn header(&self) -> &RuleHeader {
         &FRAME_TIME_SPIKE
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         let ms = gauge_last(cx, names::RUNTIME_FRAME_TIME_MS)?;
@@ -475,12 +520,16 @@ const FRAME_HITCH: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Warn,
     debounce: DebouncePolicy::Interval(10.0),
-    description: "an individual frame ran long enough to be felt as a freeze",
+    description: "the picture froze for a moment",
+    technical: Some("one frame ran long enough to be felt as a stall"),
     when_state: None,
 };
 impl Rule for FrameHitch {
     fn header(&self) -> &RuleHeader {
         &FRAME_HITCH
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     /// The isolated-stall companion to [`FrameTimeSpike`], which is a
     /// SUSTAINED-load rule and stays one (#1144). A 1 Hz read of a ~16.5 ms
@@ -515,12 +564,16 @@ const LOOPING_VOICES_OVERLOAD: RuleHeader = RuleHeader {
     subsystem: Subsystem::Offload,
     severity: Severity::Warn,
     debounce: DebouncePolicy::Interval(30.0),
-    description: "too many looping audio voices — mixing may drag the frame rate",
+    description: "a lot of sounds are playing at once — that may be what is slowing things down",
+    technical: Some("the looping-voice count is high enough that mixing can drag the frame"),
     when_state: None,
 };
 impl Rule for LoopingVoicesOverload {
     fn header(&self) -> &RuleHeader {
         &LOOPING_VOICES_OVERLOAD
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         let voices = gauge_last(cx, names::AUDIO_SPATIAL_ACTIVE_SINKS)?;
@@ -553,12 +606,17 @@ const WASM_MEMORY_HIGH: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Warn,
     debounce: DebouncePolicy::Interval(120.0),
-    description: "wasm heap past 2.5 GiB — it never shrinks; plan to save and reload the tab",
+    description: "this browser tab is using a lot of memory and never gives it back — Save \
+                  and reload it soon",
+    technical: Some("the wasm heap is past 2.5 GiB and cannot shrink"),
     when_state: None,
 };
 impl Rule for WasmMemoryHigh {
     fn header(&self) -> &RuleHeader {
         &WASM_MEMORY_HIGH
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         let bytes = gauge_last(cx, names::RUNTIME_MEMORY_WASM_BYTES)?;
@@ -579,12 +637,17 @@ const WASM_MEMORY_CRITICAL: RuleHeader = RuleHeader {
     subsystem: Subsystem::Runtime,
     severity: Severity::Critical,
     debounce: DebouncePolicy::Interval(30.0),
-    description: "wasm heap past 3.25 GiB — OOM abort imminent; download the log, save, reload NOW",
+    description: "this browser tab is about to run out of memory — Save now, download the \
+                  session log, and reload",
+    technical: Some("the wasm heap is past 3.25 GiB; an out-of-memory abort is imminent"),
     when_state: None,
 };
 impl Rule for WasmMemoryCritical {
     fn header(&self) -> &RuleHeader {
         &WASM_MEMORY_CRITICAL
+    }
+    fn has_live_body(&self) -> bool {
+        true
     }
     fn eval(&self, cx: &LiveCtx) -> Option<Verdict> {
         let bytes = gauge_last(cx, names::RUNTIME_MEMORY_WASM_BYTES)?;
