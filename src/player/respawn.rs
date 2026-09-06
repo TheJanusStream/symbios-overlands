@@ -55,6 +55,30 @@ impl RecoveryReason {
         }
     }
 
+    /// What the player is told when this recovery is ALSO rebuilding the
+    /// physics body (#1277 f23).
+    ///
+    /// The reason is deliberately dropped from the escalated sentence.
+    /// After three catches in the window the interesting fact is no longer
+    /// which test fired — the player already read that twice — it is that
+    /// the app has stopped merely teleporting and is doing something
+    /// about it. Coalescing (`Toasts::push`) means the ordinary sentence
+    /// is sitting on screen wearing a `×2` when this replaces it, so the
+    /// change of wording is itself the signal.
+    pub fn escalated_toast(self) -> &'static str {
+        match self {
+            Self::NonFinite | Self::FellThrough | Self::LeftTheWorld => {
+                "Returned to spawn — this keeps happening, so your body is \
+                 being rebuilt."
+            }
+            // Unreachable: a requested reset never escalates
+            // ([`Self::may_escalate`]). Spelled anyway so the match is
+            // total and a future reason cannot silently inherit the
+            // wrong sentence.
+            Self::Requested => Self::Requested.toast(),
+        }
+    }
+
     /// Whether this recovery may escalate to a physics-body rebuild.
     /// Only the automatic ones: a rebuild is the answer to a body the
     /// solver has broken, not to a player who walked into a crevasse.
@@ -363,12 +387,29 @@ pub(super) fn respawn_if_fallen(
     lin_vel.0 = Vec3::ZERO;
     ang_vel.0 = Vec3::ZERO;
     let now = time.elapsed_secs_f64();
-    // The teleport used to be silent (#842) — one instant the player is
-    // falling, the next they are somewhere else with no explanation.
-    toasts.warn(reason.toast(), now);
     crate::diagnostics::samplers::player_respawned(&mut metrics);
     // Feed the respawn-thrashing window (#672) alongside the monotonic metric.
+    // BEFORE the toast (#1277 f23), because the sentence the player reads
+    // depends on the count this respawn is part of.
     recent_respawns.note(now);
+    let respawns_recent = recent_respawns.count_recent(now);
+    // Decided once and used twice: the message and the rebuild must agree,
+    // and this used to be re-derived thirty lines apart.
+    let escalating =
+        reason.may_escalate() && (non_finite || respawns_recent >= BODY_REBUILD_AFTER_RESPAWNS);
+    // The teleport used to be silent (#842) — one instant the player is
+    // falling, the next they are somewhere else with no explanation. And
+    // until #1277 f23 it said the same non-actionable sentence on every
+    // respawn of a fall loop, six times over, while the app was quietly
+    // rebuilding the body underneath it.
+    toasts.warn(
+        if escalating {
+            reason.escalated_toast()
+        } else {
+            reason.toast()
+        },
+        now,
+    );
     // Typed event (#635d) — the metric counts respawns, this records each one's
     // fall depth vs. the terrain height it dropped through, for the timeline.
     // Sentinel-clamped (#868): during the #867 meltdown these fields went
@@ -391,8 +432,7 @@ pub(super) fn respawn_if_fallen(
     // freeze parks the chassis (the rebuild system's
     // `Without<VisualsEditFreeze>` gate), though a parked body cannot
     // fall here in the first place.
-    let respawns_recent = recent_respawns.count_recent(now);
-    if reason.may_escalate() && (non_finite || respawns_recent >= BODY_REBUILD_AFTER_RESPAWNS) {
+    if escalating {
         commands
             .entity(entity)
             .insert(super::hotswap::NeedsLocomotionRebuild);
@@ -562,5 +602,58 @@ mod tests {
         for line in lines {
             assert!(line.contains("Returned to spawn"), "{line}");
         }
+    }
+
+    /// Once the recovery escalates to a body rebuild, the player is told
+    /// that instead of being told the same non-actionable sentence again
+    /// (#1277 f23).
+    ///
+    /// The escalation needed no new state: `respawn_if_fallen` already
+    /// computed `count_recent` and compared it to
+    /// `BODY_REBUILD_AFTER_RESPAWNS` two lines from the toast. What this
+    /// pins is that the message and the rebuild share ONE decision — they
+    /// were re-derived thirty lines apart, which is how a message ends up
+    /// describing something the code stopped doing.
+    #[test]
+    fn the_escalated_recovery_says_what_it_is_doing_about_it() {
+        for reason in [
+            RecoveryReason::NonFinite,
+            RecoveryReason::FellThrough,
+            RecoveryReason::LeftTheWorld,
+        ] {
+            assert_ne!(
+                reason.escalated_toast(),
+                reason.toast(),
+                "{reason:?} says the same thing either way"
+            );
+            assert!(reason.escalated_toast().contains("rebuilt"), "{reason:?}");
+        }
+        // A requested reset never escalates, so it never changes wording.
+        assert!(!RecoveryReason::Requested.may_escalate());
+        assert_eq!(
+            RecoveryReason::Requested.escalated_toast(),
+            RecoveryReason::Requested.toast()
+        );
+    }
+
+    /// The window the escalated wording keys on is the window the rebuild
+    /// keys on (#1277 f23) — the third automatic respawn inside it.
+    ///
+    /// Over `RecentRespawns` itself rather than over a remembered number,
+    /// so widening the thrash window moves both together.
+    #[test]
+    fn the_third_respawn_in_the_window_is_the_one_that_escalates() {
+        let mut recent = crate::diagnostics::anomaly::RecentRespawns::default();
+        let escalating = |n: u32| n >= BODY_REBUILD_AFTER_RESPAWNS;
+
+        recent.note(0.0);
+        assert!(!escalating(recent.count_recent(0.0)));
+        recent.note(0.5);
+        assert!(!escalating(recent.count_recent(0.5)));
+        recent.note(1.0);
+        assert!(
+            escalating(recent.count_recent(1.0)),
+            "the third catch inside the window is the thrash signature"
+        );
     }
 }

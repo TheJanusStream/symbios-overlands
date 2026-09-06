@@ -627,7 +627,7 @@ pub fn run() {
         // acquires a fetch storm. One verified lookup per portal DID per
         // session, started only once the player is inside the prompt
         // radius.
-        .init_resource::<ui::travel::PortalNames>()
+        .init_resource::<ui::travel::WorldNames>()
         // The gateway's free-text destination lookup (#1232 f24). Not
         // gated on `GatewayPicker` existing: the task has to be drained
         // (and despawned) even when the player walked out of the zone
@@ -638,7 +638,7 @@ pub fn run() {
         )
         .add_systems(
             Update,
-            ui::travel::resolve_portal_names.run_if(in_state(AppState::InGame)),
+            ui::travel::resolve_world_names.run_if(in_state(AppState::InGame)),
         )
         .add_systems(
             EguiPrimaryContextPass,

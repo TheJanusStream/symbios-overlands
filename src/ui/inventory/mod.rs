@@ -43,6 +43,61 @@ use crate::state::{
 };
 use crate::ui::editable::{RecordAction, publish_status_line, save_load_reset_row};
 
+/// Whether one stash row matches the (already trimmed and lower-cased)
+/// search query (#1275 f134).
+///
+/// Pure, and deliberately so — the Catalogue's `matches` is, and this
+/// window has no harness of any kind. The three facets are exactly the
+/// three the row already DRAWS: its name, the kind tag beside it, and the
+/// wearable/socket suffix that replaces the tag on a worn item. Filtering
+/// on a facet the row does not show would leave the user unable to see why
+/// something matched.
+///
+/// **What it must not do:** the filter decides which rows are drawn and
+/// nothing else. Drag, gift, wear, rename and delete all act on the row's
+/// own `name`, the over-cap count reads `generators.len()`, and the Save
+/// row's dirty check compares whole records — so a hidden row is still in
+/// the stash, still saved, and still worn. That is the property
+/// `hiding_a_row_does_not_change_the_stash` pins.
+pub(crate) fn row_matches(
+    name: &str,
+    kind_tag: &str,
+    wear: Option<&crate::pds::inventory::WearMeta>,
+    q: &str,
+) -> bool {
+    if q.is_empty() {
+        return true;
+    }
+    if name.to_lowercase().contains(q) || kind_tag.to_lowercase().contains(q) {
+        return true;
+    }
+    match wear {
+        // "wearable" is the app's word for these (#1266's decision 4) and
+        // it is printed on the row, so it is searchable; so is the socket.
+        Some(meta) => {
+            "wearable".contains(q)
+                || crate::pds::avatar::socket_label(&meta.socket)
+                    .to_lowercase()
+                    .contains(q)
+        }
+        None => false,
+    }
+}
+
+/// The sentence the stash list shows when no row is drawn (#1275 f134),
+/// mirroring the Catalogue's [`crate::ui::catalogue::empty_state`]: an
+/// empty rectangle cannot say whether the search was wrong or the stash is
+/// empty, so each arm names its own rule.
+pub(crate) fn empty_state(stash_is_empty: bool) -> &'static str {
+    if stash_is_empty {
+        "Your inventory is empty. Copy an item from the Catalogue, or accept \
+         a gift, and it lands here."
+    } else {
+        "No items match that search. This looks at the name, the kind and the \
+         socket a wearable sits on."
+    }
+}
+
 /// Persistent UI-only state for the Inventory window. Held in a `Local` so
 /// it lives for the lifetime of the system without polluting the global
 /// resource table.
@@ -50,6 +105,11 @@ use crate::ui::editable::{RecordAction, publish_status_line, save_load_reset_row
 pub struct InventoryEditorState {
     /// Active rename modal: `(original_key, draft_key)`.
     pub renaming_generator: Option<(String, String)>,
+    /// Search query for the stash list (#1275 f134). A `Local` field, not a
+    /// resource, so it survives frames without a change tick to starve —
+    /// the Catalogue's equivalent lives on a `ResMut` and has to bypass
+    /// change detection for exactly that reason.
+    pub search: String,
     /// Pending Revert/Reset confirmation for the shared save row (#838).
     pub row_confirm: crate::ui::confirm::ConfirmState<RecordAction>,
     /// Pending row-delete confirmation (#1200): the stash has no undo by
@@ -532,6 +592,29 @@ pub fn inventory_ui(
             } else {
                 ui.label(format!("Saved items: {count}/{cap}"));
             }
+            // Search over the stash (#1275 f134). Mirrors the Catalogue's
+            // top bar — same hint-text shape, same CROSS clear button —
+            // because these are the two windows a decorating session moves
+            // between and the Inventory is the one you cannot re-derive by
+            // browsing. Drawn only when there is something to search: a
+            // filter over an empty stash is noise, and the empty state
+            // below already says what to do about that.
+            if count > 0 {
+                ui.horizontal(|ui| {
+                    ui.label("Search:");
+                    crate::ui::affordances::text_edit(
+                        ui,
+                        egui::TextEdit::singleline(&mut state.search)
+                            .hint_text("name / kind / socket")
+                            .desired_width(120.0),
+                    );
+                    if !state.search.is_empty()
+                        && ui.small_button(crate::ui::affordances::CROSS).clicked()
+                    {
+                        state.search.clear();
+                    }
+                });
+            }
             ui.separator();
 
             // Footer FIRST, bottom-up, so its height is measured and the
@@ -687,10 +770,53 @@ pub fn inventory_ui(
                     .show(ui, |ui| {
                         let mut to_remove: Option<String> = None;
                         let mut wear_action: Option<WearAction> = None;
-                        let mut names: Vec<String> = live.0.generators.keys().cloned().collect();
+                        let q = state.search.trim().to_lowercase();
+                        let mut names: Vec<String> = live
+                            .0
+                            .generators
+                            .keys()
+                            .filter(|name| {
+                                row_matches(
+                                    name,
+                                    live.0
+                                        .generators
+                                        .get(*name)
+                                        .map(|g| g.kind_tag())
+                                        .unwrap_or("?"),
+                                    live.0.wear.get(*name),
+                                    &q,
+                                )
+                            })
+                            .cloned()
+                            .collect();
                         // Case-insensitive (#841): plain `sort()` put "Zebra"
                         // before "apple".
                         names.sort_by_key(|name| name.to_lowercase());
+
+                        // An empty list is never a bare rectangle (#1275
+                        // f134): "nothing here" and "nothing matched" are
+                        // different facts and only one of them is the
+                        // user's fault.
+                        if names.is_empty() {
+                            ui.add_space(4.0);
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(empty_state(count == 0))
+                                        .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                                )
+                                .wrap(),
+                            );
+                        } else if names.len() != count {
+                            // The count line above reports the whole stash
+                            // (it is the cap indicator), so the filter has
+                            // to say what it is hiding — otherwise a
+                            // forgotten query reads as a lost item.
+                            ui.label(
+                                egui::RichText::new(format!("Showing {} of {count}", names.len()))
+                                    .small()
+                                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                            );
+                        }
 
                         for name in names {
                             ui.horizontal(|ui| {
@@ -1340,5 +1466,90 @@ mod refusal_tests {
             assert!(line.contains("@them"), "{line}");
             assert!(line.contains("lantern"), "{line}");
         }
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+    use crate::pds::inventory::WearMeta;
+
+    fn hat() -> WearMeta {
+        WearMeta {
+            socket: String::from("head"),
+            fit_band_mm: 0,
+            offset: crate::pds::TransformData::default(),
+        }
+    }
+
+    /// The three facets the row draws are the three the filter reads
+    /// (#1275 f134).
+    #[test]
+    fn row_matches_reads_name_kind_and_socket() {
+        let worn = hat();
+        // Empty query is everything, which is what an untouched field means.
+        assert!(row_matches("lantern", "prim", None, ""));
+
+        assert!(row_matches("Ship's Lantern", "prim", None, "lantern"));
+        assert!(row_matches("lantern", "lsystem", None, "lsystem"));
+        assert!(!row_matches("lantern", "prim", None, "lsystem"));
+
+        // The wearable facets, which only a worn row carries.
+        assert!(row_matches("circlet", "prim", Some(&worn), "wearable"));
+        assert!(row_matches("circlet", "prim", Some(&worn), "head"));
+        assert!(!row_matches("circlet", "prim", None, "wearable"));
+        assert!(!row_matches("circlet", "prim", None, "head"));
+
+        // The caller lower-cases and trims; the needle is matched as given.
+        assert!(row_matches("LANTERN", "prim", None, "lantern"));
+    }
+
+    /// The filter draws fewer rows and changes nothing else (#1275 f134).
+    ///
+    /// This is the property that matters, because the Inventory is the only
+    /// wear surface: a row hidden by a forgotten query must still be in the
+    /// stash the Save row writes, still counted against the cap, and still
+    /// on the body if it was worn. Pinned over the record itself rather
+    /// than over egui, which this window has no harness for.
+    #[test]
+    fn hiding_a_row_does_not_change_the_stash() {
+        let mut live = crate::pds::InventoryRecord::default();
+        live.put_item(
+            String::from("lantern"),
+            crate::pds::Generator::default(),
+            None,
+        );
+        live.put_item(
+            String::from("circlet"),
+            crate::pds::Generator::default(),
+            Some(hat()),
+        );
+        let before = serde_json::to_value(&live).expect("record serializes");
+
+        let q = "circ";
+        let shown: Vec<&String> = live
+            .generators
+            .keys()
+            .filter(|n| row_matches(n, "prim", live.wear.get(*n), q))
+            .collect();
+        assert_eq!(shown, vec![&String::from("circlet")], "the filter narrows");
+
+        // The record the rest of the window reads is untouched: the cap
+        // count, the dirty diff and the wear side table all still see two.
+        assert_eq!(live.generators.len(), 2);
+        assert_eq!(live.wear.len(), 1);
+        assert_eq!(
+            serde_json::to_value(&live).expect("record serializes"),
+            before
+        );
+    }
+
+    /// "Nothing here" and "nothing matched" are different sentences, and
+    /// the first one says what to do (#1275 f134).
+    #[test]
+    fn the_two_empty_states_say_different_things() {
+        assert_ne!(empty_state(true), empty_state(false));
+        assert!(empty_state(true).contains("Catalogue"));
+        assert!(empty_state(false).contains("search"));
     }
 }

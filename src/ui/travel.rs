@@ -225,17 +225,17 @@ pub fn home_travel_blocked(
 /// in a loop against somebody else's directory service is not a thing a
 /// prompt should do.
 #[derive(Resource, Default)]
-pub struct PortalNames {
+pub struct WorldNames {
     names: std::collections::HashMap<String, Option<String>>,
 }
 
-/// How many portal destinations one session will name. A room's portals
-/// are authored by its owner and bounded by the record's placement cap,
-/// but travel accumulates rooms — so the map is bounded like the profile
-/// cache beside it, and past the cap the prompt falls back to the DID.
-const MAX_PORTAL_NAMES: usize = 64;
+/// How many worlds one session will name. A room's portals are authored by
+/// its owner and bounded by the record's placement cap, but travel
+/// accumulates rooms — so the map is bounded like the profile cache beside
+/// it, and past the cap every reader falls back to the DID.
+const MAX_WORLD_NAMES: usize = 64;
 
-impl PortalNames {
+impl WorldNames {
     /// The verified handle for `did`, if one has landed.
     pub fn get(&self, did: &str) -> Option<&str> {
         self.names.get(did).and_then(Option::as_deref)
@@ -260,19 +260,32 @@ pub struct ResolvePortalNameTask {
     task: bevy::tasks::Task<Option<String>>,
 }
 
-/// Name the portal the player is walking towards, before they reach it.
+/// Name the worlds the player can see the names of: the one they are
+/// standing in, and the portal they are walking towards.
 ///
-/// Deliberately NOT part of [`portal_prompt_ui`]: a UI system that spawns
-/// network tasks is how a render path acquires a fetch storm. One lookup
-/// per DID per session, started only for a portal already inside the
-/// prompt radius — so a room full of portals costs nothing until somebody
-/// walks up to one.
-pub fn resolve_portal_names(
+/// Deliberately NOT part of [`portal_prompt_ui`] or of `toolbar_ui`: a UI
+/// system that spawns network tasks is how a render path acquires a fetch
+/// storm. One lookup per DID per session, and the portal half starts only
+/// for a portal already inside the prompt radius — so a room full of
+/// portals costs nothing until somebody walks up to one.
+///
+/// The **current room** was added by #1276 f46, and it is the answer to
+/// that finding's own refuter. The account chip printed the room's raw
+/// `did:plc:…` at a visitor; the obvious fix — run it through the profile
+/// cache — buys a shorter DID and not a name, because [`BskyProfileCache`]
+/// is filled by peer-driven fetches only, and the owner of a world you are
+/// visiting is usually not standing in it. This is the same lookup the
+/// portal prompt already trusted for the same question, and it is a
+/// VERIFIED handle: `pds::resolve_did_handle` resolves the DID's
+/// `alsoKnownAs` claim forward through the public AppView and requires it
+/// to come back to the same DID. A label saying whose world you are in
+/// must not be forgeable by whoever controls the DID document.
+pub fn resolve_world_names(
     mut commands: Commands,
     players: Query<&GlobalTransform, With<LocalPlayer>>,
     portals: Query<(&PortalMarker, &GlobalTransform)>,
     current_room: Option<Res<CurrentRoomDid>>,
-    mut names: ResMut<PortalNames>,
+    mut names: ResMut<WorldNames>,
     mut tasks: Query<(Entity, &mut ResolvePortalNameTask)>,
 ) {
     for (entity, mut task) in tasks.iter_mut() {
@@ -287,6 +300,13 @@ pub fn resolve_portal_names(
         names.names.insert(task.did.clone(), result);
     }
 
+    // The room first, and NOT gated on the player query: the chip shows the
+    // room name from the moment the world is entered, and on a travel the
+    // local player is parked and may not be spawned yet.
+    if let Some(room) = current_room.as_deref() {
+        ask(&mut commands, &mut names, room.0.clone());
+    }
+
     let Ok(player_tf) = players.single() else {
         return;
     };
@@ -294,15 +314,23 @@ pub fn resolve_portal_names(
     else {
         return;
     };
-    if names.asked(&did) || !did.starts_with("did:") || names.names.len() >= MAX_PORTAL_NAMES {
+    ask(&mut commands, &mut names, did);
+}
+
+/// Start one DID → verified handle lookup, unless this session already
+/// asked, the DID is unusable, or the map is full.
+///
+/// Marked asked at SPAWN time, not at completion: the caller runs every
+/// frame the player stands near a portal or stands in a world, so a
+/// completion-time mark would spawn one task per frame for the whole wait.
+fn ask(commands: &mut Commands, names: &mut WorldNames, did: String) {
+    if names.asked(&did) || !did.starts_with("did:") || names.names.len() >= MAX_WORLD_NAMES {
         return;
     }
     if !crate::pds::xrpc::is_resolvable_did(&did) {
         names.names.insert(did, None);
         return;
     }
-    // Marked asked at spawn time, not at completion: this system runs every
-    // frame the player stands near the portal.
     names.names.insert(did.clone(), None);
     let lookup_did = did.clone();
     let task = bevy::tasks::IoTaskPool::get().spawn(async move {
@@ -346,7 +374,7 @@ pub fn portal_prompt_ui(
     traveling: Option<Res<TravelingTo>>,
     guard: Option<Res<UnsavedGuard>>,
     profile_cache: Res<BskyProfileCache>,
-    names: Res<PortalNames>,
+    names: Res<WorldNames>,
     // A gateway underfoot outranks a portal nearby (#1261 f35) — see the
     // gate below.
     gateway_dismissed: Option<Res<crate::ui::gateway::GatewayDismissed>>,
@@ -381,7 +409,7 @@ pub fn portal_prompt_ui(
         return;
     };
 
-    // The verified name if `resolve_portal_names` has landed one, else the
+    // The verified name if `resolve_world_names` has landed one, else the
     // ladder's next rung (#1231 f27). A portal carries a DID and nothing
     // else, so this is the one travel surface with no label to carry.
     let destination = travel_label(&profile_cache, &target_did, names.get(&target_did));

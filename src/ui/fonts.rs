@@ -936,6 +936,12 @@ pub(crate) mod glyph_coverage_tests {
         // #1267: `socket_label` names every wear surface's socket, and
         // `attachment_label` names a prop in a preflight refusal.
         "src/pds/avatar/wardrobe.rs",
+        // #1275 f255: `CatalogueCategory::label` and `StructureRole::label`
+        // ARE the Catalogue's section headers and its detail-grid rows. The
+        // category shipped as "Attachments" through the whole of t10 — the
+        // one surface still using the retired word — precisely because this
+        // file is not under `src/ui` and no scan could see it.
+        "src/catalogue/mod.rs",
     ];
 
     /// Non-ASCII glyphs drawn by the sculpting sections the Body tab HOSTS
@@ -1740,9 +1746,14 @@ pub(crate) mod glyph_coverage_tests {
         let mut out = Vec::new();
         for line in source.lines() {
             let line = line.trim_start();
-            let Some(rest) = line.strip_prefix("mut ") else {
-                continue;
-            };
+            // Two declaration forms. A system parameter carries `mut`; a
+            // `#[derive(SystemParam)]` STRUCT FIELD does not, and holds
+            // exactly the same hazard (#1276 f39). Four bundles were built
+            // during this backlog alone — `AccountChip`, `RosterDeps`,
+            // `ChatDeps`, `LoginCardDeps` — precisely because the systems
+            // that draw windows keep hitting Bevy's 16-parameter ceiling,
+            // so the bundles are where new `ResMut`s now land.
+            let rest = line.strip_prefix("mut ").unwrap_or(line);
             let Some((name, ty)) = rest.split_once(": ") else {
                 continue;
             };
@@ -1756,6 +1767,27 @@ pub(crate) mod glyph_coverage_tests {
             !source.contains(&format!("let {name} = {name}.bypass_change_detection()"))
         });
         out
+    }
+
+    /// Whether `code` takes a `&mut` through `param` — either directly
+    /// (`&mut settings.theme`) or through the `SystemParam` bundle it is a
+    /// field of (`&mut card.settings.theme`), which is the shape a bundled
+    /// `ResMut` wears at every use site (#1276 f39).
+    ///
+    /// The last segment of the path is the FIELD being borrowed, so it is
+    /// never the parameter: `&mut foo.settings` borrows a whole resource
+    /// out of a bundle and is not a field write. Only an interior segment
+    /// counts.
+    fn borrows_through(code: &str, param: &str) -> bool {
+        code.match_indices("&mut ").any(|(at, _)| {
+            let path: &str = code[at + "&mut ".len()..]
+                .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.'))
+                .next()
+                .unwrap_or("");
+            let mut segments: Vec<&str> = path.split('.').collect();
+            segments.pop();
+            segments.contains(&param)
+        })
     }
 
     /// Lines in `source` that hand an egui widget a `&mut` straight through
@@ -1772,7 +1804,7 @@ pub(crate) mod glyph_coverage_tests {
                 continue;
             }
             for param in params {
-                if code.contains(&format!("&mut {param}.")) {
+                if borrows_through(code, param) {
                     out.push((n + 1, param.clone()));
                 }
             }
@@ -1841,6 +1873,27 @@ pub(crate) mod glyph_coverage_tests {
             .is_empty(),
             "banning every &mut through a ResMut would ban the writes that mean it"
         );
+        // A `ResMut` inside a `#[derive(SystemParam)]` bundle is declared
+        // without `mut` and reached through the bundle — invisible to both
+        // halves of the rule until #1276 f39.
+        let bundled = "    settings: ResMut<'w, LocalSettings>,\n\
+                       ui.selectable_value(&mut card.settings.theme, pref, pref.label());";
+        assert_eq!(res_mut_params(bundled), vec!["settings".to_string()]);
+        assert_eq!(
+            resource_fields_handed_to_widgets(bundled, &res_mut_params(bundled)).len(),
+            1,
+            "a bundled ResMut carries the same hazard as a bare one"
+        );
+        // Borrowing the whole resource OUT of a bundle is not a field
+        // write — the parameter has to be an interior path segment.
+        assert!(!borrows_through("ui.add(&mut card.settings)", "settings"));
+        assert!(borrows_through(
+            "ui.add(&mut card.settings.theme)",
+            "settings"
+        ));
+        assert!(borrows_through("ui.add(&mut settings.theme)", "settings"));
+        assert!(!borrows_through("ui.add(&mut other.theme)", "settings"));
+
         // A commented-out example is not a call.
         assert!(
             resource_fields_handed_to_widgets(
@@ -2231,6 +2284,8 @@ pub(crate) mod glyph_coverage_tests {
     #[test]
     fn ui_copy_calls_worn_things_wearables() {
         assert!(stray_worn_noun("Attachments").is_some());
+        // The Catalogue's own section header, which shipped until #1275.
+        assert!(stray_worn_noun("Attachment").is_some());
         assert!(
             stray_worn_noun("Vehicles carry no attachments — pilot a body to wear this.").is_some()
         );

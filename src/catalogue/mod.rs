@@ -55,13 +55,22 @@ impl CatalogueCategory {
 
     /// Display label shown as a section header in the catalogue
     /// window.
+    ///
+    /// The label and the variant name deliberately differ for
+    /// [`Self::Attachments`]: the product word for a worn thing is
+    /// **wearable** (#1266's decision 4), and every other surface — the
+    /// Avatar editor tab, its empty states, the undo label — already says
+    /// it. The variant keeps the wire-adjacent name it has carried since
+    /// #1086. `ui::fonts::glyph_coverage_tests::ui_copy_calls_worn_things_
+    /// wearables` walks this file (it is in `EXTRA_LABEL_SOURCES`) and
+    /// fails if the label drifts back.
     pub fn label(self) -> &'static str {
         match self {
             Self::Buildings => "Buildings",
             Self::Plants => "Plants",
             Self::Patterns => "Patterns",
             Self::Tools => "Tools",
-            Self::Attachments => "Attachments",
+            Self::Attachments => "Wearables",
         }
     }
 }
@@ -122,7 +131,7 @@ impl StructureRole {
             Self::Tool => "Tool",
             Self::Gateway => "Gateway",
             Self::Monument => "Monument",
-            Self::Attachment => "Attachment",
+            Self::Attachment => "Wearable",
         }
     }
 

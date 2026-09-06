@@ -29,6 +29,7 @@ pub fn settings_ui(
     profile_cache: Res<crate::avatar::BskyProfileCache>,
     clipboard: Res<crate::boot_params::ClipboardQueue>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
+    mut audio_muted: ResMut<crate::audio_mute::AudioMuted>,
     time: Res<Time>,
     // Whether "Reset window layout" has been pressed while this window
     // has been open (#1261 f45). A `Local` and not a frame-local, because
@@ -221,6 +222,44 @@ pub fn settings_ui(
                      editor says so."
                 })
                 .changed();
+
+            ui.add_space(8.0);
+            ui.separator();
+            // #1276 f38. Settings had Theme, Interface size, Camera,
+            // Network, Privacy, Effects, Login screen and Windows, and
+            // said nothing at all about sound — the only affordance in the
+            // app was an emoji toggle in the toolbar and its duplicate
+            // inside Diagnostics, neither of which is where a person looks
+            // for "why is this silent".
+            //
+            // There is no volume control, deliberately: this app has no
+            // master gain to put behind one. `audio_mute`'s module doc
+            // records why Bevy's `GlobalVolume` cannot serve as one here —
+            // it is read only when a sink is CREATED, so a sink born quiet
+            // stores a zero a later change cannot recover — and mute works
+            // instead by stashing and restoring each sink's own volume.
+            // A slider would have to be a real per-sink gain reconciler,
+            // which is a feature, not a settings row.
+            ui.strong("Audio");
+            // Guarded-dirty (#879 / #1274 f177): the widget gets a LOCAL,
+            // and the write-back happens on a real click. `prefs` watches
+            // this resource's change tick, so a `&mut` through the `ResMut`
+            // would re-save the prefs file every frame this window is open.
+            let mut muted = audio_muted.0;
+            if ui
+                .checkbox(&mut muted, "Mute all sound")
+                .on_hover_text(if muted {
+                    "On: the world is silent. The ambient bed, the props that \
+                     make noise, and footstep and contact sounds are all off."
+                } else {
+                    "Off: you hear the world — its ambient bed, the props that \
+                     make noise, and footstep and contact sounds."
+                })
+                .changed()
+            {
+                audio_muted.0 = muted;
+            }
+            ui.small("Remembered on this machine.");
 
             ui.add_space(8.0);
             ui.separator();

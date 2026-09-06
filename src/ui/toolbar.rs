@@ -351,6 +351,9 @@ pub struct AccountChip<'w, 's> {
     return_to_spawn: ResMut<'w, crate::player::PlayerMoveRequest>,
     /// Whether there is any ground to be returned TO.
     terrain: Option<Res<'w, crate::terrain::FinishedHeightMap>>,
+    /// #1276 f46: the verified handle of the world's owner, so the chip can
+    /// say whose world this is instead of printing a raw DID.
+    world_names: Res<'w, crate::ui::travel::WorldNames>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -524,17 +527,39 @@ pub fn toolbar_ui(
                         );
                         if let Some(room) = chip.current_room.as_deref() {
                             ui.separator();
-                            ui.label(if owns_room {
-                                "Current world: yours"
+                            if owns_room {
+                                ui.label("Current world: yours");
                             } else {
-                                "Current world:"
-                            });
-                            if !owns_room {
-                                ui.monospace(
-                                    egui::RichText::new(&room.0)
-                                        .small()
-                                        .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                                // #1276 f46. This said "Current world:" over
+                                // a bare `did:plc:x7q3k…` in monospace —
+                                // protocol jargon at a visitor, on the app's
+                                // identity home.
+                                //
+                                // Through the app's ONE naming ladder, with
+                                // the carried name coming from `WorldNames`
+                                // (#1276 f46 extended `resolve_world_names`
+                                // to ask about the room you are standing in).
+                                // The finding proposed `display_name_for_did`
+                                // over `BskyProfileCache`; that function was
+                                // retired by #1231 f27, and its cache is
+                                // filled by peer-driven fetches only — so a
+                                // world whose owner is not standing in it
+                                // would have produced a truncated DID, which
+                                // is the finding's own refuter's objection.
+                                // `travel_label` still falls back to exactly
+                                // that when the lookup has not landed or
+                                // failed, which is honest: an elided DID that
+                                // says it is elided beats a raw one.
+                                let name = crate::ui::travel::travel_label(
+                                    &chip.profile_cache,
+                                    &room.0,
+                                    chip.world_names.get(&room.0),
                                 );
+                                // The full DID stays one hover away — it is
+                                // the string a bug report needs and the only
+                                // unambiguous identifier for the world.
+                                ui.label(format!("Current world: {name}"))
+                                    .on_hover_text(&room.0);
                             }
                             let player_tf = chip.local_player.single().ok().copied();
                             if crate::ui::diagnostics::landmark_link_button(

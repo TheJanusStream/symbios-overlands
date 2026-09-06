@@ -99,17 +99,57 @@ fn leaf_slug(id: &str) -> Option<&str> {
 }
 
 /// Whether `e` matches the (already lower-cased) search query. Empty query
-/// matches everything; otherwise a substring of the name, slug, or any
-/// theme label.
+/// matches everything; otherwise a substring of the name, slug, any theme
+/// label, or the entry's own **category** and **role** labels.
+///
+/// The last two were added by #1275 f255. A user told by the Avatar editor
+/// to "copy a wearable from the Catalogue first" types the app's own word
+/// and used to get a blank pane, because the four wearables carry that word
+/// only on their category. The deliberate consequence is that a search for
+/// a taxonomy word now matches every entry filed under it — "plant" returns
+/// all the plants rather than only the ones with "plant" in the name — so
+/// the count above the tree is a count of the section, not of the name hits.
+/// That is what a search box over a sectioned list is expected to do; the
+/// alternative (name hits only) is what made the app's own instruction fail.
+///
+/// It does NOT make synonyms work: "hat" still matches nothing, because no
+/// field on `Gilded Circlet` contains the word. A synonym table would be a
+/// different feature and is not shipped here.
 fn matches(e: &dyn CatalogueEntry, q: &str) -> bool {
     if q.is_empty() {
         return true;
     }
     e.name().to_lowercase().contains(q)
         || e.slug().contains(q)
+        || e.category().label().to_lowercase().contains(q)
+        || e.role().label().to_lowercase().contains(q)
         || e.themes()
             .iter()
             .any(|t| t.label().to_lowercase().contains(q))
+}
+
+/// The sentence the tree column shows when nothing is listed (#1275 f255).
+///
+/// Zero matches used to render the count label "0 entries" over an empty
+/// `TreeView` and nothing else, beside a detail pane still saying "Select an
+/// item to see its details." — three widgets none of which said the search
+/// had come back empty, so a blank rectangle was the whole answer.
+///
+/// Both arms name the RULE rather than the outcome, which is #1232 f24's
+/// shape: the reachable set here is a function of what `matches` looks at,
+/// and that is not a thing a user can infer from "No matches."
+pub(crate) fn empty_state(query: &str) -> &'static str {
+    if query.trim().is_empty() {
+        // Unreachable with the shipped registry (392 entries, and every
+        // browse mode covers all of them — `every_mode_covers_all_entries`).
+        // It is here so a build that ships an empty registry says so instead
+        // of looking broken.
+        "This build shipped no catalogue entries."
+    } else {
+        "Nothing matches that search. The Catalogue looks at names, \
+         categories, roles and theme names — try \"wearables\", \"tools\", \
+         or a theme like \"medieval\"."
+    }
 }
 
 /// An entry tagged with *every* theme is a cross-theme prop (the civic
@@ -438,6 +478,13 @@ pub(crate) fn catalogue_ui(
                             .small()
                             .color(crate::ui::theme::current(ui.ctx()).text_weak),
                         );
+                        if total == 0 {
+                            ui.add_space(4.0);
+                            ui.add(egui::Label::new(empty_state(&browser.search)).wrap());
+                            if !browser.search.is_empty() && ui.button("Clear search").clicked() {
+                                browser.search.clear();
+                            }
+                        }
                         egui::ScrollArea::vertical()
                             .id_salt("catalogue_tree_scroll")
                             .auto_shrink([false, false])
@@ -895,12 +942,64 @@ mod tests {
     }
 
     #[test]
-    fn matches_is_case_insensitive_over_name_slug_and_theme() {
+    fn matches_is_case_insensitive_over_name_slug_theme_category_and_role() {
         let castle = by_slug("medieval_castle").unwrap();
         assert!(matches(castle, "castle"));
         assert!(matches(castle, "medieval")); // theme label + slug + name
         assert!(matches(castle, "")); // empty matches everything
         assert!(!matches(castle, "spaceship"));
+        // The category and role labels are searchable (#1275 f255), so the
+        // castle answers to its section as well as to its name.
+        assert!(matches(castle, "buildings"));
+        assert!(matches(castle, "landmark"));
+    }
+
+    /// The app's own instruction — "copy a wearable from the Catalogue
+    /// first" — has to find something when it is typed into the Catalogue
+    /// (#1275 f255).
+    ///
+    /// This is the whole point of searching the category and role labels,
+    /// so it is pinned against the REGISTRY rather than against one entry:
+    /// a new wearable that somehow lands outside the category would fail
+    /// here, which is the drift worth catching.
+    #[test]
+    fn searching_for_the_word_wearable_finds_every_wearable() {
+        let worn: Vec<&str> = ENTRIES
+            .iter()
+            .filter(|e| e.role() == crate::catalogue::StructureRole::Attachment)
+            .map(|e| e.slug())
+            .collect();
+        assert!(!worn.is_empty(), "the registry ships wearables");
+        for slug in &worn {
+            let e = by_slug(slug).expect("slug from the registry");
+            assert!(
+                matches(e, "wearable"),
+                "{slug} is not found by \"wearable\""
+            );
+        }
+        // And the word does not drag in the other 388 entries.
+        let nodes = build_nodes(BrowseMode::Name, "wearable");
+        let hits = all_slugs(&nodes);
+        assert_eq!(
+            hits.len(),
+            worn.len(),
+            "\"wearable\" matched beyond the category"
+        );
+    }
+
+    /// Zero matches says which fields were searched, and the no-query arm
+    /// says something different (#1275 f255).
+    #[test]
+    fn the_empty_state_names_the_rule() {
+        let searched = empty_state("zzzz");
+        for field in ["names", "categories", "roles", "theme"] {
+            assert!(searched.contains(field), "the sentence omits {field}");
+        }
+        assert_ne!(searched, empty_state(""));
+        assert_ne!(searched, empty_state("   "), "whitespace is not a query");
+        // The control: the shipped registry never reaches the no-query arm.
+        let all = build_nodes(BrowseMode::Name, "");
+        assert!(!all_slugs(&all).is_empty());
     }
 
     #[test]

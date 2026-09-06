@@ -101,6 +101,38 @@ pub struct PersistedPrefs {
     /// independent of upstream enum shape.
     #[serde(default)]
     pub gizmo: Option<GizmoPrefs>,
+    /// Master mute (#1276 f38). The last preference the app forgot.
+    ///
+    /// [`crate::audio_mute::AudioMuted`] defaults to `true` and its doc
+    /// asserted an app-level persistence that lived nowhere, so every
+    /// launch was silent and the procedural soundtrack had to be
+    /// rediscovered as a toolbar glyph each session.
+    #[serde(default)]
+    pub audio: Option<AudioPrefs>,
+}
+
+/// Serde mirror of [`crate::audio_mute::AudioMuted`] (#1276 f38).
+///
+/// A struct rather than a bare `Option<bool>` for the reason
+/// [`GizmoPrefs`] is one: the on-disk schema is independent of the
+/// resource, and a second audio preference (a master gain, if one is ever
+/// built — there is none today, see `audio_mute`'s module doc on why
+/// `GlobalVolume` is not it) grows a field here rather than a sibling key.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AudioPrefs {
+    pub muted: bool,
+}
+
+impl From<&crate::audio_mute::AudioMuted> for AudioPrefs {
+    fn from(m: &crate::audio_mute::AudioMuted) -> Self {
+        Self { muted: m.0 }
+    }
+}
+
+impl From<&AudioPrefs> for crate::audio_mute::AudioMuted {
+    fn from(p: &AudioPrefs) -> Self {
+        Self(p.muted)
+    }
 }
 
 /// Serde mirror of [`GizmoFramePref`] (#871).
@@ -149,6 +181,7 @@ impl PersistedPrefs {
         windows: &WindowLayout,
         muted_by_owner: &crate::state::MutedByOwner,
         gizmo: &GizmoFramePref,
+        audio: &crate::audio_mute::AudioMuted,
     ) -> Self {
         Self {
             panels: Some(panels.clone()),
@@ -161,6 +194,7 @@ impl PersistedPrefs {
             muted_dids: None,
             muted_by_owner: Some(muted_by_owner.clone()),
             gizmo: Some(gizmo.into()),
+            audio: Some(audio.into()),
         }
     }
 }
@@ -282,6 +316,12 @@ pub fn load_prefs_at_startup(mut commands: Commands) {
     if let Some(gizmo) = prefs.gizmo {
         commands.insert_resource(GizmoFramePref::from(&gizmo));
     }
+    // Absent means "no opinion", which for audio means the muted default
+    // stands (#1276 f38). Only an explicit remembered choice unsilences a
+    // launch — an upgrade does not start playing music at somebody.
+    if let Some(audio) = prefs.audio {
+        commands.insert_resource(crate::audio_mute::AudioMuted::from(&audio));
+    }
 }
 
 /// A pending save: the trailing-debounce deadline and the hard cap set
@@ -337,6 +377,7 @@ pub fn save_prefs_when_changed(
     mut muted_by_owner: ResMut<crate::state::MutedByOwner>,
     session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
     gizmo: Res<GizmoFramePref>,
+    audio: Res<crate::audio_mute::AudioMuted>,
     time: Res<Time>,
     mut debounce: Local<SaveDebounce>,
 ) {
@@ -346,7 +387,12 @@ pub fn save_prefs_when_changed(
         || muted_dids.is_changed()
         // Guarded-dirty at the source (#871): the editors borrow the
         // pref bypassed and tick it only on a real toggle/edit.
-        || gizmo.is_changed();
+        || gizmo.is_changed()
+        // Same discipline (#1276 f38): the toolbar toggle and the Settings
+        // checkbox both copy the bool out, hand the WIDGET the local, and
+        // write back only on a real click — so this ticks on a toggle and
+        // never merely because a panel that shows it is open.
+        || audio.is_changed();
     // Fold the live list back under its owner before capturing (#1223
     // f292). Guarded, because the fold itself must not dirty the resource
     // on a frame where nothing moved.
@@ -365,6 +411,7 @@ pub fn save_prefs_when_changed(
             &windows,
             &muted_by_owner,
             &gizmo,
+            &audio,
         ));
     }
 }
@@ -483,6 +530,7 @@ mod tests {
             muted_dids: Some(muted),
             muted_by_owner: Some(by_owner),
             gizmo: Some(gizmo),
+            audio: Some(AudioPrefs { muted: false }),
         };
         let json = serde_json::to_string(&prefs).unwrap();
         let back: PersistedPrefs = serde_json::from_str(&json).unwrap();
@@ -520,6 +568,11 @@ mod tests {
                 .0
                 .contains("did:plc:harasser"),
             "the account-scoped list is what a save writes now (#1223 f292)"
+        );
+        assert_eq!(
+            back.audio,
+            Some(AudioPrefs { muted: false }),
+            "an unmuted choice survives the wire (#1276 f38)"
         );
     }
 
@@ -694,6 +747,7 @@ mod tests {
             muted_dids: None,
             muted_by_owner: None,
             gizmo: None,
+            audio: None,
         };
         save_to_path(&path, &prefs).unwrap();
         let back = load_from_path(&path).unwrap();
@@ -704,5 +758,82 @@ mod tests {
         assert!(load_from_path(&path).is_none());
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #1276 f38. The sequence the finding describes: unmute, quit, come
+    /// back — and the world is silent again, because `AudioMuted` was the
+    /// one preference nothing ever wrote.
+    ///
+    /// Driven through the FULL round trip — `capture` → `save_to_path` →
+    /// `load_from_path` → the resource — rather than over the struct
+    /// alone, because the struct was never the part that was missing: the
+    /// gap was that `capture` did not read the resource and
+    /// `load_prefs_at_startup` did not install one. A test over
+    /// `PersistedPrefs` on its own would have passed against the shipped
+    /// code.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn an_unmuted_choice_survives_a_restart() {
+        let dir = std::env::temp_dir().join(format!("symbios-audio-prefs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("prefs.json");
+
+        let unmuted = crate::audio_mute::AudioMuted(false);
+        let captured = PersistedPrefs::capture(
+            &UiPanels::default(),
+            &LocalSettings::default(),
+            &WindowLayout::default(),
+            &crate::state::MutedByOwner::default(),
+            &GizmoFramePref::default(),
+            &unmuted,
+        );
+        save_to_path(&path, &captured).unwrap();
+
+        let back = load_from_path(&path).expect("the file we just wrote loads");
+        let restored = crate::audio_mute::AudioMuted::from(
+            back.audio.as_ref().expect("capture writes the audio key"),
+        );
+        assert_eq!(restored, unmuted, "the next launch is not silent");
+
+        // And the muted direction round-trips too, so the test is not
+        // passing on `AudioMuted`'s own default.
+        let muted = crate::audio_mute::AudioMuted(true);
+        let captured = PersistedPrefs::capture(
+            &UiPanels::default(),
+            &LocalSettings::default(),
+            &WindowLayout::default(),
+            &crate::state::MutedByOwner::default(),
+            &GizmoFramePref::default(),
+            &muted,
+        );
+        save_to_path(&path, &captured).unwrap();
+        let back = load_from_path(&path).expect("the file we just wrote loads");
+        assert_eq!(
+            crate::audio_mute::AudioMuted::from(back.audio.as_ref().unwrap()),
+            muted
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A prefs file written before #1276 f38 has no audio key, and that
+    /// must leave the launch SILENT.
+    ///
+    /// The opposite of the nametag rule above, and deliberately so: an
+    /// absent boolean means "no opinion", and the app's no-opinion answer
+    /// for sound is the muted default it has always had. An upgrade that
+    /// read a missing key as "unmuted" would start playing music at
+    /// somebody who had never asked for any.
+    #[test]
+    fn a_prefs_file_written_before_the_audio_key_still_launches_silent() {
+        let older = r#"{"panels":{"chat":true}}"#;
+        let prefs: PersistedPrefs = serde_json::from_str(older).expect("older prefs load");
+        assert!(prefs.audio.is_none(), "the key is absent");
+        // `load_prefs_at_startup` inserts nothing for `None`, so the
+        // `init_resource` default stands.
+        assert!(
+            crate::audio_mute::AudioMuted::default().0,
+            "and the default is muted"
+        );
     }
 }

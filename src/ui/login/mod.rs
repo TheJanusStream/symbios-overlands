@@ -262,8 +262,9 @@ pub struct WasmResumeState<'w, 's> {
 /// `IntoSystem` ceiling and #1227 and #1234 both wanted that slot.
 ///
 /// `label` is the verified name for a landmark link's destination (#1227
-/// f250) and `clipboard` is where "Copy login URL" reports what it actually
-/// did (#1234 f8) — unrelated to each other, related only in that neither
+/// f250), `clipboard` is where "Copy login URL" reports what it actually
+/// did (#1234 f8), and `settings` carries the login screen's own theme
+/// picker (#1276 f39) — unrelated to each other, related only in that none
 /// justifies the last free slot on its own.
 #[derive(SystemParam)]
 pub struct LoginCardDeps<'w> {
@@ -273,6 +274,14 @@ pub struct LoginCardDeps<'w> {
     /// tab IS the browser.
     #[cfg(not(target_arch = "wasm32"))]
     clipboard: Res<'w, crate::boot_params::ClipboardQueue>,
+    /// The theme, for the picker at the foot of the card (#1276 f39).
+    ///
+    /// Written through the guarded-dirty idiom like every other writer of
+    /// this resource: the widget gets a LOCAL and the write-back happens on
+    /// a real change, or the prefs debounce would re-save for every frame
+    /// the login screen is on screen. `no_widget_writes_straight_through_a_
+    /// resmut` sees a bundled `ResMut` since #1276 f39 and will say so.
+    settings: ResMut<'w, crate::state::LocalSettings>,
 }
 
 #[derive(Clone)]
@@ -307,7 +316,7 @@ pub fn login_ui(
     theme: Res<crate::ui::theme::CurrentTheme>,
     attract: Option<Res<crate::attract::AttractScene>>,
     terrain_mesh: Query<(), With<crate::terrain::TerrainMesh>>,
-    card: LoginCardDeps,
+    mut card: LoginCardDeps,
     #[cfg(not(target_arch = "wasm32"))] mut native: NativeWaitState,
     #[cfg(target_arch = "wasm32")] mut wasm: WasmResumeState,
 ) {
@@ -918,6 +927,66 @@ pub fn login_ui(
                         posts::open_url_in_browser(crate::config::login::SIGNUP_URL);
                     }
                 });
+
+                // The theme picker, on the one screen that had none (#1276
+                // f39). High contrast exists "for low-vision use and harsh
+                // ambient light" and lived only inside a window gated on
+                // `AppState::InGame` — so the single journey a low-vision
+                // user has to complete before anything else was the one
+                // journey where it could not be turned on.
+                //
+                // Three labels here rather than registering the whole
+                // Settings window for `AppState::Login`, which was the
+                // finding's first suggestion. Settings is nine sections and
+                // most of them are wrong before sign-in: `muted_people_section`
+                // reads `MutedDids`, and `prefs::adopt_owner_mute_list`
+                // installs that at the moment a session appears — so a
+                // pre-login list is nobody's, and an edit to it would land
+                // under whichever account signed in next. That is #1223
+                // f292's defect, reintroduced by a registration line.
+                // Settings is also a `WindowChrome`-placed window, and the
+                // login screen deliberately draws no toolbar and no windows
+                // at all: it is two frameless `Area`s centred as a pair.
+                //
+                // Interface SIZE needs nothing here — `theme::sync_ui_scale`
+                // runs unconditionally in `Update`, so Ctrl+plus and
+                // Ctrl+minus already work on this screen and are already
+                // persisted.
+                //
+                // At the foot of the card and not in a corner of the screen
+                // on purpose: the card carries its own contrast guarantee
+                // over both backdrops (#1258 f237, #1283, #1284), the pair's
+                // geometry is computed from the live screen rect every frame,
+                // and a floating control would have to re-earn all of that
+                // over a live world backdrop.
+                ui.add_space(8.0);
+                ui.separator();
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(egui::RichText::new("Display:").color(theme.0.text_weak));
+                    // Guarded-dirty (#879): the widget gets the local.
+                    let mut pick = card.settings.theme;
+                    let mut picked = false;
+                    for pref in [
+                        crate::ui::theme::UserTheme::Dark,
+                        crate::ui::theme::UserTheme::Light,
+                        crate::ui::theme::UserTheme::HighContrast,
+                    ] {
+                        picked |= ui
+                            .selectable_value(&mut pick, pref, pref.label())
+                            .changed();
+                    }
+                    if picked {
+                        card.settings.theme = pick;
+                    }
+                });
+                ui.label(
+                    egui::RichText::new(
+                        "Applies immediately; remembered on this machine. More \
+                         under Settings once you are signed in.",
+                    )
+                    .small()
+                    .color(theme.0.text_weak),
+                );
             });
         });
 

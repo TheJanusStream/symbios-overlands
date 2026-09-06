@@ -104,6 +104,10 @@ pub struct Toast {
     /// Queue-unique id so the ✕ button can dismiss exactly this entry
     /// even while neighbours expire out from under the loop.
     id: u64,
+    /// How many times this exact `(kind, text)` has been pushed while it
+    /// was the newest entry (#1277 f23). `1` for an ordinary toast; the
+    /// row renders a `×N` badge above that.
+    repeats: u32,
 }
 
 /// The app-wide toast queue. Push from any system with the current
@@ -134,14 +138,40 @@ pub(crate) fn elide(text: &str, max_chars: usize) -> String {
 impl Toasts {
     /// Queue a toast. `now` is `Time::elapsed_secs_f64` — passed in
     /// rather than read here so the queue logic stays unit-testable.
+    ///
+    /// **Repeats coalesce** (#1277 f23). A repeating event used to spend
+    /// the whole channel: `respawn_if_fallen` runs in `FixedUpdate` and
+    /// pushes on every respawn, so a fall loop filled all
+    /// [`cfg::MAX_VISIBLE`] slots with the same sentence within a second
+    /// and evicted the publish failure, gift offer or arrival message
+    /// raised in those seconds — exactly when the session was in trouble
+    /// and other feedback mattered most.
+    ///
+    /// The comparison is against the **newest queued entry only**, never a
+    /// scan of the queue. Merging with an older entry would fold two
+    /// unrelated bursts together whenever they happened to interleave, and
+    /// would resurrect a message the user has already read past; adjacency
+    /// is what makes "this is still happening" true.
     pub fn push(&mut self, kind: ToastKind, text: impl Into<String>, now: f64) {
+        let text = elide(&text.into(), cfg::MAX_TEXT_CHARS);
+        if let Some(last) = self.queue.last_mut()
+            && last.kind == kind
+            && last.text == text
+        {
+            last.repeats = last.repeats.saturating_add(1);
+            // Refreshed, not extended: the card lives `DURATION_SECS` from
+            // the LAST occurrence, so a loop that stops stops being shown.
+            last.expires_at = now + cfg::DURATION_SECS;
+            return;
+        }
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1);
         self.queue.push(Toast {
             kind,
-            text: elide(&text.into(), cfg::MAX_TEXT_CHARS),
+            text,
             expires_at: now + cfg::DURATION_SECS,
             id,
+            repeats: 1,
         });
         // Oldest-first eviction keeps the newest feedback visible.
         while self.queue.len() > cfg::MAX_VISIBLE {
@@ -177,6 +207,13 @@ impl Toasts {
             .iter()
             .map(|t| (t.kind, t.text.as_str()))
             .collect()
+    }
+
+    /// How many times the newest entry has repeated (#1277 f23). `None`
+    /// on an empty queue.
+    #[cfg(test)]
+    pub(crate) fn newest_repeats(&self) -> Option<u32> {
+        self.queue.last().map(|t| t.repeats)
     }
 
     fn prune(&mut self, now: f64) {
@@ -246,6 +283,18 @@ pub fn toast_ui(
                         // "something just happened" channel and it was set
                         // in the smallest type on the screen (#1259 f243).
                         ui.add(egui::Label::new(&toast.text).wrap_mode(egui::TextWrapMode::Wrap));
+                        // The count a coalesced repeat carries (#1277
+                        // f23). Only above 1, so an ordinary toast is
+                        // unchanged, and weak-coloured: the badge says
+                        // "again", it is not a second message.
+                        if toast.repeats > 1 {
+                            ui.label(
+                                egui::RichText::new(format!("×{}", toast.repeats))
+                                    .small()
+                                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                            )
+                            .on_hover_text("This message has repeated.");
+                        }
                         if ui
                             .small_button(crate::ui::affordances::CROSS)
                             .on_hover_text("Dismiss")
@@ -320,6 +369,85 @@ mod tests {
             toasts.queue.last().unwrap().text,
             format!("t{}", cfg::MAX_VISIBLE + 2)
         );
+    }
+
+    /// A repeating event no longer spends the whole channel (#1277 f23).
+    ///
+    /// This is the pairing the finding describes, and both halves are
+    /// asserted over the SAME script, because the defect was never the
+    /// duplicate cards — it was the unrelated message they evicted while
+    /// nobody was reading them. `respawn_if_fallen` runs in `FixedUpdate`,
+    /// so a fall loop reaches `MAX_VISIBLE` in well under a second.
+    #[test]
+    fn a_repeating_message_coalesces_instead_of_evicting_the_others() {
+        // The shape that shipped: something the user needs, then a loop.
+        let mut old_way = Toasts::default();
+        old_way.error("Saving your world failed — the server refused it.", 0.0);
+        for i in 0..cfg::MAX_VISIBLE + 4 {
+            // Distinct text stands in for the un-coalesced behaviour: the
+            // point is what a queue of MAX_VISIBLE arrivals does to the
+            // entry underneath it.
+            old_way.warn(format!("Returned to spawn — you fell out. {i}"), 0.1);
+        }
+        assert!(
+            !old_way
+                .shown()
+                .iter()
+                .any(|(_, t)| t.starts_with("Saving your world failed")),
+            "the control: an uncoalesced burst evicts the message that mattered"
+        );
+
+        // The shape that ships now.
+        let mut toasts = Toasts::default();
+        toasts.error("Saving your world failed — the server refused it.", 0.0);
+        for _ in 0..cfg::MAX_VISIBLE + 4 {
+            toasts.warn("Returned to spawn — you fell out of the world.", 0.1);
+        }
+        assert_eq!(toasts.queue.len(), 2, "the loop occupies exactly one slot");
+        assert!(
+            toasts.shown()[0].1.starts_with("Saving your world failed"),
+            "and the message that mattered is still on screen"
+        );
+        assert_eq!(toasts.newest_repeats(), Some(cfg::MAX_VISIBLE as u32 + 4));
+    }
+
+    /// Coalescing compares the NEWEST entry only, so two interleaved
+    /// bursts stay two messages (#1277 f23).
+    ///
+    /// Scanning the whole queue would merge them — and would resurrect a
+    /// card the user had already read past, by refreshing an expiry
+    /// several seconds old. Adjacency is what makes "this is still
+    /// happening" a true statement.
+    #[test]
+    fn only_the_newest_entry_coalesces() {
+        let mut toasts = Toasts::default();
+        toasts.warn("fell", 0.0);
+        toasts.info("a friend arrived", 1.0);
+        toasts.warn("fell", 2.0);
+        assert_eq!(toasts.queue.len(), 3);
+        assert_eq!(toasts.newest_repeats(), Some(1));
+
+        // Kind is part of the identity: the same words at a different
+        // severity are a different statement.
+        let mut kinds = Toasts::default();
+        kinds.warn("same words", 0.0);
+        kinds.error("same words", 0.0);
+        assert_eq!(kinds.queue.len(), 2);
+    }
+
+    /// A coalesced card lives `DURATION_SECS` from the LAST occurrence,
+    /// not from the first — so a loop that stops, stops being shown
+    /// (#1277 f23).
+    #[test]
+    fn a_repeat_refreshes_the_expiry_rather_than_extending_it() {
+        let mut toasts = Toasts::default();
+        toasts.warn("fell", 0.0);
+        toasts.warn("fell", 4.0);
+        assert_eq!(toasts.queue[0].expires_at, 4.0 + cfg::DURATION_SECS);
+        // Still bounded: the card is gone one duration after the loop
+        // ends, however long the loop ran.
+        toasts.prune(4.0 + cfg::DURATION_SECS + 0.1);
+        assert!(toasts.queue.is_empty());
     }
 
     /// The newest toast sits against the anchored edge, so a fixed spot

@@ -1443,9 +1443,23 @@ fn render_log_export_controls(
 /// "Copy Landmark Link" — emits a shareable URL pointing at the WASM
 /// build with the local player's current room DID, exact world position,
 /// and yaw in degrees. Visible to visitors as well as owners (any player
-/// in the room can share where they are). Shared by the Diagnostics
-/// Session tab and the toolbar's account chip (#835); returns whether
-/// the button was clicked so the chip can close its menu.
+/// in the room can share where they are); returns whether the button was
+/// clicked so the caller can close its menu.
+///
+/// **The toolbar's account chip is the only call site** (#835). This
+/// comment used to claim the Diagnostics Session tab drew it too; #1274
+/// f192 rewrote that tab around `SessionIdentity` and left the sentence
+/// standing, and #1276 f47's own value refuter is what caught it — the
+/// finding built "so both surfaces are affected" on top of it. Kept as a
+/// function rather than inlined because a shareable-link builder with a
+/// disabled state and a clipboard side-effect is not toolbar code.
+///
+/// The disabled hover is the point of #1276 f47: egui shows `on_hover_text`
+/// only for an ENABLED response, so a button greyed out because
+/// `LocalPlayer` is momentarily absent — during spawn, and across a
+/// locomotion hot-swap — said nothing at all. `on_disabled_hover_text` is
+/// the idiom this file's caller already uses correctly for the visitor's
+/// World Editor button (`toolbar.rs`).
 pub(crate) fn landmark_link_button(
     ui: &mut egui::Ui,
     room_did: &str,
@@ -1455,6 +1469,10 @@ pub(crate) fn landmark_link_button(
     let clicked = ui
         .add_enabled(player_tf.is_some(), egui::Button::new("Copy Landmark Link"))
         .on_hover_text("Copy a link that drops a visitor exactly where you are standing")
+        .on_disabled_hover_text(
+            "Available once your avatar has finished appearing — the link \
+             records where you are standing.",
+        )
         .clicked();
     if clicked && let Some(tf) = player_tf {
         // Every locomotion preset writes its yaw into the chassis

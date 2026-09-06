@@ -31,10 +31,30 @@ use bevy::prelude::*;
 
 /// App-wide master-mute flag. `true` = everything silent.
 ///
-/// Defaults to **muted** so the app launches silent (the owner opts in
-/// to sound via the toolbar). Deliberately *not* reset on logout — it's
-/// an app-level preference, not session state, so a relog keeps the
-/// owner's choice.
+/// Defaults to **muted** so a first launch is silent (the owner opts in
+/// to sound via the toolbar or the Settings window's Audio section).
+/// Deliberately *not* reset on logout — it's an app-level preference, not
+/// session state, so a relog keeps the owner's choice.
+///
+/// Since #1276 f38 it is also **persisted**, as `prefs::AudioPrefs`. The
+/// paragraph above used to end "…so a relog keeps the owner's choice",
+/// and that was the whole claim: nothing wrote the flag anywhere, so
+/// every process start reset it to muted and the DID-seeded soundtrack
+/// had to be rediscovered as a toolbar glyph each session. Corrected in
+/// place rather than deleted, because a doc comment that asserted a
+/// persistence that did not exist is what made the gap invisible to
+/// maintainers as well as to users.
+///
+/// **Absent from the prefs file still means muted.** Only an explicitly
+/// remembered `false` unsilences a launch, so an upgrade never starts
+/// playing music at somebody who never asked for it.
+///
+/// Every writer copies the bool out, hands the WIDGET the local and
+/// writes back only on a real click (#879, and the
+/// `no_widget_writes_straight_through_a_resmut` scan from #1274 f177) —
+/// `save_prefs_when_changed` watches this resource's change tick, so a
+/// `&mut` taken straight through the `ResMut` would re-save the prefs
+/// file for as long as a panel showing the toggle stayed open.
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AudioMuted(pub bool);
 

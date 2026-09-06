@@ -279,7 +279,7 @@ pub(crate) fn cleanup_on_logout(
         ResMut<bevy_egui::EguiUserTextures>,
         // Likewise (#1231 f27) — this system is at the 16-parameter
         // ceiling, and the portal-name map is one more thing to forget.
-        ResMut<crate::ui::travel::PortalNames>,
+        ResMut<crate::ui::travel::WorldNames>,
     ),
     mut avatar_cache: ResMut<PeerAvatarCache>,
     mut bsky_cache: ResMut<BskyProfileCache>,
