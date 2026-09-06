@@ -1089,7 +1089,34 @@ pub mod state {
     /// blob cannot force the client into a multi-megabyte allocation at
     /// login, and consulted by the item-offer accept path so a peer
     /// cannot gift you over the cap.
-    pub const MAX_INVENTORY_ITEMS: usize = 50;
+    ///
+    /// **500 since #1292; it was 50, chosen before #696 made the stash one
+    /// record PER ITEM.** Under the pre-#696 monolith the whole stash was a
+    /// single record against a 100 KiB soft budget, and 50 was a reasonable
+    /// guess at what fit. That constraint no longer exists: each item is its
+    /// own record with its own budget, and the publish path chunks by both
+    /// write count and request bytes (`xrpc::chunk_writes`), so nothing on
+    /// the wire cares how many items there are.
+    ///
+    /// What DOES bound it, measured across all 392 catalogue entries
+    /// (median item 7.2 KiB, p90 23.8 KiB):
+    ///
+    /// * **The fetch walk.** `listRecords` returns 100 per page, so the
+    ///   ceiling is [`MAX_INVENTORY_LIST_PAGES`] × 100 and a stash past it
+    ///   would load SILENTLY TRUNCATED. The two `const` assertions at the
+    ///   foot of this file keep that impossible.
+    /// * **The Inventory panel's dirty check**, which was the real
+    ///   ceiling and is not a wire limit at all. It built a whole-stash
+    ///   `serde_json::Value` every frame the panel was open: 3.0 ms at 50
+    ///   items, 17.5 ms at 200 — past the entire 60 fps budget — and 33.9 ms
+    ///   at 500. #1292 caches it on the resource's change tick, so an idle
+    ///   panel now pays nothing and only an edit re-serializes.
+    ///
+    /// What is left at 500 is ~3.3 ms/frame of unvirtualized row layout
+    /// (6.6 µs per row, measured), which the search field added in #1275
+    /// f134 usually cuts to a handful of rows. Virtualizing the list is the
+    /// next lever if the cap ever rises again.
+    pub const MAX_INVENTORY_ITEMS: usize = 500;
 
     /// Hard DoS bound `InventoryRecord::sanitize` truncates at — NOT the
     /// gameplay cap above (#841). Sanitize used to truncate straight to
@@ -1099,21 +1126,45 @@ pub mod state {
     /// Inventory window shows it red and blocks publishing until it's
     /// pruned — while a hostile PDS still can't force an unbounded
     /// allocation. Matches the [`MAX_INVENTORY_LIST_PAGES`] fetch ceiling
-    /// (2 pages × 100 records), so nothing the fetch can return is ever
+    /// (6 pages × 100 records), so nothing the fetch can return is ever
     /// truncated.
-    pub const MAX_INVENTORY_SANITIZE_ITEMS: usize = 200;
+    pub const MAX_INVENTORY_SANITIZE_ITEMS: usize = 600;
 
     /// Maximum `com.atproto.repo.listRecords` pages (100 records each) the
-    /// inventory-item fetch walks before stopping (#696). Two pages scan
-    /// four times the [`MAX_INVENTORY_ITEMS`] cap — ample for any legitimate
-    /// stash — while a hostile PDS handing out endless cursors cannot keep
-    /// the client paging forever.
-    pub const MAX_INVENTORY_LIST_PAGES: usize = 2;
+    /// inventory-item fetch walks before stopping (#696, raised for #1292).
+    ///
+    /// Six pages cover the [`MAX_INVENTORY_ITEMS`] cap with one page of
+    /// headroom — enough that an over-cap stash LOADS INTACT and can be
+    /// pruned (#841's rule: never silently delete what the owner watched
+    /// get saved) — while a hostile PDS handing out endless cursors cannot
+    /// keep the client paging forever.
+    ///
+    /// **Page count is no longer the memory bound.** It used to be: each
+    /// page is capped at `xrpc::MAX_FETCH_BODY_BYTES` (16 MiB) on its own,
+    /// so raising 2 → 6 would have tripled what a malicious PDS could make
+    /// the client hold, from 32 MiB to 96 MiB — and on wasm the heap never
+    /// shrinks, so that is permanent for the session. The walk carries one
+    /// [`MAX_INVENTORY_FETCH_BYTES`] budget across all of its pages
+    /// instead, which is *tighter* than the ceiling the two-page walk had.
+    pub const MAX_INVENTORY_LIST_PAGES: usize = 6;
+
+    /// Total decoded bytes the inventory fetch walk may consume across ALL
+    /// its pages (#1292).
+    ///
+    /// One budget for the whole walk, so [`MAX_INVENTORY_LIST_PAGES`] can
+    /// grow with the item cap without the hostile-input ceiling growing
+    /// with it.
+    ///
+    /// 24 MiB against a measured 4.2 MiB for 600 median items and 14 MiB
+    /// for 600 at the catalogue's p90 — headroom for a stash of unusually
+    /// heavy items, and still below the 32 MiB the old two-page walk
+    /// allowed.
+    pub const MAX_INVENTORY_FETCH_BYTES: usize = 24 * 1024 * 1024;
 
     /// Maximum characters in an inventory item's display name. Items whose
     /// fetched name exceeds this are cut to it by `InventoryRecord::sanitize`
     /// (deterministically, before the count cap) so a hostile PDS cannot
-    /// smuggle megabyte strings through 50 item names. Cut, not dropped
+    /// smuggle megabyte strings through the stash's item names. Cut, not dropped
     /// (#1205): the rename dialog enforces the same bound, and an item the
     /// owner watched save must not vanish at the next login.
     pub const MAX_INVENTORY_NAME_CHARS: usize = 256;
@@ -1902,9 +1953,29 @@ pub(crate) mod ui {
 // fixed: sanitise silently deleting items the user watched get saved.
 const _: () = assert!(state::MAX_INVENTORY_SANITIZE_ITEMS >= state::MAX_INVENTORY_ITEMS);
 
-// "Matches the MAX_INVENTORY_LIST_PAGES fetch ceiling (2 pages x 100
+// "Matches the MAX_INVENTORY_LIST_PAGES fetch ceiling (6 pages x 100
 // records), so nothing the fetch can return is ever truncated."
 const _: () = assert!(state::MAX_INVENTORY_LIST_PAGES * 100 <= state::MAX_INVENTORY_SANITIZE_ITEMS);
+
+// The fetch must be able to READ BACK a full stash (#1292). Without this a
+// raise to MAX_INVENTORY_ITEMS alone would let the owner save items that the
+// next login silently drops on the floor — the walk stops after
+// MAX_INVENTORY_LIST_PAGES with no signal that a cursor remained.
+const _: () = assert!(state::MAX_INVENTORY_LIST_PAGES * 100 >= state::MAX_INVENTORY_ITEMS);
+
+// "Page count is no longer the memory bound" (#1292). Per-page caps MULTIPLY:
+// each page may spend MAX_FETCH_BODY_BYTES, so the two-page walk this replaced
+// allowed 32 MiB and six pages would allow 96 MiB — and on wasm the heap never
+// shrinks, so a login-time spike is resident for the session. The walk's own
+// budget must stay tighter than what two pages already allowed…
+const _: () =
+    assert!(state::MAX_INVENTORY_FETCH_BYTES <= 2 * crate::pds::xrpc::MAX_FETCH_BODY_BYTES);
+// …and it must be the binding limit, or the assertion above is satisfied by a
+// number that never applies because the per-page caps bind first.
+const _: () = assert!(
+    state::MAX_INVENTORY_FETCH_BYTES
+        < state::MAX_INVENTORY_LIST_PAGES * crate::pds::xrpc::MAX_FETCH_BODY_BYTES
+);
 
 // "Four pages cover the sanitize::limits::MAX_GENERATORS = 256 room cap with
 // headroom" — a claim about a number in another file, which has been raised

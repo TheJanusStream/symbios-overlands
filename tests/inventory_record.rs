@@ -33,8 +33,8 @@ fn inventory_round_trips_through_json() {
 #[test]
 fn sanitize_bounds_the_stash_at_the_dos_backstop_not_the_gameplay_cap() {
     // #841 changed the contract this test used to pin: sanitize no longer
-    // truncates to the 50-item gameplay cap (that silently deleted items
-    // in lexicographic order on login — the alphabet chose which). An
+    // truncates to the gameplay cap (that silently deleted items in
+    // lexicographic order on login — the alphabet chose which). An
     // over-cap stash must now SURVIVE the load — the Inventory window
     // surfaces it red and blocks publishing until the user prunes — while
     // the hostile-PDS DoS backstop still bounds the allocation.
@@ -46,10 +46,18 @@ fn sanitize_bounds_the_stash_at_the_dos_backstop_not_the_gameplay_cap() {
         .get("base_terrain")
         .cloned()
         .unwrap();
-    for i in 0..500 {
+    // Sized FROM the backstop, not a literal (#1292). This used to build a
+    // flat 500 items, chosen when the cap was 50 and the backstop 200 — a
+    // number that was comfortably over both and then became exactly the
+    // cap and under the backstop, so the test failed on the raise while
+    // the behaviour it guards was unchanged. A fixture that encodes the
+    // constants it is testing survives the next one.
+    let over = bound + 50;
+    for i in 0..over {
         inv.generators
             .insert(format!("slot_{i:04}"), template.clone());
     }
+    assert!(over > bound && bound > cap, "the fixture must exceed both");
     inv.sanitize();
     assert!(
         inv.generators.len() > cap,

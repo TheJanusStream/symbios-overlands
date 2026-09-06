@@ -131,22 +131,43 @@ pub(crate) async fn read_capped_text(resp: reqwest::Response) -> String {
 pub(crate) async fn decode_record_json<T: DeserializeOwned>(
     resp: reqwest::Response,
 ) -> Result<T, FetchError> {
+    decode_record_json_within(resp, MAX_FETCH_BODY_BYTES)
+        .await
+        .map(|(value, _)| value)
+}
+
+/// [`decode_record_json`] under a CALLER-CHOSEN cap, returning the bytes it
+/// consumed alongside the value (#1292).
+///
+/// A paged walk needs this. [`MAX_FETCH_BODY_BYTES`] bounds ONE body, so a
+/// walk of `n` pages has a hostile ceiling of `n × 16 MiB` — meaning every
+/// page added to a fetch budget silently triples, quadruples, quintuples
+/// the memory a malicious PDS can make the client hold. On wasm that is
+/// worse than it sounds: the heap never shrinks (see the WASM memory
+/// notes), so a login spike is permanent resident memory for the session.
+///
+/// Returning the consumed byte count lets a caller carry ONE budget across
+/// its whole walk and stop when it is spent, so the page count and the
+/// memory bound stop being the same decision.
+pub(crate) async fn decode_record_json_within<T: DeserializeOwned>(
+    resp: reqwest::Response,
+    cap: usize,
+) -> Result<(T, usize), FetchError> {
     // Cheap early reject when the server is honest about an oversized body.
     if let Some(len) = resp.content_length()
-        && len as usize > MAX_FETCH_BODY_BYTES
+        && len as usize > cap
     {
         return Err(FetchError::Decode(format!(
-            "record body {len} bytes exceeds {MAX_FETCH_BODY_BYTES}-byte cap"
+            "record body {len} bytes exceeds {cap}-byte cap"
         )));
     }
-    let bytes = read_capped_body(resp, MAX_FETCH_BODY_BYTES)
+    let bytes = read_capped_body(resp, cap)
         .await
-        .ok_or_else(|| {
-            FetchError::Decode(format!(
-                "record body exceeded {MAX_FETCH_BODY_BYTES}-byte cap"
-            ))
-        })?;
-    serde_json::from_slice(&bytes).map_err(|e| FetchError::Decode(e.to_string()))
+        .ok_or_else(|| FetchError::Decode(format!("record body exceeded {cap}-byte cap")))?;
+    let read = bytes.len();
+    serde_json::from_slice(&bytes)
+        .map(|value| (value, read))
+        .map_err(|e| FetchError::Decode(e.to_string()))
 }
 
 /// Stream `client.get(url)` and decode the body as JSON, aborting if

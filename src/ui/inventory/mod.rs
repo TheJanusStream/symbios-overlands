@@ -134,6 +134,13 @@ pub struct InventoryEditorState {
     /// editor and said the pattern applied elsewhere too; inventory was
     /// left behind.
     ///
+    /// #1135 took it from three trees a frame to one, and stopped there.
+    /// The remaining one was still the whole stash, EVERY frame: measured
+    /// at 3.0 ms with the old 50-item cap and 33.9 ms at 500. See
+    /// [`Self::live_baseline`], which #1292 added to close it — that, and
+    /// not any limit on the wire, is what the item cap was really bounded
+    /// by.
+    ///
     /// The original wording of this comment said "the room and avatar
     /// editors", and that was wrong: the avatar editor had a cache for the
     /// default RECORD and no serialized baseline on either side, so it
@@ -151,6 +158,34 @@ pub struct InventoryEditorState {
     /// procedural build behind it — `InventoryRecord::default()` is empty —
     /// so it is built once on first use and never invalidated.
     default_baseline: Option<Option<serde_json::Value>>,
+    /// Serialized form of [`LiveInventoryRecord`] for the same dirty check
+    /// (#1292), keyed on the resource's change tick like
+    /// [`Self::stored_baseline`].
+    ///
+    /// #1135 cut this footer from three whole-record serializations a frame
+    /// to one, and stopped there because the LIVE side has no tick to key
+    /// on — except that it does, and the cap was small enough that nobody
+    /// measured. It is not small any more: a whole-stash
+    /// `serde_json::Value` costs 3.0 ms at 50 items, 17.5 ms at 200 — past
+    /// the entire 60 fps frame budget — and 33.9 ms at 500, EVERY FRAME the
+    /// panel is open. That, not any wire limit, was what
+    /// `MAX_INVENTORY_ITEMS` was really bounded by.
+    ///
+    /// Cached, an idle panel pays nothing and only an edit re-serializes.
+    /// The one-frame lag this introduces is the one the footer already
+    /// documents and accepts for `stored_baseline`.
+    live_baseline: Option<(bevy::ecs::change_detection::Tick, Option<serde_json::Value>)>,
+    /// Change tick the size readout was last MEASURED at (#1292) — the
+    /// generation latch the room and avatar editors already use for the
+    /// same call (#1270 f418).
+    ///
+    /// A latch and not a one-frame "was edited" flag, because
+    /// `refresh_size_readout` may decline: it throttles to
+    /// `SIZE_READOUT_REFRESH_SECS`, so an edit landing inside that window
+    /// would have its single frame of "changed" swallowed and the readout
+    /// would show the pre-edit size until the NEXT edit. Advanced only when
+    /// a measurement actually lands, so a declined refresh is retried.
+    size_readout_tick: Option<bevy::ecs::change_detection::Tick>,
 }
 
 /// Async task for publishing the inventory record to the owner's PDS. Carries
@@ -660,7 +695,21 @@ pub fn inventory_ui(
                     state.default_baseline =
                         Some(serde_json::to_value(InventoryRecord::default()).ok());
                 }
-                let live_value = serde_json::to_value(&live.0).ok();
+                // The live side is cached on its own change tick too
+                // (#1292) — see `live_baseline`. `edited` is the fact the
+                // size readout below needs as well, so it is derived once.
+                let edited = state
+                    .live_baseline
+                    .as_ref()
+                    .is_none_or(|(tick, _)| *tick != live.last_changed());
+                if edited {
+                    state.live_baseline =
+                        Some((live.last_changed(), serde_json::to_value(&live.0).ok()));
+                }
+                let live_value = state
+                    .live_baseline
+                    .as_ref()
+                    .and_then(|(_, value)| value.clone());
                 let dirty = match state.stored_baseline.as_ref() {
                     Some((_, baseline)) => *baseline != live_value,
                     None => true,
@@ -682,17 +731,23 @@ pub fn inventory_ui(
                 // not the whole stash. Same throttled cache as the other
                 // editors, custom measurement.
                 let now = time.elapsed_secs_f64();
-                crate::ui::editable::refresh_size_readout(
+                if crate::ui::editable::refresh_size_readout(
                     &mut *feedback,
                     &live.0,
                     now,
-                    // Unconditional: the stash is capped small (#841) and
-                    // has no live-value cache to answer the question from.
-                    // #1270 f418 was about the room, whose readout encodes
-                    // 256 generator records.
-                    true,
+                    // Was unconditional, on the reasoning that "the stash is
+                    // capped small (#841) and has no live-value cache to
+                    // answer the question from". Both halves stopped being
+                    // true in #1292: the cap is 500, and the live side has a
+                    // tick-keyed cache now. `measure_publish` serializes
+                    // EVERY item to find the largest — 18.2 ms at 500 — and
+                    // the 0.5 s throttle alone meant paying that twice a
+                    // second forever on a stash nobody was touching.
+                    state.size_readout_tick != Some(live.last_changed()),
                     crate::pds::inventory::measure_publish,
-                );
+                ) {
+                    state.size_readout_tick = Some(live.last_changed());
+                }
                 let size = feedback.live_size.clone();
                 let ctrl_s = publish_shortcut.take(crate::ui::shortcuts::EditorKind::Inventory);
                 let mut do_publish = false;

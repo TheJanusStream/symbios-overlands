@@ -323,6 +323,12 @@ fn fold_listed_items(values: Vec<serde_json::Value>, into: &mut InventoryRecord)
 /// that yields nothing, falls back to the pre-#696 monolith record.
 /// `Ok(None)` signals "no stash at all", which the caller must treat as a
 /// clean empty stash — the same convention as [`super::fetch_room_record`].
+///
+/// The walk is bounded twice (#1292): by the page count, and by ONE
+/// [`crate::config::state::MAX_INVENTORY_FETCH_BYTES`] budget spent across
+/// every page. The second bound is what lets the first one grow with the
+/// item cap — per-page caps multiply, and on wasm a login-time spike is
+/// resident for the session.
 pub async fn fetch_inventory_record(
     client: &reqwest::Client,
     did: &str,
@@ -331,6 +337,7 @@ pub async fn fetch_inventory_record(
 
     let mut record = InventoryRecord::default();
     let mut cursor: Option<String> = None;
+    let mut budget = crate::config::state::MAX_INVENTORY_FETCH_BYTES;
     for _ in 0..crate::config::state::MAX_INVENTORY_LIST_PAGES {
         let url = format!("{}/xrpc/com.atproto.repo.listRecords", pds);
         let mut query: Vec<(&str, String)> = vec![
@@ -351,14 +358,20 @@ pub async fn fetch_inventory_record(
         if !status.is_success() {
             return Err(FetchError::PdsError(status.as_u16()));
         }
-        let page: ListRecordsResponse = decode_record_json(resp).await?;
+        let (page, read): (ListRecordsResponse, usize) =
+            super::xrpc::decode_record_json_within(resp, budget).await?;
+        budget = budget.saturating_sub(read);
         let empty_page = page.records.is_empty();
         fold_listed_items(
             page.records.into_iter().map(|r| r.value).collect(),
             &mut record,
         );
         cursor = page.cursor;
-        if cursor.is_none() || empty_page {
+        // Out of pages, out of cursor, or out of budget. A spent budget
+        // stops the walk rather than failing it: the items already folded
+        // in are real, and the alternative is refusing to load a stash the
+        // owner can still see most of.
+        if cursor.is_none() || empty_page || budget == 0 {
             break;
         }
     }
@@ -501,15 +514,20 @@ fn plan_item_writes(
 /// published stash exactly as it was, so the caller keeps `stored`
 /// unchanged and the save stays dirty and retryable.
 ///
-/// The write COUNT is safe by construction: at most
-/// [`crate::config::state::MAX_INVENTORY_ITEMS`] puts + as many deletes +
-/// one legacy delete = 101 writes, half the `applyWrites` commit limit.
-/// The write *bytes* are not — a stash of large items sums past the PDS's
-/// 150 KiB request-body cap long before that (#1115) — so the plan is
-/// chunked by size. Atomicity is therefore per batch rather than over the
+/// Neither the write COUNT nor the write BYTES bound the stash:
+/// `xrpc::chunk_writes` splits on both. Count matters because
+/// `applyWrites` commits at most `MAX_APPLY_WRITES`; bytes matter because a
+/// stash of large items sums past the PDS's request-body cap long before
+/// that (#1115). Atomicity is therefore per batch rather than over the
 /// whole save, which the write order makes safe to observe torn: every put
 /// precedes every delete, so a stash read mid-save holds the new item and
 /// possibly also the old one, never neither.
+///
+/// This paragraph used to reason "at most `MAX_INVENTORY_ITEMS` puts + as
+/// many deletes + one legacy delete = 101 writes, half the commit limit".
+/// That arithmetic was a coincidence of the cap being 50, and #1292 raised
+/// it to 500 — the chunking is what makes the count safe, and it already
+/// did before the cap moved.
 pub async fn publish_inventory_record(
     client: &reqwest::Client,
     session: &AtprotoSession,
@@ -537,6 +555,54 @@ pub async fn publish_inventory_record(
         super::xrpc::apply_writes(&pds, session, refresh, batch).await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod cap_tests {
+    use super::*;
+    use crate::config::state::{MAX_INVENTORY_FETCH_BYTES, MAX_INVENTORY_ITEMS};
+
+    /// A full stash fits the budget the fetch walk is allowed to spend
+    /// (#1292).
+    ///
+    /// The canary behind the raise from 50 to 500. `MAX_INVENTORY_ITEMS`
+    /// stopped being a wire limit when #696 made the stash one record per
+    /// item, but two things still scale with it, and this pins the one that
+    /// can silently lose data: a stash the walk cannot afford to read is a
+    /// stash that comes back SHORT at the next login, with the missing
+    /// items looking to the owner exactly like items they never saved.
+    ///
+    /// Sized from the shipped catalogue rather than a guess — every entry
+    /// built and measured, so a future entry heavy enough to move the
+    /// distribution fails here instead of in somebody's stash.
+    #[test]
+    fn a_full_stash_fits_the_fetch_budget() {
+        let mut sizes: Vec<usize> = crate::catalogue::ENTRIES
+            .iter()
+            .map(|e| {
+                let g = e.build("did:plc:canary");
+                serde_json::to_vec(&InventoryItemRecord::new(e.name(), &g, None))
+                    .map(|v| v.len())
+                    .unwrap_or(0)
+            })
+            .collect();
+        sizes.sort_unstable();
+        let median = sizes[sizes.len() / 2];
+        let p90 = sizes[sizes.len() * 9 / 10];
+
+        // The walk can carry a full cap of p90-heavy items. Not the MAX
+        // item: one 130 KiB entry exists and a stash of 500 of those is not
+        // a case the budget is meant to serve — the per-item record budget
+        // is what speaks to that.
+        let heavy = MAX_INVENTORY_ITEMS * p90;
+        assert!(
+            heavy <= MAX_INVENTORY_FETCH_BYTES,
+            "a full stash of p90 items is {heavy} B, past the {MAX_INVENTORY_FETCH_BYTES} B \
+             the fetch walk may spend — it would load truncated"
+        );
+        // And the ordinary case has room to spare.
+        assert!(MAX_INVENTORY_ITEMS * median * 4 <= MAX_INVENTORY_FETCH_BYTES);
+    }
 }
 
 #[cfg(test)]
@@ -624,8 +690,24 @@ mod tests {
         assert!(none.is_empty());
     }
 
+    /// A full-churn save chunks into batches the PDS will accept, and the
+    /// chunking preserves the ordering that makes a torn read safe.
+    ///
+    /// This used to assert `writes.len() <= MAX_APPLY_WRITES` — that the
+    /// whole plan fits ONE batch. That was never a requirement, only an
+    /// arithmetic coincidence of the item cap being 50 (50 puts + 50
+    /// deletes + 1 legacy = 101, under 200); `chunk_writes` has split by
+    /// both count and bytes since #1115. #1292 raised the cap to 500, the
+    /// coincidence ended, and the assertion failed — correctly identifying
+    /// itself, not the code, as the thing encoding the old limit.
+    ///
+    /// What replaces it is the property the publish path actually
+    /// promises: every batch is one the PDS accepts, no write is lost or
+    /// reordered by the split, and **every put precedes every delete**, so
+    /// a stash read midway through a multi-batch save holds the new item
+    /// and possibly the old one, never neither.
     #[test]
-    fn plan_stays_under_the_apply_writes_cap_at_full_churn() {
+    fn a_full_churn_chunks_into_batches_the_pds_accepts() {
         // Worst case: a full stash entirely replaced by a different full
         // stash, plus the legacy delete.
         let cap = crate::config::state::MAX_INVENTORY_ITEMS;
@@ -635,7 +717,33 @@ mod tests {
         let live = stash(&new_names.iter().map(String::as_str).collect::<Vec<_>>());
         let writes = plan_item_writes(&live, &stored, true).unwrap();
         assert_eq!(writes.len(), cap * 2 + 1);
-        assert!(writes.len() <= super::super::xrpc::MAX_APPLY_WRITES);
+
+        let batches = super::super::xrpc::chunk_writes(writes.clone()).unwrap();
+        assert!(
+            batches.len() > 1,
+            "a full-churn plan at this cap is supposed to need splitting — \
+             if it fits one batch the test has stopped exercising the split"
+        );
+        for batch in &batches {
+            assert!(batch.len() <= super::super::xrpc::MAX_APPLY_WRITES);
+            let bytes: usize = batch.iter().map(|w| w.wire_bytes()).sum();
+            assert!(bytes <= super::super::xrpc::MAX_APPLY_WRITES_BYTES);
+        }
+        // Nothing lost, nothing reordered.
+        let flat: Vec<_> = batches.into_iter().flatten().collect();
+        assert_eq!(flat, writes);
+        // And the read-safe order survives: no put after the first delete.
+        let first_delete = flat
+            .iter()
+            .position(|w| matches!(w, RepoWrite::Delete { .. }));
+        if let Some(at) = first_delete {
+            assert!(
+                flat[at..]
+                    .iter()
+                    .all(|w| matches!(w, RepoWrite::Delete { .. })),
+                "a put after a delete makes a torn mid-save read able to show neither copy"
+            );
+        }
     }
 
     #[test]
