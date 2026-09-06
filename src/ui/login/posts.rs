@@ -406,8 +406,11 @@ pub fn render_login_feed_panel(ui: &mut egui::Ui, feed: &LoginPostFeed) -> Login
                                     |ui| {
                                         if ui
                                             .small_button(
-                                                egui::RichText::new("Open on Bluesky ↗")
-                                                    .color(theme.accent),
+                                                egui::RichText::new(format!(
+                                                    "Open on Bluesky {}",
+                                                    crate::ui::affordances::EXTERNAL
+                                                ))
+                                                .color(theme.accent),
                                             )
                                             .clicked()
                                         {
@@ -428,23 +431,6 @@ pub fn render_login_feed_panel(ui: &mut egui::Ui, feed: &LoginPostFeed) -> Login
     }
 
     action
-}
-
-/// Open `url` in the user's default browser. On native this delegates to
-/// the `webbrowser` crate; on WASM it falls through to `window.open` via
-/// `web_sys`. Both code paths swallow errors — the worst case is the user
-/// not seeing a tab open, which the caller can't recover from anyway.
-pub fn open_url_in_browser(url: &str) {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = webbrowser::open(url);
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(window) = web_sys::window() {
-            let _ = window.open_with_url_and_target(url, "_blank");
-        }
-    }
 }
 
 /// Trigger a fresh fetch from inside the login UI system without taking

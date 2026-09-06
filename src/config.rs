@@ -1492,6 +1492,22 @@ pub(crate) mod ui {
     // `crate::ui::layout` since #833 — defaults are computed from the
     // screen rect there, not pixel constants here.
 
+    /// Where the Feedback affordance sends people (#1291).
+    ///
+    /// A `userinput.app` space, which is itself an ATProto app: the board
+    /// is an `app.userinput.space` record and every post an
+    /// `app.userinput.discussion` one, living in the same repo as this
+    /// project's own `network.symbios.overlands.*` records. So a person
+    /// who can sign in to Overlands can already post here with the
+    /// identity they arrived with — which is why the affordance is worth
+    /// having on the login screen as well as in game.
+    ///
+    /// The DID is the owner's and the rkey is the space record's, so the
+    /// address is stable across a handle change. Do not "tidy" it into a
+    /// handle-based URL.
+    pub const FEEDBACK_URL: &str =
+        "https://userinput.app/s/did:plc:z5yhcebtrvzblrojezn6pjgi/3mnx4ozkpex2s";
+
     /// Interface-scale bounds for the #1259 f239 control, and the floor
     /// and ceiling any persisted or keyboard-driven value is clamped to.
     ///

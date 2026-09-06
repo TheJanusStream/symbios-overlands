@@ -63,6 +63,82 @@ pub const CROSS: &str = "✖";
 /// each shipped as tofu (#861, #1105).
 pub const WARNING: &str = "⚠";
 
+/// THE "this leaves the app" glyph (#1291). Appended to the label of
+/// every control that hands the user off to a web browser, so a click
+/// that backgrounds the app — or, on the web build, opens a second tab —
+/// is never a surprise.
+///
+/// The login feed's "Open on Bluesky" card button had been spelling this
+/// arrow inline since #896 and is the reason the code point was already
+/// known good; it reads the constant now, so there is one definition
+/// rather than a convention.
+///
+/// `↗` (U+2197) rather than a box-and-arrow: it is in the Arrows block
+/// Noto Sans covers, and
+/// `fonts::glyph_coverage_tests::every_ui_label_glyph_is_in_the_base_font_set`
+/// walks every literal in `src/ui`, so a code point that would tofu fails
+/// the gate rather than shipping invisible (#861's lesson, three times
+/// over).
+pub const EXTERNAL: &str = "↗";
+
+/// Open `url` in the user's browser.
+///
+/// Lived in `ui::login::posts` until #1291, where it served the "Create a
+/// free Bluesky account" link alone. It is a cross-surface concern now —
+/// the Feedback affordance is on the login screen AND in the account menu
+/// — and a private helper in a feed module is not a home for it.
+///
+/// **The outcome is deliberately not reported.** On the web build this is
+/// `window.open(_, "_blank")`, which a popup blocker may refuse silently;
+/// on native `webbrowser::open` can fail with no user-visible sign. This
+/// is the review's "reports a success it cannot know" shape (#1274 f186),
+/// and the answer there was the same: do not claim it worked. Callers
+/// that need a fallback should offer the URL through `ClipboardQueue`,
+/// the way "Copy login URL" does (#1234 f8).
+pub fn open_url_in_browser(url: &str) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = webbrowser::open(url);
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            let _ = window.open_with_url_and_target(url, "_blank");
+        }
+    }
+}
+
+/// THE control that leaves the app for a web page: `label ↗`, which opens
+/// `url` on a click (#1291).
+///
+/// One definition, so the glyph, the hover and the "opens in your browser"
+/// promise cannot drift between the surfaces that use it — the same reason
+/// [`CHECK`] and [`CROSS`] are constants. `hover` says what is on the far
+/// end; the helper appends where it opens, because that half is the same
+/// sentence everywhere and a caller should not have to remember it.
+///
+/// Returns the `egui::Response` rather than a `bool` so a caller can chain
+/// its own decoration or close a menu — the lesson `fp_slider` and
+/// `color_picker` each learned separately (#1233 f264, #1268).
+pub fn external_link_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    url: &str,
+    hover: &str,
+) -> egui::Response {
+    // `Extend`, never wrap (#1290): these sit in anchored auto-sized
+    // areas and in menus, both of which offer a width derived from last
+    // pass's measurement, so a wrapping label can ratchet itself narrow
+    // and never recover.
+    let response = ui.add(
+        egui::Button::new(format!("{label} {EXTERNAL}")).wrap_mode(egui::TextWrapMode::Extend),
+    );
+    if response.clicked() {
+        open_url_in_browser(url);
+    }
+    response.on_hover_text(format!("{hover}\nOpens in your browser."))
+}
+
 /// A done/valid/saved label: `✔ text` in the theme's ok green.
 pub fn ok_label(ui: &mut egui::Ui, text: impl std::fmt::Display) -> egui::Response {
     let ok = theme::current(ui.ctx()).status.ok;
@@ -213,5 +289,72 @@ mod tests {
         assert_eq!(CHECK, "\u{2714}");
         assert_eq!(CROSS, "\u{2716}");
         assert_eq!(WARNING, "\u{26A0}");
+        assert_eq!(EXTERNAL, "\u{2197}");
+    }
+
+    /// The Feedback board is addressed by DID and rkey, never by handle
+    /// (#1291).
+    ///
+    /// `userinput.app` is an ATProto app: the space is an
+    /// `app.userinput.space` record, so its canonical address is the
+    /// owner's DID plus the record key. A handle-shaped URL would look
+    /// tidier and would break the day the owner changes handle — which is
+    /// exactly the substitution this project's own naming ladder exists to
+    /// prevent (`PeerLabel`, #1218 f299).
+    #[test]
+    fn the_feedback_link_is_addressed_by_did_not_handle() {
+        let url = crate::config::ui::FEEDBACK_URL;
+        assert!(url.starts_with("https://"), "{url}");
+        assert!(
+            url.contains("/s/did:plc:"),
+            "the space is DID-addressed: {url}"
+        );
+        assert!(
+            !url.contains('@') && !url.contains(".bsky.social"),
+            "a handle in the address is the thing that rots: {url}"
+        );
+        // A record key follows the DID, so the address names one space.
+        let rkey = url.rsplit('/').next().unwrap_or_default();
+        assert!(!rkey.is_empty() && !rkey.starts_with("did:"), "{url}");
+    }
+
+    /// The Feedback affordance is on BOTH surfaces the owner asked for,
+    /// and every one of them goes through [`external_link_button`]
+    /// (#1291).
+    ///
+    /// The requirement was "on the login screen as well as when logged
+    /// in", and neither half is derivable from the other — a refactor can
+    /// drop one and leave a codebase that still compiles, still passes
+    /// every other test, and quietly offers feedback from one place. So
+    /// the pair is asserted, by file.
+    ///
+    /// Routing is asserted too, because the value of a shared idiom is
+    /// that the glyph, the hover's "Opens in your browser" promise and the
+    /// wrap mode cannot drift between call sites. A third site that spells
+    /// its own `Button` + `open_url_in_browser` would look right and be a
+    /// fourth spelling.
+    #[test]
+    fn the_feedback_affordance_is_on_both_surfaces_through_the_one_idiom() {
+        let surfaces = [
+            ("the login screen", "src/ui/login/mod.rs"),
+            ("the account menu", "src/ui/toolbar.rs"),
+        ];
+        for (name, path) in surfaces {
+            let source = std::fs::read_to_string(path).expect("source is readable");
+            let source = crate::ui::fonts::glyph_coverage_tests::non_test_source(&source);
+            let at = source
+                .find("FEEDBACK_URL")
+                .unwrap_or_else(|| panic!("{name} ({path}) no longer offers Feedback"));
+            // The call is `external_link_button(ui, label, URL, hover)`,
+            // so the helper's name precedes the constant in the same
+            // expression. Look back a short way rather than at the whole
+            // file, which would pass on any unrelated use of the helper.
+            let lead = &source[at.saturating_sub(200)..at];
+            assert!(
+                lead.contains("external_link_button"),
+                "{name} ({path}) opens the feedback URL without going through \
+                 `external_link_button`"
+            );
+        }
     }
 }

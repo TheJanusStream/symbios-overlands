@@ -488,7 +488,7 @@ pub fn people_ui(
                                                     )
                                                     .clicked()
                                                 {
-                                                    crate::ui::login::open_url_in_browser(
+                                                    crate::ui::affordances::open_url_in_browser(
                                                         &crate::config::network::bsky_profile_url(
                                                             did,
                                                         ),

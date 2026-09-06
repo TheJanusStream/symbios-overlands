@@ -653,6 +653,29 @@ pub fn toolbar_ui(
                             expired.dismissed = false;
                             ui.close();
                         }
+                        // Feedback (#1291), the owner's chosen in-game
+                        // home. The account menu is where the app's
+                        // user-level actions already live — it is two
+                        // clicks from anywhere, and the alternative
+                        // (Diagnostics' Session tab, beside "Copy session
+                        // details") is a panel most people never open.
+                        //
+                        // Separated from Log out below, and NOT beside it:
+                        // both leave what you are doing, and only one of
+                        // them is recoverable.
+                        ui.separator();
+                        if crate::ui::affordances::external_link_button(
+                            ui,
+                            "Feedback",
+                            crate::config::ui::FEEDBACK_URL,
+                            "Report a bug, ask for a feature, or vote on \
+                             what other people have asked for",
+                        )
+                        .clicked()
+                        {
+                            ui.close();
+                        }
+                        ui.separator();
                         if ui.button("Log out").clicked() {
                             // Route through the unsaved-edits guard instead
                             // of flipping the state directly: it transitions
@@ -664,7 +687,7 @@ pub fn toolbar_ui(
                     })
                     .response
                     .on_hover_text(format!(
-                        "@{} — identity, share your spot, log out",
+                        "@{} — identity, share your spot, send feedback, log out",
                         sess.handle
                     ));
                 }

@@ -62,9 +62,7 @@ pub use complete::poll_complete_auth_task;
 pub use entry::{DestinationLabel, ResumeIdentity, resolve_boot_destination};
 #[cfg(not(target_arch = "wasm32"))]
 pub use native_callback::poll_native_callback;
-pub use posts::{
-    LoginPostFeed, open_url_in_browser, poll_login_feed_fetch, start_login_feed_fetch,
-};
+pub use posts::{LoginPostFeed, poll_login_feed_fetch, start_login_feed_fetch};
 #[cfg(target_arch = "wasm32")]
 pub use wasm_resume::{
     ResumeAuthTask, ResumeLatch, check_wasm_callback, check_wasm_resume, poll_resume_task,
@@ -924,7 +922,7 @@ pub fn login_ui(
                 ui.horizontal_wrapped(|ui| {
                     ui.label("New here?");
                     if ui.link("Create a free Bluesky account").clicked() {
-                        posts::open_url_in_browser(crate::config::login::SIGNUP_URL);
+                        crate::ui::affordances::open_url_in_browser(crate::config::login::SIGNUP_URL);
                     }
                 });
 
@@ -1039,52 +1037,84 @@ pub fn login_ui(
                             posts::retry_fetch(&mut commands, &mut feed);
                         }
                         posts::LoginFeedAction::OpenUrl(url) => {
-                            posts::open_url_in_browser(&url);
+                            crate::ui::affordances::open_url_in_browser(&url);
                         }
                     });
             });
         });
 
-    // Backdrop control (#978). The demo overland behind the login screen
-    // is a fresh random seed every visit, and it is the first thing the
-    // app ever shows of what it makes — so let a visitor roll again on
-    // demand instead of reloading the page to see a second one. Anchored
-    // bottom-right, away from the card pair: it acts on the world, not
-    // on the login.
+    // The bottom-right stack: the backdrop control (#978) and the
+    // Feedback link (#1291), anchored away from the card pair because
+    // neither acts on the login.
     //
-    // Shown whenever a demo world is armed and disabled until it is
-    // actually on screen. `reroll_attract_scene` holds `AttractScene`
-    // across the swap so the chip itself never blinks out; the disabled
-    // stretch is the rebuild, and it doubles as the progress cue that
-    // the flat gradient alone doesn't give.
-    if attract.is_some() {
+    // ONE area holding both, and the whole stack is unconditional. The
+    // re-roll chip used to own this corner and the area was gated on
+    // `attract.is_some()` — so hanging Feedback inside it would have made
+    // a permanent affordance disappear for anyone who turned "Live world
+    // backdrop" off in Settings. The backdrop control is what is
+    // conditional; the corner is not.
+    //
+    // Backdrop control: the demo world behind the login screen is a fresh
+    // random seed every visit, and it is the first thing the app ever
+    // shows of what it makes — so let a visitor roll again on demand
+    // instead of reloading the page to see a second one. Shown whenever a
+    // demo world is armed and disabled until it is actually on screen.
+    // `reroll_attract_scene` holds `AttractScene` across the swap so the
+    // chip itself never blinks out; the disabled stretch is the rebuild,
+    // and it doubles as the progress cue that the flat gradient alone
+    // doesn't give.
+    {
         egui::Area::new(egui::Id::new("login-backdrop-reroll"))
             .anchor(egui::Align2::RIGHT_BOTTOM, [-cfg::EDGE_PAD, -cfg::EDGE_PAD])
             .show(&ctx, |ui| {
                 card_frame(&theme.0)
                     .inner_margin(cfg::REROLL_INNER_MARGIN)
                     .show(ui, |ui| {
-                        // `Extend`, never wrap (#1290). An anchored,
-                        // auto-sized `Area` offers its content exactly the
-                        // width it measured last pass, so a wrappable
-                        // two-word chip sits on a knife edge: the pass that
-                        // switches palette offers a point less than high
-                        // contrast's wider control stroke needs, the label
-                        // wraps to "New / worl / d", the area measures the
-                        // wrapped width, and it never recovers. A chip this
-                        // short has no business wrapping in either case.
-                        let reroll = ui.add_enabled(
-                            world_backdrop_visible,
-                            egui::Button::new("New world").wrap_mode(egui::TextWrapMode::Extend),
-                        );
-                        let reroll = if world_backdrop_visible {
-                            reroll.on_hover_text("Seed a different world behind the login screen")
-                        } else {
-                            reroll.on_disabled_hover_text("Building the backdrop world…")
-                        };
-                        if reroll.clicked() {
-                            commands.insert_resource(crate::attract::AttractReroll);
+                        // Natural widths, NOT justified to the column
+                        // (#1290): "available width" inside an auto-sized
+                        // area is last pass's own measurement, so anything
+                        // that fills it is feeding a ratchet its own
+                        // output. Every button here is `Extend`, and the
+                        // area settles at the widest label's width.
+                        if attract.is_some() {
+                            // `Extend`, never wrap (#1290). An anchored,
+                            // auto-sized `Area` offers its content exactly
+                            // the width it measured last pass, so a
+                            // wrappable two-word chip sits on a knife edge:
+                            // the pass that switches palette offers a point
+                            // less than high contrast's wider control
+                            // stroke needs, the label wraps to "New / worl
+                            // / d", the area measures the wrapped width,
+                            // and it never recovers. A chip this short has
+                            // no business wrapping in either case.
+                            let reroll = ui.add_enabled(
+                                world_backdrop_visible,
+                                egui::Button::new("New world")
+                                    .wrap_mode(egui::TextWrapMode::Extend),
+                            );
+                            let reroll = if world_backdrop_visible {
+                                reroll
+                                    .on_hover_text("Seed a different world behind the login screen")
+                            } else {
+                                reroll.on_disabled_hover_text("Building the backdrop world…")
+                            };
+                            if reroll.clicked() {
+                                commands.insert_resource(crate::attract::AttractReroll);
+                            }
                         }
+                        // Feedback (#1291), below the backdrop control by
+                        // the owner's call. The board is itself an ATProto
+                        // app, so the account a visitor is about to sign in
+                        // with is the one that can post there — which is
+                        // why this is worth offering BEFORE they get in,
+                        // and not only from the account menu.
+                        crate::ui::affordances::external_link_button(
+                            ui,
+                            "Feedback",
+                            crate::config::ui::FEEDBACK_URL,
+                            "Report a bug, ask for a feature, or vote on \
+                             what other people have asked for",
+                        );
                     });
             });
     }
