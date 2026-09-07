@@ -70,7 +70,7 @@ symbios-turtle-3d = "0.6"
 symbios-shape = "0.4"
 bevy_symbios_shape = "0.7"
 symbios-tensor = "0.4"
-bevy_symbios_avatar = "0.5"
+bevy_symbios_avatar = "0.6"
 gen-jobs = { path = "crates/gen-jobs" }
 avian3d = "0.7"
 fast-surface-nets = "0.2"
