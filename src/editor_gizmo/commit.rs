@@ -313,7 +313,7 @@ pub(super) fn commit_attachment_part_drag(
 /// The gizmo is *placed* through the same rest frame on attach (see
 /// `sync::attach_or_release_attachment`), so the conversion is exact
 /// whatever the body happens to be doing. The bind-pose hold in
-/// `player::rigged::drive_rigged_motion` is therefore about the owner
+/// `player::rigged::fill_rigged_drive` is therefore about the owner
 /// seeing the pose they are authoring for, not about making this arithmetic
 /// come out right.
 ///

@@ -3,12 +3,16 @@ use super::*;
 use crate::pds::AvatarRecord;
 use crate::pds::avatar::ResolvedRig;
 use crate::pds::avatar::wardrobe::engine_default_for_did;
+use crate::player::emote::Emote;
 use crate::state::{LiveAvatarRecord, LocalPlayer};
 use bevy::ecs::system::RunSystemOnce;
 use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
-use bevy_symbios_avatar::{AvatarBody as BuiltBody, AvatarClosure, AvatarPose};
-use symbios_avatar::Limb;
+use bevy_symbios_avatar::{
+    AvatarBody as BuiltBody, AvatarClosure, AvatarDriver, AvatarPose, Drive,
+};
+use symbios_avatar::anim::driver::Source;
 use symbios_avatar::anim::{gait, gesture};
+use symbios_avatar::{Limb, Pose, Speed};
 
 /// A minimal world carrying every store the spawn path touches — the
 /// same skeleton `tests/freeze_rigid_body.rs` builds.
@@ -85,7 +89,11 @@ fn a_rigged_body_faces_the_way_its_chassis_travels() {
     );
 }
 
-/// A chassis with a rigged root under it, carrying motion state.
+/// A chassis with a rigged root under it, carrying a driver and a drive.
+///
+/// Seeded by hand rather than through [`super::next_room_seed`], because a
+/// counter nothing here can see is exactly what made a rig measurement a
+/// function of how many bodies the process had built first (#1194).
 fn chassis_with_body(app: &mut App) -> (Entity, Entity) {
     let chassis = app
         .world_mut()
@@ -93,9 +101,38 @@ fn chassis_with_body(app: &mut App) -> (Entity, Entity) {
         .id();
     let root = app
         .world_mut()
-        .spawn((RiggedRoot, RiggedMotion::default(), ChildOf(chassis)))
+        .spawn((
+            RiggedRoot,
+            AvatarDriver::seeded(0),
+            Drive::default(),
+            RiggedTrail::default(),
+            ChildOf(chassis),
+        ))
         .id();
     (chassis, root)
+}
+
+/// One frame of motion: this app's fill, then the sibling crate's driver.
+///
+/// **Both, always.** Carrying a [`Drive`] is what opts a body into
+/// [`bevy_symbios_avatar::drive_avatar_bodies`], so the two are one unit — the
+/// fill advances no clock and writes no pose on its own, and the driver alone
+/// would run a body off last frame's chassis. Driving through half of a pair
+/// and believing the reading is the #1069 mistake this file already records,
+/// which is why every instrument below goes through this one helper.
+fn drive_frame(app: &mut App) {
+    app.world_mut()
+        .run_system_once(fill_rigged_drive)
+        .expect("the fill runs");
+    app.world_mut()
+        .run_system_once(bevy_symbios_avatar::drive_avatar_bodies)
+        .expect("the driver runs");
+}
+
+/// The driver on a body, which is where the state these instruments read
+/// after a frame — the source, the cycle, the speed, the leap — now lives.
+fn driver_of(app: &App, root: Entity) -> &AvatarDriver {
+    app.world().get::<AvatarDriver>(root).expect("a driver")
 }
 
 /// How far a foot's sole is pitched from its own rest attitude, in degrees,
@@ -137,7 +174,7 @@ fn the_procedural_walk_lands_toe_up_and_leaves_toe_down() {
     // engine treats the three as one drive sequence and `examples/walkaudit`
     // has always called all three; this had two of them.
     //
-    // **Driven through `drive_rigged_motion` and read off the `AvatarPose`
+    // **Driven through the real pair of systems and read off the `AvatarPose`
     // the body is actually drawn in.** Written first as a loop that called
     // step/swing_arms/plant/roll itself and asserted on that — which proves
     // nothing about this file, because deleting the roll from the system
@@ -225,14 +262,11 @@ fn the_procedural_walk_lands_toe_up_and_leaves_toe_down() {
         app.world_mut()
             .resource_mut::<Time>()
             .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
-        app.world_mut()
-            .run_system_once(drive_rigged_motion)
-            .expect("runs");
+        drive_frame(&mut app);
 
-        let motion = app.world().get::<RiggedMotion>(root).expect("motion state");
         // Only once the gait is actually the source: the first frame has no
         // previous position, so it reads as standing.
-        if motion.source != MotionSource::Gait {
+        if driver_of(&app, root).source() != Source::Gait {
             continue;
         }
         let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
@@ -352,11 +386,8 @@ fn walked_at(metres_per_second: f32) -> (f32, f32) {
         app.world_mut()
             .resource_mut::<Time>()
             .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
-        app.world_mut()
-            .run_system_once(drive_rigged_motion)
-            .expect("runs");
-        let motion = app.world().get::<RiggedMotion>(root).expect("motion state");
-        if motion.source != MotionSource::Gait {
+        drive_frame(&mut app);
+        if driver_of(&app, root).source() != Source::Gait {
             continue;
         }
         let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
@@ -381,7 +412,7 @@ fn walked_at(metres_per_second: f32) -> (f32, f32) {
 /// for the swing — which is exactly the quantity `phase_matched` preserves
 /// and the quantity that jumps when nothing preserves it.
 ///
-/// Taken off `RiggedMotion::cycle` as the drive actually left it, under
+/// Taken off the driver's own cycle as the drive actually left it, under
 /// the gait the drive actually built, so it measures this file rather than
 /// a re-derivation of it.
 fn worst_phase_step(from: f32, to: f32, seconds: f32, fps: f32) -> f32 {
@@ -469,11 +500,9 @@ fn worst_phase_step(from: f32, to: f32, seconds: f32, fps: f32) -> f32 {
         app.world_mut()
             .resource_mut::<Time>()
             .advance_by(std::time::Duration::from_secs_f32(step_secs));
-        app.world_mut()
-            .run_system_once(drive_rigged_motion)
-            .expect("runs");
-        let motion = app.world().get::<RiggedMotion>(root).expect("motion state");
-        if motion.source != MotionSource::Gait {
+        drive_frame(&mut app);
+        let driver = driver_of(&app, root);
+        if driver.source() != Source::Gait {
             continue;
         }
         // **The speed the DRIVER fed the gait, not a re-derivation from
@@ -484,7 +513,7 @@ fn worst_phase_step(from: f32, to: f32, seconds: f32, fps: f32) -> f32 {
         // reported a near-full-step relabel that never reached a body.
         // The module's own rule: measure the subject, not this file's
         // arithmetic.
-        let Some(speed) = motion.gaiting else {
+        let Some(speed) = driver.speed() else {
             continue;
         };
         crossed = (
@@ -497,7 +526,7 @@ fn worst_phase_step(from: f32, to: f32, seconds: f32, fps: f32) -> f32 {
         // Where the leading contact is in its OWN step, on an axis that
         // does not move when the duty does: half for the stance, half for
         // the swing. This is what a change of gait must not relabel.
-        let phase = match speed.gait(&rig).phase(0, motion.cycle) {
+        let phase = match speed.gait(&rig).phase(0, driver.cycle()) {
             symbios_avatar::anim::gait::Phase::Stance(t) => t * 0.5,
             symbios_avatar::anim::gait::Phase::Swing(t) => 0.5 + t * 0.5,
         };
@@ -526,7 +555,7 @@ fn worst_phase_step(from: f32, to: f32, seconds: f32, fps: f32) -> f32 {
                     (*which.0 - *which.1),
                     speed.duty(),
                     speed.is_running(),
-                    motion.cycle,
+                    driver.cycle(),
                 );
             }
             moves.push(step);
@@ -679,9 +708,7 @@ fn skate_through(
         app.world_mut()
             .resource_mut::<Time>()
             .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
-        app.world_mut()
-            .run_system_once(drive_rigged_motion)
-            .expect("runs");
+        drive_frame(app);
     };
     for _ in 0..walk_frames {
         at += Vec3::Z * (from * STEP_SECS);
@@ -691,13 +718,12 @@ fn skate_through(
     // covers its whole play (1.5 s of the 2 s measured) plus its ending
     // blend.
     if let Some(emote) = over {
+        // Through the same `Drive` field the chat path writes, so this asks
+        // the driver for a gesture rather than reaching into its state.
         app.world_mut()
-            .get_mut::<RiggedMotion>(root)
-            .expect("motion state")
-            .gesture = Some(ActiveGesture {
-            emote,
-            elapsed: 0.0,
-        });
+            .get_mut::<Drive>(root)
+            .expect("a drive")
+            .gesture(emote.gesture_name());
     }
     let mut track: Vec<Vec<Vec<Vec3>>> = Vec::with_capacity(120);
     let mut down: Vec<Vec<bool>> = Vec::with_capacity(120);
@@ -710,10 +736,10 @@ fn skate_through(
         };
         at += Vec3::Z * (speed * STEP_SECS);
         frame(&mut app, at);
-        let motion = app.world().get::<RiggedMotion>(root).expect("motion");
+        let driver = driver_of(&app, root);
         let stance: Vec<bool> = {
-            let gait = motion.gaiting.map(|speed| speed.gait(&rig));
-            let cycle = motion.cycle;
+            let gait = driver.speed().map(|speed| speed.gait(&rig));
+            let cycle = driver.cycle();
             [Limb::HindLeft, Limb::HindRight]
                 .iter()
                 .map(|limb| {
@@ -745,11 +771,8 @@ fn skate_through(
         down.push(stance);
     }
     assert_eq!(
-        app.world()
-            .get::<RiggedMotion>(root)
-            .expect("motion")
-            .source,
-        MotionSource::Gait,
+        driver_of(&app, root).source(),
+        Source::Gait,
         "the body must still be walking, or this is measuring a stop"
     );
 
@@ -903,7 +926,7 @@ fn probe_whether_changing_speed_slides_a_planted_foot() {
 /// judged only against an instantaneous stop is judged against the one
 /// profile that makes waiting maximally expensive.
 /// The idle seed every stop instrument stands its body on (#1194): the value
-/// `RiggedMotion::default()` draws first in a fresh process, so the figure is
+/// [`super::next_room_seed`] draws first in a fresh process, so the figure is
 /// the one the instrument always read for its first sim when run alone.
 const INSTRUMENT_SEED: u64 = 7;
 
@@ -949,7 +972,7 @@ fn skid_through_a_decelerating_stop(walk_frames: usize, ramp_frames: usize) -> (
     let mut roots = app.world_mut().query_filtered::<Entity, With<RiggedRoot>>();
     let root = roots.single(app.world()).expect("one rigged root");
     // **The body's seed is pinned, because the figure this reads is a
-    // function of it** (#1194). `install_built_body` seeds each body's idle
+    // function of it** (#1194). `install_built_body` seeds each body's driver
     // off a process-wide counter, and the idle's seed decides when its
     // settling weight shift fires and which leg it moves first — the exact
     // mechanism (engine #276) that steps the stopped foot home and so the
@@ -961,7 +984,7 @@ fn skid_through_a_decelerating_stop(walk_frames: usize, ramp_frames: usize) -> (
     // context reads one figure.
     app.world_mut()
         .entity_mut(root)
-        .insert(RiggedMotion::seeded(INSTRUMENT_SEED));
+        .insert(AvatarDriver::seeded(INSTRUMENT_SEED));
     let rig = app
         .world()
         .get::<BuiltBody>(root)
@@ -995,9 +1018,7 @@ fn skid_through_a_decelerating_stop(walk_frames: usize, ramp_frames: usize) -> (
         app.world_mut()
             .resource_mut::<Time>()
             .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
-        app.world_mut()
-            .run_system_once(drive_rigged_motion)
-            .expect("runs");
+        drive_frame(app);
     };
     for _ in 0..walk_frames {
         at += Vec3::Z * (PACE * STEP_SECS);
@@ -1005,18 +1026,14 @@ fn skid_through_a_decelerating_stop(walk_frames: usize, ramp_frames: usize) -> (
     }
     // Which feet are carrying the body at the instant it stops, and where
     // they are. Asked of the gait the drive is actually running.
-    let motion = app.world().get::<RiggedMotion>(root).expect("motion");
-    assert_eq!(
-        motion.source,
-        MotionSource::Gait,
-        "the body must be walking"
-    );
+    let driver = driver_of(&app, root);
+    assert_eq!(driver.source(), Source::Gait, "the body must be walking");
     let gait = Speed::new(&rig, PACE).gait(&rig);
     let planted: Vec<usize> = gait
         .limbs
         .iter()
         .enumerate()
-        .filter(|(index, _)| gait.phase(*index, motion.cycle).is_stance())
+        .filter(|(index, _)| gait.phase(*index, driver.cycle()).is_stance())
         .filter_map(|(_, limb)| {
             [Limb::HindLeft, Limb::HindRight]
                 .iter()
@@ -1024,7 +1041,7 @@ fn skid_through_a_decelerating_stop(walk_frames: usize, ramp_frames: usize) -> (
         })
         .collect();
     assert!(!planted.is_empty(), "a walking body has a foot down");
-    let ahead = gait.until_handoff(motion.cycle);
+    let ahead = gait.until_handoff(driver.cycle());
     let mut held = 0usize;
     // **World positions, not body-local ones** — `at` is added back in.
     // With a dead stop the two differ by a constant and the distinction
@@ -1072,8 +1089,7 @@ fn skid_through_a_decelerating_stop(walk_frames: usize, ramp_frames: usize) -> (
             at += Vec3::Z * (PACE * STEP_SECS * left);
         }
         frame(&mut app, at);
-        let motion = app.world().get::<RiggedMotion>(root).expect("motion");
-        if motion.source == MotionSource::Gait {
+        if driver_of(&app, root).source() == Source::Gait {
             held += 1;
         }
         // Whether each followed foot is bearing weight THIS frame, asked of
@@ -1211,7 +1227,7 @@ fn a_stop_does_not_skate() {
     // full lib suite (CI's exact invocation).
     //
     // That was ONE global, not the two the spread suggested: the
-    // process-wide counter `RiggedMotion::default` seeds each body's idle
+    // process-wide counter `next_room_seed` seeds each body's idle
     // from. Traced per sim (#1194), the skid is a function of the stop
     // phase and the idle seed alone — the same (phase, seed) pair read the
     // same in every context — and the seed was simply how many bodies the
@@ -1360,11 +1376,15 @@ fn a_chat_keyword_gestures_the_sender_and_nobody_else() {
         .run_system_once(start_emotes)
         .expect("start_emotes runs");
 
+    // Read off the `Drive` rather than off a driver: these two roots carry
+    // no built body, so nothing drives them and the request is still sitting
+    // where `start_emotes` put it — which is exactly the claim, that the
+    // request reached one body and not the other.
     let gestured = |app: &App, body: Entity| {
         app.world()
             .entity(body)
-            .get::<RiggedMotion>()
-            .expect("the body keeps its motion state")
+            .get::<Drive>()
+            .expect("the body keeps its drive")
             .gesture
             .is_some()
     };
@@ -1379,45 +1399,101 @@ fn a_chat_keyword_gestures_the_sender_and_nobody_else() {
 fn a_flood_of_keywords_gestures_once() {
     // The rate limit, and the reason it is measured from the START of a
     // gesture: a peer pasting "hi hi hi" must wave once and then stand
-    // there. Both requests are delivered in one run, so this also covers
-    // two keywords arriving in the same frame.
+    // there. All three requests are delivered in one run, so this also
+    // covers two keywords arriving in the same frame.
+    //
+    // **On a real body and through the real pair of systems since #1171**,
+    // because the cooldown went upstream with the rest of the state machine
+    // and a driver only exists where a body does. The claim is unchanged and
+    // it is still this app's to make — the request path has to hand a flood
+    // over in a way that spends the cooldown exactly once. Asserted on
+    // PLAYBACK PROGRESS, which is the one thing a restart cannot fake: a
+    // gesture that began again would read zero seconds in.
     let mut app = test_app();
-    let (chassis, body) = chassis_with_body(&mut app);
-
-    for text in ["hi", "hello again", "hey"] {
-        let request = crate::player::emote::request_for(chassis, text).expect("asks");
-        app.world_mut().write_message(request);
-    }
+    let chassis = app
+        .world_mut()
+        .spawn((Transform::default(), GlobalTransform::default()))
+        .id();
+    let avatar = symbios_avatar::Avatar::build_with(
+        &engine_default_for_did("did:plc:flood-test"),
+        &symbios_avatar::AvatarConfig {
+            atlas: 64,
+            ..Default::default()
+        },
+    )
+    .expect("the seeded default engine body builds");
+    let mut built = Some(avatar);
     app.world_mut()
-        .run_system_once(start_emotes)
-        .expect("start_emotes runs");
+        .run_system_once(
+            move |mut commands: Commands,
+                  mut meshes: ResMut<Assets<Mesh>>,
+                  mut materials: ResMut<Assets<StandardMaterial>>,
+                  mut images: ResMut<Assets<Image>>,
+                  mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>| {
+                let Some(avatar) = built.take() else {
+                    return;
+                };
+                install_built_body(
+                    &mut commands,
+                    chassis,
+                    0.9,
+                    avatar,
+                    &[],
+                    &mut meshes,
+                    &mut materials,
+                    &mut images,
+                    &mut bindposes,
+                );
+            },
+        )
+        .expect("runs");
+    let mut roots = app.world_mut().query_filtered::<Entity, With<RiggedRoot>>();
+    let body = roots.single(app.world()).expect("one rigged root");
 
-    // Advance the gesture as playback would, and assert the flood does not
-    // rewind it. **Asserted on `elapsed` rather than on `gestured_at`,
-    // because the clock does not move under `run_system_once`** — the
-    // stamp is identical whether the cooldown ran or not, so the first
-    // version of this test passed with the guard deleted. Playback
-    // progress is the one thing a restart cannot fake.
-    {
-        let mut motion = app.world_mut().entity_mut(body);
-        let mut motion = motion.get_mut::<RiggedMotion>().unwrap();
-        assert!(motion.gesture.is_some(), "the first keyword should gesture");
-        motion.gesture.as_mut().unwrap().elapsed = 0.4;
+    // One frame: say these words, then drive.
+    let say = |app: &mut App, words: &[&str]| {
+        for text in words {
+            let request = crate::player::emote::request_for(chassis, text).expect("asks");
+            app.world_mut().write_message(request);
+        }
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(std::time::Duration::from_secs_f32(1.0 / 60.0));
+        app.world_mut()
+            .run_system_once(start_emotes)
+            .expect("start_emotes runs");
+        drive_frame(app);
+    };
+
+    say(&mut app, &["hi", "hello again", "hey"]);
+    let (name, began) = driver_of(&app, body)
+        .gesture()
+        .expect("the first keyword should gesture");
+    assert_eq!(name, "Greeting", "all three words ask for the same wave");
+
+    // Let it play a little — a quarter of a second, well inside both the
+    // gesture's second and a half and the cooldown's two seconds.
+    for _ in 0..24 {
+        say(&mut app, &[]);
     }
+    let playing = driver_of(&app, body)
+        .gesture()
+        .expect("the gesture is still running")
+        .1;
+    assert!(
+        playing > began,
+        "the gesture never advanced, so a restart would be invisible"
+    );
 
-    for text in ["hi", "hey"] {
-        let request = crate::player::emote::request_for(chassis, text).expect("asks");
-        app.world_mut().write_message(request);
-    }
-    app.world_mut()
-        .run_system_once(start_emotes)
-        .expect("start_emotes runs");
-
-    let motion = app.world().entity(body).get::<RiggedMotion>().unwrap();
-    let gesture = motion.gesture.expect("the gesture is still running");
-    assert_eq!(
-        gesture.elapsed, 0.4,
-        "a keyword inside the cooldown restarted the gesture from the top"
+    say(&mut app, &["hi", "hey"]);
+    let after = driver_of(&app, body)
+        .gesture()
+        .expect("the gesture is still running")
+        .1;
+    assert!(
+        after > playing,
+        "a keyword inside the cooldown restarted the gesture from the top: \
+         {playing:.3} s in, then {after:.3} s"
     );
 }
 
@@ -1800,9 +1876,7 @@ fn a_landed_body_hangs_off_an_offset_root_and_drives_to_a_pose() {
     app.world_mut()
         .resource_mut::<Time>()
         .advance_by(std::time::Duration::from_millis(16));
-    app.world_mut()
-        .run_system_once(drive_rigged_motion)
-        .expect("runs");
+    drive_frame(&mut app);
     assert!(app.world().get::<AvatarPose>(root).is_some());
     assert!(app.world().get::<AvatarClosure>(root).is_some());
 }
@@ -1904,9 +1978,7 @@ fn jumped(launch: f32, ledge: f32) -> Jumped {
         app.world_mut()
             .resource_mut::<Time>()
             .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
-        app.world_mut()
-            .run_system_once(drive_rigged_motion)
-            .expect("runs");
+        drive_frame(app);
     };
     for _ in 0..90 {
         at += Vec3::Z * (1.4 * STEP_SECS);
@@ -1931,16 +2003,16 @@ fn jumped(launch: f32, ledge: f32) -> Jumped {
             at.y = landing_y;
             vertical = 0.0;
         }
-        let before = app.world().get::<RiggedMotion>(root).expect("motion").cycle;
+        let before = driver_of(&app, root).cycle();
         frame(&mut app, at);
-        let motion = app.world().get::<RiggedMotion>(root).expect("motion");
-        let source = motion.source;
-        let in_flight = motion
-            .airborne
-            .is_some_and(|air| !air.leap.stage_at(&rig, air.elapsed).is_grounded());
-        landed |= motion.airborne.is_some_and(|air| air.landed);
+        let driver = driver_of(&app, root);
+        let source = driver.source();
+        let airborne = driver.airborne();
+        let in_flight =
+            airborne.is_some_and(|air| !air.leap.stage_at(&rig, air.elapsed).is_grounded());
+        landed |= airborne.is_some_and(|air| air.landed);
         if in_flight {
-            marched |= (motion.cycle - before).abs() > 1e-6;
+            marched |= (driver.cycle() - before).abs() > 1e-6;
             let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
             let posed = pose.forward(&rig);
             let lowest = feet
@@ -1952,7 +2024,7 @@ fn jumped(launch: f32, ledge: f32) -> Jumped {
             // the plant grabbed.
             planted |= lowest.abs() < 1e-4;
         }
-        if motion.airborne.is_some_and(|air| air.landed) {
+        if airborne.is_some_and(|air| air.landed) {
             let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
             sank = sank.max(-pose.translation.y);
             let posed = pose.forward(&rig);
@@ -1963,7 +2035,7 @@ fn jumped(launch: f32, ledge: f32) -> Jumped {
             buried = buried.max(-lowest);
         }
         // Once the body has landed and stood up, the jump is over.
-        if caught && source != MotionSource::Leap && landed {
+        if caught && source != Source::Leap && landed {
             break;
         }
     }
@@ -2091,7 +2163,7 @@ fn stepping_off_a_ledge_flies_before_it_lands() {
 /// body did: whether a foot was ever planted, and how far the trunk was
 /// pitched onto its front at the end.
 ///
-/// **No walk-cycle reading here, deliberately.** `RiggedMotion::cycle` is
+/// **No walk-cycle reading here, deliberately.** The driver's cycle is
 /// the stroke's clock while a body is swimming, so it advancing proves
 /// nothing either way; what says no gait ran is the source assertion
 /// inside the loop and the planted foot below it.
@@ -2196,13 +2268,10 @@ fn swam(pace: f32) -> (bool, f32) {
         app.world_mut()
             .resource_mut::<Time>()
             .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
-        app.world_mut()
-            .run_system_once(drive_rigged_motion)
-            .expect("runs");
-        let motion = app.world().get::<RiggedMotion>(root).expect("motion");
+        drive_frame(&mut app);
         assert_eq!(
-            motion.source,
-            MotionSource::Swim,
+            driver_of(&app, root).source(),
+            Source::Swim,
             "a body under the surface must be swimming"
         );
         let pose = &app.world().get::<AvatarPose>(root).expect("a pose").0;
@@ -2308,9 +2377,7 @@ fn a_standing_body_breathes_instead_of_freezing() {
         app.world_mut()
             .resource_mut::<Time>()
             .advance_by(std::time::Duration::from_secs_f32(1.0 / 60.0));
-        app.world_mut()
-            .run_system_once(drive_rigged_motion)
-            .expect("runs");
+        drive_frame(&mut app);
         if frame % 60 == 0 {
             samples.push(
                 app.world()
@@ -2321,10 +2388,9 @@ fn a_standing_body_breathes_instead_of_freezing() {
             );
         }
     }
-    let motion = app.world().get::<RiggedMotion>(root).expect("motion state");
     assert_eq!(
-        motion.source,
-        MotionSource::Idle,
+        driver_of(&app, root).source(),
+        Source::Idle,
         "a standing body's source must be the idle"
     );
     let apart = |a: Quat, b: Quat| 1.0 - a.dot(b).abs();
@@ -2349,7 +2415,7 @@ fn a_chat_keyword_changes_the_pose_the_body_is_actually_drawn_in() {
     // test here proves a piece: the keyword scan, the targeting, the
     // cooldown and the overlay arithmetic each pass on their own while the
     // wiring between them could still be wrong. This is the one that fails
-    // if `drive_rigged_motion` never reaches the gesture branch — the exact
+    // if the fill never hands the request over — the exact
     // defect that would otherwise only show up in the running app.
     let mut app = test_app();
     let chassis = app
@@ -2398,9 +2464,7 @@ fn a_chat_keyword_changes_the_pose_the_body_is_actually_drawn_in() {
             .resource_mut::<Time>()
             .advance_by(std::time::Duration::from_millis(16));
         app.world_mut().run_system_once(start_emotes).expect("runs");
-        app.world_mut()
-            .run_system_once(drive_rigged_motion)
-            .expect("runs");
+        drive_frame(app);
         app.world()
             .get::<AvatarPose>(root)
             .expect("a pose")
@@ -2410,19 +2474,15 @@ fn a_chat_keyword_changes_the_pose_the_body_is_actually_drawn_in() {
     let idle = frame(&mut app);
 
     // Now say hello, through the same helper the chat and network layers
-    // call — not by poking `RiggedMotion` directly, which would skip the
-    // half of the path most likely to be miswired.
+    // call — not by poking the `Drive` directly, which would skip the half
+    // of the path most likely to be miswired.
     let request = crate::player::emote::request_for(chassis, "hello!")
         .expect("\"hello\" asks for a greeting");
     app.world_mut().write_message(request);
     let waving = frame(&mut app);
 
     assert!(
-        app.world()
-            .get::<RiggedMotion>(root)
-            .expect("motion state")
-            .gesture
-            .is_some(),
+        driver_of(&app, root).gesture().is_some(),
         "the greeting never started"
     );
     let apart = |a: Quat, b: Quat| 1.0 - a.dot(b).abs();
@@ -2518,9 +2578,7 @@ fn selecting_a_part_holds_the_pose_as_it_stands() {
         app.world_mut()
             .resource_mut::<Time>()
             .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
-        app.world_mut()
-            .run_system_once(drive_rigged_motion)
-            .expect("runs");
+        drive_frame(&mut app);
     }
     let stride = app
         .world()
@@ -2551,9 +2609,7 @@ fn selecting_a_part_holds_the_pose_as_it_stands() {
         app.world_mut()
             .resource_mut::<Time>()
             .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
-        app.world_mut()
-            .run_system_once(drive_rigged_motion)
-            .expect("runs");
+        drive_frame(&mut app);
     }
     let held = &app.world().get::<AvatarPose>(root).expect("a pose").0;
     assert_eq!(
@@ -2572,9 +2628,7 @@ fn selecting_a_part_holds_the_pose_as_it_stands() {
     app.world_mut()
         .resource_mut::<Time>()
         .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
-    app.world_mut()
-        .run_system_once(drive_rigged_motion)
-        .expect("runs");
+    drive_frame(&mut app);
     let pinned = &app.world().get::<AvatarPose>(root).expect("a pose").0;
     assert_eq!(
         drift(pinned, &rest),

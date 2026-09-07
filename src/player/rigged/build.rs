@@ -1,14 +1,14 @@
 use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 use bevy::prelude::*;
-use bevy_symbios_avatar::spawn_avatar;
+use bevy_symbios_avatar::{AvatarDriver, Drive, spawn_avatar};
 use symbios_avatar::Avatar;
 
 use crate::interaction::locomotion::locomotion_total_height;
 use crate::state::{LiveAvatarRecord, LocalPlayer, RemotePeer};
 
 use super::{
-    DRAFT_ATLAS, RiggedApplied, RiggedBuild, RiggedBuildFailed, RiggedMotion, RiggedRoot,
-    RiggedSettle, RiggedSteady, SETTLE_SECS,
+    DRAFT_ATLAS, RiggedApplied, RiggedBuild, RiggedBuildFailed, RiggedRoot, RiggedSettle,
+    RiggedSteady, RiggedTrail, SETTLE_SECS, next_room_seed,
 };
 
 /// What the owner is told when their own body cannot be built (#1255).
@@ -353,6 +353,15 @@ pub(in crate::player) fn land_rigged_builds(
 /// off a fresh [`RiggedRoot`] whose offset puts the engine's ground plane at
 /// the chassis collider's bottom. Split from [`land_rigged_builds`] so a
 /// test can land a body it built itself, at whatever atlas it can afford.
+///
+/// **The three components the motion needs go on at spawn** (#1171): the
+/// driver that holds every clock outliving a frame, the [`Drive`] whose
+/// presence is what opts the body into
+/// [`bevy_symbios_avatar::drive_avatar_bodies`] at all, and the
+/// [`RiggedTrail`] that says this body's chassis has not been seen to move
+/// yet. [`Drive::default`] stands at the origin, and nothing ever reads that:
+/// [`super::fill_rigged_drive`] writes a real place before the driver first
+/// sees the body.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::player) fn install_built_body(
     commands: &mut Commands,
@@ -371,7 +380,9 @@ pub(in crate::player) fn install_built_body(
     let root = commands
         .spawn((
             RiggedRoot,
-            RiggedMotion::default(),
+            AvatarDriver::seeded(next_room_seed()),
+            Drive::default(),
+            RiggedTrail::default(),
             rigged_root_transform(offset),
             Visibility::default(),
             ChildOf(chassis),

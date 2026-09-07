@@ -606,7 +606,7 @@ fn element_modes(shape: BlobShape) -> EnumSet<GizmoMode> {
 ///
 /// Going through `rest` makes both exact regardless of what the body is
 /// doing, which is what demotes the bind-pose hold in
-/// `player::rigged::drive_rigged_motion` from a correctness requirement to
+/// `player::rigged::fill_rigged_drive` from a correctness requirement to
 /// what it should be: the owner aiming at the pose they are authoring for.
 ///
 /// A body that despawns mid-gesture yields no rest frame; the prop then just

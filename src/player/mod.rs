@@ -203,10 +203,12 @@ pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        // The sibling crate's frame order (Build → Animate → Apply) and its
-        // pose-apply system. Its `AnimatorPlugin` is deliberately absent —
-        // single-subject viewer resource plus an egui panel. There is no clip
-        // library to own any more (#1067): every motion source is the
+        // The sibling crate's frame order (Build → Animate → Apply), its
+        // pose-apply system and, since #1171, the per-body motion driver
+        // itself. Its `AnimatorPlugin` is still deliberately absent — that is
+        // the single-subject viewer resource plus an egui panel, and a room
+        // needs a driver per body rather than one for all of them. There is
+        // no clip library to own either (#1067): every motion source is the
         // engine's procedural layer, so nothing is fetched, embedded or
         // indexed before a body can move.
         app.add_plugins(bevy_symbios_avatar::AvatarPlugin)
@@ -231,10 +233,20 @@ impl Plugin for PlayerPlugin {
             .add_message::<emote::EmoteRequest>()
             .add_systems(
                 Update,
-                // Ordered: an emote requested this frame is posed this frame,
-                // rather than a frame after the message that asked for it.
-                (rigged::start_emotes, rigged::drive_rigged_motion)
-                    .chain()
+                // The fill and the sibling crate's driver are one unit
+                // (#1171): `fill_rigged_drive` writes what the chassis is
+                // doing and `drive_avatar_bodies` turns it into a pose, so
+                // the ordering is a correctness requirement rather than a
+                // preference. `start_emotes` leads, so an emote requested
+                // this frame is posed this frame rather than a frame after
+                // the message that asked for it; the strain count trails,
+                // because `Drove` only exists once a body has been driven.
+                (
+                    (rigged::start_emotes, rigged::fill_rigged_drive)
+                        .chain()
+                        .before(bevy_symbios_avatar::drive_avatar_bodies),
+                    rigged::count_motion_strain.after(bevy_symbios_avatar::drive_avatar_bodies),
+                )
                     .in_set(bevy_symbios_avatar::AvatarSystems::Animate)
                     .run_if(in_state(AppState::InGame)),
             );
