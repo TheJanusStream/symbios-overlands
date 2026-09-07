@@ -134,6 +134,10 @@ pub(super) fn draw_terrain_forge(
             // identical, because erosion is off. A control that responds
             // and produces nothing teaches the owner the section is broken.
             let erosion_on = cfg.erosion_enabled;
+            // A disabled REGION can carry the reason too: egui gates a
+            // disabled tooltip on the pointer being inside the rect, not on
+            // `hovered()`, so it fires over the greyed knobs themselves
+            // (#1289).
             ui.add_enabled_ui(erosion_on, |ui| {
             drag_u32(ui, "Drops", &mut cfg.erosion_drops, 0, 500_000, dirty).on_hover_text(
                 "How many raindrops run down the land carving it. More is deeper valleys and a longer build.",
@@ -170,7 +174,9 @@ pub(super) fn draw_terrain_forge(
                 dirty,
             )
             .on_hover_text("How much ground a drop can carry before it starts dropping it again.");
-            });
+            })
+            .response
+            .on_disabled_hover_text("Turn on Erosion above to adjust these");
         });
 
     egui::CollapsingHeader::new("Thermal erosion")
@@ -194,7 +200,9 @@ pub(super) fn draw_terrain_forge(
                 .on_hover_text(
                     "The steepest slope that holds. Lower settles the land into gentler scree.",
                 );
-            });
+            })
+            .response
+            .on_disabled_hover_text("Turn on Thermal erosion above to adjust these");
         });
 
     egui::CollapsingHeader::new("Material")

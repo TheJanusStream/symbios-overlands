@@ -849,7 +849,9 @@ fn draw_road_editor(
                     undo_label.set("street furniture spacing".to_string());
                     *dirty = true;
                 }
-            });
+            })
+            .response
+            .on_disabled_hover_text("Turn on Street furniture above to adjust its spacing");
         });
 
     egui::CollapsingHeader::new("Lots")

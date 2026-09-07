@@ -345,6 +345,15 @@ pub fn rename_dialog(
         ui.horizontal(|ui| {
             if ui
                 .add_enabled(validation.is_ok(), egui::Button::new("Apply"))
+                // The same sentence as the coloured line above (#1289):
+                // that line is what a reader sees, this is what a pointer
+                // reaches for, and a disabled control shows no `on_hover_text`.
+                .on_disabled_hover_text(
+                    validation
+                        .as_ref()
+                        .err()
+                        .map_or(String::new(), |r| r.to_string()),
+                )
                 .clicked()
                 || (enter_applied && validation.is_ok())
             {

@@ -539,7 +539,10 @@ pub(super) fn draw_attachments_tab(
                         }
                     });
                 let ready = state.pick_item.is_some();
-                if ui.add_enabled(ready, egui::Button::new("Wear")).clicked()
+                if ui
+                    .add_enabled(ready, egui::Button::new("Wear"))
+                    .on_disabled_hover_text("Pick an item from the list above to wear it")
+                    .clicked()
                     && let Some(name) = state.pick_item.clone()
                 {
                     // Belt and braces to the stale-pick sweep above: an item

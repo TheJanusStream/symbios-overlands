@@ -1218,6 +1218,10 @@ pub fn seed_row(
             .on_hover_text(format!(
                 "Replace the whole {subject} with a fresh roll from this seed"
             ))
+            // The line above is shown only while ENABLED, so before #1289
+            // the one state that needed explaining explained nothing. The
+            // field is already tinted `status.error`; this says why.
+            .on_disabled_hover_text("That seed is not a whole number — fix it to re-roll")
             .clicked();
         if let (true, Ok(seed)) = (apply_clicked, parsed) {
             action = SeedAction::Reroll(seed);

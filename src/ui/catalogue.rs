@@ -812,14 +812,21 @@ fn inventory_row(
     };
     let wearable = entry.wear_socket();
 
+    // One string, two surfaces (#1289). The hint line is the reason a
+    // reader sees; the hover is the one a pointer reaches for first, and
+    // `on_hover_text` shows nothing on a disabled control.
     let Some(session) = session else {
-        ui.add_enabled(false, egui::Button::new("Copy to inventory"));
-        hint(ui, "Sign in to own items.");
+        let reason = "Sign in to own items.";
+        ui.add_enabled(false, egui::Button::new("Copy to inventory"))
+            .on_disabled_hover_text(reason);
+        hint(ui, reason);
         return;
     };
     let Some(inventory) = live_inventory else {
-        ui.add_enabled(false, egui::Button::new("Copy to inventory"));
-        hint(ui, "Your inventory has not loaded yet.");
+        let reason = "Your inventory has not loaded yet.";
+        ui.add_enabled(false, egui::Button::new("Copy to inventory"))
+            .on_disabled_hover_text(reason);
+        hint(ui, reason);
         return;
     };
     // Reads through `as_ref` — deref_mut would count as an edit every
@@ -827,11 +834,10 @@ fn inventory_row(
     let cap = crate::config::state::MAX_INVENTORY_ITEMS;
     let count = inventory.as_ref().0.generators.len();
     if count >= cap {
-        ui.add_enabled(false, egui::Button::new("Copy to inventory"));
-        hint(
-            ui,
-            &format!("Inventory full ({cap}/{cap}) — remove something first."),
-        );
+        let reason = format!("Inventory full ({cap}/{cap}) — remove something first.");
+        ui.add_enabled(false, egui::Button::new("Copy to inventory"))
+            .on_disabled_hover_text(&reason);
+        hint(ui, &reason);
         return;
     }
 
@@ -874,7 +880,8 @@ fn inventory_row(
             true,
         );
         if let Some(reason) = reason {
-            ui.add_enabled(false, egui::Button::new("Copy to inventory & wear"));
+            ui.add_enabled(false, egui::Button::new("Copy to inventory & wear"))
+                .on_disabled_hover_text(&reason);
             hint(ui, &reason);
             return;
         }

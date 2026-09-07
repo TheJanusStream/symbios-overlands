@@ -191,16 +191,27 @@ pub fn gateway_picker_ui(
                 let entry = crate::ui::affordances::text_edit_enabled(
                     ui,
                     !resolving,
+                    "Looking up that handle — the field unlocks when it resolves",
                     egui::TextEdit::singleline(&mut picker.destination)
                         .hint_text("@alice.bsky.social")
                         .desired_width(ui.available_width() - GO_BUTTON_WIDTH),
                 );
                 let entered =
                     entry.lost_focus() && entry.ctx.input(|i| i.key_pressed(egui::Key::Enter));
-                let go = ui.add_enabled(
-                    !resolving && !picker.destination.trim().is_empty(),
-                    egui::Button::new("Go"),
-                );
+                // Two different reasons disable this, so the hover has to
+                // say WHICH (#1289) — "enter a handle" while a lookup is in
+                // flight would be wrong, and the spinner below is the only
+                // other cue for the resolving case.
+                let go_blocked = if resolving {
+                    Some("Looking up that handle — this will enable when it resolves")
+                } else if picker.destination.trim().is_empty() {
+                    Some("Enter a handle or DID to travel to")
+                } else {
+                    None
+                };
+                let go = ui
+                    .add_enabled(go_blocked.is_none(), egui::Button::new("Go"))
+                    .on_disabled_hover_text(go_blocked.unwrap_or_default());
                 if go.clicked() || entered {
                     go_to = Some(picker.destination.trim().to_owned());
                 }

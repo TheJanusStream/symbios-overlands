@@ -322,6 +322,7 @@ pub(super) fn draw_body_tab(
                     };
                     if ui
                         .add_enabled(!listing.fetching, egui::Button::new(label))
+                        .on_disabled_hover_text("Already refreshing your saved looks")
                         .clicked()
                     {
                         outcome.wants_wardrobe_refresh = true;

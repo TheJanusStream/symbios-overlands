@@ -233,7 +233,10 @@ pub fn status_dot(ui: &mut egui::Ui, color: egui::Color32) -> egui::Response {
 /// reason: a helper nobody is obliged to call fixes this once and loses
 /// it at the next call site.
 pub fn text_edit(ui: &mut egui::Ui, field: egui::TextEdit<'_>) -> egui::Response {
-    text_edit_enabled(ui, true, field)
+    // The reason is unreachable on this path — an always-enabled field is
+    // never disabled — but the parameter is not optional, so that a field
+    // which CAN be disabled cannot be added without stating why (#1289).
+    text_edit_enabled(ui, true, "", field)
 }
 
 /// [`text_edit`] for a field that can be disabled — the gateway's
@@ -245,12 +248,15 @@ pub fn text_edit(ui: &mut egui::Ui, field: egui::TextEdit<'_>) -> egui::Response
 pub fn text_edit_enabled(
     ui: &mut egui::Ui,
     enabled: bool,
+    disabled_reason: &str,
     field: egui::TextEdit<'_>,
 ) -> egui::Response {
     let previous = ui.visuals().selection.stroke;
     let ring = theme::focus_ring(&theme::current(ui.ctx()));
     ui.visuals_mut().selection.stroke = ring;
-    let response = ui.add_enabled(enabled, field);
+    let response = ui
+        .add_enabled(enabled, field)
+        .on_disabled_hover_text(disabled_reason);
     ui.visuals_mut().selection.stroke = previous;
     response
 }
@@ -356,5 +362,234 @@ mod tests {
                  `external_link_button`"
             );
         }
+    }
+
+    /// #1289. Every control that CAN be disabled states why, on the hover.
+    ///
+    /// egui shows `on_hover_text` only for an ENABLED response — the gate
+    /// is literally `if response.enabled() { if !response.hovered() {
+    /// return false } }` in `Tooltip::should_show_tooltip`. So a greyed
+    /// control carrying only `on_hover_text` says NOTHING at the one
+    /// moment the hover is needed, and three sites in this tree had
+    /// written a perfectly good explanation onto the method that could
+    /// never fire — `editor_gizmo::draw_gizmo_frame_toggle` explained the
+    /// element-axis pin on an `add_enabled_ui(false, …)` region, which is
+    /// disabled by construction.
+    ///
+    /// # No exemptions, and why the region form is included
+    ///
+    /// The obvious objection is that several of these sit beside body copy
+    /// that already gives the reason — the Catalogue's refusal lines, the
+    /// rename dialog's validation line — and that a disabled REGION cannot
+    /// carry a tooltip anyway because egui registers a container's sense
+    /// below its children's.
+    ///
+    /// The second half of that is wrong, and it is why this rule can be
+    /// exemption-free. For a DISABLED response egui does not consult
+    /// `hovered()` at all; it asks `rect_contains_pointer(layer, rect)`.
+    /// A disabled region's tooltip therefore fires anywhere inside it,
+    /// including over the greyed widgets within — verified in
+    /// egui 0.35's `Tooltip::should_show_tooltip`. And on the first half:
+    /// the hover is what a pointer-user reaches for first, so "the reason
+    /// is also printed nearby" is a reason to say it twice from one
+    /// string, not a reason to leave the hover silent. Every fixed site
+    /// here binds one string and feeds both surfaces.
+    ///
+    /// A condition of literal `true` is exempt: that control is never
+    /// disabled, so there is no state to explain.
+    #[test]
+    fn a_disabled_control_states_its_reason() {
+        use crate::ui::fonts::glyph_coverage_tests::{
+            code_only, non_test_source, rust_sources_under,
+        };
+
+        const NEEDLE: &str = "on_disabled_hover_text";
+
+        /// Byte index just past the bracket opened at `open`.
+        fn match_close(code: &[u8], open: usize) -> usize {
+            let mut depth = 0usize;
+            for (i, c) in code.iter().enumerate().skip(open) {
+                match c {
+                    b'(' | b'[' | b'{' => depth += 1,
+                    b')' | b']' | b'}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return i + 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            code.len()
+        }
+
+        /// The method chain after the call: to the `;` ending the statement
+        /// or the `{` opening a block, whichever comes first at depth zero.
+        fn chain_after(code: &[u8], from: usize) -> &[u8] {
+            let mut depth = 0usize;
+            let mut i = from;
+            while i < code.len() {
+                match code[i] {
+                    b'{' if depth == 0 => break,
+                    b'(' | b'[' | b'{' => depth += 1,
+                    b')' | b']' | b'}' => {
+                        if depth == 0 {
+                            break;
+                        }
+                        depth -= 1;
+                    }
+                    b';' if depth == 0 => break,
+                    _ => {}
+                }
+                i += 1;
+            }
+            &code[from..i]
+        }
+
+        /// The call's first argument, bracket aware and line spanning.
+        fn first_arg(code: &[u8], open: usize) -> String {
+            let mut depth = 0usize;
+            let mut i = open;
+            while i < code.len() {
+                match code[i] {
+                    b'(' | b'[' | b'{' => depth += 1,
+                    b')' | b']' | b'}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    b',' if depth == 1 => break,
+                    _ => {}
+                }
+                i += 1;
+            }
+            String::from_utf8_lossy(&code[open + 1..i.min(code.len())])
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+
+        /// Lines in `source` where a control that can be disabled gives no
+        /// reason. Takes RAW source and does its own comment/literal
+        /// blanking, so the controls below exercise the real thing.
+        fn silent_disabled_controls(source: &str) -> Vec<usize> {
+            let code = code_only(non_test_source(source));
+            let bytes = code.as_bytes();
+            let mut out = Vec::new();
+            let mut at = 0usize;
+            while let Some(hit) = code[at..].find("add_enabled") {
+                let start = at + hit;
+                at = start + "add_enabled".len();
+                let rest = &code[at..];
+                let rest = rest.strip_prefix("_ui").unwrap_or(rest);
+                let Some(paren) = rest.find(|c: char| !c.is_whitespace()) else {
+                    continue;
+                };
+                if rest.as_bytes()[paren] != b'(' {
+                    continue;
+                }
+                let open = code.len() - rest.len() + paren;
+                if first_arg(bytes, open) == "true" {
+                    continue;
+                }
+                let end = match_close(bytes, open);
+                if String::from_utf8_lossy(chain_after(bytes, end)).contains(NEEDLE) {
+                    continue;
+                }
+                // A response kept in a binding may be decorated further
+                // down — `tree.rs` and `people.rs` both do, one of them 66
+                // lines later, so a line window would report both wrongly.
+                let back = code[..start].rfind([';', '{', '}']).map_or(0, |i| i + 1);
+                let bound = code[back..start]
+                    .split_once("let ")
+                    .and_then(|(_, tail)| tail.split_once('='))
+                    .map(|(name, _)| name.trim().trim_start_matches("mut ").trim());
+                if let Some(name) = bound
+                    && !name.is_empty()
+                    && code.lines().any(|l| l.contains(name) && l.contains(NEEDLE))
+                {
+                    continue;
+                }
+                out.push(code[..start].matches('\n').count() + 1);
+            }
+            out
+        }
+
+        // Controls first: a scan nobody has watched fail is a scan that
+        // passes because it reads nothing.
+        assert_eq!(
+            silent_disabled_controls("fn f() { ui.add_enabled(ok, b).clicked(); }"),
+            vec![1],
+            "a bare disabled control is the thing this looks for"
+        );
+        assert!(
+            silent_disabled_controls(
+                "fn f() { ui.add_enabled(ok, b).on_disabled_hover_text(why).clicked(); }"
+            )
+            .is_empty(),
+            "a stated reason is the whole point"
+        );
+        assert_eq!(
+            silent_disabled_controls("fn f() { ui.add_enabled(ok, b).on_hover_text(t); }"),
+            vec![1],
+            "`on_hover_text` is shown only while ENABLED — it is not a reason"
+        );
+        assert!(
+            silent_disabled_controls("fn f() { ui.add_enabled(true, b); }").is_empty(),
+            "a control that is never disabled has no state to explain"
+        );
+        assert!(
+            silent_disabled_controls(
+                "fn f() {\n    let mut r = ui.add_enabled_ui(c, |ui| {});\n    \
+                 r.response = r.response.on_disabled_hover_text(why);\n}"
+            )
+            .is_empty(),
+            "the reason may be applied later to a binding"
+        );
+        assert!(
+            silent_disabled_controls(
+                "fn f() {\n    ui.add_enabled(c, b)\n        // tinted `err`; this says why.\n        \
+                 .on_disabled_hover_text(why);\n}"
+            )
+            .is_empty(),
+            "a `;` inside a COMMENT must not end the statement — this exact \
+             shape made the scan report editable.rs while it was correct"
+        );
+        assert!(
+            silent_disabled_controls(
+                "fn f() { ui.add_enabled(c, b); }\n#[cfg(test)]\nmod tests {\n    \
+                 fn t() { ui.add_enabled(c, b); }\n}"
+            ) == vec![1],
+            "test code draws no controls, so it is cut before the walk"
+        );
+
+        let mut missing: Vec<String> = Vec::new();
+        let mut files = 0usize;
+        for path in rust_sources_under("src/ui")
+            .into_iter()
+            .chain(rust_sources_under("src/editor_gizmo"))
+        {
+            let source = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("{} readable: {e}", path.display()));
+            files += 1;
+            let rel = path.display().to_string();
+            for line in silent_disabled_controls(&source) {
+                missing.push(format!("{rel}:{line}"));
+            }
+        }
+
+        assert!(
+            files > 30,
+            "the walk found only {files} files — it is blind"
+        );
+        assert!(
+            missing.is_empty(),
+            "{missing:?} disable a control without saying why. egui shows \
+             `on_hover_text` only while ENABLED, so a greyed control needs \
+             `on_disabled_hover_text` — chained on the response, or applied \
+             later to a binding. If the reason is already printed beside the \
+             control, bind that one string and feed both."
+        );
     }
 }

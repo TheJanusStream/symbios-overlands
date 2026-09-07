@@ -1218,6 +1218,107 @@ pub(crate) mod glyph_coverage_tests {
         source
     }
 
+    /// `source` with every comment and string/char literal blanked to
+    /// spaces, newlines kept.
+    ///
+    /// For a scan that has to read Rust's PUNCTUATION rather than its
+    /// words — matching brackets, finding the `;` that ends a statement.
+    /// The disabled-control scan in [`super::super::affordances`] does
+    /// exactly that, and without this it read the `;` in
+    ///
+    /// ```text
+    /// // field is already tinted `status.error`; this says why.
+    /// ```
+    ///
+    /// as the end of the statement above it, and reported a control that
+    /// states its reason perfectly well as missing one. A scan that cries
+    /// wolf is a scan somebody deletes, so the lexing is shared rather
+    /// than re-derived per scan — the same reasoning as
+    /// [`non_test_source`] and [`string_literals`].
+    ///
+    /// Blanked rather than removed, like the log-line cut below, so byte
+    /// offsets and line numbers still point at the source.
+    ///
+    /// Raw strings (`r"…"`, `r#"…"#`) are NOT special-cased: none appear
+    /// in the production halves of `src/ui` or `src/editor_gizmo`, and the
+    /// failure mode if one arrives is a desynced lexer, which shows up as
+    /// a spurious report rather than a silent pass. That is the trade the
+    /// literal lexer already makes.
+    pub(crate) fn code_only(source: &str) -> String {
+        let mut out = String::with_capacity(source.len());
+        let mut chars = source.chars().peekable();
+        while let Some(c) = chars.next() {
+            match c {
+                '/' if chars.peek() == Some(&'/') => {
+                    out.push_str("  ");
+                    chars.next();
+                    for c in chars.by_ref() {
+                        out.push(if c == '\n' { '\n' } else { ' ' });
+                        if c == '\n' {
+                            break;
+                        }
+                    }
+                }
+                '/' if chars.peek() == Some(&'*') => {
+                    out.push_str("  ");
+                    chars.next();
+                    let mut depth = 1usize;
+                    while depth > 0 {
+                        let Some(c) = chars.next() else { break };
+                        match (c, chars.peek()) {
+                            ('*', Some('/')) => {
+                                chars.next();
+                                out.push_str("  ");
+                                depth -= 1;
+                            }
+                            ('/', Some('*')) => {
+                                chars.next();
+                                out.push_str("  ");
+                                depth += 1;
+                            }
+                            ('\n', _) => out.push('\n'),
+                            _ => out.push(' '),
+                        }
+                    }
+                }
+                // Same lifetime-vs-literal care `string_literals` takes:
+                // `'a` opening a lifetime is not a literal, and eating one
+                // would desync everything after it.
+                '\'' if is_char_literal(&chars) => {
+                    out.push(' ');
+                    if chars.peek() == Some(&'\\') {
+                        chars.next();
+                        out.push(' ');
+                    }
+                    chars.next();
+                    chars.next();
+                    out.push_str("  ");
+                }
+                '"' => {
+                    out.push(' ');
+                    loop {
+                        match chars.next() {
+                            None => break,
+                            Some('"') => {
+                                out.push(' ');
+                                break;
+                            }
+                            Some('\\') => {
+                                out.push(' ');
+                                if let Some(c) = chars.next() {
+                                    out.push(if c == '\n' { '\n' } else { ' ' });
+                                }
+                            }
+                            Some(c) => out.push(if c == '\n' { '\n' } else { ' ' }),
+                        }
+                    }
+                }
+                other => out.push(other),
+            }
+        }
+        out
+    }
+
     /// Whether the line after `at` declares a module — the shape that
     /// makes a `#[cfg(test)]` the file's test module rather than one
     /// test-only item among the production code.

@@ -256,6 +256,7 @@ fn edit_button(
     if ui
         .add_enabled(!is_open, egui::Button::new(button_text))
         .on_hover_text("Open the structured node-graph / sequence editor")
+        .on_disabled_hover_text("The audio editor is already open for this patch")
         .clicked()
     {
         editor.open_for(audio, salt, label);
@@ -415,6 +416,7 @@ fn audition_row(
         if ui
             .add_enabled(!baking, egui::Button::new("\u{25B6} Audition"))
             .on_hover_text("Bake this audio off-thread and loop it")
+            .on_disabled_hover_text("Still baking this audio — it will play when the bake finishes")
             .clicked()
         {
             requests.write(make_request());

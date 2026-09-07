@@ -187,7 +187,11 @@ pub fn draw_gizmo_frame_toggle(
             let _ = ui.selectable_label(true, "Local");
         })
         .response
-        .on_hover_text(
+        // `on_disabled_hover_text`, not `on_hover_text` (#1289). This region
+        // is `add_enabled_ui(false, …)`, so it is ALWAYS disabled and the
+        // enabled hover could never fire — the explanation was written and
+        // then shown to nobody.
+        .on_disabled_hover_text(
             "Element sculpting is pinned to the element's local axes — \
              world-axis scaling of a rotated element is imprecise. The \
              World/Local toggle applies to the whole-object gizmo.",
