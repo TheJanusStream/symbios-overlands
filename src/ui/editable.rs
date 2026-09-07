@@ -1119,6 +1119,47 @@ impl<P: Copy + PartialEq> PinHuntCache<P> {
     }
 }
 
+/// One editor's whole manual-re-roll block (#1161): the seed the owner is
+/// editing, the axes they have pinned, and the memoized hunt that turns the
+/// pair into the seed "Re-roll" will actually build from.
+///
+/// The room editor and the avatar editor each carried these three as loose
+/// sibling fields, differing only in the pin type — a shape that reads as
+/// three unrelated caches until you notice the third is keyed on the other
+/// two. Naming it makes the coupling explicit and gives the derivation one
+/// home: `hunt` is only ever valid for `(seed_row`'s seed, `pins)`, and
+/// [`Self::effective_seed`] is the only thing that reads it.
+#[derive(Default)]
+pub struct ReRollState<P> {
+    /// Buffer for the "Random seed" row — defaults to the owner's DID
+    /// seed, editable to re-roll the whole record. See [`seed_row`].
+    pub seed_row: SeedRowState,
+    /// Per-axis locks held (or explicitly picked) across "Re-roll" clicks
+    /// via a deterministic seed hunt. Transient editor state — never
+    /// stored in the record.
+    pub pins: P,
+    /// Memoized hunt result for the axis readout.
+    hunt: PinHuntCache<P>,
+}
+
+impl<P: crate::seeded_defaults::SeedPins> ReRollState<P> {
+    /// The seed the row currently shows, falling back to the owner's
+    /// DID-derived one before the first edit.
+    pub fn start_seed(&self, did_seed: u64) -> u64 {
+        self.seed_row.current_seed().unwrap_or(did_seed)
+    }
+
+    /// The seed a re-roll from `start` will *actually* build from — with
+    /// locks engaged the hunt may walk past the typed seed. `None` only if
+    /// the hunt capped out, which is practically unreachable for a legal
+    /// pin-set. Both the readout and the "Re-roll" handler read this, so
+    /// the preview and the applied record can never disagree.
+    pub fn effective_seed(&mut self, start: u64) -> Option<u64> {
+        let pins = self.pins;
+        self.hunt.effective_seed(start, pins, |s| pins.find_seed(s))
+    }
+}
+
 /// Wrap an editor's re-roll block — a [`seed_row`] plus its
 /// [`pin_axis_row`] readout — in a collapsible section (#1047).
 ///

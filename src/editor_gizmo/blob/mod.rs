@@ -168,8 +168,8 @@ pub(super) fn resolve_blob_edit(
             if panels.world_editor && room_state.selected_tab == EditorTab::Generators =>
         {
             if let (Some(generator_ref), Some(path), Some(record)) = (
-                room_state.selected_generator.as_ref(),
-                room_state.selected_prim_path.as_ref(),
+                room_state.tree.selection.root.as_ref(),
+                room_state.tree.selection.path.as_ref(),
                 room_record.as_deref(),
             ) && let Some(node) = record
                 .0
@@ -208,7 +208,7 @@ pub(super) fn resolve_blob_edit(
         }
         ActiveTarget::Avatar => {
             if let (Some(path), Some(record)) = (
-                avatar_state.selected_prim_path.as_ref(),
+                avatar_state.gizmo().visuals_path(),
                 avatar_record.as_deref(),
             ) && let Some(node) = record.0.body.visuals().and_then(|v| node_at_path(v, path))
                 && matches!(node.kind, GeneratorKind::BlobGroup { .. })
@@ -223,7 +223,7 @@ pub(super) fn resolve_blob_edit(
                         key: BlobEditKey {
                             target: ActiveTarget::Avatar,
                             generator_ref: None,
-                            path: path.clone(),
+                            path: path.to_vec(),
                         },
                         kind: node.kind.clone(),
                         blob_entity,

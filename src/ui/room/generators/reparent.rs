@@ -14,7 +14,7 @@ use crate::state::LiveInventoryRecord;
 
 use super::super::construct::{allows_children, make_default_for_kind};
 use super::super::widgets::unique_key;
-use super::{GenNodeId, GeneratorTreeSource, TreeViewState};
+use super::{GenNodeId, GeneratorTreeSource};
 
 /// Out-of-band signal stored by a per-row context menu and applied after
 /// the tree-view widget finishes drawing. Each menu closure captures
@@ -81,13 +81,9 @@ pub(super) enum PendingAction {
 pub(super) fn apply_pending(
     action: PendingAction,
     source: &mut dyn GeneratorTreeSource,
-    selected_generator: &mut Option<String>,
-    selected_prim_path: &mut Option<Vec<usize>>,
-    tree_view_state: &mut TreeViewState,
-    renaming_generator: &mut Option<(String, String)>,
+    panel: &mut super::TreePanelState,
     inventory: Option<&mut LiveInventoryRecord>,
     dirty: &mut bool,
-    confirms: &mut super::TreeConfirms,
     toasts: &mut crate::notify::Toasts,
     now: f64,
     // Undo-entry label channel (#865). Only set on arms that actually
@@ -113,10 +109,10 @@ pub(super) fn apply_pending(
                 let mut new_path = parent.path.clone();
                 new_path.push(new_idx);
                 let new_id = GenNodeId::child(&parent.root, new_path.clone());
-                *selected_generator = Some(parent.root.clone());
-                *selected_prim_path = Some(new_path);
-                tree_view_state.set_openness(parent, true);
-                tree_view_state.set_one_selected(new_id);
+                panel.selection.root = Some(parent.root.clone());
+                panel.selection.path = Some(new_path);
+                panel.view.set_openness(parent, true);
+                panel.view.set_one_selected(new_id);
                 *dirty = true;
             }
         }
@@ -139,10 +135,10 @@ pub(super) fn apply_pending(
                 let mut new_path = parent.path.clone();
                 new_path.push(new_idx);
                 let new_id = GenNodeId::child(&parent.root, new_path.clone());
-                *selected_generator = Some(parent.root.clone());
-                *selected_prim_path = Some(new_path);
-                tree_view_state.set_openness(parent, true);
-                tree_view_state.set_one_selected(new_id);
+                panel.selection.root = Some(parent.root.clone());
+                panel.selection.path = Some(new_path);
+                panel.view.set_openness(parent, true);
+                panel.view.set_one_selected(new_id);
                 *dirty = true;
             }
         }
@@ -169,9 +165,9 @@ pub(super) fn apply_pending(
                 match source.add_root(&id.root, node) {
                     Some(new_name) => {
                         label.set(format!("duplicate of {}", id.root));
-                        *selected_generator = Some(new_name.clone());
-                        *selected_prim_path = Some(Vec::new());
-                        tree_view_state.set_one_selected(GenNodeId::root(new_name));
+                        panel.selection.root = Some(new_name.clone());
+                        panel.selection.path = Some(Vec::new());
+                        panel.view.set_one_selected(GenNodeId::root(new_name));
                         *dirty = true;
                     }
                     None => toasts.warn(
@@ -208,10 +204,12 @@ pub(super) fn apply_pending(
                 *last = new_idx;
             }
             label.set(format!("duplicate of {}", node.kind_tag()));
-            *selected_generator = Some(id.root.clone());
-            *selected_prim_path = Some(new_path.clone());
-            tree_view_state.set_openness(parent, true);
-            tree_view_state.set_one_selected(GenNodeId::child(&id.root, new_path));
+            panel.selection.root = Some(id.root.clone());
+            panel.selection.path = Some(new_path.clone());
+            panel.view.set_openness(parent, true);
+            panel
+                .view
+                .set_one_selected(GenNodeId::child(&id.root, new_path));
             *dirty = true;
         }
         PendingAction::Copy(id) => {
@@ -242,10 +240,12 @@ pub(super) fn apply_pending(
                 let new_idx = target.children.len() - 1;
                 let mut new_path = parent.path.clone();
                 new_path.push(new_idx);
-                *selected_generator = Some(parent.root.clone());
-                *selected_prim_path = Some(new_path.clone());
-                tree_view_state.set_openness(parent.clone(), true);
-                tree_view_state.set_one_selected(GenNodeId::child(&parent.root, new_path));
+                panel.selection.root = Some(parent.root.clone());
+                panel.selection.path = Some(new_path.clone());
+                panel.view.set_openness(parent.clone(), true);
+                panel
+                    .view
+                    .set_one_selected(GenNodeId::child(&parent.root, new_path));
                 *dirty = true;
             }
         }
@@ -253,7 +253,7 @@ pub(super) fn apply_pending(
             // The actual key migration + Placement / traits rewrite lives
             // in the rename modal in `super::room_admin_ui`; we just open
             // the modal with the current name pre-filled.
-            *renaming_generator = Some((root_name.clone(), root_name));
+            panel.renaming = Some((root_name.clone(), root_name));
         }
         PendingAction::SaveToInventory(id) => {
             if let Some(inv) = inventory
@@ -296,7 +296,7 @@ pub(super) fn apply_pending(
                 // Since #838 it never fires from the click itself: park it
                 // behind the shared confirm, which names the blast radius.
                 // `draw_generators_tab` performs the delete on confirm.
-                request_root_delete(&mut confirms.delete, &*source, &id.root);
+                request_root_delete(&mut panel.confirms.delete, &*source, &id.root);
                 return;
             } else if let Some(parent_id) = id.parent_id() {
                 let last_idx = *id.path.last().expect("non-root has non-empty path");
@@ -310,9 +310,9 @@ pub(super) fn apply_pending(
                     parent.children.remove(last_idx);
                 }
             }
-            *selected_generator = None;
-            *selected_prim_path = None;
-            tree_view_state.set_selected(Vec::new());
+            panel.selection.root = None;
+            panel.selection.path = None;
+            panel.view.set_selected(Vec::new());
             *dirty = true;
         }
         PendingAction::Reparent {
@@ -343,7 +343,7 @@ pub(super) fn apply_pending(
                 0
             };
             if placements > 0 {
-                confirms.reparent.request(
+                panel.confirms.reparent.request(
                     format!("Nest \"{}\"?", drag_source.root),
                     nest_warning(&drag_source.root, placements),
                     "Nest anyway",
@@ -355,17 +355,7 @@ pub(super) fn apply_pending(
                 );
                 return;
             }
-            apply_reparent(
-                source,
-                selected_generator,
-                selected_prim_path,
-                tree_view_state,
-                drag_source,
-                target,
-                position,
-                dirty,
-                label,
-            );
+            apply_reparent(source, panel, drag_source, target, position, dirty, label);
         }
     }
 }
@@ -483,15 +473,22 @@ pub(crate) fn request_root_delete(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply_reparent(
     source: &mut dyn GeneratorTreeSource,
-    selected_generator: &mut Option<String>,
-    selected_prim_path: &mut Option<Vec<usize>>,
-    tree_view_state: &mut TreeViewState,
+    panel: &mut super::TreePanelState,
     drag_source: GenNodeId,
     mut target: GenNodeId,
     mut position: DirPosition<GenNodeId>,
     dirty: &mut bool,
     label: &mut crate::ui::undo::LabelSlot,
 ) {
+    let super::TreePanelState {
+        selection:
+            super::TreeSelection {
+                root: selected_generator,
+                path: selected_prim_path,
+            },
+        view: tree_view_state,
+        ..
+    } = panel;
     if drag_source.is_virtual_root() {
         return;
     }
@@ -815,19 +812,6 @@ fn sibling_index_in(
     }
 }
 
-/// Snapshot of the currently-selected node id, derived from
-/// `(selected_generator, selected_prim_path)`. Returns `None` when nothing
-/// is selected.
-pub(super) fn current_id(
-    selected_generator: &Option<String>,
-    selected_prim_path: &Option<Vec<usize>>,
-) -> Option<GenNodeId> {
-    match (selected_generator.as_ref(), selected_prim_path.as_ref()) {
-        (Some(root), Some(path)) => Some(GenNodeId::child(root.clone(), path.clone())),
-        _ => None,
-    }
-}
-
 impl GenNodeId {
     pub(super) fn parent_id(&self) -> Option<Self> {
         if self.path.is_empty() {
@@ -874,7 +858,7 @@ pub(super) fn find_node_mut<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::super::{RoomTreeSource, sweep_root_refs};
+    use super::super::{RoomTreeSource, TreePanelState, TreeSelection, sweep_root_refs};
     use super::*;
     use crate::pds::{
         Environment, GeneratorKind, Placement, RoomRecord, ScatterBounds, TransformData,
@@ -913,12 +897,8 @@ mod tests {
         record.placements.push(absolute_pointing_at("oak"));
         record.placements.push(absolute_pointing_at("oak"));
 
-        let mut tvs = TreeViewState::default();
-        let mut sel_gen = None;
-        let mut sel_path = None;
-        let mut renaming = None;
+        let mut panel = TreePanelState::default();
         let mut dirty = false;
-        let mut confirms = super::super::TreeConfirms::default();
         let mut toasts = crate::notify::Toasts::default();
         let mut labels = crate::ui::undo::PendingUndoLabels::default();
         apply_pending(
@@ -928,13 +908,9 @@ mod tests {
                 position: DirPosition::Last,
             },
             &mut RoomTreeSource::new(&mut record),
-            &mut sel_gen,
-            &mut sel_path,
-            &mut tvs,
-            &mut renaming,
+            &mut panel,
             None,
             &mut dirty,
-            &mut confirms,
             &mut toasts,
             0.0,
             &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
@@ -948,7 +924,7 @@ mod tests {
             "the placements survive the drop"
         );
         assert!(
-            confirms.reparent.is_pending(),
+            panel.confirms.reparent.is_pending(),
             "the drop parks behind the nest confirm"
         );
 
@@ -961,13 +937,9 @@ mod tests {
                 position: DirPosition::Last,
             },
             &mut RoomTreeSource::new(&mut record),
-            &mut sel_gen,
-            &mut sel_path,
-            &mut tvs,
-            &mut renaming,
+            &mut panel,
             None,
             &mut dirty,
-            &mut confirms,
             &mut toasts,
             0.0,
             &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
@@ -986,9 +958,7 @@ mod tests {
         let mut labels = crate::ui::undo::PendingUndoLabels::default();
         apply_reparent(
             &mut RoomTreeSource::new(&mut record),
-            &mut sel_gen,
-            &mut sel_path,
-            &mut tvs,
+            &mut panel,
             GenNodeId::root("oak"),
             GenNodeId::root("host"),
             DirPosition::Last,
@@ -1211,15 +1181,17 @@ mod tests {
             chain_affine(&src, &dragged).expect("chain resolves")
         };
 
-        let mut tvs = TreeViewState::default();
-        let mut sel_gen = Some("host".to_string());
-        let mut sel_path = Some(vec![0, 0]);
+        let mut panel = TreePanelState {
+            selection: TreeSelection {
+                root: Some("host".to_string()),
+                path: Some(vec![0, 0]),
+            },
+            ..Default::default()
+        };
         let mut dirty = false;
         apply_reparent(
             &mut RoomTreeSource::new(&mut record),
-            &mut sel_gen,
-            &mut sel_path,
-            &mut tvs,
+            &mut panel,
             dragged,
             GenNodeId::child("host", vec![1]),
             DirPosition::Last,
@@ -1284,15 +1256,17 @@ mod tests {
         }
         record.generators.insert("host".to_string(), host);
 
-        let mut tvs = TreeViewState::default();
-        let mut sel_gen = Some("host".to_string());
-        let mut sel_path = Some(vec![0]);
+        let mut panel = TreePanelState {
+            selection: TreeSelection {
+                root: Some("host".to_string()),
+                path: Some(vec![0]),
+            },
+            ..Default::default()
+        };
         let mut dirty = false;
         apply_reparent(
             &mut RoomTreeSource::new(&mut record),
-            &mut sel_gen,
-            &mut sel_path,
-            &mut tvs,
+            &mut panel,
             GenNodeId::child("host", vec![0]),
             GenNodeId::root("host"),
             DirPosition::Last,
@@ -1341,16 +1315,18 @@ mod tests {
             .push(Generator::from_kind(GeneratorKind::default_cuboid()));
         record.generators.insert("parent".to_string(), parent);
 
-        let mut tvs = TreeViewState::default();
-        let mut sel_gen = Some("parent".to_string());
-        let mut sel_path = Some(vec![0]);
+        let mut panel = TreePanelState {
+            selection: TreeSelection {
+                root: Some("parent".to_string()),
+                path: Some(vec![0]),
+            },
+            ..Default::default()
+        };
         let mut dirty = false;
 
         apply_reparent(
             &mut RoomTreeSource::new(&mut record),
-            &mut sel_gen,
-            &mut sel_path,
-            &mut tvs,
+            &mut panel,
             GenNodeId::child("parent", vec![0]),
             GenNodeId::default(),
             DirPosition::Last,
@@ -1364,8 +1340,8 @@ mod tests {
         assert!(parent_after.children.is_empty());
         assert!(record.generators.contains_key("cuboid"));
         // Selection should now name the promoted root.
-        assert_eq!(sel_gen.as_deref(), Some("cuboid"));
-        assert_eq!(sel_path.as_deref(), Some(&[][..]));
+        assert_eq!(panel.selection.root.as_deref(), Some("cuboid"));
+        assert_eq!(panel.selection.path.as_deref(), Some(&[][..]));
         assert!(dirty);
     }
 
@@ -1385,16 +1361,18 @@ mod tests {
             .traits
             .insert("victim".to_string(), vec!["sensor".to_string()]);
 
-        let mut tvs = TreeViewState::default();
-        let mut sel_gen = Some("victim".to_string());
-        let mut sel_path = Some(Vec::new());
+        let mut panel = TreePanelState {
+            selection: TreeSelection {
+                root: Some("victim".to_string()),
+                path: Some(Vec::new()),
+            },
+            ..Default::default()
+        };
         let mut dirty = false;
 
         apply_reparent(
             &mut RoomTreeSource::new(&mut record),
-            &mut sel_gen,
-            &mut sel_path,
-            &mut tvs,
+            &mut panel,
             GenNodeId::root("victim"),
             GenNodeId::root("host"),
             DirPosition::Last,
@@ -1410,8 +1388,8 @@ mod tests {
         assert!(record.placements.is_empty());
         assert!(record.traits.is_empty());
         // Selection follows the moved subtree into its new home.
-        assert_eq!(sel_gen.as_deref(), Some("host"));
-        assert_eq!(sel_path.as_deref(), Some(&[0usize][..]));
+        assert_eq!(panel.selection.root.as_deref(), Some("host"));
+        assert_eq!(panel.selection.path.as_deref(), Some(&[0usize][..]));
         assert!(dirty);
     }
 
@@ -1426,16 +1404,18 @@ mod tests {
         record.generators.insert("b".to_string(), cuboid_root());
         record.placements.push(absolute_pointing_at("a"));
 
-        let mut tvs = TreeViewState::default();
-        let mut sel_gen = Some("a".to_string());
-        let mut sel_path = Some(Vec::new());
+        let mut panel = TreePanelState {
+            selection: TreeSelection {
+                root: Some("a".to_string()),
+                path: Some(Vec::new()),
+            },
+            ..Default::default()
+        };
         let mut dirty = false;
 
         apply_reparent(
             &mut RoomTreeSource::new(&mut record),
-            &mut sel_gen,
-            &mut sel_path,
-            &mut tvs,
+            &mut panel,
             GenNodeId::root("a"),
             GenNodeId::default(),
             DirPosition::Last,
@@ -1461,16 +1441,18 @@ mod tests {
             .push(Generator::from_kind(GeneratorKind::default_cuboid()));
         record.generators.insert("a".to_string(), root);
 
-        let mut tvs = TreeViewState::default();
-        let mut sel_gen = Some("a".to_string());
-        let mut sel_path = Some(Vec::new());
+        let mut panel = TreePanelState {
+            selection: TreeSelection {
+                root: Some("a".to_string()),
+                path: Some(Vec::new()),
+            },
+            ..Default::default()
+        };
         let mut dirty = false;
 
         apply_reparent(
             &mut RoomTreeSource::new(&mut record),
-            &mut sel_gen,
-            &mut sel_path,
-            &mut tvs,
+            &mut panel,
             GenNodeId::root("a"),
             GenNodeId::child("a", vec![0]),
             DirPosition::Last,
@@ -1504,18 +1486,20 @@ mod tests {
             .push(Generator::from_kind(GeneratorKind::default_cuboid()));
         record.generators.insert("r".to_string(), root);
 
-        let mut tvs = TreeViewState::default();
-        let mut sel_gen = Some("r".to_string());
-        let mut sel_path = Some(vec![0]);
+        let mut panel = TreePanelState {
+            selection: TreeSelection {
+                root: Some("r".to_string()),
+                path: Some(vec![0]),
+            },
+            ..Default::default()
+        };
         let mut dirty = false;
 
         // Drag A (path [0]) inside C (path [2], originally — after A is
         // extracted C lives at [1]).
         apply_reparent(
             &mut RoomTreeSource::new(&mut record),
-            &mut sel_gen,
-            &mut sel_path,
-            &mut tvs,
+            &mut panel,
             GenNodeId::child("r", vec![0]),
             GenNodeId::child("r", vec![2]),
             DirPosition::Last,
@@ -1540,7 +1524,7 @@ mod tests {
             0,
             "B (now at index 0) must be untouched"
         );
-        assert_eq!(sel_path.as_deref(), Some(&[1usize, 0][..]));
+        assert_eq!(panel.selection.path.as_deref(), Some(&[1usize, 0][..]));
         assert!(dirty);
     }
 
@@ -1570,16 +1554,18 @@ mod tests {
             c.transform.translation = crate::pds::Fp3([i as f32, 0.0, 0.0]);
         }
 
-        let mut tvs = TreeViewState::default();
-        let mut sel_gen = Some("r".to_string());
-        let mut sel_path = Some(vec![1]);
+        let mut panel = TreePanelState {
+            selection: TreeSelection {
+                root: Some("r".to_string()),
+                path: Some(vec![1]),
+            },
+            ..Default::default()
+        };
         let mut dirty = false;
 
         apply_reparent(
             &mut RoomTreeSource::new(&mut record),
-            &mut sel_gen,
-            &mut sel_path,
-            &mut tvs,
+            &mut panel,
             GenNodeId::child("r", vec![1]),
             GenNodeId::root("r"),
             DirPosition::After(GenNodeId::child("r", vec![4])),
@@ -1595,7 +1581,7 @@ mod tests {
             .map(|c| c.transform.translation.0[0] as i32)
             .collect();
         assert_eq!(order, vec![0, 2, 3, 4, 1]);
-        assert_eq!(sel_path.as_deref(), Some(&[4usize][..]));
+        assert_eq!(panel.selection.path.as_deref(), Some(&[4usize][..]));
         assert!(dirty);
     }
 
@@ -1614,16 +1600,18 @@ mod tests {
         );
         record.generators.insert("cube".to_string(), cuboid_root());
 
-        let mut tvs = TreeViewState::default();
-        let mut sel_gen = Some("cube".to_string());
-        let mut sel_path = Some(Vec::new());
+        let mut panel = TreePanelState {
+            selection: TreeSelection {
+                root: Some("cube".to_string()),
+                path: Some(Vec::new()),
+            },
+            ..Default::default()
+        };
         let mut dirty = false;
 
         apply_reparent(
             &mut RoomTreeSource::new(&mut record),
-            &mut sel_gen,
-            &mut sel_path,
-            &mut tvs,
+            &mut panel,
             GenNodeId::root("cube"),
             GenNodeId::root("water"),
             DirPosition::Last,
@@ -1662,12 +1650,14 @@ mod tests {
         record
             .generators
             .insert("house_b".into(), Generator::default());
-        let mut sel_gen = None;
-        let mut sel_path = None;
-        let mut tvs = TreeViewState::default();
-        let mut renaming = None;
+        let mut panel = TreePanelState {
+            selection: TreeSelection {
+                root: None,
+                path: None,
+            },
+            ..Default::default()
+        };
         let mut dirty = false;
-        let mut confirms = crate::ui::room::generators::TreeConfirms::default();
         let mut toasts = crate::notify::Toasts::default();
         let mut labels = crate::ui::undo::PendingUndoLabels::default();
         let mut clipboard: Option<Generator> = None;
@@ -1677,13 +1667,9 @@ mod tests {
                 apply_pending(
                     action,
                     &mut RoomTreeSource::new(record),
-                    &mut sel_gen,
-                    &mut sel_path,
-                    &mut tvs,
-                    &mut renaming,
+                    &mut panel,
                     None,
                     &mut dirty,
-                    &mut confirms,
                     &mut toasts,
                     0.0,
                     &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
@@ -1734,12 +1720,14 @@ mod tests {
                 ..Generator::default()
             },
         );
-        let mut sel_gen = None;
-        let mut sel_path = None;
-        let mut tvs = TreeViewState::default();
-        let mut renaming = None;
+        let mut panel = TreePanelState {
+            selection: TreeSelection {
+                root: None,
+                path: None,
+            },
+            ..Default::default()
+        };
         let mut dirty = false;
-        let mut confirms = crate::ui::room::generators::TreeConfirms::default();
         let mut toasts = crate::notify::Toasts::default();
         let mut labels = crate::ui::undo::PendingUndoLabels::default();
         let mut clipboard = None;
@@ -1747,13 +1735,9 @@ mod tests {
         apply_pending(
             PendingAction::Duplicate(GenNodeId::child("house", vec![0])),
             &mut RoomTreeSource::new(&mut record),
-            &mut sel_gen,
-            &mut sel_path,
-            &mut tvs,
-            &mut renaming,
+            &mut panel,
             None,
             &mut dirty,
-            &mut confirms,
             &mut toasts,
             0.0,
             &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
@@ -1761,7 +1745,7 @@ mod tests {
         );
         assert_eq!(record.generators["house"].children.len(), 2);
         assert_eq!(
-            sel_path.as_deref(),
+            panel.selection.path.as_deref(),
             Some(&[1][..]),
             "the selection lands on the copy, ready to drag apart"
         );
@@ -1769,13 +1753,9 @@ mod tests {
         apply_pending(
             PendingAction::Duplicate(GenNodeId::root("house")),
             &mut RoomTreeSource::new(&mut record),
-            &mut sel_gen,
-            &mut sel_path,
-            &mut tvs,
-            &mut renaming,
+            &mut panel,
             None,
             &mut dirty,
-            &mut confirms,
             &mut toasts,
             0.0,
             &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
@@ -1783,7 +1763,7 @@ mod tests {
         );
         assert_eq!(record.generators.len(), 2, "a root duplicates as a root");
         assert_ne!(
-            sel_gen.as_deref(),
+            panel.selection.root.as_deref(),
             Some("house"),
             "…under a fresh name, and the selection follows it"
         );

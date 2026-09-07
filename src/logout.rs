@@ -811,6 +811,6 @@ mod tests {
             !editor.holds_avatar_still(),
             "a selection made in the previous session still freezes the new one's body"
         );
-        assert_eq!(editor.selected_attachment(), None);
+        assert_eq!(editor.gizmo().worn_prop(), None);
     }
 }

@@ -159,7 +159,11 @@ impl PlacementSort {
 #[derive(Resource, Default)]
 pub struct RoomEditorState {
     pub selected_tab: EditorTab,
-    pub selected_generator: Option<String>,
+    /// The Generators tab's tree: the selected row, the widget's expansion
+    /// state, the one-shot focus request, the rename modal and the parked
+    /// destructive confirms (#1161). Six loose fields here until the avatar
+    /// editor's two trees were given the same struct to own.
+    pub(crate) tree: generators::TreePanelState,
     pub selected_placement: Option<usize>,
     /// Additional selected placement rows (#1244 f415) — `selected_placement`
     /// stays the ANCHOR (the gizmo target, the detail panel's subject) and
@@ -185,24 +189,6 @@ pub struct RoomEditorState {
     /// (#825). Not gizmo-coupled, so tab switches leave it alone — the
     /// user's place in the recipe list survives a peek at Environment.
     pub selected_effect: Option<usize>,
-    /// Path through the selected named generator's tree to the node the
-    /// owner has selected in the unified tree view. An empty `Vec` means the
-    /// generator's own root; a `Some([i0, i1, ...])` means the `i_n`-th
-    /// child at each depth. `None` means no node is currently selected. The
-    /// gizmo controller in `editor_gizmo` reads this pair `(selected_generator,
-    /// selected_prim_path)` to attach the 3D gizmo to the live entity that
-    /// matches.
-    pub selected_prim_path: Option<Vec<usize>>,
-    /// State for the [`egui_ltreeview`] widget that drives the Generators
-    /// tab's left sidebar. Holds expansion + selection across frames so
-    /// resizing / scrolling doesn't reset what the owner had open.
-    pub tree_view_state: egui_ltreeview::TreeViewState<GenNodeId>,
-    /// Set for one frame by the in-world pick (#719) when a scene click
-    /// selects a generator node. On the next Generators-tab draw the tree
-    /// grabs keyboard focus so the picked row highlights like a direct
-    /// click, then this clears. A world-pick bypasses the tree's own
-    /// click-to-focus path, which is what normally focuses it.
-    pub pending_tree_focus: bool,
     /// Where the owner's most recent scene-click pick landed (#822).
     /// For a multi-instance node (a scattered blueprint), the gizmo sync
     /// prefers the live instance nearest this position over the
@@ -223,34 +209,15 @@ pub struct RoomEditorState {
     /// exactly once when the timer drains rather than every frame the
     /// slider moves.
     pending_flush_secs: f32,
-    /// Active rename modal: `(original_key, draft_key)`. Set when the
-    /// owner clicks "Rename" on a generator; cleared when the modal
-    /// applies the rename or is dismissed.
-    pub renaming_generator: Option<(String, String)>,
     /// Pop-out audio editor state — native working copy + canvas
     /// view-state for the structured node-graph / sequence editor. Held
     /// here so the editor's layout/selection persists across frames and
     /// survives tab switches. See [`audio::AudioEditorState`].
     pub audio_editor: audio::AudioEditorState,
-    /// Buffer for the manual re-roll "Random seed" row — defaults to the
-    /// owner's DID seed, editable to re-roll the whole room. See
-    /// [`crate::ui::editable::seed_row`].
-    seed_row_state: crate::ui::editable::SeedRowState,
-    /// Per-axis locks for the pinned re-roll (#1005): axes held (or
-    /// explicitly picked) across re-roll "Apply" clicks via a
-    /// deterministic seed hunt. Transient editor state — never stored in
-    /// the record. See [`crate::seeded_defaults::ScenePins`].
-    scene_pins: crate::seeded_defaults::ScenePins,
-    /// Memoized hunt result for the axis readout (#1005): re-hunts only
-    /// when the seed text or the pins change, so the preview can derive
-    /// from the seed "Apply" will actually use without paying the
-    /// hunt every frame.
-    pin_hunt: crate::ui::editable::PinHuntCache<crate::seeded_defaults::ScenePins>,
-    /// Pending destructive tree-operation confirmations (#838): root
-    /// delete + kind change on the Generators tab.
-    /// Shared with the scene context menu (#1209), whose "Delete item"
-    /// parks the same cascading delete here.
-    pub(crate) tree_confirms: generators::TreeConfirms,
+    /// The manual re-roll block (#1005): the seed row's buffer, the pinned
+    /// axes and the memoized hunt over the two. See
+    /// [`crate::ui::editable::ReRollState`].
+    reroll: crate::ui::editable::ReRollState<crate::seeded_defaults::ScenePins>,
     /// Pending recovery-banner "Reset PDS to default" confirmation
     /// (#840): the button hard-overwrites the stored record, and a
     /// stale banner (pre-#840) could offer it against a healthy one.
@@ -314,7 +281,7 @@ impl RoomEditorState {
     /// node, or inferred via tab. Used by the cross-editor mutex and the
     /// collapse-deselect logic to decide whether the gizmo should detach.
     pub fn has_selection(&self) -> bool {
-        self.selected_placement.is_some() || self.selected_prim_path.is_some()
+        self.selected_placement.is_some() || self.tree.selection.path.is_some()
     }
 
     /// Drop placement / generator-tree selection. Used when the editor
@@ -323,9 +290,8 @@ impl RoomEditorState {
     pub fn clear_selection(&mut self) {
         self.selected_placement = None;
         self.extra_placements.clear();
-        self.selected_generator = None;
-        self.selected_prim_path = None;
-        self.tree_view_state.set_selected(Vec::new());
+        self.tree.selection.clear();
+        self.tree.view.set_selected(Vec::new());
         self.preferred_pick = None;
     }
 
@@ -341,10 +307,10 @@ impl RoomEditorState {
     /// full deselect.
     pub(crate) fn undo_selection(&self) -> crate::ui::undo::RoomSelection {
         crate::ui::undo::RoomSelection {
-            generator: self.selected_generator.clone(),
+            generator: self.tree.selection.root.clone(),
             placement: self.selected_placement,
-            prim_path: self.selected_prim_path.clone(),
-            tree: self.tree_view_state.selected().clone(),
+            prim_path: self.tree.selection.path.clone(),
+            tree: self.tree.view.selected().clone(),
         }
     }
 
@@ -361,11 +327,11 @@ impl RoomEditorState {
         // the pre-restore tree and could re-resolve to a different node;
         // drop them rather than let a stale dialog apply to the restored
         // record. Same for a half-typed rename.
-        self.tree_confirms.cancel_all();
+        self.tree.confirms.cancel_all();
         self.recovery_reset_confirm.cancel();
         self.placement_bulk_delete.cancel();
         self.publish_guard.cancel();
-        self.renaming_generator = None;
+        self.tree.renaming = None;
         // A widget burst still in the debounce was aimed at record state
         // the restore just replaced; letting the timer drain would fire
         // a second `set_changed` and mint a phantom history entry.
@@ -392,11 +358,10 @@ impl RoomEditorState {
             (None, _) => false,
         };
         if generator_valid {
-            self.selected_generator = sel.generator.clone();
-            self.selected_prim_path = sel.prim_path.clone();
+            self.tree.selection.root = sel.generator.clone();
+            self.tree.selection.path = sel.prim_path.clone();
         } else {
-            self.selected_generator = None;
-            self.selected_prim_path = None;
+            self.tree.selection.clear();
         }
         let tree: Vec<GenNodeId> = sel
             .tree
@@ -410,14 +375,14 @@ impl RoomEditorState {
         // the row highlights like a direct click.
         for id in &tree {
             for depth in 0..id.path.len() {
-                self.tree_view_state.set_openness(
+                self.tree.view.set_openness(
                     GenNodeId::child(id.root.clone(), id.path[..depth].to_vec()),
                     true,
                 );
             }
         }
-        self.pending_tree_focus = !tree.is_empty();
-        self.tree_view_state.set_selected(tree);
+        self.tree.pending_focus = !tree.is_empty();
+        self.tree.view.set_selected(tree);
     }
 }
 
@@ -774,7 +739,7 @@ pub fn room_admin_ui(
     // this, re-borrowing `editor` inside nested egui closures trips E0499.
     let RoomEditorState {
         selected_tab,
-        selected_generator,
+        tree,
         selected_placement,
         extra_placements,
         placement_filter,
@@ -782,17 +747,10 @@ pub fn room_admin_ui(
         generator_filter,
         node_clipboard,
         selected_effect,
-        selected_prim_path,
-        tree_view_state,
-        pending_tree_focus,
         raw,
         pending_flush_secs,
-        renaming_generator,
         audio_editor,
-        seed_row_state,
-        scene_pins,
-        pin_hunt,
-        tree_confirms,
+        reroll,
         recovery_reset_confirm,
         placement_bulk_delete,
         publish_guard,
@@ -838,9 +796,9 @@ pub fn room_admin_ui(
         // empty/taken name with the reason inline, Enter applies, Esc
         // cancels. Cloning the `(old, draft)` pair out first lets us mutate
         // the draft in a scratch variable and feed the final decision back
-        // into `renaming_generator` without holding a long-lived mutable
+        // into the panel's `renaming` without holding a long-lived mutable
         // borrow across the modal's `show` call.
-        if let Some((old_name, mut new_name)) = renaming_generator.clone() {
+        if let Some((old_name, mut new_name)) = tree.renaming.clone() {
             let outcome = crate::ui::confirm::rename_dialog(
                 ctx,
                 "Rename item",
@@ -850,10 +808,10 @@ pub fn room_admin_ui(
             );
             match outcome {
                 crate::ui::confirm::RenameOutcome::Open => {
-                    *renaming_generator = Some((old_name, new_name));
+                    tree.renaming = Some((old_name, new_name));
                 }
                 crate::ui::confirm::RenameOutcome::Cancelled => {
-                    *renaming_generator = None;
+                    tree.renaming = None;
                 }
                 crate::ui::confirm::RenameOutcome::Renamed(applied) => {
                     if applied != old_name
@@ -885,17 +843,17 @@ pub fn room_admin_ui(
                         if let Some(traits) = record_mut.traits.remove(&old_name) {
                             record_mut.traits.insert(applied.clone(), traits);
                         }
-                        *selected_generator = Some(applied.clone());
+                        tree.selection.root = Some(applied.clone());
                         undo_labels.set_room(format!("rename {old_name} to {applied}"));
                         // Tree-view ids are keyed on `(root, path)`, so the
                         // rename also has to retarget the current selection at
                         // the new root key — otherwise the tree highlights
                         // nothing while the gizmo still tracks the renamed
                         // root.
-                        tree_view_state.set_one_selected(GenNodeId::root(applied));
+                        tree.view.set_one_selected(GenNodeId::root(applied));
                         widget_change = true;
                     }
-                    *renaming_generator = None;
+                    tree.renaming = None;
                 }
             }
         }
@@ -1034,9 +992,8 @@ pub fn room_admin_ui(
                                     *selected_placement = None;
                                 }
                                 if tab != EditorTab::Generators {
-                                    *selected_generator = None;
-                                    *selected_prim_path = None;
-                                    tree_view_state.set_selected(Vec::new());
+                                    tree.selection.clear();
+                                    tree.view.set_selected(Vec::new());
                                 }
                             }
                             *selected_tab = tab;
@@ -1121,7 +1078,7 @@ pub fn room_admin_ui(
                     |ui| {
                         let action = seed_row(
                             ui,
-                            seed_row_state,
+                            &mut reroll.seed_row,
                             did_seed,
                             time.elapsed_secs_f64(),
                             "world",
@@ -1134,9 +1091,8 @@ pub fn room_admin_ui(
                         // one, so 🎲 previews exactly what Apply then
                         // delivers. Memoized: the hunt only reruns when the
                         // seed text or the pins change.
-                        let start = seed_row_state.current_seed().unwrap_or(did_seed);
-                        let effective = pin_hunt
-                            .effective_seed(start, *scene_pins, |s| scene_pins.find_seed(s));
+                        let start = reroll.start_seed(did_seed);
+                        let effective = reroll.effective_seed(start);
                         use crate::seeded_defaults::{
                             BiomeArchetype, EscalationTier, LandformArchetype, ProsperityTier,
                             SceneCharacter, ThemeArchetype,
@@ -1150,7 +1106,7 @@ pub fn room_admin_ui(
                                     "Landform",
                                     &LandformArchetype::ALL,
                                     LandformArchetype::label,
-                                    &mut scene_pins.landform,
+                                    &mut reroll.pins.landform,
                                     rolled.landform,
                                 );
                                 pin_axis_row(
@@ -1158,7 +1114,7 @@ pub fn room_admin_ui(
                                     "Biome",
                                     &BiomeArchetype::ALL,
                                     BiomeArchetype::label,
-                                    &mut scene_pins.biome,
+                                    &mut reroll.pins.biome,
                                     rolled.biome,
                                 );
                                 pin_axis_row(
@@ -1166,7 +1122,7 @@ pub fn room_admin_ui(
                                     "Theme",
                                     &ThemeArchetype::ALL,
                                     ThemeArchetype::label,
-                                    &mut scene_pins.theme,
+                                    &mut reroll.pins.theme,
                                     rolled.theme,
                                 );
                                 pin_axis_row(
@@ -1174,7 +1130,7 @@ pub fn room_admin_ui(
                                     "Prosperity",
                                     &ProsperityTier::ALL,
                                     ProsperityTier::label,
-                                    &mut scene_pins.prosperity,
+                                    &mut reroll.pins.prosperity,
                                     rolled.prosperity_tier(),
                                 );
                                 pin_axis_row(
@@ -1182,7 +1138,7 @@ pub fn room_admin_ui(
                                     "Escalation",
                                     &EscalationTier::ALL,
                                     EscalationTier::label,
-                                    &mut scene_pins.escalation,
+                                    &mut reroll.pins.escalation,
                                     rolled.escalation_tier(),
                                 );
                             });
@@ -1212,13 +1168,13 @@ pub fn room_admin_ui(
                             what: format!("Re-rolled from seed {seed}"),
                             since_secs: clicked_at,
                         });
-                        seed_row_state.set_seed(seed);
+                        reroll.seed_row.set_seed(seed);
                         *record_mut = pds::RoomRecord::default_for_seed(seed, &room_did.0);
                         raw.sync_to(&*record_mut);
-                        *selected_generator = None;
+                        tree.selection.root = None;
                         *selected_placement = None;
-                        *selected_prim_path = None;
-                        tree_view_state.set_selected(Vec::new());
+                        tree.selection.path = None;
+                        tree.view.set_selected(Vec::new());
                         needs_broadcast = true;
                         undo_labels.set_room(format!("seed re-roll ({seed})"));
                     } else {
@@ -1226,7 +1182,8 @@ pub fn room_admin_ui(
                         // pin-set with probability ~e⁻¹³⁸); keep the record
                         // untouched rather than violate the locks.
                         bevy::log::warn!(
-                            "pinned re-roll found no seed matching {scene_pins:?} from {start}"
+                            "pinned re-roll found no seed matching {:?} from {start}",
+                            reroll.pins
                         );
                         // Said out loud, not only logged (#1268 f69): the
                         // click otherwise does literally nothing, with the
@@ -1386,10 +1343,10 @@ pub fn room_admin_ui(
                                 if let Some(stored) = stored.as_ref() {
                                     *record_mut = stored.0.clone();
                                     raw.sync_to(&*record_mut);
-                                    *selected_generator = None;
+                                    tree.selection.root = None;
                                     *selected_placement = None;
-                                    *selected_prim_path = None;
-                                    tree_view_state.set_selected(Vec::new());
+                                    tree.selection.path = None;
+                                    tree.view.set_selected(Vec::new());
                                     needs_broadcast = true;
                                     undo_labels.set_room("revert to saved");
                                 }
@@ -1397,10 +1354,10 @@ pub fn room_admin_ui(
                             RecordAction::Reset => {
                                 *record_mut = default_record.clone();
                                 raw.sync_to(&*record_mut);
-                                *selected_generator = None;
+                                tree.selection.root = None;
                                 *selected_placement = None;
-                                *selected_prim_path = None;
-                                tree_view_state.set_selected(Vec::new());
+                                tree.selection.path = None;
+                                tree.view.set_selected(Vec::new());
                                 needs_broadcast = true;
                                 undo_labels.set_room("reset to default");
                             }
@@ -1504,27 +1461,17 @@ pub fn room_admin_ui(
                         });
                     }
                     EditorTab::Generators => {
-                        // Consume the one-shot focus request set by the
-                        // in-world pick (#719): read + clear it here so the
-                        // tree focuses on exactly the draw that follows a
-                        // scene click and never re-focuses on later frames.
-                        let request_focus = std::mem::take(pending_tree_focus);
                         ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
                             let mut tree_source = generators::RoomTreeSource::new(record_mut);
                             generators::draw_generators_tab(
                                 ui,
                                 &mut tree_source,
-                                selected_generator,
-                                selected_prim_path,
-                                tree_view_state,
-                                request_focus,
-                                renaming_generator,
+                                tree,
                                 inventory.as_deref_mut(),
                                 audio_editor,
                                 &grammar_diag,
                                 &mut widget_change,
                                 &mut blob_ctx.selected_element,
-                                tree_confirms,
                                 &mut toasts,
                                 time.elapsed_secs_f64(),
                                 &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::World),
@@ -1633,9 +1580,9 @@ pub fn room_admin_ui(
             .is_some_and(|r| r.inner.is_some());
         if !body_visible {
             *selected_placement = None;
-            *selected_generator = None;
-            *selected_prim_path = None;
-            tree_view_state.set_selected(Vec::new());
+            tree.selection.root = None;
+            tree.selection.path = None;
+            tree.view.set_selected(Vec::new());
         }
     }
 
@@ -1645,9 +1592,9 @@ pub fn room_admin_ui(
     // enforced by the analogous block in `avatar::avatar_ui`. Read
     // selection state via the destructured fields — `editor` is still
     // mutably borrowed until end of function.
-    let now_room_selected = selected_placement.is_some() || selected_prim_path.is_some();
+    let now_room_selected = selected_placement.is_some() || tree.selection.path.is_some();
     if now_room_selected && !prev_room_selected && avatar_editor.has_visuals_selection() {
-        avatar_editor.clear_visuals_selection();
+        avatar_editor.release_visuals_aim();
     }
 
     // A widget edit only arms the broadcast/recompile debounce now —

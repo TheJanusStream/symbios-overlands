@@ -284,8 +284,8 @@ mod tests {
             assert_eq!(record.0.placements.len(), 2);
             // The redo target's selection resolves in the redone record,
             // so it re-seeds rather than deselecting.
-            assert_eq!(editor.selected_generator.as_deref(), Some("tg"));
-            assert_eq!(editor.selected_prim_path.as_deref(), Some(&[2][..]));
+            assert_eq!(editor.tree.selection.root.as_deref(), Some("tg"));
+            assert_eq!(editor.tree.selection.path.as_deref(), Some(&[2][..]));
             assert_eq!(editor.selected_placement, Some(1));
         });
     }
@@ -314,8 +314,8 @@ mod tests {
         world.resource_scope::<RoomEditorState, _>(|world, mut editor| {
             let mut record = world.resource_mut::<LiveRoomRecord>();
             step_room(StepKind::Undo, &mut history, &mut record, &mut editor);
-            assert_eq!(editor.selected_generator.as_deref(), Some("tg"));
-            assert_eq!(editor.selected_prim_path.as_deref(), Some(&[1][..]));
+            assert_eq!(editor.tree.selection.root.as_deref(), Some("tg"));
+            assert_eq!(editor.tree.selection.path.as_deref(), Some(&[1][..]));
             assert_eq!(editor.selected_placement, Some(0));
             let snap = editor.undo_selection();
             assert_eq!(snap.tree, vec![GenNodeId::child("tg", vec![1])]);
@@ -349,8 +349,8 @@ mod tests {
             // Poison the baseline's stored selection too: entry selections
             // are validated against the RESTORED record, whatever they say.
             step_room(StepKind::Undo, &mut history, &mut record, &mut editor);
-            assert_eq!(editor.selected_generator, None);
-            assert_eq!(editor.selected_prim_path, None);
+            assert_eq!(editor.tree.selection.root, None);
+            assert_eq!(editor.tree.selection.path, None);
             assert_eq!(editor.selected_placement, None);
             assert!(editor.undo_selection().tree.is_empty());
         });

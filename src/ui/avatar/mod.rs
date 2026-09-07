@@ -61,6 +61,8 @@ pub(crate) use attachments::{
 };
 mod body;
 mod locomotion;
+mod target;
+pub use target::GizmoTarget;
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
@@ -125,18 +127,28 @@ pub struct AvatarEditorState {
     /// Copy / Paste-as-child gesture the room's tree gained, since both
     /// draw the identical tree panel.
     node_clipboard: Option<crate::pds::Generator>,
-    /// Tree-view selection mirrors the room editor's RoomEditorState.
-    /// `selected_generator` is always `Some(AvatarVisualsTreeSource::ROOT_NAME)`
-    /// once a node has been picked; `selected_prim_path` is the child
-    /// chain into the visuals tree.
-    pub selected_generator: Option<String>,
-    pub selected_prim_path: Option<Vec<usize>>,
-    tree_view_state: egui_ltreeview::TreeViewState<GenNodeId>,
-    /// Unused for the avatar (single-root sources have no rename) but
-    /// required by [`draw_generators_tab`]'s signature. Holding an owned
-    /// `Option` lets us hand a `&mut` to the callee without
-    /// conditionally constructing a stack reference each frame.
-    renaming_unused: Option<(String, String)>,
+    /// The one thing the 3-D gizmo is aimed at (#1161) — a visuals node,
+    /// a whole worn prop, or one part of one. Three parallel `Option`
+    /// fields lived here until the exclusivity between them became a
+    /// property of the type; see [`GizmoTarget`], and [`Self::aim`] for
+    /// the single place it is written.
+    ///
+    /// The tree widgets do not read it directly: they speak the
+    /// `(root, path)` pair [`draw_generators_tab`] takes, which
+    /// [`avatar_ui`] seeds from the aim before the draw and folds back
+    /// after it. Only the tree that is actually on screen may speak for
+    /// the aim.
+    gizmo: GizmoTarget,
+    /// The Visuals tab's generator tree (#1161) — the same
+    /// [`TreePanelState`](crate::ui::room::generators::TreePanelState) the
+    /// room editor and the parts editor each own one of. Its `selection` is
+    /// the widget's I/O, not the truth: it is seeded from [`Self::gizmo`]
+    /// before each draw and folded back after.
+    ///
+    /// This replaced four loose fields, one of which — `renaming_unused` —
+    /// existed only because [`draw_generators_tab`] demanded a `&mut` for a
+    /// rename that a single-root source can never offer.
+    visuals_tree: crate::ui::room::generators::TreePanelState,
     /// Seconds remaining before a pending widget change is flushed into
     /// `LiveAvatarRecord`'s change tick. The downstream player rebuild
     /// and `network::broadcast_avatar_state` peer broadcast fire once
@@ -146,29 +158,16 @@ pub struct AvatarEditorState {
     /// avatar visuals generators. Shares the same widget as the room
     /// editor; see [`crate::ui::room::audio::AudioEditorState`].
     pub(crate) audio_editor: crate::ui::room::audio::AudioEditorState,
-    /// Buffer for the manual re-roll "Random seed" row — defaults to the
-    /// owner's DID seed, editable to re-roll the whole avatar. See
-    /// [`crate::ui::editable::seed_row`].
-    seed_row_state: crate::ui::editable::SeedRowState,
-    /// Per-axis locks for the pinned re-roll (#1005): axes held (or
-    /// explicitly picked) across re-roll "Apply" clicks via a
-    /// deterministic seed hunt. Transient editor state — never stored in
-    /// the record. See [`crate::seeded_defaults::AvatarPins`].
-    avatar_pins: crate::seeded_defaults::AvatarPins,
-    /// Memoized hunt result for the axis readout (#1005): re-hunts only
-    /// when the seed text or the pins change, so the preview can derive
-    /// from the seed "Apply" will actually use without paying the
-    /// hunt every frame.
-    pin_hunt: crate::ui::editable::PinHuntCache<crate::seeded_defaults::AvatarPins>,
+    /// The manual re-roll block (#1005): the seed row's buffer, the pinned
+    /// axes and the memoized hunt over the two — the room editor's
+    /// identical trio, which is why it is one generic type. See
+    /// [`crate::ui::editable::ReRollState`].
+    reroll: crate::ui::editable::ReRollState<crate::seeded_defaults::AvatarPins>,
     /// Pending publish-after-unrecoverable-fetch confirmation (#840):
     /// while [`crate::state::AvatarRecordRecovery`] is present the
     /// editor holds the default, and saving would overwrite the real
     /// stored record — the first publish asks first.
     publish_guard: crate::ui::confirm::ConfirmState<()>,
-    /// Pending destructive tree-operation confirmations (#838): root
-    /// delete (no-op for the single-root avatar tree, but the kind-change
-    /// half is live) shared with the room editor's Generators machinery.
-    tree_confirms: crate::ui::room::generators::TreeConfirms,
     /// Cached seeded-default record, keyed by the DID it was built for (#637).
     /// `AvatarRecord::default_for_did` runs the full part-composition pipeline,
     /// so build it once per session rather than every frame the editor is open;
@@ -204,73 +203,87 @@ pub struct AvatarEditorState {
     /// selections are released ([`Self::release_hidden_selections`]):
     /// collapsing the window counts as closed.
     window_visible: bool,
-    /// Set for one frame when an in-world pick (#823) selects a visuals
-    /// node. On the next Visuals-tab draw the tree grabs keyboard focus
-    /// so the picked row highlights like a direct click — the same
-    /// one-shot mechanism as `RoomEditorState::pending_tree_focus`.
-    pending_tree_focus: bool,
     /// The fetched cross-app wardrobe listing (#1059), refreshed on demand
     /// from the Body tab rather than on open: it is a `listRecords` walk of
     /// someone's whole avatar collection.
     wardrobe: body::WardrobeListing,
     /// Attachment picker state (item + socket) across frames.
     attachments: attachments::AttachmentsTabState,
-    /// Which worn prop the in-world offset gizmo is aimed at (#1062), by
-    /// attachment record rkey. An attachment is addressed by its `(rkey,
-    /// socket)` record pair rather than by a visuals-tree path — a prop is
-    /// not a node in any tree — so this is deliberately *not* folded into
-    /// `selected_prim_path`. Mutually exclusive with the visuals selection:
-    /// leaving either tab clears the other's.
-    selected_attachment: Option<String>,
     /// Set for one frame when an in-world pick (#1062) selects a worn prop,
     /// so the next Attachments draw force-opens that row and scrolls to it.
-    /// The attachment-tab twin of [`Self::pending_tree_focus`].
+    /// The attachment-tab twin of the trees' own `pending_focus`.
     pending_attachment_focus: bool,
     /// Which worn prop's PARTS editor is open in the Attachments tab
     /// (#1098), by record key: the tab then shows that item's generator
     /// tree — the region-asset editor over the worn copy — instead of the
     /// worn list. `None` = the list.
     editing_parts: Option<String>,
-    /// The selected PART of a worn item (#1098): `(rkey, path into the
-    /// item tree)`. Its own selection, distinct from `selected_attachment`
-    /// (the whole prop's offset gizmo) and the visuals selection — one
-    /// gizmo target at a time, so setting any one of the three clears the
-    /// other two.
-    attachment_part: Option<(String, Vec<usize>)>,
-    /// Tree-view state for the parts editor — separate from the visuals
+    /// The parts editor's own tree (#1098) — separate from the visuals
     /// tree's so a body's expanded rows survive editing a prop.
-    part_tree_state: egui_ltreeview::TreeViewState<GenNodeId>,
-    /// Destructive-op confirms for the parts editor (#838 machinery).
-    part_tree_confirms: crate::ui::room::generators::TreeConfirms,
-    /// One-shot focus request for the parts tree after a scene pick.
-    pending_part_focus: bool,
-    /// The parts editor's selected root/path mirror, in the shape
-    /// [`draw_generators_tab`] wants (`selected_generator` is the rkey).
-    part_selected_generator: Option<String>,
-    part_selected_path: Option<Vec<usize>>,
+    parts_tree: crate::ui::room::generators::TreePanelState,
+}
+
+/// [`AvatarEditorState::aim`]'s body, over field references rather than
+/// `&mut self`.
+///
+/// [`avatar_ui`] destructures the resource into per-field `&mut`s for the
+/// whole draw — that is how the tab arms edit unrelated fields at once —
+/// so it cannot call a method on the struct. Rather than let the tab arms
+/// assign the aim raw, they call this: **one body, two entry points**, so
+/// the tree-row release cannot be forgotten on the side that does most of
+/// the aiming.
+fn aim_in_place(
+    gizmo: &mut GizmoTarget,
+    visuals_tree: &mut egui_ltreeview::TreeViewState<GenNodeId>,
+    part_tree: &mut egui_ltreeview::TreeViewState<GenNodeId>,
+    target: GizmoTarget,
+) {
+    if gizmo.visuals_path().is_some() && target.visuals_path().is_none() {
+        visuals_tree.set_selected(Vec::new());
+    }
+    if gizmo.worn_part().is_some() && target.worn_part().is_none() {
+        part_tree.set_selected(Vec::new());
+    }
+    *gizmo = target;
 }
 
 impl AvatarEditorState {
+    /// What the gizmo is aimed at (#1161). The `editor_gizmo` dispatch,
+    /// the sync pass and the highlight pass all match on this rather than
+    /// asking three separate questions and hoping at most one says yes.
+    pub fn gizmo(&self) -> &GizmoTarget {
+        &self.gizmo
+    }
+
+    /// **The** enforcement point for "one gizmo target at a time".
+    ///
+    /// The aim is a single field, so the assignment *is* the mutex — the
+    /// three parallel `Option`s each `select_*` used to clear by hand are
+    /// gone, and with them the class of bug where a new selection kind was
+    /// added to some of the clearing paths and not others (#1103 bugs 1
+    /// and 3). What this still has to do is drop the **tree-row
+    /// highlight** of the target being left behind: that is widget state
+    /// living beside the aim rather than in it, and a row left highlighted
+    /// over a gizmo it no longer owns is exactly the #1062 symptom.
+    fn aim(&mut self, target: GizmoTarget) {
+        aim_in_place(
+            &mut self.gizmo,
+            &mut self.visuals_tree.view,
+            &mut self.parts_tree.view,
+            target,
+        );
+    }
+
     /// True when a visuals row is currently selected. The locomotion
     /// freeze gate and the gizmo dispatch read this.
+    ///
+    /// Note the asymmetry it is named for: this is **one of three** gizmo
+    /// selections, so it is the wrong question for anything that means
+    /// "is a gizmo aimed at the avatar" — see [`Self::has_gizmo_selection`],
+    /// and #1236 f139 for the Esc ladder that asked this one and skipped
+    /// its rung on a worn prop.
     pub fn has_visuals_selection(&self) -> bool {
-        self.selected_prim_path.is_some()
-    }
-
-    /// The worn prop the offset gizmo is aimed at (#1062), by record rkey.
-    pub fn selected_attachment(&self) -> Option<&str> {
-        self.selected_attachment.as_deref()
-    }
-
-    /// True while a worn prop is selected for in-world offset editing.
-    pub fn has_attachment_selection(&self) -> bool {
-        self.selected_attachment.is_some()
-    }
-
-    /// Drop the attachment selection — tab switch, window collapse, or the
-    /// mutex against the visuals selection.
-    pub fn clear_attachment_selection(&mut self) {
-        self.selected_attachment = None;
+        self.gizmo.visuals_path().is_some()
     }
 
     /// Drop the gizmo selection if it named a prop that just came off
@@ -283,10 +296,11 @@ impl AvatarEditorState {
     /// take-off has already shortened, so there is no session queue to keep
     /// in step — and nothing left to go stale across an undo or a logout.
     pub(crate) fn forget_attachments(&mut self, rkeys: impl IntoIterator<Item = String>) {
-        for rkey in rkeys {
-            if self.selected_attachment.as_deref() == Some(rkey.as_str()) {
-                self.selected_attachment = None;
-            }
+        let Some(aimed) = self.gizmo.worn_prop().map(str::to_owned) else {
+            return;
+        };
+        if rkeys.into_iter().any(|rkey| rkey == aimed) {
+            self.aim(GizmoTarget::None);
         }
     }
 
@@ -306,7 +320,7 @@ impl AvatarEditorState {
     /// out from under it — selecting a part visibly shifted it. Parts hold
     /// the pose as it stands instead: [`Self::holds_rig_pose`].
     pub fn holds_rig_at_rest(&self) -> bool {
-        self.has_attachment_selection()
+        self.gizmo.worn_prop().is_some()
     }
 
     /// True while the local rigged body must be held **exactly where it is**
@@ -316,40 +330,32 @@ impl AvatarEditorState {
     /// stand in any pose at all. Selecting must never change a transform,
     /// so this is a pause, not a re-pose: the driver skips the body and the
     /// last pose stays applied. Read by [`crate::player`]'s rigged motion
-    /// driver, after [`Self::holds_rig_at_rest`] (a whole-prop selection
-    /// and a part selection are mutually exclusive, so the order is moot).
+    /// driver, after [`Self::holds_rig_at_rest`] — which the enum now makes
+    /// provably exclusive with this rather than merely conventionally so.
     pub fn holds_rig_pose(&self) -> bool {
-        self.has_part_selection()
+        self.gizmo.worn_part().is_some()
     }
 
     /// Select a worn prop from an in-world scene pick (#1062), the
     /// attachment-tab counterpart of [`Self::select_from_scene_pick`]: the
     /// tab that can show it comes forward, the row is selected, and a
     /// one-shot focus request is armed so the next draw opens and scrolls to
-    /// it. The visuals selection goes, because only one gizmo target exists.
+    /// it. Any other aim goes, because only one gizmo target exists.
     pub fn select_attachment_from_scene_pick(&mut self, rkey: String) {
         self.selected_tab = AvatarTab::Attachments;
         // The whole-prop selection lives on the worn LIST; a parts editor
         // that happens to be open steps aside.
         self.editing_parts = None;
-        self.clear_part_selection();
-        self.selected_attachment = Some(rkey);
+        self.aim(GizmoTarget::WornProp { rkey });
         self.pending_attachment_focus = true;
-        if self.has_visuals_selection() {
-            self.clear_visuals_selection();
-        }
     }
 
     /// Land the editor on the Body tab (#1097) — the scene menu's "Edit
     /// avatar" on one's own rigged body, which has no visuals node to
-    /// select. Drops every selection so no gizmo is left aimed.
+    /// select. Drops the aim so no gizmo is left up.
     pub fn open_body_tab(&mut self) {
         self.selected_tab = AvatarTab::Body;
-        self.selected_attachment = None;
-        self.clear_part_selection();
-        if self.has_visuals_selection() {
-            self.clear_visuals_selection();
-        }
+        self.aim(GizmoTarget::None);
     }
 
     /// The worn prop whose parts editor is open (#1098).
@@ -360,7 +366,7 @@ impl AvatarEditorState {
     /// Open the parts editor on a worn prop (#1098): the Attachments tab
     /// comes forward showing that item's tree, with the item ROOT selected
     /// so a gizmo is aimed immediately. The whole-prop offset selection
-    /// goes — one gizmo target at a time.
+    /// goes with it — one gizmo target at a time.
     pub fn open_parts_editor(&mut self, rkey: String) {
         self.selected_tab = AvatarTab::Attachments;
         self.editing_parts = Some(rkey.clone());
@@ -368,40 +374,31 @@ impl AvatarEditorState {
     }
 
     /// Back from the parts editor to the worn list. Drops the part
-    /// selection with it.
+    /// selection with it — but leaves a differently-aimed gizmo alone,
+    /// since closing this panel says nothing about one.
     pub fn close_parts_editor(&mut self) {
         self.editing_parts = None;
-        self.clear_part_selection();
-    }
-
-    /// The selected part of a worn item, `(rkey, path)`.
-    pub fn attachment_part(&self) -> Option<(&str, &[usize])> {
-        self.attachment_part
-            .as_ref()
-            .map(|(rkey, path)| (rkey.as_str(), path.as_slice()))
-    }
-
-    pub fn has_part_selection(&self) -> bool {
-        self.attachment_part.is_some()
+        if self.gizmo.worn_part().is_some() {
+            self.aim(GizmoTarget::None);
+        }
     }
 
     /// Select a part of a worn item (#1098) — from the parts tree or a
-    /// scene pick. Clears the other two gizmo selections and mirrors the
+    /// scene pick. Takes the aim from whatever held it and mirrors the
     /// choice into the tree-view state so the row highlights.
     pub fn select_attachment_part(&mut self, rkey: String, path: Vec<usize>) {
-        self.selected_attachment = None;
-        if self.has_visuals_selection() {
-            self.clear_visuals_selection();
-        }
+        self.aim(GizmoTarget::WornPart {
+            rkey: rkey.clone(),
+            path: path.clone(),
+        });
         for depth in 0..path.len() {
-            self.part_tree_state
+            self.parts_tree
+                .view
                 .set_openness(GenNodeId::child(rkey.clone(), path[..depth].to_vec()), true);
         }
-        self.part_tree_state
-            .set_selected(vec![GenNodeId::child(rkey.clone(), path.clone())]);
-        self.part_selected_generator = Some(rkey.clone());
-        self.part_selected_path = Some(path.clone());
-        self.attachment_part = Some((rkey, path));
+        self.parts_tree
+            .view
+            .set_selected(vec![GenNodeId::child(rkey, path)]);
     }
 
     /// A scene pick on a part of a worn item (#1098): opens that prop's
@@ -411,14 +408,7 @@ impl AvatarEditorState {
         self.selected_tab = AvatarTab::Attachments;
         self.editing_parts = Some(rkey.clone());
         self.select_attachment_part(rkey, path);
-        self.pending_part_focus = true;
-    }
-
-    pub fn clear_part_selection(&mut self) {
-        self.attachment_part = None;
-        self.part_selected_generator = None;
-        self.part_selected_path = None;
-        self.part_tree_state.set_selected(Vec::new());
+        self.parts_tree.pending_focus = true;
     }
 
     /// True while the Avatar window is open with its body visible (as of
@@ -439,10 +429,10 @@ impl AvatarEditorState {
     /// walks, sways and falls live — the World editor's contract, where a
     /// region asset is only pinned while its gizmo is up. The close-frame
     /// gap is covered from the other side: every path that hides the panel
-    /// releases the selections ([`Self::release_hidden_selections`]), so a
-    /// closed window never holds. A lingering selection still holds until
-    /// that release runs, so a drag released as the window goes cannot
-    /// land against a moving chassis.
+    /// releases the aim ([`Self::release_hidden_selections`]), so a closed
+    /// window never holds. A lingering selection still holds until that
+    /// release runs, so a drag released as the window goes cannot land
+    /// against a moving chassis.
     pub fn holds_avatar_still(&self) -> bool {
         self.has_gizmo_selection()
     }
@@ -451,75 +441,75 @@ impl AvatarEditorState {
     /// (visuals row, worn prop, worn-prop part) — the one question the
     /// freeze gates and the release paths ask.
     pub fn has_gizmo_selection(&self) -> bool {
-        self.has_visuals_selection() || self.has_attachment_selection() || self.has_part_selection()
+        self.gizmo.is_aimed()
     }
 
-    /// Drop every gizmo selection at once. The parts editor stays open
-    /// (like a World-editor tab, it remembers where it was); only the aim
-    /// goes, and with it the freeze and the bind-pose hold.
+    /// Drop the gizmo selection. The parts editor stays open (like a
+    /// World-editor tab, it remembers where it was); only the aim goes,
+    /// and with it the freeze and the bind-pose hold.
     pub fn clear_gizmo_selections(&mut self) {
-        if self.has_visuals_selection() {
-            self.clear_visuals_selection();
-        }
-        self.clear_attachment_selection();
-        self.clear_part_selection();
+        self.aim(GizmoTarget::None);
     }
 
-    /// The end-of-frame release rules (#1103), applied by [`avatar_ui`]
-    /// after the window has drawn (or not): a selection only persists
-    /// while the panel showing it is visible.
+    /// The end-of-frame release rule (#1103), applied by [`avatar_ui`]
+    /// after the window has drawn (or not): **an aim only persists while
+    /// the panel showing it is visible.**
     ///
-    /// * Window hidden or collapsed → every gizmo selection goes, so the
-    ///   gizmo detaches and the chassis / bind-pose holds release — the
-    ///   World editor's close contract. Before this, the part selection
-    ///   (#1098) survived the close and kept both holds engaged.
-    /// * Off the Visuals tab → the visuals row goes (the editor never
-    ///   gizmo-edits Locomotion or Body).
-    /// * Off the Attachments tab → the worn-prop and part selections go
-    ///   with it (#1062).
+    /// * Window hidden or collapsed → the aim goes, so the gizmo detaches
+    ///   and the chassis / bind-pose holds release — the World editor's
+    ///   close contract. Before #1103 the part selection survived the
+    ///   close and kept both holds engaged.
+    /// * Otherwise the aim survives only on the tab that can show it: the
+    ///   visuals row on Visuals, the worn prop and the part on Attachments
+    ///   (#1062). The editor never gizmo-edits Locomotion or Body.
+    ///
+    /// This used to be three conditionals over three fields, and each new
+    /// selection kind had to be added to the right one. It is now one
+    /// question asked of the aim itself, which is why a fourth variant
+    /// cannot silently skip it.
     pub fn release_hidden_selections(&mut self, window_visible: bool) {
-        if !window_visible {
-            self.clear_gizmo_selections();
-        }
-        if self.selected_tab != AvatarTab::Visuals && self.has_visuals_selection() {
-            self.clear_visuals_selection();
-        }
-        if self.selected_tab != AvatarTab::Attachments {
-            self.clear_attachment_selection();
-            self.clear_part_selection();
+        let tab_can_show_it = match self.gizmo {
+            GizmoTarget::None => true,
+            GizmoTarget::VisualsNode { .. } => self.selected_tab == AvatarTab::Visuals,
+            GizmoTarget::WornProp { .. } | GizmoTarget::WornPart { .. } => {
+                self.selected_tab == AvatarTab::Attachments
+            }
+        };
+        if !window_visible || !tab_can_show_it {
+            self.aim(GizmoTarget::None);
         }
     }
 
     /// A left-click into the scene that hit nothing of the local avatar's
-    /// (#1103, the World editor's contract): the worn-prop and part gizmos
-    /// always let go; the visuals row lets go unless face picking is
-    /// armed, because an armed pick is aiming at *something* and a miss
-    /// must not close the panel it is aimed from. Face picking never aims
-    /// at a prop, so it does not gate those.
+    /// (#1103, the World editor's contract): the aim lets go. The one
+    /// exemption is a visuals row while face picking is armed, because an
+    /// armed pick is aiming at *something* and a miss must not close the
+    /// panel it is aimed from. Face picking never aims at a prop, so it
+    /// does not exempt those.
     pub fn release_on_scene_miss(&mut self, face_pick_armed: bool) {
-        if self.has_visuals_selection() && !face_pick_armed {
-            self.clear_visuals_selection();
+        if face_pick_armed && self.gizmo.visuals_path().is_some() {
+            return;
         }
-        self.clear_attachment_selection();
-        self.clear_part_selection();
-    }
-
-    /// Drop the visuals selection — used when switching tabs, collapsing
-    /// the editor window, or losing the mutex to the room editor.
-    pub fn clear_visuals_selection(&mut self) {
-        self.selected_generator = None;
-        self.selected_prim_path = None;
-        self.tree_view_state.set_selected(Vec::new());
+        self.aim(GizmoTarget::None);
     }
 
     /// Snapshot the selection state an undo entry carries (#862) so a
     /// restore (#863) can re-seed it instead of dumping the user to a
     /// full deselect.
+    ///
+    /// Only the visuals aim is carried, which is what the avatar's undo
+    /// history covers: the tree row it names is the one an undone edit can
+    /// invalidate. A worn-prop aim is validated separately in
+    /// [`Self::restore_from_undo`], against the restored record's own
+    /// attachment list.
     pub(crate) fn undo_selection(&self) -> crate::ui::undo::AvatarSelection {
         crate::ui::undo::AvatarSelection {
-            generator: self.selected_generator.clone(),
-            prim_path: self.selected_prim_path.clone(),
-            tree: self.tree_view_state.selected().clone(),
+            generator: self
+                .gizmo
+                .visuals_path()
+                .map(|_| AvatarVisualsTreeSource::ROOT_NAME.to_string()),
+            prim_path: self.gizmo.visuals_path().map(<[usize]>::to_vec),
+            tree: self.visuals_tree.view.selected().clone(),
         }
     }
 
@@ -533,26 +523,26 @@ impl AvatarEditorState {
         sel: &crate::ui::undo::AvatarSelection,
     ) {
         self.publish_guard.cancel();
-        self.tree_confirms.delete.cancel();
-        self.tree_confirms.kind.cancel();
+        self.visuals_tree.confirms.delete.cancel();
+        self.visuals_tree.confirms.kind.cancel();
         // A pending burst was aimed at pre-restore state; draining it
         // would double-fire `set_changed` and mint a phantom entry.
         self.pending_flush_secs = 0.0;
         // A worn prop the restored record no longer wears cannot host a
-        // gizmo (#1062); one it still wears keeps its selection.
-        if let Some(rkey) = self.selected_attachment.as_deref() {
+        // gizmo (#1062); one it still wears keeps its aim.
+        if let Some(rkey) = self.gizmo.worn_prop() {
             let still_worn = record
                 .body
                 .rigged_ref()
                 .and_then(|rig| rig.resolved.as_ref())
                 .is_some_and(|resolved| resolved.attachments.iter().any(|a| a.rkey == rkey));
             if !still_worn {
-                self.selected_attachment = None;
+                self.aim(GizmoTarget::None);
             }
         }
         match &sel.prim_path {
             // `select_from_scene_pick` is exactly the fixup contract:
-            // fields set, ancestors expanded, row selected + focused.
+            // aim set, ancestors expanded, row selected + focused.
             Some(path)
                 if record
                     .body
@@ -561,41 +551,51 @@ impl AvatarEditorState {
             {
                 self.select_from_scene_pick(path.clone());
             }
-            // Root row selected without a node path: keep it — the
-            // single visuals root always exists.
+            // Root ROW selected without a node path: keep the row — the
+            // single visuals root always exists — but it aims no gizmo,
+            // which is what a `None` path meant before the aim was a type.
             None if sel.generator.is_some() => {
-                let root = AvatarVisualsTreeSource::ROOT_NAME.to_string();
-                self.selected_generator = Some(root.clone());
-                self.selected_prim_path = None;
-                self.tree_view_state
-                    .set_selected(vec![GenNodeId::root(root)]);
+                self.release_visuals_aim();
+                self.visuals_tree.view.set_selected(vec![GenNodeId::root(
+                    AvatarVisualsTreeSource::ROOT_NAME.to_string(),
+                )]);
             }
-            _ => self.clear_visuals_selection(),
+            _ => self.release_visuals_aim(),
+        }
+    }
+
+    /// Let go of the aim if — and only if — it is on a visuals node.
+    ///
+    /// Two callers, both meaning "this says nothing about a worn prop's
+    /// gizmo, so do not take one down with it": the undo restore's two
+    /// tree re-seed paths, and the room editor's half of the cross-editor
+    /// mutex (`room::room_admin_ui`), which takes the gizmo from an avatar
+    /// visuals row but has never claimed a worn prop's.
+    pub(crate) fn release_visuals_aim(&mut self) {
+        if self.gizmo.visuals_path().is_some() {
+            self.aim(GizmoTarget::None);
         }
     }
 
     /// Select a visuals node from an in-world scene pick (#823), exactly
-    /// as if its tree row had been clicked: selection set, every
-    /// ancestor expanded (the tree collapses by default, so the picked
-    /// row must be revealed), the row marked selected in the tree
-    /// widget, and a one-shot focus request armed so the row gets the
-    /// bright focused highlight on the next draw. Mirrors the room
-    /// editor's pick path in `editor_gizmo::pick_on_scene_click`.
+    /// as if its tree row had been clicked: aim set, every ancestor
+    /// expanded (the tree collapses by default, so the picked row must be
+    /// revealed), the row marked selected in the tree widget, and a
+    /// one-shot focus request armed so the row gets the bright focused
+    /// highlight on the next draw. Mirrors the room editor's pick path in
+    /// `editor_gizmo::pick_on_scene_click`.
     pub fn select_from_scene_pick(&mut self, path: Vec<usize>) {
-        // Only one gizmo target at a time — the visuals/attachment mutex is
-        // the intra-editor twin of the room/avatar one.
-        self.selected_attachment = None;
-        self.clear_part_selection();
+        self.aim(GizmoTarget::VisualsNode { path: path.clone() });
         let root = AvatarVisualsTreeSource::ROOT_NAME.to_string();
-        self.selected_generator = Some(root.clone());
-        self.selected_prim_path = Some(path.clone());
         for depth in 0..path.len() {
-            self.tree_view_state
+            self.visuals_tree
+                .view
                 .set_openness(GenNodeId::child(root.clone(), path[..depth].to_vec()), true);
         }
-        self.tree_view_state
+        self.visuals_tree
+            .view
             .set_selected(vec![GenNodeId::child(root, path)]);
-        self.pending_tree_focus = true;
+        self.visuals_tree.pending_focus = true;
     }
 }
 
@@ -744,7 +744,13 @@ pub fn avatar_ui(
     // selection per the cross-editor mutex contract, and (b) tab change —
     // switching off the Visuals tab drops the gizmo target the same way
     // the room editor's tab bar already does.
-    let prev_visuals_selected = editor.has_visuals_selection() || editor.has_attachment_selection();
+    // The cross-editor mutex asks about the two aims that attach a gizmo to
+    // something the ROOM editor could also be aiming at; a worn part is
+    // inside a prop that is already covered by the prop's own aim.
+    let aims_at_the_avatar = |e: &AvatarEditorState| {
+        e.gizmo().visuals_path().is_some() || e.gizmo().worn_prop().is_some()
+    };
+    let prev_visuals_selected = aims_at_the_avatar(&editor);
 
     // One borrowed view of the asset caches for the frame (#1246); see
     // `room::assets::AssetPanel`.
@@ -761,31 +767,30 @@ pub fn avatar_ui(
     // after this block still runs: collapse-deselect sees `false` here, and
     // a debounce flush pending from just before the panel closed still
     // drains and broadcasts.
-    let window_visible_with_body =
-        if !panels.avatar {
-            false
-        } else {
-            // Taken before the bypassing reborrow: the tick of the last real
-            // `set_changed()`, i.e. every edit that reached the record from
-            // outside this editor (#1270 f273).
-            let live_tick = live.last_changed();
-            let live_mut = live.bypass_change_detection();
+    let window_visible_with_body = if !panels.avatar {
+        false
+    } else {
+        // Taken before the bypassing reborrow: the tick of the last real
+        // `set_changed()`, i.e. every edit that reached the record from
+        // outside this editor (#1270 f273).
+        let live_tick = live.last_changed();
+        let live_mut = live.bypass_change_detection();
 
-            let ctx = contexts.ctx_mut().unwrap();
-            // Width only from the layout slot — the Avatar window auto-heights
-            // to its content, and forcing the persisted height back on it
-            // would pad the shorter Locomotion tab with dead space.
-            let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Avatar, ctx);
-            // Guarded-dirty (#879): `.open(&mut panels.avatar)` through the
-            // `ResMut` would mark UiPanels changed every frame, starving the
-            // prefs save debounce — local copy in, write back only on close.
-            let mut open = panels.avatar;
-            // #1230 f33: set by the recovery banner's re-read button, acted on
-            // after the closure (the spawn is a `Commands` write, and the
-            // closure's own return value already carries the collapsed/closed
-            // distinction below).
-            let mut reload_avatar = false;
-            let response = egui::Window::new("Avatar")
+        let ctx = contexts.ctx_mut().unwrap();
+        // Width only from the layout slot — the Avatar window auto-heights
+        // to its content, and forcing the persisted height back on it
+        // would pad the shorter Locomotion tab with dead space.
+        let (pos, size) = chrome.place(crate::ui::layout::UiWindow::Avatar, ctx);
+        // Guarded-dirty (#879): `.open(&mut panels.avatar)` through the
+        // `ResMut` would mark UiPanels changed every frame, starving the
+        // prefs save debounce — local copy in, write back only on close.
+        let mut open = panels.avatar;
+        // #1230 f33: set by the recovery banner's re-read button, acted on
+        // after the closure (the spawn is a `Commands` write, and the
+        // closure's own return value already carries the collapsed/closed
+        // distinction below).
+        let mut reload_avatar = false;
+        let response = egui::Window::new("Avatar")
             .open(&mut open)
             .default_pos(pos)
             .default_width(size.x)
@@ -854,32 +859,20 @@ pub fn avatar_ui(
 
                 let AvatarEditorState {
                     selected_tab,
-                    selected_generator,
-                    selected_prim_path,
-                    tree_view_state,
-                    renaming_unused,
+                    gizmo,
+                    visuals_tree,
                     audio_editor,
-                    seed_row_state,
-                    avatar_pins,
-                    pin_hunt,
+                    reroll,
                     publish_guard,
-                    tree_confirms,
                     default_cache,
                     stored_baseline,
                     live_baseline,
                     size_readout_generation,
-                    pending_tree_focus,
                     wardrobe,
                     attachments: attachments_state,
-                    selected_attachment,
                     pending_attachment_focus,
                     editing_parts,
-                    attachment_part,
-                    part_tree_state,
-                    part_tree_confirms,
-                    pending_part_focus,
-                    part_selected_generator,
-                    part_selected_path,
+                    parts_tree,
                     node_clipboard,
                     ..
                 } = &mut *editor;
@@ -1008,14 +1001,14 @@ pub fn avatar_ui(
                     // owner who has settled on an avatar rarely re-rolls it
                     // again. Collapsed, the whole block folds to one header
                     // row and the tab body takes back the space.
-                    let (reroll, start, effective) = crate::ui::editable::reroll_section(
+                    let (action, start, effective) = crate::ui::editable::reroll_section(
                         ui,
                         "avatar_reroll",
                         "Whole-avatar seed & re-roll",
                         |ui| {
-                            let reroll = seed_row(
+                            let action = seed_row(
                                 ui,
-                                seed_row_state,
+                                &mut reroll.seed_row,
                                 did_seed,
                                 time.elapsed_secs_f64(),
                                 "avatar",
@@ -1028,9 +1021,8 @@ pub fn avatar_ui(
                             // — not the typed one, so 🎲 previews exactly what
                             // Apply then delivers. Memoized: the hunt only
                             // reruns when the seed text or the pins change.
-                            let start = seed_row_state.current_seed().unwrap_or(did_seed);
-                            let effective = pin_hunt
-                                .effective_seed(start, *avatar_pins, |s| avatar_pins.find_seed(s));
+                            let start = reroll.start_seed(did_seed);
+                            let effective = reroll.effective_seed(start);
                             use crate::seeded_defaults::{
                                 AvatarCharacter, ChassisFamily, OrnatenessTier, ThemeArchetype,
                                 WearTier,
@@ -1044,7 +1036,7 @@ pub fn avatar_ui(
                                         "Chassis",
                                         &ChassisFamily::ALL,
                                         ChassisFamily::label,
-                                        &mut avatar_pins.chassis,
+                                        &mut reroll.pins.chassis,
                                         rolled.chassis,
                                     );
                                     pin_axis_row(
@@ -1052,7 +1044,7 @@ pub fn avatar_ui(
                                         "Style",
                                         &ThemeArchetype::ALL,
                                         ThemeArchetype::label,
-                                        &mut avatar_pins.style,
+                                        &mut reroll.pins.style,
                                         rolled.style,
                                     );
                                     pin_axis_row(
@@ -1060,7 +1052,7 @@ pub fn avatar_ui(
                                         "Ornateness",
                                         &OrnatenessTier::ALL,
                                         OrnatenessTier::label,
-                                        &mut avatar_pins.ornateness,
+                                        &mut reroll.pins.ornateness,
                                         rolled.ornateness_tier(),
                                     );
                                     pin_axis_row(
@@ -1068,23 +1060,23 @@ pub fn avatar_ui(
                                         "Wear",
                                         &WearTier::ALL,
                                         WearTier::label,
-                                        &mut avatar_pins.wear,
+                                        &mut reroll.pins.wear,
                                         rolled.wear_tier(),
                                     );
                                 });
                             crate::ui::editable::hunt_disclosure_line(ui, start, effective);
-                            (reroll, start, effective)
+                            (action, start, effective)
                         },
                     )
                     // Collapsed: no Re-roll button was drawn, so there is
                     // nothing to act on this frame.
                     .unwrap_or((SeedAction::None, did_seed, None));
 
-                    if let SeedAction::Reroll(_) = reroll {
+                    if let SeedAction::Reroll(_) = action {
                         // Build from the same hunted seed the readout
                         // previewed — never the raw typed one.
                         if let Some(seed) = effective {
-                            seed_row_state.set_seed(seed);
+                            reroll.seed_row.set_seed(seed);
                             live_mut.0 = AvatarRecord::default_for_seed(seed);
                             widget_changed = true;
                             undo_labels.set_avatar(format!("seed re-roll ({seed})"));
@@ -1097,7 +1089,8 @@ pub fn avatar_ui(
                             // pin-set with probability ~e⁻²⁴¹⁵); keep the
                             // record untouched rather than violate the locks.
                             bevy::log::warn!(
-                                "pinned re-roll found no seed matching {avatar_pins:?} from {start}"
+                                "pinned re-roll found no seed matching {:?} from {start}",
+                                reroll.pins
                             );
                             // Said out loud, not only logged (#1268 f69).
                             toasts.error(
@@ -1146,23 +1139,27 @@ pub fn avatar_ui(
                         let (dirty, can_reset) = {
                             let live_value = live_baseline.value(live_tick, &live_mut.0);
                             let dirty = match (stored.as_ref(), stored_baseline.as_ref()) {
-                                (Some(s), Some((_, baseline))) => pds::avatar::avatar_dirty_against(
-                                    &live_mut.0,
-                                    live_value,
-                                    &s.0,
-                                    baseline,
-                                ),
+                                (Some(s), Some((_, baseline))) => {
+                                    pds::avatar::avatar_dirty_against(
+                                        &live_mut.0,
+                                        live_value,
+                                        &s.0,
+                                        baseline,
+                                    )
+                                }
                                 _ => false,
                             };
                             // Same question, different baseline: "would
                             // Reset change anything?" is live-vs-default.
                             let can_reset = match (default_record, default_cache.as_ref()) {
-                                (Some(d), Some((_, _, value))) => pds::avatar::avatar_dirty_against(
-                                    &live_mut.0,
-                                    live_value,
-                                    d,
-                                    value,
-                                ),
+                                (Some(d), Some((_, _, value))) => {
+                                    pds::avatar::avatar_dirty_against(
+                                        &live_mut.0,
+                                        live_value,
+                                        d,
+                                        value,
+                                    )
+                                }
                                 _ => false,
                             };
                             (dirty, can_reset)
@@ -1339,18 +1336,24 @@ pub fn avatar_ui(
                                     });
                                 let Some(worn) = worn_item else {
                                     *editing_parts = None;
-                                    *attachment_part = None;
-                                    *part_selected_generator = None;
-                                    *part_selected_path = None;
+                                    aim_in_place(
+                                        gizmo,
+                                        &mut visuals_tree.view,
+                                        &mut parts_tree.view,
+                                        GizmoTarget::None,
+                                    );
                                     return;
                                 };
                                 ui.horizontal(|ui| {
                                     if ui.button("⬅ Worn items").clicked() {
                                         *editing_parts = None;
-                                        *attachment_part = None;
-                                        *part_selected_generator = None;
-                                        *part_selected_path = None;
-                                        part_tree_state.set_selected(Vec::new());
+                                        aim_in_place(
+                                            gizmo,
+                                            &mut visuals_tree.view,
+                                            &mut parts_tree.view,
+                                            GizmoTarget::None,
+                                        );
+                                        parts_tree.view.set_selected(Vec::new());
                                     }
                                     let what = worn
                                         .record
@@ -1366,21 +1369,27 @@ pub fn avatar_ui(
                                 }
                                 let mut source =
                                     AttachmentTreeSource::new(&rkey, &mut worn.record.item);
-                                let request_focus = std::mem::take(pending_part_focus);
+                                // The panel's selection is the widget's
+                                // I/O, not the truth: seed it from the aim,
+                                // fold it back after (#1161).
+                                parts_tree.selection = match gizmo.worn_part() {
+                                    Some((root, path)) => {
+                                        crate::ui::room::generators::TreeSelection {
+                                            root: Some(root.to_owned()),
+                                            path: Some(path.to_vec()),
+                                        }
+                                    }
+                                    None => Default::default(),
+                                };
                                 draw_generators_tab(
                                     ui,
                                     &mut source,
-                                    part_selected_generator,
-                                    part_selected_path,
-                                    part_tree_state,
-                                    request_focus,
-                                    renaming_unused,
+                                    parts_tree,
                                     inventory.as_deref_mut(),
                                     audio_editor,
                                     &grammar_diag,
                                     &mut widget_changed,
                                     &mut blob_ctx.selected_element,
-                                    part_tree_confirms,
                                     &mut toasts,
                                     time.elapsed_secs_f64(),
                                     &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
@@ -1398,46 +1407,90 @@ pub fn avatar_ui(
                                     &mut asset_panel,
                                 );
                                 // The tree's selection IS the gizmo target:
-                                // mirror it (a tree click picks a part; a
-                                // cleared tree drops the gizmo).
-                                *attachment_part = match (
-                                    part_selected_generator.as_ref(),
-                                    part_selected_path.as_ref(),
+                                // fold it back (a tree click picks a part;
+                                // a cleared tree drops the aim). Nothing
+                                // has to clear the whole-prop selection
+                                // here any more — the aim is one field, so
+                                // naming a part *is* releasing the prop.
+                                //
+                                // Only a part-shaped answer, or an outgoing
+                                // part aim, may write: a tree that is on
+                                // screen speaks for its own kind of target
+                                // and no other. (A scene pick can leave a
+                                // visuals node aimed while this tab is
+                                // still the open one, for the one frame
+                                // before `release_hidden_selections` runs.)
+                                let picked = match (
+                                    parts_tree.selection.root.as_ref(),
+                                    parts_tree.selection.path.clone(),
                                 ) {
                                     (Some(root), Some(path)) if *root == rkey => {
-                                        Some((rkey.clone(), path.clone()))
+                                        Some(GizmoTarget::WornPart {
+                                            rkey: rkey.clone(),
+                                            path,
+                                        })
                                     }
                                     _ => None,
                                 };
-                                if attachment_part.is_some() {
-                                    *selected_attachment = None;
+                                if picked.is_some() || gizmo.worn_part().is_some() {
+                                    aim_in_place(
+                                        gizmo,
+                                        &mut visuals_tree.view,
+                                        &mut parts_tree.view,
+                                        picked.unwrap_or(GizmoTarget::None),
+                                    );
                                 }
                                 return;
                             }
+                            // Same two-way channel as the trees': the list
+                            // reads and writes an `Option<rkey>`, seeded
+                            // from the aim and folded back only if it
+                            // moved — see the parts tree's note on why a
+                            // panel may only speak for its own kind.
+                            let mut listed = gizmo.worn_prop().map(str::to_owned);
                             let outcome = attachments::draw_attachments_tab(
                                 ui,
                                 &mut live_mut.0,
                                 inventory.as_deref_mut(),
                                 attachments_state,
                                 session.as_ref().map(|s| s.did.as_str()),
-                                selected_attachment,
+                                &mut listed,
                                 std::mem::take(pending_attachment_focus),
                                 &mut toasts,
                                 time.elapsed_secs_f64(),
                                 &worn_body,
                             );
+                            if listed.as_deref() != gizmo.worn_prop() {
+                                aim_in_place(
+                                    gizmo,
+                                    &mut visuals_tree.view,
+                                    &mut parts_tree.view,
+                                    match listed {
+                                        Some(rkey) => GizmoTarget::WornProp { rkey },
+                                        None => GizmoTarget::None,
+                                    },
+                                );
+                            }
                             widget_changed |= outcome.changed;
                             if let Some(label) = outcome.label {
                                 undo_labels.set_avatar(label);
                             }
                             if let Some(rkey) = outcome.open_parts {
                                 // Open on the item ROOT so a gizmo is aimed
-                                // at once; the whole-prop selection yields.
-                                *selected_attachment = None;
-                                part_tree_state.set_selected(vec![GenNodeId::root(rkey.clone())]);
-                                *part_selected_generator = Some(rkey.clone());
-                                *part_selected_path = Some(Vec::new());
-                                *attachment_part = Some((rkey.clone(), Vec::new()));
+                                // at once; the whole-prop selection yields
+                                // by construction, the aim being one field.
+                                aim_in_place(
+                                    gizmo,
+                                    &mut visuals_tree.view,
+                                    &mut parts_tree.view,
+                                    GizmoTarget::WornPart {
+                                        rkey: rkey.clone(),
+                                        path: Vec::new(),
+                                    },
+                                );
+                                parts_tree
+                                    .view
+                                    .set_selected(vec![GenNodeId::root(rkey.clone())]);
                                 *editing_parts = Some(rkey);
                             }
                         });
@@ -1470,24 +1523,27 @@ pub fn avatar_ui(
                                 return;
                             };
                             let mut source = AvatarVisualsTreeSource::new(visuals);
-                            // One-shot focus request from an in-world pick
-                            // (#823) — same consume-on-draw contract as the
-                            // room editor's tree.
-                            let request_focus = std::mem::take(pending_tree_focus);
+                            // The panel's selection is the widget's I/O,
+                            // not the truth: seed it from the aim, fold it
+                            // back after (#1161). The one-shot focus
+                            // request rides the panel now, consumed by the
+                            // tree it belongs to.
+                            let aimed = gizmo.visuals_path().map(<[usize]>::to_vec);
+                            visuals_tree.selection = crate::ui::room::generators::TreeSelection {
+                                root: aimed
+                                    .as_ref()
+                                    .map(|_| AvatarVisualsTreeSource::ROOT_NAME.to_string()),
+                                path: aimed.clone(),
+                            };
                             draw_generators_tab(
                                 ui,
                                 &mut source,
-                                selected_generator,
-                                selected_prim_path,
-                                tree_view_state,
-                                request_focus,
-                                renaming_unused,
+                                visuals_tree,
                                 inventory.as_deref_mut(),
                                 audio_editor,
                                 &grammar_diag,
                                 &mut widget_changed,
                                 &mut blob_ctx.selected_element,
-                                tree_confirms,
                                 &mut toasts,
                                 time.elapsed_secs_f64(),
                                 &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
@@ -1500,6 +1556,17 @@ pub fn avatar_ui(
                                 node_clipboard,
                                 &mut asset_panel,
                             );
+                            if visuals_tree.selection.path != aimed {
+                                aim_in_place(
+                                    gizmo,
+                                    &mut visuals_tree.view,
+                                    &mut parts_tree.view,
+                                    match visuals_tree.selection.path.clone() {
+                                        Some(path) => GizmoTarget::VisualsNode { path },
+                                        None => GizmoTarget::None,
+                                    },
+                                );
+                            }
                         });
                     }
                     AvatarTab::Locomotion => {
@@ -1534,7 +1601,8 @@ pub fn avatar_ui(
                                 // else the DID derivation every peer falls
                                 // back to for a record without a gait
                                 // section.
-                                let fallback_seed = seed_row_state
+                                let fallback_seed = reroll
+                                    .seed_row
                                     .current_seed()
                                     .or_else(|| {
                                         session
@@ -1559,46 +1627,46 @@ pub fn avatar_ui(
                 }
             });
 
-            // The whole-record clone this used to compare against is gone
-            // (#1270 f273). It was a deep clone of the `AvatarRecord` at the
-            // top of every frame plus a derived `PartialEq` walk at the
-            // bottom, and it existed as a backstop for edit sites that did not
-            // report. Every site reports now — the four `draw_*` handoffs
-            // always took `&mut widget_changed`, and the three direct
-            // assignments (seed re-roll, Revert, Reset) say so themselves.
-            // `avatar_edits_report_themselves` is what keeps a fourth from
-            // being written silently.
+        // The whole-record clone this used to compare against is gone
+        // (#1270 f273). It was a deep clone of the `AvatarRecord` at the
+        // top of every frame plus a derived `PartialEq` walk at the
+        // bottom, and it existed as a backstop for edit sites that did not
+        // report. Every site reports now — the four `draw_*` handoffs
+        // always took `&mut widget_changed`, and the three direct
+        // assignments (seed re-roll, Revert, Reset) say so themselves.
+        // `avatar_edits_report_themselves` is what keeps a fourth from
+        // being written silently.
 
-            // #1230 f33: re-read the stored avatar from the PDS.
-            // `poll_record_task` installs it as live AND stored on a clean
-            // resolution and retires the recovery marker, so the banner clears
-            // itself; the button is disabled while dirty, so nothing unsaved is
-            // in its way.
-            if reload_avatar && let Some(s) = session.as_ref() {
-                crate::loading::fetch::spawn_record_fetch::<pds::AvatarRecord>(
-                    &mut commands,
-                    s.did.clone(),
-                    0,
-                    time.elapsed_secs_f64(),
-                );
-            }
+        // #1230 f33: re-read the stored avatar from the PDS.
+        // `poll_record_task` installs it as live AND stored on a clean
+        // resolution and retires the recovery marker, so the banner clears
+        // itself; the button is disabled while dirty, so nothing unsaved is
+        // in its way.
+        if reload_avatar && let Some(s) = session.as_ref() {
+            crate::loading::fetch::spawn_record_fetch::<pds::AvatarRecord>(
+                &mut commands,
+                s.did.clone(),
+                0,
+                time.elapsed_secs_f64(),
+            );
+        }
 
-            if let Some(response) = response.as_ref() {
-                chrome.remember(crate::ui::layout::UiWindow::Avatar, response.response.rect);
-            }
-            if panels.avatar && !open {
-                panels.avatar = false;
-            }
+        if let Some(response) = response.as_ref() {
+            chrome.remember(crate::ui::layout::UiWindow::Avatar, response.response.rect);
+        }
+        if panels.avatar && !open {
+            panels.avatar = false;
+        }
 
-            // `Window::show` returns `Some(InnerResponse { inner: None, .. })`
-            // when the window is rendered but collapsed (the closure does not
-            // fire). `Some(InnerResponse { inner: Some(_), .. })` means the
-            // body ran. `None` means the window is closed entirely. Treat
-            // collapsed *and* closed identically: the user can no longer see
-            // the selection in the panel, so the gizmo should detach and the
-            // mutex against the room editor should release.
-            response.as_ref().is_some_and(|r| r.inner.is_some())
-        };
+        // `Window::show` returns `Some(InnerResponse { inner: None, .. })`
+        // when the window is rendered but collapsed (the closure does not
+        // fire). `Some(InnerResponse { inner: Some(_), .. })` means the
+        // body ran. `None` means the window is closed entirely. Treat
+        // collapsed *and* closed identically: the user can no longer see
+        // the selection in the panel, so the gizmo should detach and the
+        // mutex against the room editor should release.
+        response.as_ref().is_some_and(|r| r.inner.is_some())
+    };
     // Publish the window state for non-UI readers (the gait pause, #741)
     // every frame this system runs — including the `!panels.avatar` arm,
     // so closing the window un-pauses without a stale frame.
@@ -1630,15 +1698,14 @@ pub fn avatar_ui(
     // None → Some, drop the room editor's selection so only one gizmo is
     // attached at a time. The reverse direction is enforced by the
     // analogous block in `room::room_admin_ui`.
-    let now_visuals_selected = editor.has_visuals_selection() || editor.has_attachment_selection();
+    let now_visuals_selected = aims_at_the_avatar(&editor);
     if now_visuals_selected
         && !prev_visuals_selected
         && let Some(room) = room_editor.as_deref_mut()
     {
         room.selected_placement = None;
-        room.selected_generator = None;
-        room.selected_prim_path = None;
-        room.tree_view_state.set_selected(Vec::new());
+        room.tree.selection.clear();
+        room.tree.view.set_selected(Vec::new());
     }
 
     if widget_changed {
@@ -2133,7 +2200,7 @@ mod tests {
         let mut state = AvatarEditorState::default();
         state.select_attachment_part_from_scene_pick(rkey.clone(), vec![0]);
         state.release_on_scene_miss(false);
-        assert!(!state.has_part_selection(), "the part gizmo let go");
+        assert!(state.gizmo().worn_part().is_none(), "the part gizmo let go");
         assert!(!state.holds_rig_at_rest());
         assert_eq!(
             state.editing_parts(),
@@ -2144,7 +2211,7 @@ mod tests {
         state.select_attachment_from_scene_pick(rkey.clone());
         state.release_on_scene_miss(true);
         assert!(
-            !state.has_attachment_selection(),
+            state.gizmo().worn_prop().is_none(),
             "face picking never aims at a prop"
         );
 
@@ -2169,7 +2236,7 @@ mod tests {
         state.select_attachment_part_from_scene_pick(String::from("3jzfcijpj2z2a"), vec![0]);
         state.selected_tab = AvatarTab::Body;
         state.release_hidden_selections(true);
-        assert!(!state.has_part_selection());
+        assert!(state.gizmo().worn_part().is_none());
         assert!(!state.holds_rig_at_rest());
     }
 
@@ -2183,7 +2250,7 @@ mod tests {
 
         state.select_from_scene_pick(vec![0, 1]);
         state.select_attachment_from_scene_pick(String::from("3jzfcijpj2z2a"));
-        assert_eq!(state.selected_attachment(), Some("3jzfcijpj2z2a"));
+        assert_eq!(state.gizmo().worn_prop(), Some("3jzfcijpj2z2a"));
         assert!(!state.has_visuals_selection(), "the visuals row let go");
         assert_eq!(
             state.selected_tab,
@@ -2193,7 +2260,7 @@ mod tests {
         assert!(state.pending_attachment_focus, "focus request armed");
 
         state.select_from_scene_pick(vec![2]);
-        assert!(!state.has_attachment_selection(), "the prop let go");
+        assert!(state.gizmo().worn_prop().is_none(), "the prop let go");
         assert!(state.has_visuals_selection());
     }
 
@@ -2310,6 +2377,83 @@ mod tests {
         assert!(!state.holds_rig_pose());
     }
 
+    /// #1161, the property the enum was introduced for: **every** way of
+    /// aiming leaves exactly one aim, and takes the outgoing target's
+    /// tree row down with it.
+    ///
+    /// Under the three parallel `Option`s this was fourteen methods each
+    /// remembering to clear the other two, and #1103 bugs 1 and 3 were two
+    /// paths that had never been told about #1098's part. Here the aim is
+    /// one field, so the first half is the type checker's; what this pins
+    /// is the half that is not — the tree-row highlight that lives beside
+    /// the aim, and which is what left a row lit over a gizmo it no longer
+    /// owned.
+    #[test]
+    fn every_aim_replaces_the_last_one_and_releases_its_tree_row() {
+        /// One way of aiming, and what to call it in a failure message.
+        type Aim = (&'static str, fn(&mut AvatarEditorState, &str));
+
+        let rkey = String::from("3jzfcijpj2z2a");
+        let aims: [Aim; 4] = [
+            ("visuals", |s, _| s.select_from_scene_pick(vec![1, 0])),
+            ("prop", |s, k| {
+                s.select_attachment_from_scene_pick(k.to_string())
+            }),
+            ("part", |s, k| {
+                s.select_attachment_part_from_scene_pick(k.to_string(), vec![2])
+            }),
+            ("parts editor", |s, k| s.open_parts_editor(k.to_string())),
+        ];
+        for (first_name, first) in aims {
+            for (then_name, then) in aims {
+                let mut state = AvatarEditorState::default();
+                first(&mut state, &rkey);
+                assert!(state.has_gizmo_selection(), "{first_name} aims something");
+                then(&mut state, &rkey);
+
+                // Exactly one aim, by construction — and both tree widgets
+                // agree with it, which is the part the compiler cannot see.
+                let visuals_row_lit = !state.visuals_tree.view.selected().is_empty();
+                let part_row_lit = !state.parts_tree.view.selected().is_empty();
+                assert_eq!(
+                    visuals_row_lit,
+                    state.gizmo().visuals_path().is_some(),
+                    "{first_name} then {then_name}: the visuals row and the aim disagree"
+                );
+                assert_eq!(
+                    part_row_lit,
+                    state.gizmo().worn_part().is_some(),
+                    "{first_name} then {then_name}: the parts row and the aim disagree"
+                );
+            }
+        }
+    }
+
+    /// The one release that is deliberately narrow: the room editor takes
+    /// the gizmo from an avatar VISUALS row when a room selection rises
+    /// (`room::room_admin_ui`'s half of the cross-editor mutex), and the
+    /// undo restore re-seeds the same row — neither has ever claimed a
+    /// worn prop's gizmo, which is aimed at something the room editor
+    /// cannot select. Widening this to the whole aim would silently take
+    /// down a wearable's offset gizmo.
+    #[test]
+    fn releasing_the_visuals_aim_leaves_a_worn_prop_alone() {
+        let rkey = String::from("3jzfcijpj2z2a");
+        let mut state = AvatarEditorState::default();
+
+        state.select_from_scene_pick(vec![0]);
+        state.release_visuals_aim();
+        assert!(!state.has_gizmo_selection(), "the visuals row let go");
+
+        state.select_attachment_from_scene_pick(rkey.clone());
+        state.release_visuals_aim();
+        assert_eq!(
+            state.gizmo().worn_prop(),
+            Some(rkey.as_str()),
+            "a worn prop is not the room editor's to take"
+        );
+    }
+
     /// #823: a scene pick must land the full row-click state — selection
     /// set to the picked path under the fixed "visuals" root, the row
     /// selected in the tree widget, every ancestor expanded, and the
@@ -2320,19 +2464,20 @@ mod tests {
         state.select_from_scene_pick(vec![1, 0, 2]);
 
         assert_eq!(
-            state.selected_generator.as_deref(),
-            Some(AvatarVisualsTreeSource::ROOT_NAME)
+            state.gizmo(),
+            &GizmoTarget::VisualsNode {
+                path: vec![1, 0, 2]
+            }
         );
-        assert_eq!(state.selected_prim_path, Some(vec![1, 0, 2]));
         assert!(state.has_visuals_selection());
-        assert!(state.pending_tree_focus, "focus request armed");
+        assert!(state.visuals_tree.pending_focus, "focus request armed");
 
         // The tree widget mirrors the selection...
         let selected_id = GenNodeId::child(
             AvatarVisualsTreeSource::ROOT_NAME.to_string(),
             vec![1, 0, 2],
         );
-        assert_eq!(state.tree_view_state.selected(), &vec![selected_id]);
+        assert_eq!(state.visuals_tree.view.selected(), &vec![selected_id]);
         // ...and every ancestor (root, [1], [1,0]) is explicitly opened
         // so the picked row is actually visible.
         for depth in 0..3 {
@@ -2341,7 +2486,7 @@ mod tests {
                 vec![1, 0, 2][..depth].to_vec(),
             );
             assert_eq!(
-                state.tree_view_state.is_open(&ancestor),
+                state.visuals_tree.view.is_open(&ancestor),
                 Some(true),
                 "ancestor at depth {depth} expanded"
             );

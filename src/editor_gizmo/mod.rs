@@ -103,7 +103,12 @@ use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use transform_gizmo_bevy::{GizmoOrientation, GizmoTarget};
 
 use crate::state::AppState;
-use crate::ui::avatar::AvatarEditorState;
+// Aliased because this module already imports `transform_gizmo_bevy`'s own
+// `GizmoTarget` above — the COMPONENT that marks the entity currently
+// carrying the gizmo. This one is the avatar editor's aim: what the owner
+// has selected for a gizmo to be attached TO. Both keep the word, since a
+// grep for `GizmoTarget` should find either.
+use crate::ui::avatar::{AvatarEditorState, GizmoTarget as AvatarGizmoTarget};
 use crate::ui::room::{EditorTab, RoomEditorState};
 use crate::world_builder::{
     AttachmentPrim, AvatarVisualPrim, PlacementMarker, PrimFaceGroup, PrimMarker,
@@ -349,22 +354,20 @@ pub(crate) fn determine_active_target(
     // avatar lines up with the locomotion-freeze gate (which already
     // reads avatar state) so physics behaviour is consistent.
     //
-    // Within the avatar editor the two selections are already mutually
-    // exclusive (each tab clears the other's on switch, and both scene-pick
-    // entry points clear the other), so the order here only decides a
-    // one-frame race; attachments win it because the body is being held at
-    // its bind pose for them and a visuals gizmo would read against a pose
-    // the record does not describe.
-    if avatar.has_part_selection() {
-        ActiveTarget::AttachmentPart
-    } else if avatar.has_attachment_selection() {
-        ActiveTarget::Attachment
-    } else if avatar.has_visuals_selection() {
-        ActiveTarget::Avatar
-    } else if room.selected_placement.is_some() || room.selected_prim_path.is_some() {
-        ActiveTarget::Room
-    } else {
-        ActiveTarget::None
+    // Within the avatar editor the three are exclusive by construction
+    // (#1161): the aim is one `AvatarGizmoTarget`, so the arms below are a
+    // partition, not a priority order that has to be argued about. What is
+    // still a choice is avatar-over-room, above.
+    match avatar.gizmo() {
+        AvatarGizmoTarget::WornPart { .. } => ActiveTarget::AttachmentPart,
+        AvatarGizmoTarget::WornProp { .. } => ActiveTarget::Attachment,
+        AvatarGizmoTarget::VisualsNode { .. } => ActiveTarget::Avatar,
+        AvatarGizmoTarget::None
+            if room.selected_placement.is_some() || room.tree.selection.path.is_some() =>
+        {
+            ActiveTarget::Room
+        }
+        AvatarGizmoTarget::None => ActiveTarget::None,
     }
 }
 
@@ -818,9 +821,9 @@ fn pick_on_scene_click(
         }
         EditorTab::Placements => {
             if let Some(index) = picked_placement {
-                room_state.selected_generator = None;
-                room_state.selected_prim_path = None;
-                room_state.tree_view_state.set_selected(Vec::new());
+                room_state.tree.selection.root = None;
+                room_state.tree.selection.path = None;
+                room_state.tree.view.set_selected(Vec::new());
                 room_state.selected_placement = Some(index);
             } else if !face_pick.is_armed() {
                 room_state.clear_selection();
@@ -837,9 +840,9 @@ fn pick_on_scene_click(
                 select_prim_in_tree(&mut room_state, marker, marker_entity, &global_tfs);
             } else if let Some(index) = picked_placement {
                 room_state.selected_tab = EditorTab::Placements;
-                room_state.selected_generator = None;
-                room_state.selected_prim_path = None;
-                room_state.tree_view_state.set_selected(Vec::new());
+                room_state.tree.selection.root = None;
+                room_state.tree.selection.path = None;
+                room_state.tree.view.set_selected(Vec::new());
                 room_state.selected_placement = Some(index);
             } else if !face_pick.is_armed() {
                 room_state.clear_selection();
@@ -860,8 +863,8 @@ fn select_prim_in_tree(
     global_tfs: &Query<&GlobalTransform>,
 ) {
     room_state.selected_placement = None;
-    room_state.selected_generator = Some(marker.generator_ref.clone());
-    room_state.selected_prim_path = Some(marker.path.clone());
+    room_state.tree.selection.root = Some(marker.generator_ref.clone());
+    room_state.tree.selection.path = Some(marker.path.clone());
     // #822: the clicked instance's world position seeds `preferred_pick` so
     // the gizmo lands on the instance that was actually clicked, not the
     // camera-nearest one.
@@ -880,7 +883,7 @@ fn select_prim_in_tree(
     // open-state that overrides the collapsed default for each ancestor
     // (root at depth 0 through the immediate parent at depth len-1).
     for depth in 0..marker.path.len() {
-        room_state.tree_view_state.set_openness(
+        room_state.tree.view.set_openness(
             crate::ui::room::GenNodeId::child(
                 marker.generator_ref.clone(),
                 marker.path[..depth].to_vec(),
@@ -893,12 +896,13 @@ fn select_prim_in_tree(
     // *focused* highlight rather than the dim unfocused one (a world-pick
     // bypasses the tree's own click-to-focus path).
     room_state
-        .tree_view_state
+        .tree
+        .view
         .set_selected(vec![crate::ui::room::GenNodeId::child(
             marker.generator_ref,
             marker.path,
         )]);
-    room_state.pending_tree_focus = true;
+    room_state.tree.pending_focus = true;
 }
 
 /// What a click into the 3D viewport landed on.

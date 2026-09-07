@@ -22,7 +22,7 @@ use super::primitive::{
     draw_primitive_spine, draw_primitive_superellipsoid, draw_primitive_tetrahedron,
     draw_primitive_torus, draw_primitive_tube,
 };
-use super::reparent::{current_id, find_node, find_node_mut};
+use super::reparent::{find_node, find_node_mut};
 use super::sign::draw_generator_sign;
 use super::tree::{node_salt, path_string};
 use super::water::draw_water_editor;
@@ -38,8 +38,7 @@ use super::{GenNodeId, GeneratorTreeSource};
 pub(super) fn draw_detail_panel(
     ui: &mut egui::Ui,
     source: &mut dyn GeneratorTreeSource,
-    selected_generator: &mut Option<String>,
-    selected_prim_path: &mut Option<Vec<usize>>,
+    selection: &mut super::TreeSelection,
     audio_editor: &mut super::super::audio::AudioEditorState,
     grammar_diag: &crate::world_builder::grammar_diag::GrammarDiagnostics,
     dirty: &mut bool,
@@ -59,7 +58,7 @@ pub(super) fn draw_detail_panel(
     // The asset caches (#1246), for every field naming a fetched asset.
     assets: &mut super::super::assets::AssetPanel<'_>,
 ) {
-    let Some(id) = current_id(selected_generator, selected_prim_path) else {
+    let Some(id) = selection.node_id() else {
         ui.vertical_centered(|ui| {
             ui.add_space(40.0);
             ui.label(

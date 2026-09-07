@@ -870,19 +870,19 @@ pub(super) fn scene_context_menu_ui(
             panels.world_editor = true;
             editor.selected_tab = EditorTab::Generators;
             editor.selected_placement = None;
-            editor.selected_generator = Some(prim.generator_ref.clone());
-            editor.selected_prim_path = Some(prim.path.clone());
+            editor.tree.selection.root = Some(prim.generator_ref.clone());
+            editor.tree.selection.path = Some(prim.path.clone());
             for depth in 0..prim.path.len() {
-                editor.tree_view_state.set_openness(
+                editor.tree.view.set_openness(
                     GenNodeId::child(prim.generator_ref.clone(), prim.path[..depth].to_vec()),
                     true,
                 );
             }
-            editor.tree_view_state.set_selected(vec![GenNodeId::child(
+            editor.tree.view.set_selected(vec![GenNodeId::child(
                 prim.generator_ref.clone(),
                 prim.path.clone(),
             )]);
-            editor.pending_tree_focus = true;
+            editor.tree.pending_focus = true;
         }
         MenuChoice::SelectPlacement => {
             let Some(idx) = picked_placement else {
@@ -890,9 +890,9 @@ pub(super) fn scene_context_menu_ui(
             };
             panels.world_editor = true;
             editor.selected_tab = EditorTab::Placements;
-            editor.selected_generator = None;
-            editor.selected_prim_path = None;
-            editor.tree_view_state.set_selected(Vec::new());
+            editor.tree.selection.root = None;
+            editor.tree.selection.path = None;
+            editor.tree.view.set_selected(Vec::new());
             editor.selected_placement = Some(idx);
         }
         MenuChoice::SelectAvatarPart => {
@@ -921,18 +921,19 @@ pub(super) fn scene_context_menu_ui(
                 panels.world_editor = true;
                 editor.selected_tab = EditorTab::Generators;
                 editor.selected_placement = None;
-                editor.selected_generator = Some(prim.generator_ref.clone());
-                editor.selected_prim_path = Some(new_path.clone());
+                editor.tree.selection.root = Some(prim.generator_ref.clone());
+                editor.tree.selection.path = Some(new_path.clone());
                 for depth in 0..new_path.len() {
-                    editor.tree_view_state.set_openness(
+                    editor.tree.view.set_openness(
                         GenNodeId::child(prim.generator_ref.clone(), new_path[..depth].to_vec()),
                         true,
                     );
                 }
                 editor
-                    .tree_view_state
+                    .tree
+                    .view
                     .set_selected(vec![GenNodeId::child(prim.generator_ref.clone(), new_path)]);
-                editor.pending_tree_focus = true;
+                editor.tree.pending_focus = true;
             }
         }
         MenuChoice::DuplicatePlacement => {
@@ -944,9 +945,9 @@ pub(super) fn scene_context_menu_ui(
                     undo_labels.set_room(format!("duplicate of placement {idx}"));
                     panels.world_editor = true;
                     editor.selected_tab = EditorTab::Placements;
-                    editor.selected_generator = None;
-                    editor.selected_prim_path = None;
-                    editor.tree_view_state.set_selected(Vec::new());
+                    editor.tree.selection.root = None;
+                    editor.tree.selection.path = None;
+                    editor.tree.view.set_selected(Vec::new());
                     editor.selected_placement = Some(new_idx);
                 }
                 Err(reason) => toasts.warn(reason, time.elapsed_secs_f64()),
@@ -1041,12 +1042,13 @@ fn create_at_point(
     panels.world_editor = true;
     editor.selected_tab = EditorTab::Generators;
     editor.selected_placement = None;
-    editor.selected_generator = Some(key.clone());
-    editor.selected_prim_path = Some(Vec::new());
+    editor.tree.selection.root = Some(key.clone());
+    editor.tree.selection.path = Some(Vec::new());
     editor
-        .tree_view_state
+        .tree
+        .view
         .set_one_selected(GenNodeId::root(key.clone()));
-    editor.pending_tree_focus = true;
+    editor.tree.pending_focus = true;
     Ok(key)
 }
 
@@ -1088,7 +1090,7 @@ fn delete_item(
         panels.world_editor = true;
         editor.selected_tab = EditorTab::Generators;
         crate::ui::room::generators::request_root_delete(
-            &mut editor.tree_confirms.delete,
+            &mut editor.tree.confirms.delete,
             &RoomTreeSource::new(record),
             generator_ref,
         );
@@ -1297,7 +1299,7 @@ mod tests {
         assert!(record.generators.contains_key("tower"));
         assert_eq!(record.placements.len(), 1);
         assert!(
-            editor.tree_confirms.delete.is_pending(),
+            editor.tree.confirms.delete.is_pending(),
             "the tree's confirm is parked"
         );
         assert!(panels.world_editor, "opened where the confirm is drawn");
@@ -1392,10 +1394,10 @@ mod tests {
         // the new root selected (empty prim path), placement selection cleared.
         assert!(panels.world_editor);
         assert!(matches!(editor.selected_tab, EditorTab::Generators));
-        assert_eq!(editor.selected_generator.as_deref(), Some(key.as_str()));
-        assert_eq!(editor.selected_prim_path, Some(Vec::new()));
+        assert_eq!(editor.tree.selection.root.as_deref(), Some(key.as_str()));
+        assert_eq!(editor.tree.selection.path, Some(Vec::new()));
         assert_eq!(editor.selected_placement, None);
-        assert!(editor.pending_tree_focus);
+        assert!(editor.tree.pending_focus);
     }
 
     #[test]
@@ -1427,7 +1429,7 @@ mod tests {
         assert_eq!(record.generators.len(), 2);
         assert_eq!(record.placements.len(), 2);
         // Selection follows the most recent create.
-        assert_eq!(editor.selected_generator.as_deref(), Some(k2.as_str()));
+        assert_eq!(editor.tree.selection.root.as_deref(), Some(k2.as_str()));
     }
 
     /// Seed a record with one root ("thing") carrying two children, plus an

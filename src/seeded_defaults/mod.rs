@@ -57,6 +57,35 @@ pub mod oklch;
 pub mod room;
 pub mod scene;
 
+/// A set of per-axis re-roll locks that can hunt for a seed satisfying them
+/// (#1005).
+///
+/// Both pin sets — [`AvatarPins`] and [`scene::ScenePins`] — are editor UI
+/// state that never reaches a record, and both answer exactly this one
+/// question. Naming it lets the editor-side cache and seed row be written
+/// once against the trait instead of twice against the two types; the
+/// direction matters, so the trait lives here with its implementors rather
+/// than in `ui`.
+pub trait SeedPins: Copy + PartialEq {
+    /// The first seed at or after `start` whose seeded character satisfies
+    /// every pinned axis, or `None` if the hunt capped out. With nothing
+    /// pinned this is `start` itself, so the un-pinned path stays
+    /// bit-identical to the pre-#1005 re-roll.
+    fn find_seed(&self, start: u64) -> Option<u64>;
+}
+
+impl SeedPins for AvatarPins {
+    fn find_seed(&self, start: u64) -> Option<u64> {
+        AvatarPins::find_seed(self, start)
+    }
+}
+
+impl SeedPins for scene::ScenePins {
+    fn find_seed(&self, start: u64) -> Option<u64> {
+        scene::ScenePins::find_seed(self, start)
+    }
+}
+
 pub use avatar::{
     AirshipBlueprint, AvatarBody, AvatarCharacter, AvatarFx, AvatarGait, AvatarOutfit,
     AvatarPalette, AvatarPins, AvatarVoice, BoatBlueprint, BodyArchetype, ChassisFamily,

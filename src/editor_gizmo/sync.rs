@@ -223,8 +223,8 @@ pub(super) fn sync_gizmo_selection(
         None
     } else if active == ActiveTarget::Room && room_state.selected_tab == EditorTab::Generators {
         match (
-            room_state.selected_generator.as_ref(),
-            room_state.selected_prim_path.as_ref(),
+            room_state.tree.selection.root.as_ref(),
+            room_state.tree.selection.path.as_ref(),
         ) {
             (Some(generator_ref), Some(path)) => {
                 let reference_pos = room_state
@@ -259,7 +259,7 @@ pub(super) fn sync_gizmo_selection(
     let target_avatar_prim = if target_proxy.is_some() {
         None
     } else if active == ActiveTarget::Avatar {
-        match avatar_state.selected_prim_path.as_ref() {
+        match avatar_state.gizmo().visuals_path() {
             Some(path) => avatar_prim_query
                 .iter()
                 .find_map(|(entity, marker, _, _, _, _)| {
@@ -282,7 +282,7 @@ pub(super) fn sync_gizmo_selection(
     let target_attachment = if target_proxy.is_some() {
         None
     } else if active == ActiveTarget::Attachment {
-        avatar_state.selected_attachment().and_then(|rkey| {
+        avatar_state.gizmo().worn_prop().and_then(|rkey| {
             attachment_query
                 .iter()
                 .find_map(|(entity, worn, ..)| (worn.rkey == rkey).then_some(entity))
@@ -296,7 +296,7 @@ pub(super) fn sync_gizmo_selection(
     let target_part = if target_proxy.is_some() {
         None
     } else if active == ActiveTarget::AttachmentPart {
-        avatar_state.attachment_part().and_then(|(rkey, path)| {
+        avatar_state.gizmo().worn_part().and_then(|(rkey, path)| {
             // A replaced prop's gizmo-detached part can outlive it for a
             // frame (#1107) and matches the same `(rkey, path)` as the
             // fresh one: prefer the candidate that is in a hierarchy (or in
@@ -354,17 +354,18 @@ pub(super) fn sync_gizmo_selection(
         gizmo_options.gizmo_modes = placement_modes(placement);
     } else if is_room_prim_selected {
         let is_root = room_state
-            .selected_prim_path
+            .tree
+            .selection
+            .path
             .as_ref()
             .map(|p| p.is_empty())
             .unwrap_or(false);
         gizmo_options.gizmo_modes = prim_modes(is_root);
     } else if is_avatar_prim_selected {
         let is_root = avatar_state
-            .selected_prim_path
-            .as_ref()
-            .map(|p| p.is_empty())
-            .unwrap_or(false);
+            .gizmo()
+            .visuals_path()
+            .is_some_and(<[usize]>::is_empty);
         gizmo_options.gizmo_modes = prim_modes(is_root);
     } else if target_attachment.is_some() {
         gizmo_options.gizmo_modes = attachment_modes();
@@ -372,7 +373,8 @@ pub(super) fn sync_gizmo_selection(
         // A worn item's root translates through its OFFSET (the whole-prop
         // gizmo); inside the tree the root rule is the visuals tree's.
         let is_root = avatar_state
-            .attachment_part()
+            .gizmo()
+            .worn_part()
             .is_some_and(|(_, path)| path.is_empty());
         gizmo_options.gizmo_modes = prim_modes(is_root);
     }
@@ -791,7 +793,7 @@ mod repro_tests {
         // Avatar selection so `determine_active_target` == Avatar and the
         // idle fast-path doesn't bail before the proxy loop runs.
         let mut avatar_state = AvatarEditorState::default();
-        avatar_state.selected_prim_path = Some(vec![]);
+        avatar_state.select_from_scene_pick(vec![]);
         app.insert_resource(avatar_state);
 
         app.add_systems(Update, reconcile_blob_proxies);
@@ -926,7 +928,7 @@ mod repro_tests {
             .init_resource::<BlobEditAssets>()
             .insert_resource(panels());
         let mut avatar_state = AvatarEditorState::default();
-        avatar_state.selected_prim_path = Some(vec![]);
+        avatar_state.select_from_scene_pick(vec![]);
         app.insert_resource(avatar_state);
 
         // Real plugin ordering: reconcile then sync, both AFTER Propagate.
@@ -1009,7 +1011,7 @@ mod repro_tests {
             .init_resource::<BlobEditAssets>()
             .insert_resource(panels());
         let mut avatar_state = AvatarEditorState::default();
-        avatar_state.selected_prim_path = Some(vec![]);
+        avatar_state.select_from_scene_pick(vec![]);
         app.insert_resource(avatar_state);
         // The user has the World (Global) frame selected.
         app.world_mut().resource_mut::<GizmoFramePref>().orientation = GizmoOrientation::Global;

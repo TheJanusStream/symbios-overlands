@@ -148,8 +148,8 @@ pub(super) fn draw_selection_highlight(
         ActiveTarget::Room => match room_state.selected_tab {
             EditorTab::Generators => {
                 let (Some(generator_ref), Some(path)) = (
-                    room_state.selected_generator.as_ref(),
-                    room_state.selected_prim_path.as_ref(),
+                    room_state.tree.selection.root.as_ref(),
+                    room_state.tree.selection.path.as_ref(),
                 ) else {
                     return;
                 };
@@ -195,7 +195,7 @@ pub(super) fn draw_selection_highlight(
             _ => {}
         },
         ActiveTarget::Avatar => {
-            let Some(path) = avatar_state.selected_prim_path.as_ref() else {
+            let Some(path) = avatar_state.gizmo().visuals_path() else {
                 return;
             };
             // Local-only and singular (see `sync`) — at most one match.
@@ -213,7 +213,7 @@ pub(super) fn draw_selection_highlight(
             }
         }
         ActiveTarget::Attachment => {
-            let Some(rkey) = avatar_state.selected_attachment() else {
+            let Some(rkey) = avatar_state.gizmo().worn_prop() else {
                 return;
             };
             // Local-only and unique by record key (see `sync`) — at most one
@@ -233,7 +233,7 @@ pub(super) fn draw_selection_highlight(
             }
         }
         ActiveTarget::AttachmentPart => {
-            let Some((rkey, path)) = avatar_state.attachment_part() else {
+            let Some((rkey, path)) = avatar_state.gizmo().worn_part() else {
                 return;
             };
             // Local-only and unique by (record, path) — one match.

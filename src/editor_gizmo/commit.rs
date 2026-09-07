@@ -169,14 +169,14 @@ pub(super) fn commit_room_drag(
 
 /// Land the editor on the clone a Shift-copy-drag just made (#1237 f145).
 ///
-/// The copy path used to rewrite `selected_prim_path`'s last index and
-/// nothing else — but the TREE is the source of truth: after every draw
-/// `draw_tree_panel` reads `tree_view_state.selected()` back over
-/// `selected_generator` / `selected_prim_path`, so the next World-Editor
-/// frame reverted the selection to the original. The gizmo and the
-/// highlight jumped back to the object that had not moved, and the user's
-/// next drag silently edited the wrong node — against the documented
-/// contract of one of the four gestures the Controls sheet teaches.
+/// The copy path used to rewrite the tree selection's last path index and
+/// nothing else — but the TREE WIDGET is the source of truth: after every
+/// draw `draw_tree_panel` reads its selection back over the panel's whole
+/// `TreeSelection`, so the next World-Editor frame reverted the selection
+/// to the original. The gizmo and the highlight jumped back to the object
+/// that had not moved, and the user's next drag silently edited the wrong
+/// node — against the documented contract of one of the four gestures the
+/// Controls sheet teaches.
 ///
 /// These are the same fields `MenuChoice::DuplicateItem` writes, which is
 /// the duplicate path that always got it right.
@@ -186,15 +186,16 @@ fn select_copy(
     new_path: Vec<usize>,
     world_pos: Vec3,
 ) {
-    editor.selected_generator = Some(generator_ref.to_string());
-    editor.selected_prim_path = Some(new_path.clone());
+    editor.tree.selection.root = Some(generator_ref.to_string());
+    editor.tree.selection.path = Some(new_path.clone());
     editor
-        .tree_view_state
+        .tree
+        .view
         .set_selected(vec![crate::ui::room::GenNodeId::child(
             generator_ref.to_string(),
             new_path.clone(),
         )]);
-    editor.pending_tree_focus = true;
+    editor.tree.pending_focus = true;
     // …and the instance preference, or the gizmo falls back to
     // camera-proximity ranking and can land on a different copy of a
     // scattered generator than the one just dropped. `world_pos` is the
@@ -738,29 +739,29 @@ mod scatter_commit_tests {
     /// one. The copy appears where you dropped it, then the gizmo and the
     /// highlight jump back to the ORIGINAL, and your next drag moves the
     /// original instead of the copy. The copy path rewrote
-    /// `selected_prim_path`'s last index and nothing else — but
-    /// `draw_tree_panel` reads `tree_view_state.selected()` back over
-    /// those fields after every draw, so the tree, which still named the
+    /// the tree selection's last path index and nothing else — but
+    /// `draw_tree_panel` reads the widget's own selection back over the
+    /// panel's after every draw, so the tree, which still named the
     /// original, won.
     #[test]
     fn a_copy_drag_hands_the_tree_the_clone_not_the_original() {
         let mut editor = RoomEditorState::default();
-        editor.selected_generator = Some("house".into());
-        editor.selected_prim_path = Some(vec![2, 0]);
+        editor.tree.selection.root = Some("house".into());
+        editor.tree.selection.path = Some(vec![2, 0]);
 
         select_copy(&mut editor, "house", vec![2, 1], Vec3::new(4.0, 1.0, -2.0));
 
-        assert_eq!(editor.selected_prim_path.as_deref(), Some(&[2, 1][..]));
+        assert_eq!(editor.tree.selection.path.as_deref(), Some(&[2, 1][..]));
         // The tree is the source of truth — it must name the clone, or the
         // very next World-Editor draw reverts the selection.
         assert_eq!(
-            editor.tree_view_state.selected().as_slice(),
+            editor.tree.view.selected().as_slice(),
             [crate::ui::room::GenNodeId::child(
                 "house".to_string(),
                 vec![2, 1]
             )]
         );
-        assert!(editor.pending_tree_focus, "the row has to be revealed");
+        assert!(editor.tree.pending_focus, "the row has to be revealed");
         let pick = editor.preferred_pick.expect("the instance preference");
         assert_eq!(pick.path, vec![2, 1]);
         assert_eq!(pick.pos, Vec3::new(4.0, 1.0, -2.0));

@@ -3,9 +3,9 @@
 //! [`RoomRecord::generators`] as a tree root; each root recursively shows
 //! its `children` so the entire generator hierarchy is browsable from one
 //! place. Selecting a row in the tree drives both the on-screen editor and
-//! the 3D gizmo target — `RoomEditorState::selected_generator` and
-//! `selected_prim_path` are derived from the tree's selection each frame so
-//! `editor_gizmo` can attach the gizmo to the matching live entity.
+//! the 3D gizmo target — [`TreePanelState::selection`] is derived from the
+//! tree widget's selection each frame so `editor_gizmo` can attach the
+//! gizmo to the matching live entity.
 //!
 //! Structural operations (`+ Add child`, `Rename`, `Save to Inventory`, `−
 //! Delete`) live in the per-row right-click context menu. The context-menu
@@ -55,6 +55,73 @@ use super::widgets::unique_key;
 
 /// Convenience alias so the per-tab function signature stays readable.
 type TreeViewState = egui_ltreeview::TreeViewState<GenNodeId>;
+/// One generator tree's selection, in the `(root, path)` vocabulary the
+/// tree widget and the detail panel speak (#1161).
+///
+/// The two are usually written together — `tree.rs`'s selection sync sets
+/// both or clears both — but they are deliberately not one
+/// `Option<GenNodeId>`: `(Some(root), None)` is a real state, the ROOT row
+/// selected as a *generator* rather than as a node, and the room's undo
+/// restore validates it as such.
+#[derive(Default, Clone, PartialEq, Eq, Debug)]
+pub(crate) struct TreeSelection {
+    /// The named root the selection is under. `None` = nothing selected.
+    pub(crate) root: Option<String>,
+    /// Path through that root's tree to the selected node: an empty `Vec`
+    /// is the root node itself, `Some([i0, i1, …])` the `i_n`-th child at
+    /// each depth. `None` = no *node* is selected.
+    pub(crate) path: Option<Vec<usize>>,
+}
+
+impl TreeSelection {
+    /// The selected node's id, when a node (rather than a bare root row)
+    /// is selected.
+    pub(crate) fn node_id(&self) -> Option<GenNodeId> {
+        match (self.root.as_ref(), self.path.as_ref()) {
+            (Some(root), Some(path)) => Some(GenNodeId::child(root.clone(), path.clone())),
+            _ => None,
+        }
+    }
+
+    /// Forget the selection entirely.
+    pub(crate) fn clear(&mut self) {
+        self.root = None;
+        self.path = None;
+    }
+}
+
+/// Everything one generator-tree panel keeps across frames (#1161).
+///
+/// [`draw_generators_tab`] draws three different trees — the room's
+/// generators, the avatar's visuals, and one worn item's parts — and each
+/// of the three needs the same six pieces of state. They used to be six
+/// loose fields per host, threaded as six parameters, which is how
+/// `AvatarEditorState` came to carry a `renaming_unused` field whose only
+/// job was to satisfy the signature: the avatar's single-root sources have
+/// no rename, but the parameter still had to be given something.
+#[derive(Default)]
+pub(crate) struct TreePanelState {
+    /// Which row is selected. For the room this is the state; the avatar
+    /// editor's aim ([`crate::ui::avatar::GizmoTarget`]) is the truth
+    /// there, and this is seeded from it before each draw and folded back
+    /// after — see `avatar_ui`.
+    pub(crate) selection: TreeSelection,
+    /// The [`egui_ltreeview`] widget's own expansion + selection across
+    /// frames, so resizing or scrolling does not reset what is open.
+    pub(crate) view: TreeViewState,
+    /// Set for one frame when an in-world pick selects a node (#719,
+    /// #823, #1098): the next draw grabs keyboard focus so the picked row
+    /// highlights like a direct click. Consumed by [`tree::draw_tree_panel`].
+    pub(crate) pending_focus: bool,
+    /// Active rename modal: `(original_key, draft_key)`. Only multi-root
+    /// sources offer a rename, so it stays `None` for both avatar trees —
+    /// which is the honest version of the `renaming_unused` field this
+    /// replaced.
+    pub(crate) renaming: Option<(String, String)>,
+    /// Parked destructive-op confirmations (#838): root delete, kind
+    /// change, and a drag that nests a placed root (#1209).
+    pub(crate) confirms: TreeConfirms,
+}
 
 // ---------------------------------------------------------------------------
 // Generator-tree abstraction
@@ -378,14 +445,12 @@ impl GeneratorTreeSource for AttachmentTreeSource<'_> {
 pub(crate) fn draw_generators_tab(
     ui: &mut egui::Ui,
     source: &mut dyn GeneratorTreeSource,
-    selected_generator: &mut Option<String>,
-    selected_prim_path: &mut Option<Vec<usize>>,
-    tree_view_state: &mut TreeViewState,
-    // One-shot request to focus the tree after an in-world pick (#719), so
-    // the picked row highlights like a direct click. Always `false` for the
-    // avatar editor, which has no in-world node picking.
-    request_focus: bool,
-    renaming_generator: &mut Option<(String, String)>,
+    // Everything this tree keeps across frames: the selected row, the
+    // widget's expansion state, the one-shot focus request, the rename
+    // modal and the parked confirms (#1161). Six loose parameters until
+    // the three hosts — the room's generators, the avatar's visuals and
+    // one worn item's parts — were given the same struct to own.
+    panel: &mut TreePanelState,
     inventory: Option<&mut LiveInventoryRecord>,
     audio_editor: &mut super::audio::AudioEditorState,
     // Grammar compile outcomes (#829), rendered by the L-system / Shape
@@ -395,9 +460,6 @@ pub(crate) fn draw_generators_tab(
     // In-scene blob element selection (#705), threaded to the BlobGroup
     // detail editor so its rows mirror the scene proxies' gizmo state.
     blob_selected_element: &mut Option<usize>,
-    // Pending destructive-tree confirmations (#838): root delete + kind
-    // change. Requested inside the tree / detail panels, answered here.
-    confirms: &mut TreeConfirms,
     // Toast channel + session clock for structural-op feedback (#841's
     // Save-to-Inventory success/full toasts).
     toasts: &mut crate::notify::Toasts,
@@ -438,21 +500,7 @@ pub(crate) fn draw_generators_tab(
         .min_size(180.0)
         .show(ui, |ui| {
             tree::draw_tree_panel(
-                ui,
-                source,
-                selected_generator,
-                selected_prim_path,
-                tree_view_state,
-                renaming_generator,
-                inventory,
-                request_focus,
-                dirty,
-                confirms,
-                toasts,
-                now,
-                label,
-                owner_did,
-                filter,
+                ui, source, panel, inventory, dirty, toasts, now, label, owner_did, filter,
                 clipboard,
             );
         });
@@ -466,8 +514,10 @@ pub(crate) fn draw_generators_tab(
         // produce visible objects. That made the primary create button
         // look broken rather than different.
         if source.instances_through_placements()
-            && let Some(root) = selected_generator.as_deref()
-            && selected_prim_path
+            && let Some(root) = panel.selection.root.as_deref()
+            && panel
+                .selection
+                .path
                 .as_deref()
                 .is_some_and(<[usize]>::is_empty)
             && source.placement_ref_count(root) == 0
@@ -492,13 +542,12 @@ pub(crate) fn draw_generators_tab(
         detail::draw_detail_panel(
             ui,
             source,
-            selected_generator,
-            selected_prim_path,
+            &mut panel.selection,
             audio_editor,
             grammar_diag,
             dirty,
             blob_selected_element,
-            &mut confirms.kind,
+            &mut panel.confirms.kind,
             label,
             road_stats,
             face_pick,
@@ -510,7 +559,7 @@ pub(crate) fn draw_generators_tab(
     // here — with the tree source still in scope — means the payloads
     // can re-resolve their nodes at apply time, so a confirm is safe
     // even if the selection moved while the dialog was up.
-    if let Some(id) = confirms.delete.show(ui.ctx(), "tree-delete") {
+    if let Some(id) = panel.confirms.delete.show(ui.ctx(), "tree-delete") {
         // Blast radius measured BEFORE the sweep, so the undo toast can
         // say what the cascade actually took with it.
         let placements = source.placement_ref_count(&id.root);
@@ -524,12 +573,11 @@ pub(crate) fn draw_generators_tab(
             format!("delete of {}", id.root)
         });
         source.remove_root(&id.root);
-        *selected_generator = None;
-        *selected_prim_path = None;
-        tree_view_state.set_selected(Vec::new());
+        panel.selection.clear();
+        panel.view.set_selected(Vec::new());
         *dirty = true;
     }
-    if let Some((id, kind_tag)) = confirms.kind.show(ui.ctx(), "tree-kind-change")
+    if let Some((id, kind_tag)) = panel.confirms.kind.show(ui.ctx(), "tree-kind-change")
         && let Some(node) = reparent::find_node_mut(source, &id)
     {
         label.set(format!("kind change to {kind_tag}"));
@@ -540,19 +588,9 @@ pub(crate) fn draw_generators_tab(
         source: drag_source,
         target,
         position,
-    }) = confirms.reparent.show(ui.ctx(), "tree-nest")
+    }) = panel.confirms.reparent.show(ui.ctx(), "tree-nest")
     {
-        reparent::apply_reparent(
-            source,
-            selected_generator,
-            selected_prim_path,
-            tree_view_state,
-            drag_source,
-            target,
-            position,
-            dirty,
-            label,
-        );
+        reparent::apply_reparent(source, panel, drag_source, target, position, dirty, label);
     }
 }
 

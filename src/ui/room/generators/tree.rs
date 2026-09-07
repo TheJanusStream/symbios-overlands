@@ -16,25 +16,15 @@ use crate::ui::catalogue::catalogue_menu;
 
 use super::super::construct::{allows_children, make_default_for_kind};
 use super::reparent::{PendingAction, apply_pending, find_node};
-use super::{GenNodeId, GeneratorTreeSource, TreeViewState};
+use super::{GenNodeId, GeneratorTreeSource};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_tree_panel(
     ui: &mut egui::Ui,
     source: &mut dyn GeneratorTreeSource,
-    selected_generator: &mut Option<String>,
-    selected_prim_path: &mut Option<Vec<usize>>,
-    tree_view_state: &mut TreeViewState,
-    renaming_generator: &mut Option<(String, String)>,
+    panel: &mut super::TreePanelState,
     inventory: Option<&mut LiveInventoryRecord>,
-    // Set for one frame after an in-world pick selected a node (#719): the
-    // tree grabs keyboard focus so the row renders with the same bright
-    // highlight a direct click gives it. A world-pick bypasses the tree's
-    // own click-to-focus path, so without this the picked row shows the dim
-    // *unfocused* highlight instead.
-    request_focus: bool,
     dirty: &mut bool,
-    confirms: &mut super::TreeConfirms,
     toasts: &mut crate::notify::Toasts,
     now: f64,
     // Undo-entry label channel (#865): structural ops name themselves so
@@ -53,280 +43,292 @@ pub(super) fn draw_tree_panel(
     // The editor's one-node clipboard (#1244 f422).
     clipboard: &mut Option<Generator>,
 ) {
-    ui.heading("Items");
-    ui.add_space(2.0);
+    // The tree DRAWS under a split borrow of the panel — the toolbar, the
+    // rows, the rename modal and the focus one-shot each want a different
+    // field at the same time — but a pending structural action outlives
+    // that draw and `apply_pending` needs the panel whole. So the split is
+    // a block, and the action is what the block yields.
+    //
+    // `request_focus` is consumed here rather than by the caller (#1161):
+    // it is a one-shot for *this* draw, and the panel that owns it is the
+    // one that can honour it.
+    let pending: Option<PendingAction> = {
+        let super::TreePanelState {
+            selection:
+                super::TreeSelection {
+                    root: selected_generator,
+                    path: selected_prim_path,
+                },
+            view: tree_view_state,
+            pending_focus,
+            // The rename modal and the parked confirms are `apply_pending`'s
+            // and the tab's, not this panel's — it only stages actions.
+            ..
+        } = panel;
+        let request_focus = std::mem::take(pending_focus);
 
-    let allowed_root_kinds = source.allowed_kinds_for_root();
-    let allowed_child_kinds = source.allowed_kinds_for_child();
-    // Multi-root capability drives three affordances at once: root rename,
-    // root delete, and the add-root toolbar below. A single-root source
-    // (avatar visuals) used to RENDER the add menus anyway — the user
-    // opened a 20-entry kind list (or the whole catalogue), clicked, and
-    // nothing happened because `add_root` refused (#830). Hidden now;
-    // children are added via the row context menu's "+ Add child".
-    let allow_rename = source.allow_multiple_roots();
+        ui.heading("Items");
+        ui.add_space(2.0);
 
-    if !allow_rename {
-        ui.label(
-            egui::RichText::new("Right-click a row to add child parts.")
-                .small()
-                .weak(),
-        );
-    }
+        let allowed_root_kinds = source.allowed_kinds_for_root();
+        let allowed_child_kinds = source.allowed_kinds_for_child();
+        // Multi-root capability drives three affordances at once: root rename,
+        // root delete, and the add-root toolbar below. A single-root source
+        // (avatar visuals) used to RENDER the add menus anyway — the user
+        // opened a 20-entry kind list (or the whole catalogue), clicked, and
+        // nothing happened because `add_root` refused (#830). Hidden now;
+        // children are added via the row context menu's "+ Add child".
+        let allow_rename = source.allow_multiple_roots();
 
-    ui.horizontal_wrapped(|ui| {
-        if !source.allow_multiple_roots() {
-            return;
+        if !allow_rename {
+            ui.label(
+                egui::RichText::new("Right-click a row to add child parts.")
+                    .small()
+                    .weak(),
+            );
         }
-        // At the generator cap every add-root door is disabled with the
-        // reason (#1210), the #841 treatment; `add_root` refuses anyway.
-        let roots_full = source.root_capacity_remaining() == 0;
-        let full_reason = crate::ui::room::caps::Cap::Generators.full_reason();
-        let mut add_roots = ui.add_enabled_ui(!roots_full, |ui| {
-            ui.menu_button("+ New", |ui| {
-                for kind_tag in allowed_root_kinds {
-                    if ui.button(*kind_tag).clicked() {
-                        let kind = make_default_for_kind(kind_tag);
-                        if let Some(name) =
-                            source.add_root(&kind_tag.to_lowercase(), Generator::from_kind(kind))
+
+        ui.horizontal_wrapped(|ui| {
+            if !source.allow_multiple_roots() {
+                return;
+            }
+            // At the generator cap every add-root door is disabled with the
+            // reason (#1210), the #841 treatment; `add_root` refuses anyway.
+            let roots_full = source.root_capacity_remaining() == 0;
+            let full_reason = crate::ui::room::caps::Cap::Generators.full_reason();
+            let mut add_roots = ui.add_enabled_ui(!roots_full, |ui| {
+                ui.menu_button("+ New", |ui| {
+                    for kind_tag in allowed_root_kinds {
+                        if ui.button(*kind_tag).clicked() {
+                            let kind = make_default_for_kind(kind_tag);
+                            if let Some(name) = source
+                                .add_root(&kind_tag.to_lowercase(), Generator::from_kind(kind))
+                            {
+                                *selected_generator = Some(name.clone());
+                                *selected_prim_path = Some(Vec::new());
+                                label.set(format!("add of {name}"));
+                                tree_view_state.set_one_selected(GenNodeId::root(name));
+                                *dirty = true;
+                            }
+                            ui.close();
+                        }
+                    }
+                });
+
+                if let Some(inv) = inventory.as_deref()
+                    && !inv.0.generators.is_empty()
+                {
+                    ui.menu_button("+ From Inventory", |ui| {
+                        let mut names: Vec<&String> = inv.0.generators.keys().collect();
+                        names.sort();
+                        let mut picked: Option<(String, Generator)> = None;
+                        for inv_name in names {
+                            if ui.button(inv_name).clicked()
+                                && let Some(g) = inv.0.generators.get(inv_name)
+                            {
+                                picked = Some((inv_name.clone(), g.clone()));
+                                ui.close();
+                            }
+                        }
+                        if let Some((inv_name, g)) = picked
+                            && let Some(new_name) = source.add_root(&inv_name, g)
                         {
-                            *selected_generator = Some(name.clone());
+                            *selected_generator = Some(new_name.clone());
                             *selected_prim_path = Some(Vec::new());
-                            label.set(format!("add of {name}"));
-                            tree_view_state.set_one_selected(GenNodeId::root(name));
+                            label.set(format!("add of {new_name}"));
+                            tree_view_state.set_one_selected(GenNodeId::root(new_name));
                             *dirty = true;
                         }
-                        ui.close();
+                    });
+                }
+
+                // Catalogue submenu — the client-shipped sibling of Inventory.
+                // Same shape as "+ From Inventory": click an entry to stamp a
+                // fresh copy into the tree as a new root.
+                if !crate::catalogue::ENTRIES.is_empty() {
+                    ui.menu_button("+ From Catalogue", |ui| {
+                        let mut picked: Option<(String, Generator)> = None;
+                        catalogue_menu(ui, owner_did, |slug, g| picked = Some((slug, g)));
+                        if let Some((slug, g)) = picked
+                            && let Some(new_name) = source.add_root(&slug, g)
+                        {
+                            *selected_generator = Some(new_name.clone());
+                            *selected_prim_path = Some(Vec::new());
+                            label.set(format!("add of {new_name}"));
+                            tree_view_state.set_one_selected(GenNodeId::root(new_name));
+                            *dirty = true;
+                        }
+                    });
+                }
+            });
+            if roots_full {
+                add_roots.response = add_roots.response.on_disabled_hover_text(full_reason);
+            }
+        });
+
+        ui.separator();
+
+        // Find a root (#1244 f414). Alphabetical order is a weak index once
+        // the names are auto-generated — `unique_key` yields `cuboid`,
+        // `cuboid_1`, `cuboid_2`, … — and at 256 roots the only affordance
+        // was scrolling. Only offered where there is more than one root to
+        // find, so the avatar's single-root trees are unchanged.
+        let multi_root = source.allow_multiple_roots();
+        if multi_root {
+            crate::ui::affordances::text_edit(
+                ui,
+                egui::TextEdit::singleline(filter)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("Filter assets…"),
+            )
+            .on_hover_text("Show only assets whose name contains this text");
+        }
+
+        // The tree itself. Roots are sorted by the source for stable
+        // presentation — HashMap iteration order would otherwise reshuffle
+        // every frame as the layout cache rebuilds.
+        let all_roots: Vec<&str> = source.root_names();
+        let root_names: Vec<&str> =
+            matching_roots(&all_roots, if multi_root { filter } else { "" });
+        // Authored asset names are in the live room record, which changes on
+        // every frame of a gizmo drag — so the font detector deliberately does
+        // not scan it, and the names reach it from here instead (#1262 f359).
+        // The filtered roots are what is actually on screen, which is the right
+        // bound for a per-frame scan.
+        for name in &root_names {
+            crate::ui::fonts::note_drawn_text(ui.ctx(), name);
+        }
+
+        let hidden = all_roots.len() - root_names.len();
+        if hidden > 0 {
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} of {} assets",
+                    root_names.len(),
+                    all_roots.len()
+                ))
+                .small()
+                .color(crate::ui::theme::current(ui.ctx()).text_weak),
+            );
+        }
+
+        // Pending-action channel shared into every per-row `context_menu`
+        // closure. Closures all hold `&pending`; clicks call `borrow_mut()` to
+        // stash an action. We drain it after `show_state` returns and apply
+        // with mutable source access — that ordering keeps the tree's
+        // immutable read of the source's roots (during the build closure)
+        // clean of structural mutations.
+        let pending: RefCell<Option<PendingAction>> = RefCell::new(None);
+
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                if root_names.is_empty() {
+                    ui.label(
+                        egui::RichText::new(if all_roots.is_empty() {
+                            // #1239 f81: the empty state now says what "+ New"
+                            // actually produces, because the compiler builds
+                            // only from placements and a fresh root is
+                            // invisible until one exists.
+                            "(no items — click \"+ New\" above; a new item needs \
+                         a placement before it appears in the world)"
+                        } else {
+                            "(no items match the filter)"
+                        })
+                        .small()
+                        .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                    );
+                    return;
+                }
+                let inv_for_build: Option<&LiveInventoryRecord> = inventory.as_deref();
+                let has_clipboard = clipboard.is_some();
+                // Reborrow as a shared trait-object reference for the
+                // tree-build closure: it only needs read access via
+                // `get_root`, and pending-action mutations are buffered into
+                // the `RefCell` for application after the closure returns.
+                let source_ref: &dyn GeneratorTreeSource = &*source;
+                let tree_id = ui.make_persistent_id("generators_tree_view");
+                let (_resp, actions) = TreeView::new(tree_id)
+                    .allow_drag_and_drop(true)
+                    .allow_multi_selection(false)
+                    .show_state(ui, tree_view_state, |builder| {
+                        for name in &root_names {
+                            if let Some(node) = source_ref.get_root(name) {
+                                build_tree_node(
+                                    builder,
+                                    name,
+                                    node,
+                                    Vec::new(),
+                                    true,
+                                    allowed_child_kinds,
+                                    allow_rename,
+                                    &pending,
+                                    inv_for_build,
+                                    crate::ui::room::caps::node_count(node),
+                                    owner_did,
+                                    has_clipboard,
+                                );
+                            }
+                        }
+                    });
+
+                // Grant the tree keyboard focus after an in-world pick (#719).
+                // The widget only paints the bright `selection.bg_fill` while it
+                // holds focus; an unfocused tree paints a dim `weak_bg_fill`, so
+                // a programmatic selection would otherwise look different from a
+                // direct click. Requesting focus here — inside the same egui
+                // frame the tree is built — overrides the focus-clear that the
+                // world click (on empty, non-egui space) would otherwise apply.
+                if request_focus {
+                    ui.memory_mut(|m| m.request_focus(tree_id));
+                }
+
+                // Drain a Move (drag-commit) into the pending channel. We
+                // only honour the first move event per frame and skip if a
+                // context-menu click already staged something — collisions
+                // are improbable but it keeps single-action semantics.
+                for action in actions {
+                    if let Action::Move(dnd) = action {
+                        if pending.borrow().is_some() {
+                            break;
+                        }
+                        if let Some(src) = dnd.source.into_iter().next() {
+                            *pending.borrow_mut() = Some(PendingAction::Reparent {
+                                source: src,
+                                target: dnd.target,
+                                position: dnd.position,
+                            });
+                        }
+                        break;
                     }
                 }
             });
 
-            if let Some(inv) = inventory.as_deref()
-                && !inv.0.generators.is_empty()
-            {
-                ui.menu_button("+ From Inventory", |ui| {
-                    let mut names: Vec<&String> = inv.0.generators.keys().collect();
-                    names.sort();
-                    let mut picked: Option<(String, Generator)> = None;
-                    for inv_name in names {
-                        if ui.button(inv_name).clicked()
-                            && let Some(g) = inv.0.generators.get(inv_name)
-                        {
-                            picked = Some((inv_name.clone(), g.clone()));
-                            ui.close();
-                        }
-                    }
-                    if let Some((inv_name, g)) = picked
-                        && let Some(new_name) = source.add_root(&inv_name, g)
-                    {
-                        *selected_generator = Some(new_name.clone());
-                        *selected_prim_path = Some(Vec::new());
-                        label.set(format!("add of {new_name}"));
-                        tree_view_state.set_one_selected(GenNodeId::root(new_name));
-                        *dirty = true;
-                    }
-                });
-            }
+        pending.into_inner()
+    };
 
-            // Catalogue submenu — the client-shipped sibling of Inventory.
-            // Same shape as "+ From Inventory": click an entry to stamp a
-            // fresh copy into the tree as a new root.
-            if !crate::catalogue::ENTRIES.is_empty() {
-                ui.menu_button("+ From Catalogue", |ui| {
-                    let mut picked: Option<(String, Generator)> = None;
-                    catalogue_menu(ui, owner_did, |slug, g| picked = Some((slug, g)));
-                    if let Some((slug, g)) = picked
-                        && let Some(new_name) = source.add_root(&slug, g)
-                    {
-                        *selected_generator = Some(new_name.clone());
-                        *selected_prim_path = Some(Vec::new());
-                        label.set(format!("add of {new_name}"));
-                        tree_view_state.set_one_selected(GenNodeId::root(new_name));
-                        *dirty = true;
-                    }
-                });
-            }
-        });
-        if roots_full {
-            add_roots.response = add_roots.response.on_disabled_hover_text(full_reason);
-        }
-    });
-
-    ui.separator();
-
-    // Find a root (#1244 f414). Alphabetical order is a weak index once
-    // the names are auto-generated — `unique_key` yields `cuboid`,
-    // `cuboid_1`, `cuboid_2`, … — and at 256 roots the only affordance
-    // was scrolling. Only offered where there is more than one root to
-    // find, so the avatar's single-root trees are unchanged.
-    let multi_root = source.allow_multiple_roots();
-    if multi_root {
-        crate::ui::affordances::text_edit(
-            ui,
-            egui::TextEdit::singleline(filter)
-                .desired_width(f32::INFINITY)
-                .hint_text("Filter assets…"),
-        )
-        .on_hover_text("Show only assets whose name contains this text");
-    }
-
-    // The tree itself. Roots are sorted by the source for stable
-    // presentation — HashMap iteration order would otherwise reshuffle
-    // every frame as the layout cache rebuilds.
-    let all_roots: Vec<&str> = source.root_names();
-    let root_names: Vec<&str> = matching_roots(&all_roots, if multi_root { filter } else { "" });
-    // Authored asset names are in the live room record, which changes on
-    // every frame of a gizmo drag — so the font detector deliberately does
-    // not scan it, and the names reach it from here instead (#1262 f359).
-    // The filtered roots are what is actually on screen, which is the right
-    // bound for a per-frame scan.
-    for name in &root_names {
-        crate::ui::fonts::note_drawn_text(ui.ctx(), name);
-    }
-
-    let hidden = all_roots.len() - root_names.len();
-    if hidden > 0 {
-        ui.label(
-            egui::RichText::new(format!(
-                "{} of {} assets",
-                root_names.len(),
-                all_roots.len()
-            ))
-            .small()
-            .color(crate::ui::theme::current(ui.ctx()).text_weak),
-        );
-    }
-
-    // Pending-action channel shared into every per-row `context_menu`
-    // closure. Closures all hold `&pending`; clicks call `borrow_mut()` to
-    // stash an action. We drain it after `show_state` returns and apply
-    // with mutable source access — that ordering keeps the tree's
-    // immutable read of the source's roots (during the build closure)
-    // clean of structural mutations.
-    let pending: RefCell<Option<PendingAction>> = RefCell::new(None);
-
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            if root_names.is_empty() {
-                ui.label(
-                    egui::RichText::new(if all_roots.is_empty() {
-                        // #1239 f81: the empty state now says what "+ New"
-                        // actually produces, because the compiler builds
-                        // only from placements and a fresh root is
-                        // invisible until one exists.
-                        "(no items — click \"+ New\" above; a new item needs \
-                         a placement before it appears in the world)"
-                    } else {
-                        "(no items match the filter)"
-                    })
-                    .small()
-                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
-                );
-                return;
-            }
-            let inv_for_build: Option<&LiveInventoryRecord> = inventory.as_deref();
-            let has_clipboard = clipboard.is_some();
-            // Reborrow as a shared trait-object reference for the
-            // tree-build closure: it only needs read access via
-            // `get_root`, and pending-action mutations are buffered into
-            // the `RefCell` for application after the closure returns.
-            let source_ref: &dyn GeneratorTreeSource = &*source;
-            let tree_id = ui.make_persistent_id("generators_tree_view");
-            let (_resp, actions) = TreeView::new(tree_id)
-                .allow_drag_and_drop(true)
-                .allow_multi_selection(false)
-                .show_state(ui, tree_view_state, |builder| {
-                    for name in &root_names {
-                        if let Some(node) = source_ref.get_root(name) {
-                            build_tree_node(
-                                builder,
-                                name,
-                                node,
-                                Vec::new(),
-                                true,
-                                allowed_child_kinds,
-                                allow_rename,
-                                &pending,
-                                inv_for_build,
-                                crate::ui::room::caps::node_count(node),
-                                owner_did,
-                                has_clipboard,
-                            );
-                        }
-                    }
-                });
-
-            // Grant the tree keyboard focus after an in-world pick (#719).
-            // The widget only paints the bright `selection.bg_fill` while it
-            // holds focus; an unfocused tree paints a dim `weak_bg_fill`, so
-            // a programmatic selection would otherwise look different from a
-            // direct click. Requesting focus here — inside the same egui
-            // frame the tree is built — overrides the focus-clear that the
-            // world click (on empty, non-egui space) would otherwise apply.
-            if request_focus {
-                ui.memory_mut(|m| m.request_focus(tree_id));
-            }
-
-            // Drain a Move (drag-commit) into the pending channel. We
-            // only honour the first move event per frame and skip if a
-            // context-menu click already staged something — collisions
-            // are improbable but it keeps single-action semantics.
-            for action in actions {
-                if let Action::Move(dnd) = action {
-                    if pending.borrow().is_some() {
-                        break;
-                    }
-                    if let Some(src) = dnd.source.into_iter().next() {
-                        *pending.borrow_mut() = Some(PendingAction::Reparent {
-                            source: src,
-                            target: dnd.target,
-                            position: dnd.position,
-                        });
-                    }
-                    break;
-                }
-            }
-        });
-
-    if let Some(action) = pending.into_inner() {
+    if let Some(action) = pending {
         apply_pending(
-            action,
-            source,
-            selected_generator,
-            selected_prim_path,
-            tree_view_state,
-            renaming_generator,
-            inventory,
-            dirty,
-            confirms,
-            toasts,
-            now,
-            label,
-            clipboard,
+            action, source, panel, inventory, dirty, toasts, now, label, clipboard,
         );
     }
 
-    // Sync the tree's selection back into the gizmo's source-of-truth so
-    // `editor_gizmo` can read `(selected_generator, selected_prim_path)` to
-    // attach the gizmo. Treat any selected id that no longer resolves to a
-    // live node as "no selection" — happens after a delete / kind-change /
+    // Sync the tree widget's selection back into the panel's own, which is
+    // what `editor_gizmo` reads (room) and what the avatar editor folds
+    // into its aim. Treat any selected id that no longer resolves to a live
+    // node as "no selection" — happens after a delete / kind-change /
     // rename leaves the tree state holding a stale path.
-    let valid: Option<GenNodeId> = tree_view_state
+    let valid: Option<GenNodeId> = panel
+        .view
         .selected()
         .first()
         .filter(|id| find_node(&*source, id).is_some())
         .cloned();
-    sync_selection_fields(
-        valid,
-        selected_generator,
-        selected_prim_path,
-        tree_view_state,
-    );
+    sync_selection_fields(valid, panel);
 }
 
-/// Mirror the tree widget's (validated) selection into the editor-state
-/// fields the gizmo layer reads. Deliberately has NO access to the shared
+/// Mirror the tree widget's (validated) selection into the panel's own
+/// selection, which is what the gizmo layer reads. Deliberately has NO access to the shared
 /// dirty flag (#828): selecting a row edits nothing, but the flag arms
 /// the debounce, whose flush calls `set_changed()` on the live record —
 /// a FULL recompile (room) / visuals despawn-respawn (avatar) plus a
@@ -334,30 +336,25 @@ pub(super) fn draw_tree_panel(
 /// hitch-and-network storm. Every real mutation (widgets, structural
 /// ops, gizmo commits) sets dirty through its own path; keeping `dirty`
 /// out of this signature makes the regression structurally impossible.
-fn sync_selection_fields(
-    valid: Option<GenNodeId>,
-    selected_generator: &mut Option<String>,
-    selected_prim_path: &mut Option<Vec<usize>>,
-    tree_view_state: &mut TreeViewState,
-) {
+fn sync_selection_fields(valid: Option<GenNodeId>, panel: &mut super::TreePanelState) {
+    let super::TreePanelState {
+        selection, view, ..
+    } = panel;
     match valid {
         Some(id) => {
-            if selected_generator.as_deref() != Some(id.root.as_str()) {
-                *selected_generator = Some(id.root.clone());
+            if selection.root.as_deref() != Some(id.root.as_str()) {
+                selection.root = Some(id.root.clone());
             }
-            if selected_prim_path.as_deref() != Some(id.path.as_slice()) {
-                *selected_prim_path = Some(id.path.clone());
+            if selection.path.as_deref() != Some(id.path.as_slice()) {
+                selection.path = Some(id.path.clone());
             }
         }
         None => {
-            if selected_generator.is_some() {
-                *selected_generator = None;
+            if selection.root.is_some() || selection.path.is_some() {
+                selection.clear();
             }
-            if selected_prim_path.is_some() {
-                *selected_prim_path = None;
-            }
-            if !tree_view_state.selected().is_empty() {
-                tree_view_state.set_selected(Vec::new());
+            if !view.selected().is_empty() {
+                view.set_selected(Vec::new());
             }
         }
     }
@@ -728,6 +725,7 @@ pub(super) fn node_salt(id: &GenNodeId) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::super::TreeViewState;
     use super::*;
 
     /// A container node with `children` children, each with `grandchildren`
@@ -893,32 +891,20 @@ mod tests {
     /// debounce that recompiles + broadcasts the record.
     #[test]
     fn selection_sync_updates_fields_and_clears_stale_state() {
-        let mut selected_generator: Option<String> = None;
-        let mut selected_prim_path: Option<Vec<usize>> = None;
-        let mut tree_state = TreeViewState::default();
+        let mut panel = super::super::TreePanelState::default();
 
         // A valid selection lands in both fields.
         let id = GenNodeId::child("oak".to_string(), vec![1, 0]);
-        tree_state.set_selected(vec![id.clone()]);
-        sync_selection_fields(
-            Some(id),
-            &mut selected_generator,
-            &mut selected_prim_path,
-            &mut tree_state,
-        );
-        assert_eq!(selected_generator.as_deref(), Some("oak"));
-        assert_eq!(selected_prim_path, Some(vec![1, 0]));
+        panel.view.set_selected(vec![id.clone()]);
+        sync_selection_fields(Some(id), &mut panel);
+        assert_eq!(panel.selection.root.as_deref(), Some("oak"));
+        assert_eq!(panel.selection.path, Some(vec![1, 0]));
 
         // A stale/no selection clears the fields AND the widget state.
-        sync_selection_fields(
-            None,
-            &mut selected_generator,
-            &mut selected_prim_path,
-            &mut tree_state,
-        );
-        assert_eq!(selected_generator, None);
-        assert_eq!(selected_prim_path, None);
-        assert!(tree_state.selected().is_empty());
+        sync_selection_fields(None, &mut panel);
+        assert_eq!(panel.selection.root, None);
+        assert_eq!(panel.selection.path, None);
+        assert!(panel.view.selected().is_empty());
     }
 
     /// #1244 f414. Sequence: a name typed three sessions ago among 256
