@@ -80,6 +80,7 @@ pub mod config;
 pub mod diagnostics;
 pub mod editor_gizmo;
 pub mod interaction;
+pub mod item_preview;
 pub mod loading;
 pub mod logout;
 pub mod network;
@@ -297,6 +298,7 @@ pub fn run() {
         .add_plugins(attract::AttractPlugin)
         .add_plugins(network::NetworkPlugin)
         .add_plugins(avatar::AvatarPlugin)
+        .add_plugins(item_preview::ItemPreviewPlugin)
         .add_plugins(social::SocialPlugin)
         .add_plugins(logout::LogoutPlugin)
         .add_plugins(editor_gizmo::EditorGizmoPlugin)

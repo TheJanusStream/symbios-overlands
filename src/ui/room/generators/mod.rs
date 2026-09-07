@@ -11,10 +11,17 @@
 //! Delete`) live in the per-row right-click context menu. The context-menu
 //! closures store a `reparent::PendingAction` into a shared [`std::cell::RefCell`];
 //! once the tree-view widget finishes rendering, the action is drained and
-//! applied with `&mut record` access. Root deletes additionally sweep
-//! dangling `Placement` references and `traits` mappings keyed on the
-//! deleted generator name, so dropping a generator never leaves orphan
-//! references that the world compiler would log as "unknown generator_ref".
+//! applied with `&mut record` access.
+//!
+//! A room root is named from two side-tables — `RoomRecord::placements`
+//! and `RoomRecord::traits` — so both structural operations on a root
+//! carry those references with them, and both live behind
+//! [`GeneratorTreeSource`] rather than in whichever panel offers the
+//! affordance: a delete sweeps them ([`sweep_root_refs`]) and a rename
+//! retargets them ([`retarget_root_refs`]). Neither ever leaves an orphan
+//! reference that the world compiler would log as "unknown generator_ref"
+//! — or, in the rename's case, a `traits` entry stranded under a key no
+//! generator answers to any more.
 //!
 //! ## Sub-module map
 //!
@@ -135,8 +142,9 @@ pub(crate) struct TreePanelState {
 ///
 /// The trait deliberately exposes only the structural operations the
 /// editor needs: root listing, root mutation (with implementation-specific
-/// reference sweeps hidden behind [`Self::remove_root`]), and the
-/// allowed-kinds vocabulary at root vs. child positions. Inventory access
+/// reference sweeps hidden behind [`Self::remove_root`] and
+/// [`Self::rename_root`]), and the allowed-kinds vocabulary at root vs.
+/// child positions. Inventory access
 /// stays *outside* the trait because the borrow patterns it needs (an
 /// independent `&mut LiveInventoryRecord` held alongside the source's own
 /// `&mut`) don't fit cleanly under partial-borrow rules.
@@ -158,6 +166,19 @@ pub(crate) trait GeneratorTreeSource {
     /// references (Placements, traits, ...). Returns the extracted
     /// generator if it existed.
     fn remove_root(&mut self, name: &str) -> Option<Generator>;
+    /// Rename a top-level root from `from` to `to`, retargeting the same
+    /// implementation-specific references [`Self::remove_root`] sweeps.
+    /// Returns `false` — and changes nothing — when the source has no
+    /// root called `from`, when `to` is already taken, or when the source
+    /// has no rename at all.
+    ///
+    /// A rename and a delete are the two halves of one reference-integrity
+    /// rule, so they live together in the implementation. Only multi-root
+    /// sources offer the affordance (the tree's rename modal is gated on
+    /// [`Self::allow_multiple_roots`]), which is why the default refuses.
+    fn rename_root(&mut self, _from: &str, _to: &str) -> bool {
+        false
+    }
     /// Allowed kind tags at the root of the tree.
     fn allowed_kinds_for_root(&self) -> &'static [&'static str];
     /// Allowed kind tags at child positions inside the tree.
@@ -239,7 +260,8 @@ pub(crate) use reparent::request_root_delete;
 /// `GeneratorTreeSource` adapter for the room editor: directly mutates
 /// `RoomRecord::generators` and runs [`sweep_root_refs`] on root removal
 /// so dangling Placement / traits entries don't survive a delete or
-/// drag-out-to-promote.
+/// drag-out-to-promote, and [`retarget_root_refs`] on a rename so the same
+/// references follow the key instead.
 pub(crate) struct RoomTreeSource<'a> {
     pub(crate) record: &'a mut RoomRecord,
 }
@@ -297,6 +319,21 @@ impl GeneratorTreeSource for RoomTreeSource<'_> {
         }
         removed
     }
+    fn rename_root(&mut self, from: &str, to: &str) -> bool {
+        // The other half of [`sweep_root_refs`]'s rule, and it lives here
+        // for the same reason: a room root is referenced by name from two
+        // side-tables, so moving the key without moving the references
+        // orphans them. A delete drops them; a rename carries them.
+        if from == to || self.record.generators.contains_key(to) {
+            return false;
+        }
+        let Some(generator) = self.record.generators.remove(from) else {
+            return false;
+        };
+        self.record.generators.insert(to.to_string(), generator);
+        retarget_root_refs(self.record, from, to);
+        true
+    }
     fn allowed_kinds_for_root(&self) -> &'static [&'static str] {
         ROOM_ROOT_KINDS
     }
@@ -304,17 +341,13 @@ impl GeneratorTreeSource for RoomTreeSource<'_> {
         ROOM_CHILD_KINDS
     }
     fn placement_ref_count(&self, root: &str) -> usize {
-        // Mirrors [`sweep_root_refs`]'s match exactly — this count is the
-        // "also removes N placements" the delete confirm promises.
+        // Reads the same [`placement_root`] as [`sweep_root_refs`], so it
+        // cannot drift from it — this count is the "also removes N
+        // placements" the delete confirm promises.
         self.record
             .placements
             .iter()
-            .filter(|p| match p {
-                Placement::Absolute { generator_ref, .. }
-                | Placement::Scatter { generator_ref, .. }
-                | Placement::Grid { generator_ref, .. } => generator_ref == root,
-                Placement::Unknown => false,
-            })
+            .filter(|p| placement_root(p) == Some(root))
             .count()
     }
 }
@@ -594,19 +627,65 @@ pub(crate) fn draw_generators_tab(
     }
 }
 
-/// Remove every `Placement` whose `generator_ref` matches the deleted root
-/// and drop the matching `traits` entry. Keeps `Placement::Unknown` (the
-/// forward-compat catch-all) since we can't see its `generator_ref` field.
-/// Mirrors the integrity-preservation discipline of the rename modal's
-/// commit path.
-fn sweep_root_refs(record: &mut RoomRecord, deleted_root: &str) {
-    record.placements.retain(|p| match p {
+/// The root key a `Placement` instances, or `None` for the forward-compat
+/// `Unknown` catch-all whose `generator_ref` we cannot see. Every
+/// reference-integrity walk over `RoomRecord::placements` goes through
+/// this and [`placement_root_mut`] so that "which placements point at this
+/// root" is answered in one place: [`sweep_root_refs`] drops them,
+/// [`retarget_root_refs`] moves them, and
+/// [`GeneratorTreeSource::placement_ref_count`] counts them.
+fn placement_root(placement: &Placement) -> Option<&str> {
+    match placement {
         Placement::Absolute { generator_ref, .. }
         | Placement::Scatter { generator_ref, .. }
-        | Placement::Grid { generator_ref, .. } => generator_ref != deleted_root,
-        Placement::Unknown => true,
-    });
+        | Placement::Grid { generator_ref, .. } => Some(generator_ref),
+        Placement::Unknown => None,
+    }
+}
+
+/// [`placement_root`] for the walks that rewrite the key.
+fn placement_root_mut(placement: &mut Placement) -> Option<&mut String> {
+    match placement {
+        Placement::Absolute { generator_ref, .. }
+        | Placement::Scatter { generator_ref, .. }
+        | Placement::Grid { generator_ref, .. } => Some(generator_ref),
+        Placement::Unknown => None,
+    }
+}
+
+/// Remove every `Placement` that instances the deleted root and drop the
+/// matching `traits` entry. Forward-compat `Placement::Unknown` rows
+/// survive — see [`placement_root`].
+///
+/// This is the DELETE half of the room's root reference-integrity rule;
+/// [`retarget_root_refs`] is the rename half. Both are reached through
+/// [`RoomTreeSource`]'s [`GeneratorTreeSource`] impl, never open-coded by
+/// a caller.
+fn sweep_root_refs(record: &mut RoomRecord, deleted_root: &str) {
+    record
+        .placements
+        .retain(|p| placement_root(p) != Some(deleted_root));
     record.traits.remove(deleted_root);
+}
+
+/// Point every `Placement` and the `traits` entry that named `from` at
+/// `to`. The RENAME half of the rule [`sweep_root_refs`] documents.
+///
+/// A placement whose `generator_ref` the world compiler cannot resolve
+/// spawns nothing, and `RoomRecord::traits` is keyed on generator name, so
+/// a rename that skips this step silently unbuilds the renamed generator
+/// and strands its ECS trait bindings (`collider_heightfield` and
+/// friends). Callers come through
+/// [`GeneratorTreeSource::rename_root`], which has already moved the key.
+fn retarget_root_refs(record: &mut RoomRecord, from: &str, to: &str) {
+    for generator_ref in record.placements.iter_mut().filter_map(placement_root_mut) {
+        if generator_ref == from {
+            *generator_ref = to.to_string();
+        }
+    }
+    if let Some(traits) = record.traits.remove(from) {
+        record.traits.insert(to.to_string(), traits);
+    }
 }
 
 #[cfg(test)]

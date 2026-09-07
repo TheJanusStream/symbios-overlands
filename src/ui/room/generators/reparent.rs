@@ -250,9 +250,11 @@ pub(super) fn apply_pending(
             }
         }
         PendingAction::Rename(root_name) => {
-            // The actual key migration + Placement / traits rewrite lives
-            // in the rename modal in `super::room_admin_ui`; we just open
-            // the modal with the current name pre-filled.
+            // Only the modal is opened here, with the current name
+            // pre-filled. The key migration and the Placement / traits
+            // retarget belong to the source
+            // ([`GeneratorTreeSource::rename_root`]), which is where the
+            // room editor's modal sends the name the user settles on.
             panel.renaming = Some((root_name.clone(), root_name));
         }
         PendingAction::SaveToInventory(id) => {
@@ -858,7 +860,9 @@ pub(super) fn find_node_mut<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::super::{RoomTreeSource, TreePanelState, TreeSelection, sweep_root_refs};
+    use super::super::{
+        RoomTreeSource, TreePanelState, TreeSelection, placement_root, sweep_root_refs,
+    };
     use super::*;
     use crate::pds::{
         Environment, GeneratorKind, Placement, RoomRecord, ScatterBounds, TransformData,
@@ -1142,6 +1146,115 @@ mod tests {
         }
         assert!(!record.traits.contains_key("victim"));
         assert!(record.traits.contains_key("survivor"));
+    }
+
+    /// #1161. `rename_root` is the other half of `sweep_root_refs`'s rule,
+    /// and until it lived beside it the room's rename modal open-coded the
+    /// walk inside a window draw with nothing testing it. A renamed root
+    /// carries every placement that instanced it AND its `traits` entry:
+    /// the world compiler builds only from `placements`, and `traits` is
+    /// keyed on generator name, so a rename that drops either one leaves a
+    /// generator that is present in the tree and absent from the world.
+    #[test]
+    fn a_renamed_root_carries_its_placements_and_its_traits_entry() {
+        let mut record = empty_record();
+        record.generators.insert("oak".to_string(), cuboid_root());
+        record
+            .generators
+            .insert("bystander".to_string(), cuboid_root());
+        record.placements.push(absolute_pointing_at("oak"));
+        record.placements.push(scatter_pointing_at("oak"));
+        record.placements.push(grid_pointing_at("bystander"));
+        record.placements.push(Placement::Unknown);
+        record
+            .traits
+            .insert("oak".to_string(), vec!["collider_heightfield".to_string()]);
+        record
+            .traits
+            .insert("bystander".to_string(), vec!["sensor".to_string()]);
+
+        assert!(RoomTreeSource::new(&mut record).rename_root("oak", "elm"));
+
+        assert!(record.generators.contains_key("elm"), "the key moved");
+        assert!(!record.generators.contains_key("oak"));
+        assert_eq!(
+            record.placements.len(),
+            4,
+            "a rename retargets placements, it does not drop them"
+        );
+        let refs: Vec<Option<&str>> = record.placements.iter().map(placement_root).collect();
+        assert_eq!(
+            refs,
+            vec![Some("elm"), Some("elm"), Some("bystander"), None],
+            "both oak placements follow the key; the bystander and the \
+             forward-compat Unknown row are untouched"
+        );
+        assert_eq!(
+            record.traits.get("elm").map(Vec::as_slice),
+            Some(&["collider_heightfield".to_string()][..]),
+            "the traits entry follows the key"
+        );
+        assert!(!record.traits.contains_key("oak"));
+        assert_eq!(
+            record.traits.get("bystander").map(Vec::as_slice),
+            Some(&["sensor".to_string()][..])
+        );
+    }
+
+    /// #1161. The three ways `rename_root` must refuse, all of which the
+    /// modal's own taken-name check used to be the only guard against.
+    /// Each has to leave the record exactly as it found it -- a half-
+    /// applied rename is the dangling-reference state the rule exists to
+    /// prevent.
+    #[test]
+    fn rename_root_refuses_a_taken_name_an_unknown_root_and_a_no_op() {
+        let mut record = empty_record();
+        record.generators.insert("oak".to_string(), cuboid_root());
+        record.generators.insert("elm".to_string(), cuboid_root());
+        record.placements.push(absolute_pointing_at("oak"));
+        record
+            .traits
+            .insert("oak".to_string(), vec!["sensor".to_string()]);
+
+        assert!(
+            !RoomTreeSource::new(&mut record).rename_root("oak", "elm"),
+            "elm is taken"
+        );
+        assert!(
+            !RoomTreeSource::new(&mut record).rename_root("ash", "birch"),
+            "ash is not a root"
+        );
+        assert!(
+            !RoomTreeSource::new(&mut record).rename_root("oak", "oak"),
+            "renaming to the same name is not a rename"
+        );
+
+        assert_eq!(record.generators.len(), 2);
+        assert!(record.generators.contains_key("oak"));
+        assert!(record.generators.contains_key("elm"));
+        assert_eq!(record.placements.len(), 1);
+        assert_eq!(placement_root(&record.placements[0]), Some("oak"));
+        assert!(record.traits.contains_key("oak"));
+    }
+
+    /// #1161. Every single-root source answers `allow_multiple_roots() ==
+    /// false`, which is what gates the rename affordance in the UI -- so
+    /// the trait's default body refuses, and neither avatar source has to
+    /// carry a rename it can never be asked for.
+    #[test]
+    fn a_single_root_source_has_no_rename() {
+        let mut visuals = cuboid_root();
+        let mut source = super::super::AvatarVisualsTreeSource::new(&mut visuals);
+        assert!(!source.allow_multiple_roots());
+        assert!(!source.rename_root(
+            super::super::AvatarVisualsTreeSource::ROOT_NAME,
+            "something-else"
+        ));
+
+        let mut item = cuboid_root();
+        let mut source = super::super::AttachmentTreeSource::new("3jzfcijpj2z2a", &mut item);
+        assert!(!source.allow_multiple_roots());
+        assert!(!source.rename_root("3jzfcijpj2z2a", "other"));
     }
 
     /// #926: a drag changes the hierarchy, not the appearance. Moving a

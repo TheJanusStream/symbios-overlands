@@ -60,7 +60,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
-use crate::pds::{self, Placement, RoomRecord};
+use crate::pds::{self, RoomRecord};
 use crate::state::{
     CurrentRoomDid, LiveInventoryRecord, LiveRoomRecord, LocalPlayer, PublishFeedback,
     PublishStatus, RoomRecordRecovery, StoredRoomRecord,
@@ -69,6 +69,7 @@ use crate::ui::avatar::AvatarEditorState;
 use crate::ui::editable::{
     RecordAction, SeedAction, pin_axis_row, publish_status_line, save_load_reset_row, seed_row,
 };
+use crate::ui::room::generators::GeneratorTreeSource;
 
 use publish::spawn_reset_task;
 pub(crate) use publish::spawn_room_publish_task;
@@ -814,35 +815,15 @@ pub fn room_admin_ui(
                     tree.renaming = None;
                 }
                 crate::ui::confirm::RenameOutcome::Renamed(applied) => {
-                    if applied != old_name
-                        && let Some(g) = record_mut.generators.remove(&old_name)
+                    // The record half of the rename — moving the key and
+                    // carrying every Placement and traits entry that named
+                    // it — belongs to the tree source, beside the delete
+                    // that sweeps those same references
+                    // (`generators::retarget_root_refs`). What stays here
+                    // is the editor's own half: where the tree now points,
+                    // and what the undo entry is called.
+                    if generators::RoomTreeSource::new(record_mut).rename_root(&old_name, &applied)
                     {
-                        record_mut.generators.insert(applied.clone(), g);
-                        // Rewrite every Placement that referenced the old key
-                        // so the world compiler can still resolve its
-                        // generator after the rename. Unknown placements
-                        // (forward-compat variants) stay untouched because we
-                        // can't see their generator_ref field.
-                        for p in record_mut.placements.iter_mut() {
-                            match p {
-                                Placement::Absolute { generator_ref, .. }
-                                | Placement::Scatter { generator_ref, .. }
-                                | Placement::Grid { generator_ref, .. } => {
-                                    if generator_ref == &old_name {
-                                        *generator_ref = applied.clone();
-                                    }
-                                }
-                                Placement::Unknown => {}
-                            }
-                        }
-                        // Migrate the traits mapping too — `RoomRecord::traits`
-                        // is keyed on generator name, so a rename without this
-                        // step orphans ECS trait bindings like
-                        // `collider_heightfield` and leaves the renamed
-                        // generator with no collision.
-                        if let Some(traits) = record_mut.traits.remove(&old_name) {
-                            record_mut.traits.insert(applied.clone(), traits);
-                        }
                         tree.selection.root = Some(applied.clone());
                         undo_labels.set_room(format!("rename {old_name} to {applied}"));
                         // Tree-view ids are keyed on `(root, path)`, so the

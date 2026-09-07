@@ -72,6 +72,16 @@ pub struct CatalogueBrowser {
     selected: Option<String>,
 }
 
+impl CatalogueBrowser {
+    /// The entry the detail panel is showing, if any (#1288). Read by
+    /// [`crate::item_preview`] to decide what to put on its stage — the
+    /// preview derives its subject from this rather than being pushed one
+    /// per frame, so there is no change tick for a panel draw to dirty.
+    pub fn selected_slug(&self) -> Option<&str> {
+        self.selected.as_deref()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Pure grouping / filtering (unit-tested without egui)
 // ---------------------------------------------------------------------------
@@ -400,6 +410,11 @@ pub(crate) fn catalogue_ui(
     // Per-frame cache (#639): the node tree is a pure function of (mode,
     // search) over the `const ENTRIES`; rebuild only when those keys change.
     mut node_cache: Local<NodeCache>,
+    // The selected entry's live picture (#1288). `Option` because the
+    // resource is inserted by `item_preview`'s Startup system, so a test
+    // harness that runs this system without that plugin simply draws the
+    // placeholder square.
+    preview: Option<Res<crate::item_preview::ItemPreview>>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -588,6 +603,7 @@ pub(crate) fn catalogue_ui(
                                 detail_panel(
                                     ui,
                                     browser.selected.as_deref(),
+                                    preview.as_deref(),
                                     live_inventory.as_mut(),
                                     live_avatar.as_mut(),
                                     session.as_deref(),
@@ -691,9 +707,50 @@ fn render_nodes(builder: &mut egui_ltreeview::TreeViewBuilder<'_, String>, nodes
 }
 
 #[allow(clippy::too_many_arguments)]
+/// The item's picture (#1288): the live off-screen render of whatever
+/// [`crate::item_preview`] currently has on its stage.
+///
+/// Drawn only when the preview says it is SHOWING this entry — which it
+/// does not say on the frame the entry is picked, because the camera has
+/// not been reframed onto the new geometry yet. Drawing it a frame early
+/// would put the previous item's picture, or the new one seen from the
+/// previous one's distance, under the right item's name. The panel holds
+/// the space with a plain tile instead, so nothing below it jumps.
+fn draw_preview(ui: &mut egui::Ui, preview: Option<&crate::item_preview::ItemPreview>, slug: &str) {
+    let side = 180.0;
+    let showing = preview.filter(|p| {
+        matches!(
+            p.showing(),
+            Some(crate::item_preview::PreviewSubject::Catalogue(shown)) if shown == slug
+        )
+    });
+    ui.add_space(4.0);
+    match showing {
+        Some(preview) => {
+            ui.add(egui::Image::from_texture((
+                preview.egui_texture,
+                egui::vec2(side, side),
+            )));
+        }
+        None => {
+            // Same square either way so the panel does not reflow between
+            // the frame a selection lands and the frame its picture does —
+            // the reason `draw_avatar_icon`'s miss arm allocates too.
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
+            if ui.is_rect_visible(rect) {
+                let theme = crate::ui::theme::current(ui.ctx());
+                ui.painter().rect_filled(rect, 4.0, theme.chart_fill);
+            }
+        }
+    }
+    ui.add_space(4.0);
+}
+
+#[allow(clippy::too_many_arguments)]
 fn detail_panel(
     ui: &mut egui::Ui,
     selected: Option<&str>,
+    preview: Option<&crate::item_preview::ItemPreview>,
     live_inventory: Option<&mut ResMut<crate::state::LiveInventoryRecord>>,
     live_avatar: Option<&mut ResMut<crate::state::LiveAvatarRecord>>,
     session: Option<&bevy_symbios_multiuser::auth::AtprotoSession>,
@@ -712,6 +769,7 @@ fn detail_panel(
     };
     let slug = entry.slug();
 
+    draw_preview(ui, preview, slug);
     ui.heading(entry.name());
     ui.add(egui::Label::new(entry.description()).wrap());
     ui.add_space(4.0);
