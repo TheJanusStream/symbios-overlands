@@ -205,12 +205,18 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         // The sibling crate's frame order (Build → Animate → Apply), its
         // pose-apply system and, since #1171, the per-body motion driver
-        // itself. Its `AnimatorPlugin` is still deliberately absent — that is
-        // the single-subject viewer resource plus an egui panel, and a room
-        // needs a driver per body rather than one for all of them. There is
-        // no clip library to own either (#1067): every motion source is the
-        // engine's procedural layer, so nothing is fetched, embedded or
-        // indexed before a body can move.
+        // itself. Its `AnimatorPlugin` is still deliberately absent, though
+        // the reason changed under #1309: it is no longer a second driver —
+        // at 0.6.0 it steers the same `AvatarDriver` this file does — but a
+        // control SURFACE, one set of switches and an egui panel deciding
+        // what every body it owns is doing. That is a viewer's shape. Here
+        // each body is told what to do by its own chassis, which is the whole
+        // of what `fill_rigged_drive` says. The two cannot collide in any
+        // case: the window only steers bodies with no `Drive`, and every body
+        // this file installs carries one. There is no clip library to own
+        // either (#1067): every motion source is the engine's procedural
+        // layer, so nothing is fetched, embedded or indexed before a body can
+        // move.
         app.add_plugins(bevy_symbios_avatar::AvatarPlugin)
             .add_systems(
                 Update,
