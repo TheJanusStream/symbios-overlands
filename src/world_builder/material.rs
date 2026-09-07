@@ -5,12 +5,15 @@
 //! `patch_procedural_material_textures` system); on **wasm** through the
 //! pooled gen-worker via [`super::surface_bake`] (#807), because Bevy's task
 //! pools collapse onto the main thread there and every bake would stall a
-//! frame. The material itself is built by [`surface_material_and_key`] on
-//! both targets so appearance can never fork per platform.
+//! frame. The material itself comes from
+//! [`bevy_symbios_texture::MaterialSettings::standard_material`] on both
+//! targets, so the dispatch forks per platform and the appearance cannot.
+//! (#1170 finding 39: that helper used to be a hand-kept copy here, and the
+//! parity test guarding it stood up a World on every run.)
 
 use bevy::math::Affine2;
 use bevy::prelude::*;
-use bevy_symbios_texture::{MaterialSettings, TextureCache, TextureCacheKey, TextureConfig};
+use bevy_symbios_texture::{TextureCache, apply_generated_handles};
 
 use crate::pds::{Environment, SovereignMaterialSettings, SovereignTextureConfig, WaterSurface};
 use crate::terrain::WaterVolume;
@@ -233,11 +236,14 @@ pub fn build_procedural_material(
     // config re-bakes nothing on a rebuild.
     let size = crate::config::textures::SURFACE;
 
-    let (mut material, cache_key) = surface_material_and_key(&native, size);
+    let mut material = native.standard_material();
+    let cache_key = native.cache_key(size, size);
     // #957: UV offset / rotation live overlands-side only — the upstream
     // `MaterialSettings` has no such fields — so they're applied over the
-    // parity-locked mirror rather than inside it. With both at their
-    // defaults this reproduces the mirror's own `from_scale` exactly.
+    // upstream material rather than inside it. `standard_material` sets a
+    // uniform `uv_scale` transform and documents that a caller with its own
+    // convention overwrites this one field; with offset and rotation at
+    // their defaults this reproduces that `from_scale` exactly.
     material.uv_transform = sovereign_uv_transform(settings);
 
     // Cache hit: write handles into the material before we hand it to Bevy.
@@ -247,10 +253,7 @@ pub fn build_procedural_material(
     if let Some(key) = cache_key.as_ref()
         && let Some(handles) = texture_cache.get(key, images)
     {
-        material.base_color_texture = Some(handles.albedo.clone());
-        material.normal_map_texture = Some(handles.normal.clone());
-        material.metallic_roughness_texture = Some(handles.roughness.clone());
-        bevy_symbios_texture::apply_emissive_map(&mut material, handles.emissive.clone());
+        apply_generated_handles(&mut material, &handles);
         bump_texture_cache_counter(commands, true);
         return std_materials.add(material);
     }
@@ -329,58 +332,15 @@ pub(crate) fn sovereign_uv_transform(settings: &SovereignMaterialSettings) -> Af
     )
 }
 
-/// Build the [`StandardMaterial`] a [`MaterialSettings`] describes, plus its
-/// [`TextureCacheKey`] (`None` when no procedural texture is selected).
-///
-/// Field-for-field mirror of the material construction inside
-/// [`bevy_symbios_texture::build_procedural_material_async`] — kept local so
-/// the wasm path can fork *dispatch* without forking material *appearance*.
-/// The parity test below compares this against the upstream builder every
-/// native test run, so upstream drift breaks loudly at upgrade instead of
-/// rendering differently.
-fn surface_material_and_key(
-    native: &MaterialSettings,
-    size: u32,
-) -> (StandardMaterial, Option<TextureCacheKey>) {
-    let props = native.texture.render_properties();
-    let emissive =
-        Color::srgb_from_array(native.emission_color).to_linear() * native.emission_strength;
-
-    let material = StandardMaterial {
-        base_color: Color::srgb_from_array(native.base_color),
-        perceptual_roughness: native.roughness,
-        metallic: native.metallic,
-        emissive,
-        alpha_mode: props.alpha_mode,
-        double_sided: props.double_sided,
-        cull_mode: props.cull_mode,
-        uv_transform: Affine2::from_scale(Vec2::splat(native.uv_scale)),
-        ..Default::default()
-    };
-
-    let cache_key = if matches!(native.texture, TextureConfig::None) {
-        None
-    } else {
-        Some(TextureCacheKey {
-            kind: native.texture.label(),
-            fingerprint: native.texture.fingerprint(),
-            width: size,
-            height: size,
-        })
-    };
-
-    (material, cache_key)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::ecs::system::SystemState;
-    use bevy_symbios_texture::build_procedural_material_async;
+    use bevy_symbios_texture::{MaterialSettings, TextureConfig};
 
-    /// #957: the sovereign uv_transform must degrade to the parity mirror's
-    /// pure scale at defaults, and compose offset (metres, pre-scale) with
-    /// rotation (degrees CCW) as `S·(R·p + offset)` otherwise.
+    /// #957: the sovereign uv_transform must degrade to the pure uniform
+    /// scale [`MaterialSettings::standard_material`] sets at defaults, and
+    /// compose offset (metres, pre-scale) with rotation (degrees CCW) as
+    /// `S·(R·p + offset)` otherwise.
     #[test]
     fn sovereign_uv_transform_composes_scale_rotation_offset() {
         use crate::pds::types::{Fp, Fp2};
@@ -392,7 +352,7 @@ mod tests {
         assert_eq!(
             sovereign_uv_transform(&s),
             Affine2::from_scale(Vec2::splat(2.0)),
-            "defaults must reproduce the mirror's from_scale exactly"
+            "defaults must reproduce standard_material's from_scale exactly"
         );
 
         s.uv_offset = Fp2([1.5, -0.5]);
@@ -407,82 +367,11 @@ mod tests {
         );
     }
 
-    /// Compare our mirror builder against the upstream one field-for-field.
-    /// Upstream is the reference: if a `bevy_symbios_texture` upgrade changes
-    /// how a `MaterialSettings` becomes a `StandardMaterial`, this fails and
-    /// the mirror in [`surface_material_and_key`] must be re-synced.
-    #[allow(clippy::type_complexity)]
-    fn assert_parity_with_upstream(native: &MaterialSettings) {
-        let mut world = World::new();
-        world.init_resource::<Assets<StandardMaterial>>();
-        world.init_resource::<Assets<Image>>();
-        let size = crate::config::textures::SURFACE;
-
-        let mut state: SystemState<(
-            Commands,
-            ResMut<Assets<StandardMaterial>>,
-            ResMut<Assets<Image>>,
-        )> = SystemState::new(&mut world);
-        let (mut commands, mut materials, mut images) = state
-            .get_mut(&mut world)
-            .expect("asset world resolves the builder params");
-        let upstream_handle = build_procedural_material_async(
-            &mut commands,
-            &mut materials,
-            &mut images,
-            None,
-            native,
-            size,
-            size,
-        );
-        state.apply(&mut world);
-
-        let materials = world.resource::<Assets<StandardMaterial>>();
-        let upstream = materials
-            .get(&upstream_handle)
-            .expect("upstream builder adds the material synchronously");
-
-        let (mirror, _key) = surface_material_and_key(native, size);
-
-        assert_eq!(mirror.base_color, upstream.base_color);
-        assert_eq!(mirror.perceptual_roughness, upstream.perceptual_roughness);
-        assert_eq!(mirror.metallic, upstream.metallic);
-        assert_eq!(mirror.emissive, upstream.emissive);
-        assert_eq!(mirror.alpha_mode, upstream.alpha_mode);
-        assert_eq!(mirror.double_sided, upstream.double_sided);
-        assert_eq!(mirror.cull_mode, upstream.cull_mode);
-        assert_eq!(mirror.uv_transform, upstream.uv_transform);
-    }
-
-    #[test]
-    fn mirror_builder_matches_upstream_for_untextured_settings() {
-        let native = MaterialSettings {
-            base_color: [0.2, 0.6, 0.9],
-            emission_color: [0.9, 0.3, 0.1],
-            emission_strength: 2.5,
-            roughness: 0.35,
-            metallic: 0.8,
-            uv_scale: 3.0,
-            texture: TextureConfig::None,
-        };
-        assert_parity_with_upstream(&native);
-    }
-
-    #[test]
-    fn mirror_builder_matches_upstream_for_surface_and_card_textures() {
-        // A tiling surface (Opaque + back-face culling)…
-        let mut native = MaterialSettings {
-            texture: TextureConfig::Bark(bevy_symbios_texture::bark::BarkConfig::default()),
-            ..MaterialSettings::default()
-        };
-        assert_parity_with_upstream(&native);
-
-        // …and an alpha-masked card (Mask + double-sided + no culling).
-        native.texture = TextureConfig::Leaf(bevy_symbios_texture::leaf::LeafConfig::default());
-        assert_parity_with_upstream(&native);
-    }
-
-    /// The cache key must fingerprint the exact config the job will bake.
+    /// The cache key must fingerprint the exact config the job will bake, at
+    /// the resolution overlands chose. Upstream owns `cache_key`'s contents
+    /// (and tests them); what is ours is that every procedural material bakes
+    /// at `config::textures::SURFACE` square, so a wasm job and a native bake
+    /// of the same config land on one entry.
     #[test]
     fn cache_key_matches_config_identity() {
         let bark = MaterialSettings {
@@ -490,13 +379,16 @@ mod tests {
             ..MaterialSettings::default()
         };
         let size = crate::config::textures::SURFACE;
-        let (_m, key) = surface_material_and_key(&bark, size);
-        let key = key.expect("textured settings carry a cache key");
+        let key = bark
+            .cache_key(size, size)
+            .expect("textured settings carry a cache key");
         assert_eq!(key.kind, bark.texture.label());
         assert_eq!(key.fingerprint, bark.texture.fingerprint());
         assert_eq!((key.width, key.height), (size, size));
 
-        let (_m, none_key) = surface_material_and_key(&MaterialSettings::default(), size);
-        assert!(none_key.is_none(), "TextureConfig::None has no cache key");
+        assert!(
+            MaterialSettings::default().cache_key(size, size).is_none(),
+            "TextureConfig::None has no cache key"
+        );
     }
 }

@@ -10,10 +10,11 @@
 //!
 //! This module is the wasm replacement: the bake runs as a
 //! [`GenJob::TextureBake`] on the pooled gen-worker (see [`crate::offload`]),
-//! and [`poll_surface_bakes`] mirrors the upstream patch system — rebuild
-//! images (mip chains already computed in the worker), write the
-//! [`TextureCache`], patch every waiting material's texture slots, and apply
-//! the upstream emissive-factor sentinel. In-flight bakes are **coalesced** by
+//! and [`poll_surface_bakes`] drives the upstream patch system's own core
+//! ([`store_generated_texture_map`] + [`apply_generated_handles`], both public
+//! since 0.10.3 for exactly this — #1170 finding 39) rather than re-deriving
+//! it: the worker's finished pixels go in, handles come out, and every waiting
+//! material takes them. In-flight bakes are **coalesced** by
 //! [`TextureCacheKey`]: mirrored parts (wheels, lamps) that request the same
 //! fingerprint while a bake is airborne just join its target list instead of
 //! dispatching a duplicate job.
@@ -23,13 +24,12 @@
 //! only the dispatch fork itself is target-gated.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use bevy::prelude::*;
 use bevy::tasks::Task;
 use bevy_symbios_texture::{
-    GeneratedHandles, TextureCache, TextureCacheKey, TextureConfig, TextureMap, apply_emissive_map,
-    map_to_images, map_to_images_card,
+    TextureCache, TextureCacheKey, TextureConfig, TextureMap, apply_generated_handles,
+    store_generated_texture_map,
 };
 
 use crate::offload::{GenJob, GenResult};
@@ -44,8 +44,9 @@ pub struct PendingSurfaceBakes {
 /// One airborne bake and every material waiting on it.
 struct PendingBake {
     task: Task<GenResult>,
-    /// `true` → upload via [`map_to_images_card`] (clamp-to-edge, alpha-masked
-    /// card); `false` → repeat-tiling [`map_to_images`].
+    /// Selects the sampler [`store_generated_texture_map`] uploads with:
+    /// `true` → clamp-to-edge, alpha-masked card; `false` → repeat-tiling
+    /// surface.
     is_card: bool,
     /// Materials whose texture slots receive the generated images. Grows when
     /// an identical config is requested while this bake is in flight.
@@ -137,11 +138,12 @@ pub(super) fn dispatch_surface_bake(
     );
 }
 
-/// Drain finished offloaded surface bakes: rebuild the images (pure buffer
-/// move — the worker mip-chained them), persist + insert into the
-/// [`TextureCache`], and patch every waiting material's albedo / normal / ORM
-/// / emissive slots. The wasm mirror of the upstream
-/// `patch_procedural_material_textures` system; a no-op wherever nothing
+/// Drain finished offloaded surface bakes: hand the worker's pixels to
+/// [`store_generated_texture_map`] (persist for a disk store, upload — a pure
+/// buffer move, since the worker mip-chained them — then cache), and give the
+/// resulting handles to every waiting material via
+/// [`apply_generated_handles`]. Same two calls the upstream
+/// `patch_procedural_material_textures` system makes; a no-op wherever nothing
 /// dispatches (native, headless).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn poll_surface_bakes(
@@ -210,27 +212,19 @@ pub(super) fn poll_surface_bakes(
             height: data.height,
         };
 
-        // Persist raw pixels for disk-backed stores while the map is still
-        // available (the upload below consumes it), then upload and cache —
-        // the same order as the upstream patch system.
-        if let Some(cache_ref) = cache.as_deref() {
-            cache_ref.persist_pixels(&key, &map, bake.is_card);
-        }
-        let handles: GeneratedHandles = if bake.is_card {
-            map_to_images_card(map, &mut images)
-        } else {
-            map_to_images(map, &mut images)
-        };
-        if let Some(cache_ref) = cache.as_deref_mut() {
-            cache_ref.insert(key.clone(), Arc::new(handles.clone()));
-        }
+        // Persist / upload / cache, in the one order that works (the upload
+        // consumes the map, so a disk store has to see the pixels first).
+        let handles = store_generated_texture_map(
+            map,
+            bake.is_card,
+            Some(&key),
+            cache.as_deref_mut(),
+            &mut images,
+        );
 
         for target in &bake.targets {
             if let Some(mut mat) = materials.get_mut(target) {
-                mat.base_color_texture = Some(handles.albedo.clone());
-                mat.normal_map_texture = Some(handles.normal.clone());
-                mat.metallic_roughness_texture = Some(handles.roughness.clone());
-                apply_emissive_map(&mut mat, handles.emissive.clone());
+                apply_generated_handles(&mut mat, &handles);
             }
             // A despawned target (rapid re-roll / editor drag) has simply
             // dropped its material; skipping it here lets the handle die.
