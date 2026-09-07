@@ -26,6 +26,7 @@ use bevy_egui::egui;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::{ChildOf, Query, Transform, With};
 
+use super::{AimCtx, GizmoTarget, TabCtx};
 use crate::pds::avatar::wardrobe::AttachmentRecord;
 use crate::pds::avatar::{MAX_AVATAR_ATTACHMENTS, ResolvedAttachment};
 use crate::pds::{AvatarRecord, InventoryRecord};
@@ -166,11 +167,173 @@ pub(super) struct AttachmentsTabState {
     replace_confirm: crate::ui::confirm::ConfirmState<usize>,
 }
 
-/// Draw the tab. `inventory` is mutable for the one write this tab makes to
-/// it — **Save to inventory** on a worn prop (#1096); the guarded-dirty rule
-/// holds because the stash's dirty state is derived live-vs-stored, never
-/// from a change tick. Taking a prop off drops its reference and stops
-/// there; the record it leaves behind is retired by the next save (#1110).
+/// The Wearables tab, wired to the editor (#1161).
+///
+/// Two panels behind one tab: the worn LIST ([`draw_attachments_tab`]
+/// below), and the parts editor (#1098) — the region-asset tree editor
+/// pointed at one worn item's copy — which replaces it while a prop is
+/// opened. This is the half that owns the switch between them and folds
+/// both panels' selections back into the single gizmo aim.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn draw_tab(
+    ui: &mut egui::Ui,
+    ctx: &mut TabCtx,
+    aim: &mut AimCtx,
+    height: f32,
+    state: &mut AttachmentsTabState,
+    editing_parts: &mut Option<String>,
+    pending_focus: bool,
+    worn_body: &WornBody<'_>,
+) {
+    // Read before anything borrows the record: `owner_did` is a method, so
+    // it borrows the whole ctx for as long as the call, and the parts
+    // branch below holds `ctx.record` mutably across its own draw.
+    let owner_did = ctx.owner_did();
+    ui.allocate_ui(egui::vec2(ui.available_width(), height), |ui| {
+        // The parts editor (#1098): shown in place of the worn list while a
+        // prop is opened for parts; a prop taken off meanwhile drops the
+        // editor back to the list.
+        if let Some(rkey) = editing_parts.clone() {
+            let worn_item = ctx
+                .record
+                .body
+                .rigged_mut()
+                .and_then(|rig| rig.resolved.as_mut())
+                .and_then(|resolved| resolved.attachments.iter_mut().find(|a| a.rkey == rkey));
+            let Some(worn) = worn_item else {
+                *editing_parts = None;
+                aim.aim(GizmoTarget::None);
+                return;
+            };
+            ui.horizontal(|ui| {
+                if ui.button("⬅ Worn items").clicked() {
+                    *editing_parts = None;
+                    aim.aim(GizmoTarget::None);
+                    aim.parts_tree.view.set_selected(Vec::new());
+                }
+                let what = worn
+                    .record
+                    .source
+                    .clone()
+                    .unwrap_or_else(|| format!("prop {}", worn.rkey));
+                ui.label(egui::RichText::new(format!("Parts of {what}")).strong());
+            });
+            if editing_parts.is_none() {
+                return;
+            }
+            let mut source = crate::ui::room::generators::AttachmentTreeSource::new(
+                &rkey,
+                &mut worn.record.item,
+            );
+            // The panel's selection is the widget's I/O, not the truth: seed
+            // it from the aim, fold it back after (#1161).
+            aim.parts_tree.selection = match aim.gizmo.worn_part() {
+                Some((root, path)) => crate::ui::room::generators::TreeSelection {
+                    root: Some(root.to_owned()),
+                    path: Some(path.to_vec()),
+                },
+                None => Default::default(),
+            };
+            crate::ui::room::generators::draw_generators_tab(
+                ui,
+                &mut source,
+                aim.parts_tree,
+                ctx.inventory.as_deref_mut(),
+                ctx.audio_editor,
+                ctx.grammar_diag,
+                ctx.changed,
+                ctx.blob_selected_element,
+                ctx.toasts,
+                ctx.now,
+                &mut ctx.labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
+                // Avatars can't grow roads — no stats readout.
+                None,
+                ctx.face_pick,
+                // #1239 f78: the same owner every other catalogue path
+                // stamps with.
+                owner_did,
+                // No placement layer on an avatar's trees — its roots ARE
+                // instanced.
+                &mut None,
+                // Single-root: no filter box is drawn.
+                &mut String::new(),
+                ctx.clipboard,
+                ctx.assets,
+            );
+            // The tree's selection IS the gizmo target: fold it back (a tree
+            // click picks a part; a cleared tree drops the aim). Nothing has
+            // to clear the whole-prop selection here — the aim is one field,
+            // so naming a part *is* releasing the prop.
+            //
+            // Only a part-shaped answer, or an outgoing part aim, may write:
+            // a tree that is on screen speaks for its own kind of target and
+            // no other. (A scene pick can leave a visuals node aimed while
+            // this tab is still the open one, for the one frame before
+            // `release_hidden_selections` runs.)
+            let picked = match (
+                aim.parts_tree.selection.root.as_ref(),
+                aim.parts_tree.selection.path.clone(),
+            ) {
+                (Some(root), Some(path)) if *root == rkey => Some(GizmoTarget::WornPart {
+                    rkey: rkey.clone(),
+                    path,
+                }),
+                _ => None,
+            };
+            if picked.is_some() || aim.gizmo.worn_part().is_some() {
+                aim.aim(picked.unwrap_or(GizmoTarget::None));
+            }
+            return;
+        }
+        // Same two-way channel as the trees': the list reads and writes an
+        // `Option<rkey>`, seeded from the aim and folded back only if it
+        // moved — see the parts tree's note on why a panel may only speak
+        // for its own kind.
+        let mut listed = aim.gizmo.worn_prop().map(str::to_owned);
+        let outcome = draw_attachments_tab(
+            ui,
+            ctx.record,
+            ctx.inventory.as_deref_mut(),
+            state,
+            ctx.did,
+            &mut listed,
+            pending_focus,
+            ctx.toasts,
+            ctx.now,
+            worn_body,
+        );
+        if listed.as_deref() != aim.gizmo.worn_prop() {
+            aim.aim(match listed {
+                Some(rkey) => GizmoTarget::WornProp { rkey },
+                None => GizmoTarget::None,
+            });
+        }
+        *ctx.changed |= outcome.changed;
+        if let Some(label) = outcome.label {
+            ctx.labels.set_avatar(label);
+        }
+        if let Some(rkey) = outcome.open_parts {
+            // Open on the item ROOT so a gizmo is aimed at once; the
+            // whole-prop selection yields by construction, the aim being one
+            // field.
+            aim.aim(GizmoTarget::WornPart {
+                rkey: rkey.clone(),
+                path: Vec::new(),
+            });
+            aim.parts_tree
+                .view
+                .set_selected(vec![crate::ui::room::GenNodeId::root(rkey.clone())]);
+            *editing_parts = Some(rkey);
+        }
+    });
+}
+
+/// Draw the worn list. `inventory` is mutable for the one write this panel
+/// makes to it — **Save to inventory** on a worn prop (#1096); the
+/// guarded-dirty rule holds because the stash's dirty state is derived
+/// live-vs-stored, never from a change tick. Taking a prop off drops its
+/// reference and stops there; the record it leaves behind is retired by the
+/// next save (#1110).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_attachments_tab(
     ui: &mut egui::Ui,

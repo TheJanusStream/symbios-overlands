@@ -14,6 +14,65 @@ use bevy_egui::egui;
 
 use crate::pds::{Fp, GaitParams, LocomotionConfig};
 use crate::player::LocalMovement;
+use crate::ui::avatar::TabCtx;
+use crate::ui::editable::SeedRowState;
+
+/// The Locomotion tab, wired to the editor (#1161).
+///
+/// [`draw_locomotion_tab`] below is the panel itself. This is the half that
+/// is the *editor's*: the scroll frame the tab body lives in, the standing
+/// note about what does and does not hold the body still, and the seed this
+/// tab falls back to when the record carries no gait section.
+pub(super) fn draw_tab(
+    ui: &mut egui::Ui,
+    ctx: &mut TabCtx,
+    height: f32,
+    seed_row: &SeedRowState,
+    movement: &LocalMovement,
+) {
+    egui::ScrollArea::vertical()
+        .auto_shrink([true, false])
+        .max_height(height)
+        .show(ui, |ui| {
+            // #1265 f109: this used to teach a collapse-the-window
+            // workaround for the #814 full-body freeze. #1103 reversed that
+            // freeze — `holds_avatar_still` is exactly `has_gizmo_selection`
+            // now, and `release_hidden_selections` clears every avatar-side
+            // selection when a tab that cannot show it is picked, so no
+            // gizmo can be aimed while this tab is on screen. Name the
+            // gizmo, not the window.
+            ui.label(
+                egui::RichText::new(
+                    "⏵ Drive with WASD while this window is open — \
+                     your avatar only holds still while a gizmo is \
+                     aimed at it.",
+                )
+                .small()
+                .weak(),
+            );
+            ui.add_space(4.0);
+            // Master seed for the Idle-motion section's baseline + ⟲
+            // re-derive: the seed row's current value when it parses (the
+            // footer synced it to the DID seed on first draw), else the DID
+            // derivation every peer falls back to for a record without a
+            // gait section.
+            let fallback_seed = seed_row
+                .current_seed()
+                .or_else(|| ctx.did.map(crate::seeded_defaults::fnv1a_64))
+                .unwrap_or_default();
+            draw_locomotion_tab(
+                ui,
+                &mut ctx.record.locomotion,
+                &mut ctx.record.gait,
+                fallback_seed,
+                ctx.changed,
+                &mut ctx.labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
+                movement,
+                ctx.toasts,
+                ctx.now,
+            );
+        });
+}
 
 /// Egui detail panel for one locomotion preset. Implemented on each
 /// `*Params` struct in this module's siblings — `draw_locomotion_tab`

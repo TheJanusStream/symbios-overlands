@@ -11,7 +11,12 @@
 //!     drives the room editor's Generators tab, fed by an
 //!     [`AvatarVisualsTreeSource`] adapter so a *generator* body's tree is
 //!     editable through the unified vocabulary. A rigged body has no such
-//!     tree and the tab says so.
+//!     tree and the tab says so. See [`visuals`].
+//!
+//! Each tab's arm lives in the file that owns its panel, as `draw_tab`
+//! (#1161); [`avatar_ui`] below is the window, the footer and the
+//! re-roll block, and dispatches to the four. What they draw with travels
+//! as [`TabCtx`] and [`AimCtx`] rather than as twenty loose parameters.
 //!   * **Locomotion** — picker for the [`crate::pds::LocomotionConfig`]
 //!     preset (HoverBoat / Humanoid / Airplane / Helicopter / Car) plus a
 //!     per-preset slider panel for collider dimensions and physics
@@ -62,6 +67,7 @@ pub(crate) use attachments::{
 mod body;
 mod locomotion;
 mod target;
+mod visuals;
 pub use target::GizmoTarget;
 
 use bevy::prelude::*;
@@ -78,11 +84,7 @@ use crate::ui::editable::{
     RecordAction, SeedAction, pin_axis_row, publish_status_line, save_load_reset_row, seed_row,
 };
 use crate::ui::room::RoomEditorState;
-use crate::ui::room::generators::{
-    AttachmentTreeSource, AvatarVisualsTreeSource, GenNodeId, draw_generators_tab,
-};
-
-use locomotion::draw_locomotion_tab;
+use crate::ui::room::generators::{AvatarVisualsTreeSource, GenNodeId};
 
 /// Async task for publishing the avatar record to the owner's PDS. Carries the
 /// target `did` + dispatch time so [`poll_publish_avatar_tasks`] can emit a typed
@@ -134,7 +136,9 @@ pub struct AvatarEditorState {
     /// the single place it is written.
     ///
     /// The tree widgets do not read it directly: they speak the
-    /// `(root, path)` pair [`draw_generators_tab`] takes, which
+    /// `(root, path)` pair
+    /// [`draw_generators_tab`](crate::ui::room::generators::draw_generators_tab)
+    /// takes, which
     /// [`avatar_ui`] seeds from the aim before the draw and folds back
     /// after it. Only the tree that is actually on screen may speak for
     /// the aim.
@@ -146,7 +150,9 @@ pub struct AvatarEditorState {
     /// before each draw and folded back after.
     ///
     /// This replaced four loose fields, one of which — `renaming_unused` —
-    /// existed only because [`draw_generators_tab`] demanded a `&mut` for a
+    /// existed only because
+    /// [`draw_generators_tab`](crate::ui::room::generators::draw_generators_tab)
+    /// demanded a `&mut` for a
     /// rename that a single-root source can never offer.
     visuals_tree: crate::ui::room::generators::TreePanelState,
     /// Seconds remaining before a pending widget change is flushed into
@@ -223,28 +229,85 @@ pub struct AvatarEditorState {
     parts_tree: crate::ui::room::generators::TreePanelState,
 }
 
-/// [`AvatarEditorState::aim`]'s body, over field references rather than
-/// `&mut self`.
+/// Everything an avatar tab arm draws with, other than its own panel state
+/// (#1161).
+///
+/// The four arms used to live inline in [`avatar_ui`]'s `match`, where each
+/// reached straight into whichever of the system's twenty-odd parameters it
+/// needed. That is why they could not move to the files that own their
+/// panels: an arm wants between nine and twenty things, and a plain
+/// parameter list of that width is the shape the finding objected to in the
+/// first place. Bundling the shared two-thirds leaves each arm with a
+/// handful of arguments that are genuinely its own.
+pub(super) struct TabCtx<'a, 'p> {
+    /// The live record every tab edits in place. Reached through
+    /// `bypass_change_detection` upstream — see [`Self::changed`].
+    pub(super) record: &'a mut AvatarRecord,
+    /// The signed-in owner's DID; `None` before login.
+    pub(super) did: Option<&'a str>,
+    /// Session clock, for toast stamps and debounce arithmetic.
+    pub(super) now: f64,
+    /// Set by any widget that changed the record. The record is written
+    /// through a bypassed borrow, so a tab that edits without reporting
+    /// leaves the change tick unmoved and the peer broadcast unsent
+    /// (#1270 f273); `avatar_edits_report_themselves` is the guard.
+    pub(super) changed: &'a mut bool,
+    /// Undo-entry label channel (#865). Arms take a slot from it rather
+    /// than holding one, because two of them hand a slot to a callee and
+    /// also set a coarse label themselves.
+    pub(super) labels: &'a mut crate::ui::undo::PendingUndoLabels,
+    pub(super) toasts: &'a mut crate::notify::Toasts,
+    /// The stash, for the tree tabs' "+ From Inventory" and
+    /// "Save to Inventory" paths. `None` before it has loaded.
+    pub(super) inventory: Option<&'a mut LiveInventoryRecord>,
+    pub(super) audio_editor: &'a mut crate::ui::room::audio::AudioEditorState,
+    pub(super) grammar_diag: &'a crate::world_builder::grammar_diag::GrammarDiagnostics,
+    pub(super) blob_selected_element: &'a mut Option<usize>,
+    pub(super) face_pick: &'a mut crate::editor_gizmo::FacePick,
+    pub(super) clipboard: &'a mut Option<crate::pds::Generator>,
+    pub(super) assets: &'a mut crate::ui::room::assets::AssetPanel<'p>,
+}
+
+impl<'a> TabCtx<'a, '_> {
+    /// The owner every catalogue stamp is personalised for (#1239 f78),
+    /// empty before login — the form the tree panels want.
+    ///
+    /// Returns `&'a str`, not a `&str` tied to `&self`: `did` is a `Copy`
+    /// field, so the shared borrow ends here rather than lasting as long as
+    /// the answer. That matters because every caller passes this in the
+    /// same argument list as a `&mut` borrow of a sibling field.
+    pub(super) fn owner_did(&self) -> &'a str {
+        self.did.unwrap_or("")
+    }
+}
+
+/// The aim and the two tree panels whose row highlights mirror it — the
+/// three fields that must travel together (#1161).
 ///
 /// [`avatar_ui`] destructures the resource into per-field `&mut`s for the
-/// whole draw — that is how the tab arms edit unrelated fields at once —
-/// so it cannot call a method on the struct. Rather than let the tab arms
-/// assign the aim raw, they call this: **one body, two entry points**, so
-/// the tree-row release cannot be forgotten on the side that does most of
-/// the aiming.
-fn aim_in_place(
-    gizmo: &mut GizmoTarget,
-    visuals_tree: &mut egui_ltreeview::TreeViewState<GenNodeId>,
-    part_tree: &mut egui_ltreeview::TreeViewState<GenNodeId>,
-    target: GizmoTarget,
-) {
-    if gizmo.visuals_path().is_some() && target.visuals_path().is_none() {
-        visuals_tree.set_selected(Vec::new());
+/// whole draw, so a tab arm cannot call [`AvatarEditorState::aim`] on the
+/// struct. Bundling the three it needs is what lets the arms move out to
+/// the files that draw them while still going through **one** aiming body:
+/// [`Self::aim`] below is that body, and the method on `AvatarEditorState`
+/// delegates to it.
+pub(super) struct AimCtx<'a> {
+    pub(super) gizmo: &'a mut GizmoTarget,
+    pub(super) visuals_tree: &'a mut crate::ui::room::generators::TreePanelState,
+    pub(super) parts_tree: &'a mut crate::ui::room::generators::TreePanelState,
+}
+
+impl AimCtx<'_> {
+    /// Aim the gizmo, releasing whatever it was aimed at. See
+    /// [`AvatarEditorState::aim`] for why this is the only writer.
+    pub(super) fn aim(&mut self, target: GizmoTarget) {
+        if self.gizmo.visuals_path().is_some() && target.visuals_path().is_none() {
+            self.visuals_tree.view.set_selected(Vec::new());
+        }
+        if self.gizmo.worn_part().is_some() && target.worn_part().is_none() {
+            self.parts_tree.view.set_selected(Vec::new());
+        }
+        *self.gizmo = target;
     }
-    if gizmo.worn_part().is_some() && target.worn_part().is_none() {
-        part_tree.set_selected(Vec::new());
-    }
-    *gizmo = target;
 }
 
 impl AvatarEditorState {
@@ -266,12 +329,12 @@ impl AvatarEditorState {
     /// living beside the aim rather than in it, and a row left highlighted
     /// over a gizmo it no longer owns is exactly the #1062 symptom.
     fn aim(&mut self, target: GizmoTarget) {
-        aim_in_place(
-            &mut self.gizmo,
-            &mut self.visuals_tree.view,
-            &mut self.parts_tree.view,
-            target,
-        );
+        AimCtx {
+            gizmo: &mut self.gizmo,
+            visuals_tree: &mut self.visuals_tree,
+            parts_tree: &mut self.parts_tree,
+        }
+        .aim(target);
     }
 
     /// True when a visuals row is currently selected. The locomotion
@@ -734,11 +797,6 @@ pub fn avatar_ui(
     // `live.set_changed()` explicitly below, only after the debounce
     // timer drains.
     let mut widget_changed = false;
-    // The owner every catalogue stamp is personalised for (#1239 f78) —
-    // the avatar's trees belong to the signed-in user by construction.
-    let owner_did: String = session
-        .as_deref()
-        .map_or_else(String::new, |s| s.did.clone());
     // Snapshot pre-frame selection state so we can detect (a) "selection
     // just appeared" — the rising edge that clears the room editor's
     // selection per the cross-editor mutex contract, and (b) tab change —
@@ -1287,343 +1345,62 @@ pub fn avatar_ui(
                 // The tab body fills exactly what the footer left over.
                 let body_height = ui.available_height();
 
+                // The four arms' shared environment (#1161), built HERE and
+                // not at the top of the draw: it borrows the record, the
+                // label channel and the toast queue, all of which the
+                // baselines, the re-roll block and the footer above still
+                // needed. Everything below this line belongs to the tabs.
+                let mut tab_ctx = TabCtx {
+                    record: &mut live_mut.0,
+                    did: session.as_ref().map(|s| s.did.as_str()),
+                    now: time.elapsed_secs_f64(),
+                    changed: &mut widget_changed,
+                    labels: &mut undo_labels,
+                    toasts: &mut toasts,
+                    inventory: inventory.as_deref_mut(),
+                    audio_editor,
+                    grammar_diag: &grammar_diag,
+                    blob_selected_element: &mut blob_ctx.selected_element,
+                    face_pick: &mut face_pick,
+                    clipboard: node_clipboard,
+                    assets: &mut asset_panel,
+                };
+                // The aim and the two trees it mirrors, likewise (#1161).
+                let mut aim = AimCtx {
+                    gizmo,
+                    visuals_tree,
+                    parts_tree,
+                };
+
                 match *selected_tab {
-                    AvatarTab::Body => {
-                        ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
-                            let outcome = body::draw_body_tab(
-                                ui,
-                                &mut live_mut.0,
-                                wardrobe,
-                                session.as_ref().map(|s| s.did.as_str()),
-                                local_body.build_failed(),
-                            );
-                            widget_changed |= outcome.changed;
-                            if let Some(label) = outcome.label {
-                                undo_labels.set_avatar(label);
-                            }
-                            if let Some(text) = outcome.toast {
-                                toasts.success(text, time.elapsed_secs_f64());
-                            }
-                            if outcome.wants_wardrobe_refresh
-                                && let Some(s) = session.as_ref()
-                            {
-                                wardrobe.fetching = true;
-                                wardrobe.attempted = true;
-                                // Clear the last failure as the retry
-                                // starts, so the error line describes the
-                                // attempt in flight and not the one before
-                                // it (#1141).
-                                wardrobe.error = None;
-                                spawn_wardrobe_list_task(&mut commands, &s.did);
-                            }
-                        });
-                    }
-                    AvatarTab::Attachments => {
-                        ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
-                            // The parts editor (#1098): the region-asset
-                            // tree editor over one worn item's copy. Shown
-                            // in place of the worn list while a prop is
-                            // opened for parts; a prop taken off meanwhile
-                            // drops the editor back to the list.
-                            if let Some(rkey) = editing_parts.clone() {
-                                let worn_item = live_mut
-                                    .0
-                                    .body
-                                    .rigged_mut()
-                                    .and_then(|rig| rig.resolved.as_mut())
-                                    .and_then(|resolved| {
-                                        resolved.attachments.iter_mut().find(|a| a.rkey == rkey)
-                                    });
-                                let Some(worn) = worn_item else {
-                                    *editing_parts = None;
-                                    aim_in_place(
-                                        gizmo,
-                                        &mut visuals_tree.view,
-                                        &mut parts_tree.view,
-                                        GizmoTarget::None,
-                                    );
-                                    return;
-                                };
-                                ui.horizontal(|ui| {
-                                    if ui.button("⬅ Worn items").clicked() {
-                                        *editing_parts = None;
-                                        aim_in_place(
-                                            gizmo,
-                                            &mut visuals_tree.view,
-                                            &mut parts_tree.view,
-                                            GizmoTarget::None,
-                                        );
-                                        parts_tree.view.set_selected(Vec::new());
-                                    }
-                                    let what = worn
-                                        .record
-                                        .source
-                                        .clone()
-                                        .unwrap_or_else(|| format!("prop {}", worn.rkey));
-                                    ui.label(
-                                        egui::RichText::new(format!("Parts of {what}")).strong(),
-                                    );
-                                });
-                                if editing_parts.is_none() {
-                                    return;
-                                }
-                                let mut source =
-                                    AttachmentTreeSource::new(&rkey, &mut worn.record.item);
-                                // The panel's selection is the widget's
-                                // I/O, not the truth: seed it from the aim,
-                                // fold it back after (#1161).
-                                parts_tree.selection = match gizmo.worn_part() {
-                                    Some((root, path)) => {
-                                        crate::ui::room::generators::TreeSelection {
-                                            root: Some(root.to_owned()),
-                                            path: Some(path.to_vec()),
-                                        }
-                                    }
-                                    None => Default::default(),
-                                };
-                                draw_generators_tab(
-                                    ui,
-                                    &mut source,
-                                    parts_tree,
-                                    inventory.as_deref_mut(),
-                                    audio_editor,
-                                    &grammar_diag,
-                                    &mut widget_changed,
-                                    &mut blob_ctx.selected_element,
-                                    &mut toasts,
-                                    time.elapsed_secs_f64(),
-                                    &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
-                                    None,
-                                    &mut face_pick,
-                                    // #1239 f78: the same owner every other
-                                    // catalogue path stamps with.
-                                    &owner_did,
-                                    // No placement layer on an avatar's
-                                    // trees — its roots ARE instanced.
-                                    &mut None,
-                                    // Single-root: no filter box is drawn.
-                                    &mut String::new(),
-                                    node_clipboard,
-                                    &mut asset_panel,
-                                );
-                                // The tree's selection IS the gizmo target:
-                                // fold it back (a tree click picks a part;
-                                // a cleared tree drops the aim). Nothing
-                                // has to clear the whole-prop selection
-                                // here any more — the aim is one field, so
-                                // naming a part *is* releasing the prop.
-                                //
-                                // Only a part-shaped answer, or an outgoing
-                                // part aim, may write: a tree that is on
-                                // screen speaks for its own kind of target
-                                // and no other. (A scene pick can leave a
-                                // visuals node aimed while this tab is
-                                // still the open one, for the one frame
-                                // before `release_hidden_selections` runs.)
-                                let picked = match (
-                                    parts_tree.selection.root.as_ref(),
-                                    parts_tree.selection.path.clone(),
-                                ) {
-                                    (Some(root), Some(path)) if *root == rkey => {
-                                        Some(GizmoTarget::WornPart {
-                                            rkey: rkey.clone(),
-                                            path,
-                                        })
-                                    }
-                                    _ => None,
-                                };
-                                if picked.is_some() || gizmo.worn_part().is_some() {
-                                    aim_in_place(
-                                        gizmo,
-                                        &mut visuals_tree.view,
-                                        &mut parts_tree.view,
-                                        picked.unwrap_or(GizmoTarget::None),
-                                    );
-                                }
-                                return;
-                            }
-                            // Same two-way channel as the trees': the list
-                            // reads and writes an `Option<rkey>`, seeded
-                            // from the aim and folded back only if it
-                            // moved — see the parts tree's note on why a
-                            // panel may only speak for its own kind.
-                            let mut listed = gizmo.worn_prop().map(str::to_owned);
-                            let outcome = attachments::draw_attachments_tab(
-                                ui,
-                                &mut live_mut.0,
-                                inventory.as_deref_mut(),
-                                attachments_state,
-                                session.as_ref().map(|s| s.did.as_str()),
-                                &mut listed,
-                                std::mem::take(pending_attachment_focus),
-                                &mut toasts,
-                                time.elapsed_secs_f64(),
-                                &worn_body,
-                            );
-                            if listed.as_deref() != gizmo.worn_prop() {
-                                aim_in_place(
-                                    gizmo,
-                                    &mut visuals_tree.view,
-                                    &mut parts_tree.view,
-                                    match listed {
-                                        Some(rkey) => GizmoTarget::WornProp { rkey },
-                                        None => GizmoTarget::None,
-                                    },
-                                );
-                            }
-                            widget_changed |= outcome.changed;
-                            if let Some(label) = outcome.label {
-                                undo_labels.set_avatar(label);
-                            }
-                            if let Some(rkey) = outcome.open_parts {
-                                // Open on the item ROOT so a gizmo is aimed
-                                // at once; the whole-prop selection yields
-                                // by construction, the aim being one field.
-                                aim_in_place(
-                                    gizmo,
-                                    &mut visuals_tree.view,
-                                    &mut parts_tree.view,
-                                    GizmoTarget::WornPart {
-                                        rkey: rkey.clone(),
-                                        path: Vec::new(),
-                                    },
-                                );
-                                parts_tree
-                                    .view
-                                    .set_selected(vec![GenNodeId::root(rkey.clone())]);
-                                *editing_parts = Some(rkey);
-                            }
-                        });
-                    }
+                    AvatarTab::Body => body::draw_tab(
+                        ui,
+                        &mut tab_ctx,
+                        body_height,
+                        wardrobe,
+                        local_body.build_failed(),
+                        &mut commands,
+                    ),
+                    AvatarTab::Attachments => attachments::draw_tab(
+                        ui,
+                        &mut tab_ctx,
+                        &mut aim,
+                        body_height,
+                        attachments_state,
+                        editing_parts,
+                        std::mem::take(pending_attachment_focus),
+                        &worn_body,
+                    ),
                     AvatarTab::Visuals => {
-                        ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
-                            // The tree edits a generator body's tree; a
-                            // rigged body has no tree to draw. #1265 f101:
-                            // this used to promise the rigged editor was
-                            // still coming (it shipped, as the Body tab)
-                            // and to advise a bare re-roll, which lands
-                            // back on a rigged body whenever
-                            // `ChassisFamily::for_seed` rolls `Humanoid` —
-                            // one of four families, so a coin flip. The
-                            // Chassis pin row below is the deterministic
-                            // control, so the advice routes through it and
-                            // names the three families by the labels that
-                            // row actually shows (`ChassisFamily::label`).
-                            let Some(visuals) = live_mut.0.body.visuals_mut() else {
-                                ui.label(
-                                    egui::RichText::new(
-                                        "You're wearing a rigged body — sculpt it on the \
-                                         Body tab. For a construction-kit body instead, \
-                                         open Seed & re-roll below, lock Chassis to \
-                                         Hover-boat, Airship or Land-skiff, and re-roll.",
-                                    )
-                                    .small()
-                                    .weak(),
-                                );
-                                return;
-                            };
-                            let mut source = AvatarVisualsTreeSource::new(visuals);
-                            // The panel's selection is the widget's I/O,
-                            // not the truth: seed it from the aim, fold it
-                            // back after (#1161). The one-shot focus
-                            // request rides the panel now, consumed by the
-                            // tree it belongs to.
-                            let aimed = gizmo.visuals_path().map(<[usize]>::to_vec);
-                            visuals_tree.selection = crate::ui::room::generators::TreeSelection {
-                                root: aimed
-                                    .as_ref()
-                                    .map(|_| AvatarVisualsTreeSource::ROOT_NAME.to_string()),
-                                path: aimed.clone(),
-                            };
-                            draw_generators_tab(
-                                ui,
-                                &mut source,
-                                visuals_tree,
-                                inventory.as_deref_mut(),
-                                audio_editor,
-                                &grammar_diag,
-                                &mut widget_changed,
-                                &mut blob_ctx.selected_element,
-                                &mut toasts,
-                                time.elapsed_secs_f64(),
-                                &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
-                                // Avatars can't grow roads — no stats readout.
-                                None,
-                                &mut face_pick,
-                                &owner_did,
-                                &mut None,
-                                &mut String::new(),
-                                node_clipboard,
-                                &mut asset_panel,
-                            );
-                            if visuals_tree.selection.path != aimed {
-                                aim_in_place(
-                                    gizmo,
-                                    &mut visuals_tree.view,
-                                    &mut parts_tree.view,
-                                    match visuals_tree.selection.path.clone() {
-                                        Some(path) => GizmoTarget::VisualsNode { path },
-                                        None => GizmoTarget::None,
-                                    },
-                                );
-                            }
-                        });
+                        visuals::draw_tab(ui, &mut tab_ctx, &mut aim, body_height)
                     }
-                    AvatarTab::Locomotion => {
-                        egui::ScrollArea::vertical()
-                            .auto_shrink([true, false])
-                            .max_height(body_height)
-                            .show(ui, |ui| {
-                                // #1265 f109: this used to teach a
-                                // collapse-the-window workaround for the
-                                // #814 full-body freeze. #1103 reversed
-                                // that freeze — `holds_avatar_still` is
-                                // exactly `has_gizmo_selection` now, and
-                                // `release_hidden_selections` clears every
-                                // avatar-side selection when a tab that
-                                // cannot show it is picked, so no gizmo can
-                                // be aimed while this tab is on screen.
-                                // Name the gizmo, not the window.
-                                ui.label(
-                                    egui::RichText::new(
-                                        "⏵ Drive with WASD while this window is open — \
-                                         your avatar only holds still while a gizmo is \
-                                         aimed at it.",
-                                    )
-                                    .small()
-                                    .weak(),
-                                );
-                                ui.add_space(4.0);
-                                // Master seed for the Idle-motion section's
-                                // baseline + ⟲ re-derive: the seed row's
-                                // current value when it parses (the footer
-                                // synced it to the DID seed on first draw),
-                                // else the DID derivation every peer falls
-                                // back to for a record without a gait
-                                // section.
-                                let fallback_seed = reroll
-                                    .seed_row
-                                    .current_seed()
-                                    .or_else(|| {
-                                        session
-                                            .as_ref()
-                                            .map(|s| crate::seeded_defaults::fnv1a_64(&s.did))
-                                    })
-                                    .unwrap_or_default();
-                                let record = &mut live_mut.0;
-                                draw_locomotion_tab(
-                                    ui,
-                                    &mut record.locomotion,
-                                    &mut record.gait,
-                                    fallback_seed,
-                                    &mut widget_changed,
-                                    &mut undo_labels.slot(crate::ui::shortcuts::EditorKind::Avatar),
-                                    &movement,
-                                    &mut toasts,
-                                    time.elapsed_secs_f64(),
-                                );
-                            });
-                    }
+                    AvatarTab::Locomotion => locomotion::draw_tab(
+                        ui,
+                        &mut tab_ctx,
+                        body_height,
+                        &reroll.seed_row,
+                        &movement,
+                    ),
                 }
             });
 

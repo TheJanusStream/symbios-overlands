@@ -25,11 +25,51 @@
 //! (#1057/#1058 run on the rig, not on an anatomy) — so quadrupeds are
 //! deliberately NOT hidden here.
 
+use bevy::prelude::Commands;
 use bevy_egui::egui;
 use bevy_symbios_avatar::editor as sections;
 
+use super::TabCtx;
 use crate::pds::AvatarRecord;
 use crate::pds::avatar::wardrobe::{EngineAvatarRecord, wear_new_engine_body};
+
+/// The Body tab, wired to the editor (#1161).
+///
+/// [`draw_body_tab`] below is the drawing half — it reports what the owner
+/// did through a [`BodyTabOutcome`] and touches nothing else. This is the
+/// half that acts on it: the undo label, the toast, the change flag and the
+/// wardrobe refresh, which is a `Commands` spawn and so cannot live inside
+/// a function that only borrows the record.
+pub(super) fn draw_tab(
+    ui: &mut egui::Ui,
+    ctx: &mut TabCtx,
+    height: f32,
+    listing: &mut WardrobeListing,
+    build_failed: bool,
+    commands: &mut Commands,
+) {
+    ui.allocate_ui(egui::vec2(ui.available_width(), height), |ui| {
+        let outcome = draw_body_tab(ui, ctx.record, listing, ctx.did, build_failed);
+        *ctx.changed |= outcome.changed;
+        if let Some(label) = outcome.label {
+            ctx.labels.set_avatar(label);
+        }
+        if let Some(text) = outcome.toast {
+            ctx.toasts.success(text, ctx.now);
+        }
+        if outcome.wants_wardrobe_refresh
+            && let Some(did) = ctx.did
+        {
+            listing.fetching = true;
+            listing.attempted = true;
+            // Clear the last failure as the retry starts, so the error line
+            // describes the attempt in flight and not the one before it
+            // (#1141).
+            listing.error = None;
+            super::spawn_wardrobe_list_task(commands, did);
+        }
+    });
+}
 
 /// What the Body tab did this frame.
 #[derive(Default)]
