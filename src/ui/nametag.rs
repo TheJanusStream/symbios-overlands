@@ -208,7 +208,7 @@ pub struct PeerNametags {
 pub fn measure_peer_nametags(
     mut tags: ResMut<PeerNametags>,
     settings: Res<LocalSettings>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    cameras: Query<(&Camera, &GlobalTransform), crate::camera::IsWorldCamera>,
     peers: Query<(
         Entity,
         &RemotePeer,

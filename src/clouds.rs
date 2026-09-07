@@ -111,7 +111,7 @@ pub struct CloudLayer;
 /// `Environment::cloud_height` field via the plane's Transform, not a
 /// shader uniform) and deliberately not touched here.
 pub fn track_cloud_layer_to_camera(
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<CloudLayer>)>,
+    camera: Query<&GlobalTransform, (crate::camera::IsWorldCamera, Without<CloudLayer>)>,
     mut cloud_layer: Query<&mut Transform, With<CloudLayer>>,
 ) {
     let Ok(cam_tx) = camera.single() else {

@@ -157,7 +157,7 @@ pub(super) fn resolve_blob_edit(
     avatar_record: Option<Res<LiveAvatarRecord>>,
     prim_query: Query<(Entity, &PrimMarker, &GlobalTransform)>,
     avatar_prim_query: Query<(Entity, &AvatarVisualPrim)>,
-    camera_query: Query<&GlobalTransform, With<Camera3d>>,
+    camera_query: Query<&GlobalTransform, crate::camera::IsWorldCamera>,
     keyboard: Res<ButtonInput<KeyCode>>,
     gizmo_targets: Query<&GizmoTarget>,
 ) {

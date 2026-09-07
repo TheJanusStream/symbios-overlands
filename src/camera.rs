@@ -260,7 +260,7 @@ fn clamp_distance_camera_only(
 fn clamp_camera_to_terrain(
     heightmap: Option<Res<FinishedHeightMap>>,
     settings: Res<crate::state::LocalSettings>,
-    mut cameras: Query<(&PanOrbitCamera, &mut Transform), With<Camera3d>>,
+    mut cameras: Query<(&PanOrbitCamera, &mut Transform), IsWorldCamera>,
 ) {
     let Some(hm) = heightmap else {
         return;
@@ -296,11 +296,44 @@ fn clamp_camera_to_terrain(
     }
 }
 
+/// The camera the player looks through — the one that means "the camera"
+/// everywhere else in the crate (#1300).
+///
+/// Every system that asks where the view is — movement's forward vector,
+/// the gizmo's pick ray, a nametag's projection, the drop raycast, the
+/// skybox and cloud deck that follow the eye — used to identify it as
+/// `With<Camera3d>`, which was correct only for as long as the app had
+/// exactly ONE `Camera3d`. #1288's item preview added a second, and
+/// **every one of those queries broke at once and silently**: eleven of
+/// them resolve with `single()`, which then returns `Err(MultipleEntities)`
+/// and falls through to a default — so avatar movement quietly switched
+/// from camera-relative to absolute world axes, and the scene context menu
+/// stopped opening at all.
+///
+/// So the identification is positive now: a query names this marker, and a
+/// camera that is not the player's view cannot answer by accident. The
+/// rule is enforced by the `every_camera_query_says_which_camera` scan —
+/// which exists because the failure mode here is a silent fallback, not a
+/// panic, and a third camera would have cost another sitting to find.
+#[derive(Component)]
+pub struct WorldCamera;
+
+/// Query filter for "the player's view": [`WorldCamera`] and nothing else.
+///
+/// An alias rather than the pair spelled out at each of the twelve call
+/// sites, because clippy's `type_complexity` is right about what those
+/// signatures had become — and because one name is one place to change if
+/// the app ever grows a second legitimate world view (a portal, a
+/// mirror). Compose it where a site needs more:
+/// `(IsWorldCamera, Without<SkyBox>)`.
+pub type IsWorldCamera = (With<Camera3d>, With<WorldCamera>);
+
 fn spawn_orbit_camera(mut commands: Commands) {
     let pos = cfg::INITIAL_POS;
     let fc = cfg::fog::COLOR;
     commands.spawn((
         Camera3d::default(),
+        WorldCamera,
         // WebGL2's `glow` backend has no `tex_storage_2d_multisample`
         // entrypoint, so Bevy's default `Msaa::Sample4` panics during
         // render-target allocation as soon as the first frame renders
@@ -459,6 +492,155 @@ fn follow_local_player(
 mod tests {
     use super::*;
     use bevy::MinimalPlugins;
+
+    /// Strip `//` line comments, so the scan below does not read its own
+    /// prose — this module explains the rule using the very needle it
+    /// bans, and every marker doc in the crate names it too.
+    ///
+    /// A `//` inside a string literal would over-strip. That costs
+    /// coverage, never a false pass, which is the trade every lexer-lite
+    /// scan in this crate makes.
+    fn without_comments(source: &str) -> String {
+        source
+            .lines()
+            .map(|line| line.split("//").next().unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Every `Query<...>` type in `source`, as balanced angle-bracket
+    /// text.
+    ///
+    /// Whole types, not lines: half these queries are multi-line now, and
+    /// a line-window scan would read `With<Camera3d>,` on its own and see
+    /// none of the filter it belongs to. That is the shape of scan that
+    /// has lied here before.
+    fn query_types(source: &str) -> Vec<String> {
+        let code = without_comments(source);
+        let chars: Vec<char> = code.chars().collect();
+        let mut out = Vec::new();
+        let mut from = 0usize;
+        while let Some(rel) = code[from..].find("Query<") {
+            // Byte offset -> char index: the sources are ASCII in type
+            // position, but the prose around them is not.
+            let start = code[..from + rel].chars().count() + "Query".len();
+            let mut depth = 0i32;
+            let mut end = start;
+            for (i, c) in chars.iter().enumerate().skip(start) {
+                match c {
+                    '<' => depth += 1,
+                    '>' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = i;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if end > start {
+                out.push(chars[start..=end].iter().collect());
+            }
+            from += rel + "Query<".len();
+        }
+        out
+    }
+
+    /// #1300. Every query that identifies a camera by `Camera3d` must also
+    /// say WHICH camera it means.
+    ///
+    /// The bug this exists to stop is not a crash. #1288 added a second
+    /// `Camera3d` for the item preview, and eleven queries that meant "the
+    /// player's view" resolved with `single()` — which quietly began
+    /// returning `Err(MultipleEntities)` and falling through to a default.
+    /// Avatar movement switched from camera-relative to absolute world
+    /// axes; the scene context menu stopped opening; nametags, the drop
+    /// raycast, the skybox and the cloud deck all went with them. Nothing
+    /// panicked and nothing logged.
+    ///
+    /// A query that genuinely wants every camera in the world has to say
+    /// so by naming a marker anyway — there is no silent third option, and
+    /// that is the whole point.
+    #[test]
+    fn every_camera_query_says_which_camera() {
+        // `IsWorldCamera` contains `WorldCamera`, so the alias satisfies
+        // this by name as well as by meaning.
+        let markers = ["WorldCamera", "PreviewCamera"];
+        let mut unmarked: Vec<String> = Vec::new();
+        let mut seen = 0usize;
+        for path in crate::ui::fonts::glyph_coverage_tests::rust_sources_under("src") {
+            let source = std::fs::read_to_string(&path).expect("source readable");
+            let code = crate::ui::fonts::glyph_coverage_tests::non_test_source(&source);
+            for query in query_types(code) {
+                // RE-POINTED, not lowered (#1300). The sites used to
+                // spell `With<Camera3d>` out; clippy's `type_complexity`
+                // pushed them behind `IsWorldCamera`, so keying only on
+                // `Camera3d` would have found one query — the alias — and
+                // called the crate clean. A query is "about a camera" if
+                // it names the component OR any of the answers, and it
+                // passes only by naming an answer.
+                let about_a_camera =
+                    query.contains("Camera3d") || markers.iter().any(|m| query.contains(m));
+                if !about_a_camera {
+                    continue;
+                }
+                seen += 1;
+                if markers.iter().any(|m| query.contains(m)) {
+                    continue;
+                }
+                let rel = path.display().to_string();
+                let rel = rel.rsplit_once("src/").map(|(_, r)| r).unwrap_or(&rel);
+                unmarked.push(format!("src/{rel}: {}", query.replace('\n', " ")));
+            }
+        }
+        assert!(
+            unmarked.is_empty(),
+            "these queries pick a camera by Camera3d alone, so a second \
+             camera answers them too. Name the one you mean ({}):\n  {}",
+            markers.join(" or "),
+            unmarked.join("\n  ")
+        );
+        // A FLOOR, not a count. The scan's failure mode is reading
+        // nothing — a change to the lexer, or a query wrapped in a shape
+        // it does not recognise, and every site passes because none was
+        // found. There were twelve when this was written; if the number
+        // drops, re-point the scan rather than lowering the floor.
+        assert!(
+            seen >= 12,
+            "the scan found only {seen} camera queries and has gone blind"
+        );
+    }
+
+    /// #1300, the other half: the scan above is only worth its run if it
+    /// can actually see a violation. A marker-less query is exactly what
+    /// shipped, so this proves the lexer finds one across the line breaks
+    /// the real sites are wrapped over.
+    #[test]
+    fn the_camera_scan_sees_a_query_that_names_no_camera() {
+        let offender = "fn s(cameras: Query<\n    (&Camera, &GlobalTransform),\n    \
+                        With<Camera3d>,\n>) {}";
+        let found = query_types(offender);
+        assert_eq!(found.len(), 1, "one query, read whole: {found:?}");
+        assert!(found[0].contains("Camera3d"), "the filter came with it");
+        assert!(
+            !found[0].contains("WorldCamera"),
+            "and it names no camera, which is the failure"
+        );
+
+        let fixed = "fn s(cameras: Query<\n    (&Camera, &GlobalTransform),\n    \
+                     (With<Camera3d>, With<WorldCamera>),\n>) {}";
+        assert!(query_types(fixed)[0].contains("WorldCamera"));
+
+        // And the shape the crate actually ships: the component name is
+        // gone, absorbed into the alias, and the scan must still count it.
+        let aliased = "fn s(cameras: Query<&GlobalTransform, IsWorldCamera>) {}";
+        assert!(
+            query_types(aliased)[0].contains("WorldCamera"),
+            "IsWorldCamera must satisfy the rule by name, or every real \
+             call site goes uncounted"
+        );
+    }
 
     /// #670 guard: the follow target must come from `Transform` — the
     /// same-frame eased pose — not `GlobalTransform`. `MinimalPlugins`

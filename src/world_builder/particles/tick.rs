@@ -73,7 +73,7 @@ pub fn tick_particles(
     spatial: SpatialQuery,
     mut meshes: ResMut<Assets<Mesh>>,
     mut atlas_meshes: ResMut<ParticleAtlasMeshes>,
-    cameras: Query<&GlobalTransform, With<Camera3d>>,
+    cameras: Query<&GlobalTransform, crate::camera::IsWorldCamera>,
     mut emitters: Query<&mut EmitterState>,
     emitter_lookup: Query<(&ParticleEmitter, Option<&EmitterMaterialRamp>)>,
     mut particles: Query<(

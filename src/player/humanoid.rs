@@ -152,7 +152,7 @@ pub(super) fn publish_movement_facts(
     water_surfaces: Res<WaterSurfaces>,
     query: LocalHumanoid,
     bodies: Query<(&ChildOf, &bevy_symbios_avatar::AvatarBody), With<super::rigged::RiggedRoot>>,
-    camera: Query<&GlobalTransform, With<Camera3d>>,
+    camera: Query<&GlobalTransform, crate::camera::IsWorldCamera>,
     mut published: ResMut<crate::player::LocalMovement>,
 ) {
     let mut facts = crate::player::LocalMovement::default();
@@ -237,7 +237,7 @@ pub(super) fn apply_humanoid_walk(
     water_surfaces: Res<WaterSurfaces>,
     time: Res<Time<Fixed>>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    camera: Query<&GlobalTransform, With<Camera3d>>,
+    camera: Query<&GlobalTransform, crate::camera::IsWorldCamera>,
     mut query: Query<
         (
             Entity,

@@ -127,7 +127,7 @@ pub struct SkyBox;
 /// (half the cuboid's side on that axis) regardless of where the player
 /// roams, which is what a backdrop should do anyway.
 fn track_skybox_to_camera(
-    camera: Query<&GlobalTransform, (With<Camera3d>, Without<SkyBox>)>,
+    camera: Query<&GlobalTransform, (camera::IsWorldCamera, Without<SkyBox>)>,
     mut skybox: Query<&mut Transform, With<SkyBox>>,
 ) {
     let Ok(cam_tx) = camera.single() else {

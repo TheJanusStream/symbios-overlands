@@ -949,7 +949,8 @@ pub(super) enum SceneHit {
 #[derive(bevy::ecs::system::SystemParam)]
 pub(super) struct ScenePick<'w, 's> {
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
-    cameras: Query<'w, 's, (&'static Camera, &'static GlobalTransform), With<Camera3d>>,
+    cameras:
+        Query<'w, 's, (&'static Camera, &'static GlobalTransform), crate::camera::IsWorldCamera>,
     raycast: MeshRayCast<'w, 's>,
     spatial: SpatialQuery<'w, 's>,
     terrain: Query<'w, 's, Entity, With<crate::terrain::TerrainMesh>>,

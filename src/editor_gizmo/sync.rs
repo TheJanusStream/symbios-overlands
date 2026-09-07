@@ -94,7 +94,7 @@ pub(super) fn sync_gizmo_selection(
             Option<&ChildOf>,
         )>,
     ),
-    camera_query: Query<&GlobalTransform, With<Camera3d>>,
+    camera_query: Query<&GlobalTransform, crate::camera::IsWorldCamera>,
     // Any entity still carrying gizmo state a deselect would need to tear down.
     gizmoed: Query<(), Or<(With<GizmoTarget>, With<GizmoDetachedPrim>)>>,
     // Live gizmo flags, for the mid-drag resolution freeze (#822).

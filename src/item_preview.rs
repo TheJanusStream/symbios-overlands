@@ -170,6 +170,17 @@ impl ItemPreview {
     }
 }
 
+/// Marks the preview's own camera (#1300).
+///
+/// The stage is invisible to the world camera through [`PREVIEW_LAYER`],
+/// but the CAMERA is a plain `Camera3d` and was therefore a second answer
+/// to every `With<Camera3d>` query in the crate — see
+/// [`crate::camera::WorldCamera`] for what that broke. This module
+/// identifies its own camera positively for the same reason everything
+/// else now identifies the player's.
+#[derive(Component)]
+struct PreviewCamera;
+
 pub struct ItemPreviewPlugin;
 
 impl Plugin for ItemPreviewPlugin {
@@ -223,6 +234,7 @@ fn setup_preview(
     let camera = commands
         .spawn((
             Camera3d::default(),
+            PreviewCamera,
             Camera {
                 // Ahead of the main camera, so the texture egui samples
                 // this frame was drawn this frame.
@@ -295,7 +307,7 @@ fn setup_preview(
 fn clear_preview(
     mut commands: Commands,
     mut preview: ResMut<ItemPreview>,
-    mut cameras: Query<&mut Camera>,
+    mut cameras: Query<&mut Camera, With<PreviewCamera>>,
 ) {
     if let Some(stage) = preview.stage.take() {
         commands.entity(stage).despawn();
@@ -338,7 +350,7 @@ fn restage_preview(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut deps: AvatarSpawnDeps,
-    mut cameras: Query<&mut Camera>,
+    mut cameras: Query<&mut Camera, With<PreviewCamera>>,
 ) {
     let wanted = wanted_subject(panels.catalogue, browser.selected_slug());
     if wanted.as_ref() == preview.staged() {
@@ -406,7 +418,7 @@ fn restage_preview(
 /// underneath it.
 fn frame_preview(
     mut preview: ResMut<ItemPreview>,
-    mut cameras: Query<&mut Transform, With<Camera3d>>,
+    mut cameras: Query<&mut Transform, With<PreviewCamera>>,
     bounds: Query<(&GlobalTransform, &Aabb, &RenderLayers)>,
 ) {
     if preview.framed || preview.stage.is_none() {
