@@ -517,7 +517,7 @@ pub enum WriteOp {
 pub struct FailureSinks<'a, R: 'static + Send + Sync> {
     pub session_log: &'a mut SessionLog,
     pub feedback: &'a mut crate::state::PublishFeedback<R>,
-    pub toasts: &'a mut crate::ui::toast::Toasts,
+    pub toasts: &'a mut crate::notify::Toasts,
     pub panels: &'a mut crate::ui::toolbar::UiPanels,
 }
 
@@ -763,7 +763,7 @@ pub fn audience_notice(ui: &mut egui::Ui, visibility: EditVisibility, peers: usi
 pub fn report_publish_success(
     record: RecordKind,
     panels: &crate::ui::toolbar::UiPanels,
-    toasts: &mut crate::ui::toast::Toasts,
+    toasts: &mut crate::notify::Toasts,
     now: f64,
 ) {
     let (open, noun) = match record {
@@ -1522,9 +1522,9 @@ mod publish_deadline_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::notify::{ToastKind, Toasts};
     use crate::pds::{AvatarRecord, RoomRecord};
     use crate::state::PublishFeedback;
-    use crate::ui::toast::{ToastKind, Toasts};
     use crate::ui::toolbar::UiPanels;
 
     /// #1200 (finding 128): "Reset to default" on the inventory empties the
@@ -2177,7 +2177,7 @@ mod audience_tests {
     #[test]
     fn a_landed_save_is_announced_only_when_its_window_is_shut() {
         let mut panels = crate::ui::toolbar::UiPanels::default();
-        let mut toasts = crate::ui::toast::Toasts::default();
+        let mut toasts = crate::notify::Toasts::default();
 
         panels.world_editor = false;
         report_publish_success(RecordKind::Room, &panels, &mut toasts, 1.0);

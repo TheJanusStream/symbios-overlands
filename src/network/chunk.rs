@@ -343,7 +343,7 @@ pub struct OversizeNotices(std::collections::HashSet<&'static str>);
 pub(crate) fn warn_once_on_refusal(
     outcome: SendOutcome,
     notices: &mut OversizeNotices,
-    toasts: &mut crate::ui::toast::Toasts,
+    toasts: &mut crate::notify::Toasts,
     subject: &'static str,
     now: f64,
 ) -> SendOutcome {
@@ -634,7 +634,7 @@ mod tests {
     #[test]
     fn the_owner_is_warned_once_per_crossing() {
         let mut notices = OversizeNotices::default();
-        let mut toasts = crate::ui::toast::Toasts::default();
+        let mut toasts = crate::notify::Toasts::default();
         let refused = SendOutcome::Refused { bytes: 1_000_000 };
 
         warn_once_on_refusal(refused, &mut notices, &mut toasts, "world", 0.0);
@@ -642,7 +642,7 @@ mod tests {
         warn_once_on_refusal(refused, &mut notices, &mut toasts, "world", 0.2);
         let shown = toasts.shown();
         assert_eq!(shown.len(), 1, "three refusals, one toast");
-        assert_eq!(shown[0].0, crate::ui::toast::ToastKind::Warn);
+        assert_eq!(shown[0].0, crate::notify::ToastKind::Warn);
         assert!(
             shown[0].1.contains("976.6 KiB") && shown[0].1.contains("900.0 KiB"),
             "the toast names the measured size and the limit: {}",
@@ -672,7 +672,7 @@ mod tests {
     #[test]
     fn a_serialize_failure_is_not_reported_as_sent() {
         let mut notices = OversizeNotices::default();
-        let mut toasts = crate::ui::toast::Toasts::default();
+        let mut toasts = crate::notify::Toasts::default();
         assert!(!SendOutcome::NotSerialized.is_sent());
         warn_once_on_refusal(
             SendOutcome::NotSerialized,

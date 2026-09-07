@@ -535,7 +535,7 @@ pub(super) fn maybe_populate_lots(
     mut record: ResMut<LiveRoomRecord>,
     did: Option<Res<CurrentRoomDid>>,
     heightmap: Option<Res<FinishedHeightMap>>,
-    mut undo_signals: ResMut<crate::ui::undo::RoomWriteSignals>,
+    mut undo_signals: ResMut<crate::state::RoomWriteSignals>,
     mut stats: ResMut<super::RoadPanelStats>,
     time: Res<Time>,
     // Session-side layout fingerprint (#882): `None` until the first
@@ -552,7 +552,7 @@ pub(super) fn maybe_populate_lots(
     // has an unchanged fingerprint by construction, so it would answer
     // "Skip" and the buildings would stay on the old street plan.
     mut armed_by_terrain: Local<bool>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
 ) {
     let Some(heightmap) = heightmap else {
         return;

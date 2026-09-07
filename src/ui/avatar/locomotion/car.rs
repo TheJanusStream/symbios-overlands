@@ -4,7 +4,7 @@ use bevy_egui::egui;
 
 use super::{LocomotionPanel, fp_slider, fp3_extents};
 use crate::pds::CarParams;
-use crate::ui::modes::LocalMovement;
+use crate::player::LocalMovement;
 
 impl LocomotionPanel for CarParams {
     fn draw(&mut self, ui: &mut egui::Ui, dirty: &mut bool, _facts: &LocalMovement) {

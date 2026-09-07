@@ -599,6 +599,42 @@ impl AvatarEditorState {
     }
 }
 
+/// Publish [`crate::player::RigHold`] from this frame's editor state
+/// (#1158) — the ONE writer of that resource.
+///
+/// The player systems used to read `AvatarEditorState` themselves, which
+/// pointed the dependency arrow from the physics and animation drivers
+/// into the egui layer. They read four booleans out of it, so four
+/// booleans is what crosses now; the predicates and their reasoning
+/// (#1103, #1106) stay here, beside the selection state that answers them.
+///
+/// Runs unconditionally rather than inside `avatar_ui`: the panel draws
+/// only while it is open, and a hold that stopped being republished the
+/// moment the window closed would latch at its last value. With no editor
+/// state at all — before login, and in the headless render tool — every
+/// field stays `false`, which is what the old `Option<Res<…>>` degraded
+/// to.
+pub fn mirror_rig_hold(
+    editor: Option<Res<AvatarEditorState>>,
+    mut hold: ResMut<crate::player::RigHold>,
+) {
+    let next = editor
+        .as_deref()
+        .map_or(crate::player::RigHold::default(), |e| {
+            crate::player::RigHold {
+                at_rest: e.holds_rig_at_rest(),
+                pose: e.holds_rig_pose(),
+                still: e.holds_avatar_still(),
+                visuals_row: e.has_visuals_selection(),
+            }
+        });
+    // Guarded write (#879): an unconditional `*hold = next` would mark the
+    // resource changed every frame.
+    if *hold != next {
+        *hold = next;
+    }
+}
+
 /// Why this tab is a dead end on this body kind, or `None` (#1256 f100).
 ///
 /// Exactly one tab is a dead end at any time — never two, and never the Body
@@ -664,12 +700,12 @@ pub fn avatar_ui(
         ResMut<crate::editor_gizmo::BlobEditContext>,
         Res<crate::world_builder::grammar_diag::GrammarDiagnostics>,
         Option<Res<crate::state::AvatarRecordRecovery>>,
-        ResMut<crate::ui::toast::Toasts>,
+        ResMut<crate::notify::Toasts>,
         Res<crate::ui::undo::AvatarUndoHistory>,
         ResMut<crate::ui::undo::UndoShortcut>,
         ResMut<crate::ui::undo::PendingUndoLabels>,
         ResMut<crate::editor_gizmo::FacePick>,
-        Res<crate::ui::modes::LocalMovement>,
+        Res<crate::player::LocalMovement>,
         // The asset caches (#1246): a worn item's Sign faces are fetched
         // through the same cache the room's are, so the Parts editor gets
         // the same status lines rather than a second, silent copy of the
@@ -1787,7 +1823,7 @@ pub fn poll_publish_avatar_tasks(
     // background" and Esc-closing the editor mid-save both leave the footer
     // where the failure lands unread.
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     // The post-publish nudge (#1122).
     mut network: bevy_symbios_multiuser::prelude::SendMessage<crate::protocol::OverlandsMessage>,
     // A result for another identity must not pin `stored` (#1204).
@@ -2167,6 +2203,78 @@ mod tests {
     /// the pose as it stands instead (selecting must not move anything);
     /// the tab being open is not a hold (owner direction), and a
     /// visuals-row gizmo is neither.
+    /// #1158. The four booleans the player systems read are now the whole
+    /// of what crosses out of the editor, so this is the one place the
+    /// mapping can go wrong — and a wrong mapping is silent: the body
+    /// simply stops holding, or holds when it should walk.
+    ///
+    /// Asserts the mirror against the predicates rather than restating
+    /// their values, so it cannot drift from the rules in #1103/#1106 that
+    /// the tests above pin.
+    #[test]
+    fn the_rig_hold_mirrors_every_predicate_including_absence() {
+        use bevy::ecs::system::RunSystemOnce;
+
+        fn mirrored(state: &AvatarEditorState) -> crate::player::RigHold {
+            crate::player::RigHold {
+                at_rest: state.holds_rig_at_rest(),
+                pose: state.holds_rig_pose(),
+                still: state.holds_avatar_still(),
+                visuals_row: state.has_visuals_selection(),
+            }
+        }
+
+        let mut app = App::new();
+        app.init_resource::<crate::player::RigHold>();
+
+        // No editor state at all — before login, and the headless render
+        // tool. Must read as "nothing is held", which is what the
+        // `Option<Res<…>>` this replaced degraded to.
+        app.world_mut()
+            .run_system_once(mirror_rig_hold)
+            .expect("runs without an editor");
+        assert_eq!(
+            *app.world().resource::<crate::player::RigHold>(),
+            crate::player::RigHold::default(),
+            "absent editor state must hold nothing"
+        );
+
+        for aim in ["prop", "part", "visuals"] {
+            let mut state = AvatarEditorState {
+                window_visible: true,
+                ..Default::default()
+            };
+            match aim {
+                "prop" => state.select_attachment_from_scene_pick(String::from("3jzfcijpj2z2a")),
+                "part" => state
+                    .select_attachment_part_from_scene_pick(String::from("3jzfcijpj2z2a"), vec![0]),
+                _ => state.select_from_scene_pick(vec![0]),
+            }
+            let expected = mirrored(&state);
+            app.insert_resource(state);
+            app.world_mut()
+                .run_system_once(mirror_rig_hold)
+                .expect("runs");
+            assert_eq!(
+                *app.world().resource::<crate::player::RigHold>(),
+                expected,
+                "the {aim} gizmo's hold did not reach the player systems intact"
+            );
+        }
+
+        // And it RELEASES: a hold that only ever latched on would freeze
+        // the body for the rest of the session.
+        app.insert_resource(AvatarEditorState::default());
+        app.world_mut()
+            .run_system_once(mirror_rig_hold)
+            .expect("runs");
+        assert_eq!(
+            *app.world().resource::<crate::player::RigHold>(),
+            crate::player::RigHold::default(),
+            "clearing the aim must release the hold"
+        );
+    }
+
     #[test]
     fn the_bind_pose_hold_follows_the_prop_gizmo_and_the_pose_hold_the_part_gizmo() {
         let mut state = AvatarEditorState {

@@ -123,7 +123,7 @@ const ANOMALY_STRIP_MAX_HEIGHT: f32 = 120.0;
 pub(crate) struct LogExportDeps<'a> {
     pub session_log: &'a SessionLog,
     pub clipboard: &'a ClipboardQueue,
-    pub toasts: &'a mut crate::ui::toast::Toasts,
+    pub toasts: &'a mut crate::notify::Toasts,
     pub now: f64,
 }
 
@@ -1346,7 +1346,7 @@ fn render_health_tab(
 ///   browser as a byte-for-byte-identical `.jsonl` file the analyzer can read.
 ///
 /// Click outcomes are reported through the app-wide toast channel
-/// ([`crate::ui::toast::Toasts`], #819) — the same feedback surface the
+/// ([`crate::notify::Toasts`], #819) — the same feedback surface the
 /// landmark-link copy uses.
 // Each target uses a different subset of these: native has the log path
 // and its Copy button (`clipboard`), wasm has the two downloads and their
@@ -1359,7 +1359,7 @@ fn render_log_export_controls(
     ui: &mut egui::Ui,
     session_log: &SessionLog,
     clipboard: &ClipboardQueue,
-    toasts: &mut crate::ui::toast::Toasts,
+    toasts: &mut crate::notify::Toasts,
     now: f64,
 ) {
     ui.label("Session log");
@@ -1756,7 +1756,7 @@ pub fn diagnostics_ui(
     session_log: ResMut<SessionLog>,
     invariants: Res<InvariantRegistry>,
     metrics: Res<MetricsRegistry>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     clipboard: Res<ClipboardQueue>,
     mut active_tab: ResMut<DiagTab>,
     time: Res<Time>,
@@ -1962,7 +1962,7 @@ mod tests {
         fn render_once(reg: &InvariantRegistry, with_export: bool) {
             let log = SessionLog::default();
             let clipboard = ClipboardQueue::default();
-            let mut toasts = crate::ui::toast::Toasts::default();
+            let mut toasts = crate::notify::Toasts::default();
             let mut export = LogExportDeps {
                 session_log: &log,
                 clipboard: &clipboard,
@@ -2011,7 +2011,7 @@ mod tests {
     #[test]
     fn log_export_controls_render_without_panicking() {
         fn render_once(log: &SessionLog) {
-            let mut toasts = crate::ui::toast::Toasts::default();
+            let mut toasts = crate::notify::Toasts::default();
             let ctx = egui::Context::default();
             let _ = ctx.run_ui(egui::RawInput::default(), |root| {
                 egui::CentralPanel::default().show(root, |ui| {
@@ -2355,7 +2355,7 @@ mod tests {
         assert!(kept > 100, "the fixture only kept {kept} rows");
 
         let clipboard = ClipboardQueue::default();
-        let mut toasts = crate::ui::toast::Toasts::default();
+        let mut toasts = crate::notify::Toasts::default();
         let mut export = LogExportDeps {
             session_log: &log,
             clipboard: &clipboard,
@@ -2528,7 +2528,7 @@ mod tests {
         fn body_height(viewport_h: f32) -> f32 {
             let log = SessionLog::default();
             let clipboard = ClipboardQueue::default();
-            let mut toasts = crate::ui::toast::Toasts::default();
+            let mut toasts = crate::notify::Toasts::default();
             let mut export = LogExportDeps {
                 session_log: &log,
                 clipboard: &clipboard,

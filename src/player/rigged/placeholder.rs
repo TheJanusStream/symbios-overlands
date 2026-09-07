@@ -135,7 +135,7 @@ pub(in crate::player) const SLOW_BUILD_LINE: &str =
 pub(in crate::player) fn announce_slow_builds(
     time: Res<Time>,
     mut builds: Query<&mut RiggedBuild, With<LocalPlayer>>,
-    mut toasts: Option<ResMut<crate::ui::toast::Toasts>>,
+    mut toasts: Option<ResMut<crate::notify::Toasts>>,
 ) {
     let now = time.elapsed_secs_f64();
     for mut build in &mut builds {

@@ -4,7 +4,7 @@ use bevy_egui::egui;
 
 use super::{LocomotionPanel, fp_slider};
 use crate::pds::HumanoidParams;
-use crate::ui::modes::LocalMovement;
+use crate::player::LocalMovement;
 
 impl LocomotionPanel for HumanoidParams {
     fn draw(&mut self, ui: &mut egui::Ui, dirty: &mut bool, facts: &LocalMovement) {

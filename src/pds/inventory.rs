@@ -688,6 +688,26 @@ mod cap_tests {
     }
 }
 
+/// Which generator kinds can be point-placed via drag-and-drop.
+///
+/// Terrain + water describe whole-room scope (one heightmap / one water
+/// plane) so a ground-level placement of them is nonsensical; they stay
+/// editable via the World Editor tabs.
+///
+/// Lives here rather than in `ui::inventory` (#1158). It reads as a
+/// drag-and-drop affordance and it is one, but it is also the rule
+/// `network::inbound` applies to a generator arriving in a STRANGER's
+/// gift — so the check protecting a room from a hostile peer was owned by
+/// a panel module, and the network layer imported the egui surface to ask
+/// it. The rule is about the record, so it belongs with the record.
+pub fn is_drop_placeable(generator: &Generator) -> bool {
+    use super::GeneratorKind;
+    !matches!(
+        generator.kind,
+        GeneratorKind::Terrain(_) | GeneratorKind::Water { .. } | GeneratorKind::Unknown
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

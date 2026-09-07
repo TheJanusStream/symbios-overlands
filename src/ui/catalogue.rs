@@ -19,8 +19,9 @@ use egui_ltreeview::{Action, TreeView};
 
 use crate::catalogue::{CatalogueCategory, CatalogueEntry, ENTRIES, StructureRole, by_slug};
 use crate::pds::Generator;
+use crate::pds::inventory::is_drop_placeable;
 use crate::seeded_defaults::ThemeArchetype;
-use crate::ui::inventory::{DropSource, PendingGeneratorDrop, is_drop_placeable};
+use crate::ui::inventory::{DropSource, PendingGeneratorDrop};
 
 /// How the browser groups / orders entries. The hierarchy is the default;
 /// the others are alternate flat or single-axis groupings.
@@ -394,7 +395,7 @@ pub(crate) fn catalogue_ui(
     // placement only to an owner — a visitor can gift and nothing else.
     room_did: Option<Res<crate::state::CurrentRoomDid>>,
     mut undo_labels: ResMut<crate::ui::undo::PendingUndoLabels>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     time: Res<Time>,
     // Per-frame cache (#639): the node tree is a pure function of (mode,
     // search) over the `const ENTRIES`; rebuild only when those keys change.
@@ -697,7 +698,7 @@ fn detail_panel(
     live_avatar: Option<&mut ResMut<crate::state::LiveAvatarRecord>>,
     session: Option<&bevy_symbios_multiuser::auth::AtprotoSession>,
     undo_labels: &mut crate::ui::undo::PendingUndoLabels,
-    toasts: &mut crate::ui::toast::Toasts,
+    toasts: &mut crate::notify::Toasts,
     now: f64,
 ) {
     let Some(entry) = selected.and_then(by_slug) else {
@@ -801,7 +802,7 @@ fn inventory_row(
     live_avatar: Option<&mut ResMut<crate::state::LiveAvatarRecord>>,
     session: Option<&bevy_symbios_multiuser::auth::AtprotoSession>,
     undo_labels: &mut crate::ui::undo::PendingUndoLabels,
-    toasts: &mut crate::ui::toast::Toasts,
+    toasts: &mut crate::notify::Toasts,
     now: f64,
 ) {
     use crate::pds::inventory::WearMeta;

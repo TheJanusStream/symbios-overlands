@@ -266,7 +266,7 @@ pub(in crate::player) fn land_rigged_builds(
     // test worlds) run this without the diagnostics or UI plugins.
     mut metrics: Option<ResMut<crate::diagnostics::MetricsRegistry>>,
     mut session_log: Option<ResMut<crate::diagnostics::SessionLog>>,
-    mut toasts: Option<ResMut<crate::ui::toast::Toasts>>,
+    mut toasts: Option<ResMut<crate::notify::Toasts>>,
 ) {
     use bevy::tasks::{block_on, futures_lite::future};
     for (chassis, mut build, is_local, was_failing) in &mut builds {

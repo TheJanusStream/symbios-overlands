@@ -466,7 +466,7 @@ pub fn detect_script_needs(
     mut contexts: EguiContexts,
     mut cjk: ResMut<CjkFonts>,
     mut gaps: ResMut<ScriptGaps>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     time: Res<Time>,
     chat: Res<crate::state::ChatHistory>,
     feed: Res<crate::ui::login::LoginPostFeed>,
@@ -568,14 +568,14 @@ pub fn detect_script_needs(
 pub(crate) fn status_toast(
     status: &CjkStatus,
     slow_load: bool,
-) -> Option<(crate::ui::toast::ToastKind, &'static str)> {
+) -> Option<(crate::notify::ToastKind, &'static str)> {
     match status {
         CjkStatus::Fetching if slow_load => Some((
-            crate::ui::toast::ToastKind::Info,
+            crate::notify::ToastKind::Info,
             "Loading the font for this text — it is a large download and may take a moment.",
         )),
         CjkStatus::Failed => Some((
-            crate::ui::toast::ToastKind::Warn,
+            crate::notify::ToastKind::Warn,
             "Some text can't be displayed — the font for it failed to load. It will stay as \
              empty boxes until you reload.",
         )),
@@ -593,7 +593,7 @@ pub(crate) fn status_toast(
 /// detection — so this fires once per transition, not per frame.
 pub fn surface_font_status(
     cjk: Res<CjkFonts>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     time: Res<Time>,
 ) {
     if !cjk.is_changed() {
@@ -812,7 +812,7 @@ mod tests {
     /// by every gate this repo has.
     #[test]
     fn the_font_lifecycle_speaks_only_when_it_has_something_to_say() {
-        use crate::ui::toast::ToastKind;
+        use crate::notify::ToastKind;
 
         // A 16 MB download over an unknown link: worth announcing.
         assert_eq!(

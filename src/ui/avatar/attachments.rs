@@ -180,7 +180,7 @@ pub(super) fn draw_attachments_tab(
     did: Option<&str>,
     selected: &mut Option<String>,
     focus_selected: bool,
-    toasts: &mut crate::ui::toast::Toasts,
+    toasts: &mut crate::notify::Toasts,
     now: f64,
     // The body actually standing in the world (#1256): what a prop's numbers
     // really are, and which sockets this rig has.

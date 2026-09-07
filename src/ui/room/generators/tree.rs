@@ -10,9 +10,9 @@ use bevy_egui::egui;
 use egui_ltreeview::{Action, NodeBuilder, TreeView};
 
 use crate::pds::Generator;
+use crate::pds::inventory::is_drop_placeable;
 use crate::state::LiveInventoryRecord;
 use crate::ui::catalogue::catalogue_menu;
-use crate::ui::inventory::is_drop_placeable;
 
 use super::super::construct::{allows_children, make_default_for_kind};
 use super::reparent::{PendingAction, apply_pending, find_node};
@@ -35,7 +35,7 @@ pub(super) fn draw_tree_panel(
     request_focus: bool,
     dirty: &mut bool,
     confirms: &mut super::TreeConfirms,
-    toasts: &mut crate::ui::toast::Toasts,
+    toasts: &mut crate::notify::Toasts,
     now: f64,
     // Undo-entry label channel (#865): structural ops name themselves so
     // the toast can say "Undid: add of oak_3" instead of "Undid: edit".

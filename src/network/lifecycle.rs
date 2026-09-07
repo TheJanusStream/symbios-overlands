@@ -32,7 +32,7 @@ pub(super) fn handle_peer_connections(
     mut seq: ResMut<super::chunk::OutboundChunkSeq>,
     mut chat: ResMut<crate::state::ChatHistory>,
     mut notices: ResMut<super::chunk::OversizeNotices>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     link: Res<super::LinkState>,
 ) {
     let elapsed = time.elapsed_secs_f64();
@@ -223,7 +223,7 @@ pub(super) fn evict_stale_offer_dialog(
     mut session_log: ResMut<SessionLog>,
     mut sender: SendMessage<OverlandsMessage>,
     mut busy_declines: ResMut<crate::state::BusyAutoDeclines>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
 ) {
     let Some(dialog) = dialog else {
         return;
@@ -297,7 +297,7 @@ pub(super) fn sweep_stale_pending_offers(
     time: Res<Time>,
     mut pending: ResMut<PendingOutgoingOffers>,
     mut session_log: ResMut<SessionLog>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     link: Res<super::LinkState>,
 ) {
     let now = time.elapsed_secs_f64();
@@ -500,7 +500,7 @@ pub(super) fn resolve_held_offer(
     time: Res<Time>,
     mut session_log: ResMut<SessionLog>,
     mut sender: SendMessage<OverlandsMessage>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
 ) {
     let Some(held) = held else {
         return;

@@ -437,7 +437,7 @@ pub(super) fn scene_context_menu_ui(
     session: Option<Res<AtprotoSession>>,
     room_did: Option<Res<CurrentRoomDid>>,
     mut undo_labels: ResMut<crate::ui::undo::PendingUndoLabels>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     time: Res<Time>,
 ) {
     if !menu.open {

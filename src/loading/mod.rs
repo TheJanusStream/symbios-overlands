@@ -69,7 +69,7 @@ pub(crate) fn reset_fetch_outcomes(mut commands: Commands) {
 /// only trace of "your avatar is not your avatar" was the session log.
 pub(crate) fn toast_fetch_fallbacks(
     outcomes: Res<fetch::RecordFetchOutcomes>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     time: Res<Time>,
 ) {
     let fallen = outcomes.failure_fallback_labels();
@@ -99,7 +99,7 @@ pub(crate) fn toast_fetch_fallbacks(
 /// difference between a broken room and a quiet one.
 pub(crate) fn toast_ambient_failure(
     failed: Option<Res<AmbientResolveFailed>>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     time: Res<Time>,
 ) {
     let Some(failed) = failed else {

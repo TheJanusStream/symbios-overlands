@@ -219,9 +219,9 @@ pub(super) fn poll_portal_travel_tasks(
         With<LocalPlayer>,
     >,
     time: Res<Time>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     profile_cache: Res<crate::avatar::BskyProfileCache>,
-    mut undo_signals: ResMut<crate::ui::undo::RoomWriteSignals>,
+    mut undo_signals: ResMut<crate::state::RoomWriteSignals>,
     // Cleared when the swap lands (#1204): the cache's own contract is
     // "cleared on room transitions" so a self-updating `DidPfp` source is
     // re-fetched in the next world, and logout was its only clear site.

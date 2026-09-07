@@ -354,7 +354,7 @@ pub struct WearSurface<'w> {
     live_avatar: Option<ResMut<'w, crate::state::LiveAvatarRecord>>,
     avatar_editor: ResMut<'w, crate::ui::avatar::AvatarEditorState>,
     undo_labels: ResMut<'w, crate::ui::undo::PendingUndoLabels>,
-    toasts: ResMut<'w, crate::ui::toast::Toasts>,
+    toasts: ResMut<'w, crate::notify::Toasts>,
 }
 
 /// A Wear / Take off click on an inventory row (#1096), applied after the
@@ -422,7 +422,7 @@ fn apply_wear_action(
     avatar_editor: &mut crate::ui::avatar::AvatarEditorState,
     did: &str,
     undo_labels: &mut crate::ui::undo::PendingUndoLabels,
-    toasts: &mut crate::ui::toast::Toasts,
+    toasts: &mut crate::notify::Toasts,
     now: f64,
 ) {
     let Some(live) = live_avatar else {
@@ -883,7 +883,7 @@ pub fn inventory_ui(
                                     .0
                                     .generators
                                     .get(&name)
-                                    .map(is_drop_placeable)
+                                    .map(crate::pds::inventory::is_drop_placeable)
                                     .unwrap_or(false);
                                 // An item this build cannot decode (#1207): a
                                 // gift from a newer client, or a stash saved by
@@ -1162,7 +1162,7 @@ pub fn poll_publish_inventory_tasks(
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
     time: Res<Time>,
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     // A result for another identity must not pin `stored` (#1204).
     session: Option<Res<AtprotoSession>>,
 ) {
@@ -1253,17 +1253,6 @@ pub const UNREADABLE_ITEM_TAG: &str = "(from a newer version of Overlands)";
 pub const UNREADABLE_ITEM_HOVER: &str = "This item was made by a newer version of Overlands. \
      This build cannot read it, so it cannot be placed, worn, renamed or saved — and while it \
      is in your inventory, the inventory cannot be saved at all. Update Overlands, or delete the item.";
-
-/// Which generator kinds can be point-placed via drag-and-drop.
-/// Terrain + water describe whole-room scope (one heightmap / one water
-/// plane) so a ground-level placement of them is nonsensical; they stay
-/// editable via the World Editor tabs.
-pub fn is_drop_placeable(generator: &Generator) -> bool {
-    !matches!(
-        generator.kind,
-        GeneratorKind::Terrain(_) | GeneratorKind::Water { .. } | GeneratorKind::Unknown
-    )
-}
 
 /// Pick an inventory key for a gift arriving via [`crate::protocol::OverlandsMessage::ItemOffer`].
 /// Policy: if the incoming name is free, use it verbatim; otherwise

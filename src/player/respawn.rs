@@ -284,7 +284,7 @@ pub(super) fn apply_player_move(
     traveling: Option<Res<TravelingTo>>,
     time: Res<Time>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
 ) {
     let Some(what) = request.0.take() else {
         return;
@@ -349,7 +349,7 @@ pub(super) fn respawn_if_fallen(
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
     mut recent_respawns: ResMut<crate::diagnostics::anomaly::RecentRespawns>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
 ) {
     let Ok((entity, mut pos, mut rot, mut lin_vel, mut ang_vel)) = query.single_mut() else {
         return;

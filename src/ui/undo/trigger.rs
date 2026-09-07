@@ -20,9 +20,9 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
 
+use crate::notify::Toasts;
 use crate::state::{LiveAvatarRecord, LiveRoomRecord};
 use crate::ui::shortcuts::EditorKind;
-use crate::ui::toast::Toasts;
 
 use super::super::avatar::AvatarEditorState;
 use super::super::room::RoomEditorState;

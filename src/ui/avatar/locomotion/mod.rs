@@ -13,7 +13,7 @@ mod humanoid;
 use bevy_egui::egui;
 
 use crate::pds::{Fp, GaitParams, LocomotionConfig};
-use crate::ui::modes::LocalMovement;
+use crate::player::LocalMovement;
 
 /// Egui detail panel for one locomotion preset. Implemented on each
 /// `*Params` struct in this module's siblings — `draw_locomotion_tab`
@@ -78,7 +78,7 @@ pub fn draw_locomotion_tab(
     // tunes movement needs to be able to say when a value it publishes
     // has stopped having an effect on THIS body.
     facts: &LocalMovement,
-    toasts: &mut crate::ui::toast::Toasts,
+    toasts: &mut crate::notify::Toasts,
     now: f64,
 ) {
     let current_kind = locomotion.kind_tag();

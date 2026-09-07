@@ -499,7 +499,7 @@ pub fn global_shortcuts(
     mut esc: EscLadder,
     dirty: EditorDirtyState,
     mut undo: ResMut<crate::ui::undo::UndoShortcut>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     time: Res<Time>,
     // "Go to selection" (#1244 f148): where the gizmo host is, and the
     // channel that moves the player there.
@@ -925,7 +925,7 @@ pub fn install_ime_probe() {
 /// the app had to say.
 #[cfg(target_arch = "wasm32")]
 pub fn report_ime_dead_end(
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     time: Res<Time>,
     mut told: Local<bool>,
 ) {

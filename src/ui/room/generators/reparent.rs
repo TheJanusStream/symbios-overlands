@@ -88,7 +88,7 @@ pub(super) fn apply_pending(
     inventory: Option<&mut LiveInventoryRecord>,
     dirty: &mut bool,
     confirms: &mut super::TreeConfirms,
-    toasts: &mut crate::ui::toast::Toasts,
+    toasts: &mut crate::notify::Toasts,
     now: f64,
     // Undo-entry label channel (#865). Only set on arms that actually
     // mutate the record (`dirty = true`) — a parked label with no
@@ -919,7 +919,7 @@ mod tests {
         let mut renaming = None;
         let mut dirty = false;
         let mut confirms = super::super::TreeConfirms::default();
-        let mut toasts = crate::ui::toast::Toasts::default();
+        let mut toasts = crate::notify::Toasts::default();
         let mut labels = crate::ui::undo::PendingUndoLabels::default();
         apply_pending(
             PendingAction::Reparent {
@@ -1668,7 +1668,7 @@ mod tests {
         let mut renaming = None;
         let mut dirty = false;
         let mut confirms = crate::ui::room::generators::TreeConfirms::default();
-        let mut toasts = crate::ui::toast::Toasts::default();
+        let mut toasts = crate::notify::Toasts::default();
         let mut labels = crate::ui::undo::PendingUndoLabels::default();
         let mut clipboard: Option<Generator> = None;
 
@@ -1740,7 +1740,7 @@ mod tests {
         let mut renaming = None;
         let mut dirty = false;
         let mut confirms = crate::ui::room::generators::TreeConfirms::default();
-        let mut toasts = crate::ui::toast::Toasts::default();
+        let mut toasts = crate::notify::Toasts::default();
         let mut labels = crate::ui::undo::PendingUndoLabels::default();
         let mut clipboard = None;
 

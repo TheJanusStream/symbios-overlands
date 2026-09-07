@@ -152,7 +152,7 @@ pub fn poll_publish_tasks(
     // A failed write is reported OUTSIDE this window (#1137): the toast and
     // the auto-open are what make it visible when the editor is closed.
     mut panels: ResMut<crate::ui::toolbar::UiPanels>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     // The room this session is in now (#1204): a result for another room
     // — a save let run in the background across a portal hop, or a task
     // that outlived its session — must not pin `stored`.

@@ -413,7 +413,7 @@ pub(super) fn narrate_link_state(
     peers: Query<Entity, With<RemotePeer>>,
     mut narration: ResMut<LinkNarration>,
     mut chat: ResMut<ChatHistory>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     mut session_log: ResMut<SessionLog>,
     time: Res<Time>,
 ) {
@@ -473,8 +473,8 @@ pub(super) fn narrate_link_state(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::notify::ToastKind;
     use crate::state::RemotePeer;
-    use crate::ui::toast::ToastKind;
     use bevy::ecs::system::RunSystemOnce;
 
     /// A `PeerId` for a fixture peer. `PeerId` is a newtype over a `Uuid`
@@ -506,7 +506,7 @@ mod tests {
         app.init_resource::<LinkState>();
         app.init_resource::<LinkNarration>();
         app.init_resource::<ChatHistory>();
-        app.init_resource::<crate::ui::toast::Toasts>();
+        app.init_resource::<crate::notify::Toasts>();
         app.init_resource::<SessionLog>();
         app.add_systems(Update, narrate_link_state);
         app
@@ -730,7 +730,7 @@ mod tests {
             vec![LINK_LOST_LINE.to_owned()],
             "one honest line about US, not three about the peers"
         );
-        let toasts = app.world().resource::<crate::ui::toast::Toasts>().shown();
+        let toasts = app.world().resource::<crate::notify::Toasts>().shown();
         assert_eq!(toasts.len(), 1);
         assert_eq!(toasts[0].0, ToastKind::Warn);
         assert!(
@@ -802,7 +802,7 @@ mod tests {
         assert!(chat_lines(&mut app).is_empty());
         assert!(
             app.world()
-                .resource::<crate::ui::toast::Toasts>()
+                .resource::<crate::notify::Toasts>()
                 .shown()
                 .is_empty()
         );

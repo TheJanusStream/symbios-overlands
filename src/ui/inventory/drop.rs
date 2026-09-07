@@ -20,7 +20,9 @@ use crate::protocol::OverlandsMessage;
 use crate::state::{CurrentRoomDid, LiveInventoryRecord, LiveRoomRecord, PendingOutgoingOffers};
 use crate::terrain::TerrainMesh;
 
-use super::{DropSource, PendingGeneratorDrop, is_drop_placeable};
+use crate::pds::inventory::is_drop_placeable;
+
+use super::{DropSource, PendingGeneratorDrop};
 
 /// Drop handler. Runs every frame in `InGame`; cheap-out early unless a drag
 /// has been armed via [`PendingGeneratorDrop`].
@@ -73,7 +75,7 @@ pub fn handle_generator_drop(
     // Bundled to stay under Bevy's 16-parameter ceiling.
     (time, mut toasts, mut undo_labels): (
         Res<Time>,
-        ResMut<crate::ui::toast::Toasts>,
+        ResMut<crate::notify::Toasts>,
         ResMut<crate::ui::undo::PendingUndoLabels>,
     ),
 ) {
@@ -501,7 +503,7 @@ fn record_gift_outcome(
     item_name: &str,
     pending_offers: &mut PendingOutgoingOffers,
     session_log: &mut SessionLog,
-    toasts: &mut crate::ui::toast::Toasts,
+    toasts: &mut crate::notify::Toasts,
     now: f64,
 ) {
     if !outcome.is_sent() {
@@ -546,12 +548,12 @@ fn record_gift_outcome(
 mod gift_outcome_tests {
     use super::*;
     use crate::network::chunk::SendOutcome;
-    use crate::ui::toast::ToastKind;
+    use crate::notify::ToastKind;
 
-    fn book(outcome: SendOutcome) -> (PendingOutgoingOffers, SessionLog, crate::ui::toast::Toasts) {
+    fn book(outcome: SendOutcome) -> (PendingOutgoingOffers, SessionLog, crate::notify::Toasts) {
         let mut offers = PendingOutgoingOffers::default();
         let mut log = SessionLog::default();
-        let mut toasts = crate::ui::toast::Toasts::default();
+        let mut toasts = crate::notify::Toasts::default();
         let id = offers.peek_next_id();
         record_gift_outcome(
             outcome,
@@ -608,7 +610,7 @@ mod gift_outcome_tests {
     fn a_recipient_with_no_resolved_handle_is_not_toasted_at_as_an_at_sign_did() {
         let mut offers = PendingOutgoingOffers::default();
         let mut log = SessionLog::default();
-        let mut toasts = crate::ui::toast::Toasts::default();
+        let mut toasts = crate::notify::Toasts::default();
         let id = offers.peek_next_id();
         record_gift_outcome(
             SendOutcome::Sent,

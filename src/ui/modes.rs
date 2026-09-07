@@ -31,6 +31,7 @@
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
+use crate::player::LocalMovement;
 use crate::player::humanoid::WaterState;
 
 /// A mode the player is in that the movement keys do not advertise.
@@ -96,39 +97,6 @@ pub fn movement_mode(
         WaterState::Wading { .. } => Some(MovementMode::Wading),
         WaterState::Dry => None,
     }
-}
-
-/// Facts about how the local avatar is currently moving that the movement
-/// code knows and no UI could see (#1241 f160, f168).
-///
-/// `WaterState` was referenced outside `player::humanoid` only by
-/// `player::rigged::motion` and never by `src/ui` at all, so the key remap
-/// it drives had no surface anywhere; the derived walk speed existed only
-/// as a local inside the drive system, so the editor could not tell the
-/// owner that their Run slider had gone below it.
-///
-/// Written by `player::humanoid::publish_movement_facts` (private to the
-/// player module), which
-/// is deliberately NOT the drive system: the drive systems stand down
-/// while an egui text field has focus, and a banner that vanished whenever
-/// the player clicked into chat would be worse than none.
-#[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
-pub struct LocalMovement {
-    /// Dry / wading / swimming, from `humanoid_water_state`.
-    pub water: WaterState,
-    /// The unshifted walk this body actually walks at (m/s), derived from
-    /// the built rig — `None` until the rigged body lands. Read by the
-    /// locomotion editor so the Run slider can say when it has been
-    /// dragged below it (#1241 f168).
-    pub derived_walk: Option<f32>,
-    /// The CAMERA is below a water surface (#1241 f160). Separate from
-    /// [`Self::water`], which classifies the avatar: a third-person orbit
-    /// camera dips under the surface on its own and, because the water
-    /// plane is back-face culled (`world_builder::material`), there is
-    /// nothing to see from below — no tint, no fog swap, no surface at
-    /// all. The player cannot tell swimming from falling through empty
-    /// space, and the flow current then moves them for no visible reason.
-    pub camera_submerged: bool,
 }
 
 /// The full-viewport tint painted while the camera is under water

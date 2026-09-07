@@ -46,8 +46,10 @@
 //!   rename dialog ([`confirm::ConfirmState`], #838).
 //! * [`travel`]       — in-flight travel overlay + portal approach
 //!   prompt (#842).
-//! * [`toast`]        — transient bottom-right notification stack
-//!   ([`toast::Toasts`]); the one channel for "something just happened"
+//! * [`toast`]        — RENDERING for the notification stack; the queue
+//!   itself is [`crate::notify::Toasts`], outside `ui` since #1158
+//!   because `network`, `player`, `loading` and `terrain` all raise
+//!   toasts. The one channel for "something just happened"
 //!   feedback (#819). Bottom-right since #1261 f43 — the top-right corner
 //!   is where all five right-anchored windows open, and the toast area is
 //!   a real pointer area, so it ate their clicks.

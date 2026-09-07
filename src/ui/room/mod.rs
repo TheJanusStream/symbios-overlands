@@ -457,7 +457,7 @@ pub struct RoomEditorExtras<'w, 's> {
     /// Pending Ctrl+S request for the shared save row (#836).
     publish_shortcut: ResMut<'w, crate::ui::shortcuts::PublishShortcut>,
     /// Toast channel for structural-op feedback (#841).
-    toasts: ResMut<'w, crate::ui::toast::Toasts>,
+    toasts: ResMut<'w, crate::notify::Toasts>,
     /// Undo history (read: button enabled-state + tooltips) and the
     /// shared request the header buttons stamp (#864).
     undo_history: Res<'w, crate::ui::undo::RoomUndoHistory>,
@@ -584,7 +584,7 @@ pub(crate) fn compile_truncated_text(t: &crate::world_builder::WorldCompileTrunc
 /// Guarded-dirty: the resource is written only on the frame it announces.
 pub fn announce_compile_truncation(
     truncated: Option<ResMut<crate::world_builder::WorldCompileTruncated>>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     time: Res<Time>,
 ) {
     let Some(mut truncated) = truncated else {
@@ -1771,7 +1771,7 @@ mod truncation_tests {
     fn the_truncation_toast_fires_once() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
-        app.init_resource::<crate::ui::toast::Toasts>();
+        app.init_resource::<crate::notify::Toasts>();
         app.add_systems(Update, announce_compile_truncation);
         app.insert_resource(crate::world_builder::WorldCompileTruncated {
             skipped_placements: 5,
@@ -1780,9 +1780,9 @@ mod truncation_tests {
         });
         app.update();
         app.update();
-        let shown = app.world().resource::<crate::ui::toast::Toasts>().shown();
+        let shown = app.world().resource::<crate::notify::Toasts>().shown();
         assert_eq!(shown.len(), 1, "one toast per report");
-        assert_eq!(shown[0].0, crate::ui::toast::ToastKind::Warn);
+        assert_eq!(shown[0].0, crate::notify::ToastKind::Warn);
         assert!(
             app.world()
                 .resource::<crate::world_builder::WorldCompileTruncated>()

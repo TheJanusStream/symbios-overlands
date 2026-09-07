@@ -209,7 +209,7 @@ pub fn poll_service_token_refresh(
     token_source: Option<Res<TokenSourceRes>>,
     mut metrics: ResMut<crate::diagnostics::MetricsRegistry>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     time: Res<Time>,
     mut consecutive: Local<u64>,
     mut alarmed: Local<bool>,
@@ -268,7 +268,7 @@ mod tests {
     use super::*;
     use crate::diagnostics::event::EventPayload;
     use crate::diagnostics::{MetricsRegistry, SessionLog, names};
-    use crate::ui::toast::Toasts;
+    use crate::notify::Toasts;
 
     /// An app with the sinks the poll system writes to. Tasks are spawned
     /// only after this returns — `IoTaskPool` is initialised by the plugin

@@ -101,7 +101,6 @@ use bevy_egui::input::egui_wants_any_keyboard_input;
 
 use crate::config::rover as cfg;
 use crate::state::{AppState, LocalPlayer};
-use crate::ui::avatar::AvatarEditorState;
 use crate::ui::unsaved_guard::UnsavedGuard;
 
 /// Run condition: SOME modal dialog owns attention (#852, widened by
@@ -323,9 +322,10 @@ impl Plugin for PlayerPlugin {
                     .chain()
                     .run_if(in_state(AppState::InGame)),
             )
+            .init_resource::<RigHold>()
             .init_resource::<humanoid::JumpQueued>()
             .init_resource::<respawn::PlayerMoveRequest>()
-            .init_resource::<crate::ui::modes::LocalMovement>()
+            .init_resource::<crate::player::LocalMovement>()
             .add_systems(
                 Update,
                 (
@@ -351,6 +351,82 @@ impl Plugin for PlayerPlugin {
     }
 }
 
+/// Facts about how the local avatar is currently moving that the movement
+/// code knows and no UI could see (#1241 f160, f168).
+///
+/// `WaterState` was referenced outside `player::humanoid` only by
+/// `player::rigged::motion` and never by `src/ui` at all, so the key remap
+/// it drives had no surface anywhere; the derived walk speed existed only
+/// as a local inside the drive system, so the editor could not tell the
+/// owner that their Run slider had gone below it.
+///
+/// Written by [`humanoid::publish_movement_facts`], which is deliberately
+/// NOT the drive system: the drive systems stand down while an egui text
+/// field has focus, and a banner that vanished whenever the player clicked
+/// into chat would be worse than none.
+///
+/// Lives in `player` rather than `ui::modes` (#1158): these are facts
+/// about how the local body is moving, produced here and merely
+/// DISPLAYED by the mode banner and the locomotion editor. It already
+/// carried `player::humanoid::WaterState`, so the type pointed this way
+/// before the module did. The mirror image of [`RigHold`], which the
+/// editor writes and this module reads.
+///
+// the player clicked into chat would be worse than none.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq)]
+pub struct LocalMovement {
+    /// Dry / wading / swimming, from `humanoid_water_state`.
+    pub water: humanoid::WaterState,
+    /// The unshifted walk this body actually walks at (m/s), derived from
+    /// the built rig — `None` until the rigged body lands. Read by the
+    /// locomotion editor so the Run slider can say when it has been
+    /// dragged below it (#1241 f168).
+    pub derived_walk: Option<f32>,
+    /// The CAMERA is below a water surface (#1241 f160). Separate from
+    /// [`Self::water`], which classifies the avatar: a third-person orbit
+    /// camera dips under the surface on its own and, because the water
+    /// plane is back-face culled (`world_builder::material`), there is
+    /// nothing to see from below — no tint, no fog swap, no surface at
+    /// all. The player cannot tell swimming from falling through empty
+    /// space, and the flow current then moves them for no visible reason.
+    pub camera_submerged: bool,
+}
+
+/// Whether, and how, the avatar editor is holding the local body still
+/// this frame (#1158).
+///
+/// The four questions the player systems ask, answered as data. They used
+/// to ask `ui::avatar::AvatarEditorState` directly, which put an egui
+/// resource type in the signature of the physics and animation drivers —
+/// so a UI refactor could change locomotion, `player`'s unit tests had to
+/// construct an editor state to exercise a gait, and the headless render
+/// tool dragged the panel's state into scope to walk a body.
+///
+/// Mirrored once per frame by `ui::avatar::mirror_rig_hold`, which is the
+/// only writer. Absent editor state (before login, in the render tool)
+/// leaves every field `false`, which is exactly what the old
+/// `Option<Res<…>>` degraded to.
+///
+/// The distinctions are NOT interchangeable and each is load-bearing —
+/// see the predicates this mirrors on [`crate::ui::avatar::AvatarEditorState`],
+/// which carry the reasoning (#1103, #1106).
+#[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RigHold {
+    /// A whole-prop gizmo is aimed: snap the rig to its REST pose, so the
+    /// offset being edited and the body it is measured against agree.
+    pub at_rest: bool,
+    /// A part gizmo is aimed: hold the body EXACTLY where it stands. A
+    /// pause, not a re-pose — selecting must never move anything.
+    pub pose: bool,
+    /// Any avatar-side gizmo is aimed: freeze the chassis and the
+    /// cosmetic sway.
+    pub still: bool,
+    /// A visuals ROW is selected — narrower than [`Self::still`]. Gates
+    /// the drive systems, whose non-physics side effects (gait state,
+    /// jump triggers) only need suppressing while a row is being edited.
+    pub visuals_row: bool,
+}
+
 /// Run condition: true when the avatar editor has a visuals row
 /// selected — any node in the visuals tree, root or descendant. The five
 /// locomotion drive systems gate on `not(this)` so WASD input does
@@ -362,17 +438,15 @@ impl Plugin for PlayerPlugin {
 /// [`freeze_local_avatar_while_editing`], which parks the chassis with a
 /// full axis lock, and the cosmetic sway hold lives in
 /// [`gait::animate_avatar_gait`] — both keyed on
-/// [`AvatarEditorState::holds_avatar_still`], which since #1103 is true
-/// exactly while a gizmo is aimed at the avatar or something it wears
+/// [`RigHold::still`], which since #1103 is true exactly while a gizmo
+/// is aimed at the avatar or something it wears
 /// (visuals row, worn prop, worn-prop part). This input gate is narrower
 /// still — the visuals row only — because the drive systems have
 /// non-physics side effects (gait state, jump triggers) that only need
 /// suppressing while a row is actively being edited, and the freeze
 /// already neutralizes any movement they would cause under a prop gizmo.
-fn avatar_visuals_row_selected(avatar_editor: Option<Res<AvatarEditorState>>) -> bool {
-    avatar_editor
-        .map(|e| e.has_visuals_selection())
-        .unwrap_or(false)
+fn avatar_visuals_row_selected(hold: Res<RigHold>) -> bool {
+    hold.visuals_row
 }
 
 /// Marker carried by the chassis while the visuals-edit freeze is
@@ -392,7 +466,7 @@ pub(super) struct VisualsEditFreeze {
 
 /// Hold the local player's chassis fully frozen while a gizmo is aimed
 /// at the avatar or at something it wears
-/// ([`AvatarEditorState::holds_avatar_still`]): lock every axis, zero
+/// ([`RigHold::still`]): lock every axis, zero
 /// gravity, and re-zero momentum each frame until the selection releases.
 /// Freezing the chassis (rather than just gating the drive systems) stops
 /// the passive movers too — suspension, buoyancy, gravity/falling, slope
@@ -439,7 +513,7 @@ pub(super) struct VisualsEditFreeze {
 #[allow(clippy::type_complexity)]
 fn freeze_local_avatar_while_editing(
     mut commands: Commands,
-    avatar_editor: Option<Res<AvatarEditorState>>,
+    hold: Res<RigHold>,
     traveling: Option<Res<crate::state::TravelingTo>>,
     mut q: Query<
         (
@@ -457,10 +531,7 @@ fn freeze_local_avatar_while_editing(
     // leave the chassis loose under gravity/physics, so aircraft sagged
     // and boats drifted through the fetch. Same park/release machinery
     // either way.
-    let held = avatar_editor
-        .map(|e| e.holds_avatar_still())
-        .unwrap_or(false)
-        || traveling.is_some();
+    let held = hold.still || traveling.is_some();
     for (entity, mut lin, mut ang, locked_axes, freeze) in q.iter_mut() {
         if held {
             lin.0 = Vec3::ZERO;

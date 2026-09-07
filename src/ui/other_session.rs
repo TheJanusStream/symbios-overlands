@@ -29,7 +29,7 @@ use bevy_egui::{EguiContexts, egui};
 
 use crate::pds::RoomRecord;
 use crate::state::LiveRoomRecord;
-use crate::ui::undo::RoomWriteSignals;
+use crate::state::RoomWriteSignals;
 
 /// A room record from the owner's other session, held back because this
 /// session has unpublished edits. Present only while the question is open;
@@ -102,7 +102,7 @@ pub fn other_session_room_ui(
     held: Res<OtherSessionRoom>,
     mut live: Option<ResMut<LiveRoomRecord>>,
     mut signals: ResMut<RoomWriteSignals>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     time: Res<Time>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {

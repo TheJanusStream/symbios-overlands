@@ -600,7 +600,7 @@ fn wasm_clipboard_promise(text: &str) -> Result<js_sys::Promise, String> {
 /// leaves the user with nothing else to work from.
 pub fn drain_clipboard_outcomes(
     queue: bevy::prelude::Res<ClipboardQueue>,
-    mut toasts: bevy::prelude::ResMut<crate::ui::toast::Toasts>,
+    mut toasts: bevy::prelude::ResMut<crate::notify::Toasts>,
     time: bevy::prelude::Res<bevy::prelude::Time>,
 ) {
     let now = time.elapsed_secs_f64();
@@ -786,7 +786,7 @@ mod tests {
         let mut app = bevy::prelude::App::new();
         app.add_plugins(bevy::time::TimePlugin);
         app.init_resource::<ClipboardQueue>();
-        app.init_resource::<crate::ui::toast::Toasts>();
+        app.init_resource::<crate::notify::Toasts>();
         app.add_systems(bevy::prelude::Update, drain_clipboard_outcomes);
 
         let queue = app.world().resource::<ClipboardQueue>().clone();
@@ -802,10 +802,10 @@ mod tests {
         });
         app.update();
 
-        let toasts = app.world().resource::<crate::ui::toast::Toasts>();
+        let toasts = app.world().resource::<crate::notify::Toasts>();
         let shown = toasts.shown();
         assert_eq!(shown.len(), 2, "one toast per outcome: {shown:?}");
-        assert_eq!(shown[0].0, crate::ui::toast::ToastKind::Error);
+        assert_eq!(shown[0].0, crate::notify::ToastKind::Error);
         assert!(
             shown[0].1.contains("Document is not focused"),
             "the failure names the browser's reason: {:?}",
@@ -816,12 +816,12 @@ mod tests {
             "and repeats the text, since the user now has nothing else: {:?}",
             shown[0].1
         );
-        assert_eq!(shown[1].0, crate::ui::toast::ToastKind::Success);
+        assert_eq!(shown[1].0, crate::notify::ToastKind::Success);
         assert_eq!(shown[1].1, "Path copied");
 
         // Drained, not re-read: a second frame must not re-toast.
         app.update();
-        let shown = app.world().resource::<crate::ui::toast::Toasts>().shown();
+        let shown = app.world().resource::<crate::notify::Toasts>().shown();
         assert_eq!(shown.len(), 2, "outcomes are taken, not peeked: {shown:?}");
     }
 

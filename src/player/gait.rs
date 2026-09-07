@@ -282,7 +282,7 @@ pub(super) fn attach_gait_animation(
 /// spawns unanimated and no offset lingers.
 ///
 /// While a gizmo is aimed at the local player's avatar or at something it
-/// wears ([`crate::ui::avatar::AvatarEditorState::holds_avatar_still`]),
+/// wears ([`super::RigHold::still`]),
 /// its gait pauses and the visual root is held at the authored rest pose
 /// (#737). Sway is time-based, so it would keep oscillating right through
 /// the physics freeze — moving every part of the avatar *except* the
@@ -301,7 +301,7 @@ pub(super) fn animate_avatar_gait(
     time: Res<Time>,
     mut commands: Commands,
     live: Option<Res<LiveAvatarRecord>>,
-    avatar_editor: Option<Res<crate::ui::avatar::AvatarEditorState>>,
+    hold: Res<super::RigHold>,
     mut avatars: Query<(
         Entity,
         &Children,
@@ -320,9 +320,7 @@ pub(super) fn animate_avatar_gait(
 ) {
     let dt = time.delta_secs();
     let t = time.elapsed_secs();
-    let hold_rest_pose = avatar_editor
-        .map(|e| e.holds_avatar_still())
-        .unwrap_or(false);
+    let hold_rest_pose = hold.still;
 
     for (
         entity,

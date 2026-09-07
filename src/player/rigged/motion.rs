@@ -44,19 +44,15 @@ pub(in crate::player) fn drive_rigged_motion(
     >,
     chassis: Query<(&GlobalTransform, Option<&LinearVelocity>)>,
     locals: Query<(), With<LocalPlayer>>,
-    avatar_editor: Option<Res<crate::ui::avatar::AvatarEditorState>>,
+    hold: Res<crate::player::RigHold>,
     mut metrics: Option<ResMut<crate::diagnostics::MetricsRegistry>>,
 ) {
     let delta = time.delta_secs();
     if delta <= 0.0 {
         return;
     }
-    let editing_offsets = avatar_editor
-        .as_deref()
-        .is_some_and(|state| state.holds_rig_at_rest());
-    let editing_parts = avatar_editor
-        .as_deref()
-        .is_some_and(|state| state.holds_rig_pose());
+    let editing_offsets = hold.at_rest;
+    let editing_parts = hold.pose;
     // Whether ANY body strained a contact this frame (#1078) — a goal its
     // solver could not reach. Counted per frame rather than per body so a
     // crowd cannot inflate one defect, and read at the end of the loop.

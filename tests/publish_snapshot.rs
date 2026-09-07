@@ -40,7 +40,7 @@ fn harness() -> App {
     app.init_resource::<symbios_overlands::diagnostics::SessionLog>();
     app.init_resource::<symbios_overlands::diagnostics::MetricsRegistry>();
     app.init_resource::<symbios_overlands::ui::toolbar::UiPanels>();
-    app.init_resource::<symbios_overlands::ui::toast::Toasts>();
+    app.init_resource::<symbios_overlands::notify::Toasts>();
     // The avatar poll broadcasts `AvatarRecordsPublished` on success (#1122);
     // registering the message types is what `SymbiosMultiuserPlugin` does in
     // the real app, and it lets the tests read what went on the wire.

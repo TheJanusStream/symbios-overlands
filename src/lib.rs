@@ -83,6 +83,7 @@ pub mod interaction;
 pub mod loading;
 pub mod logout;
 pub mod network;
+pub mod notify;
 pub mod oauth;
 pub mod offload;
 pub mod pds;
@@ -323,7 +324,7 @@ pub fn run() {
         .init_resource::<ui::diagnostics::DiagTab>()
         .init_resource::<ui::shortcuts::PublishShortcut>()
         .init_resource::<ui::chat::ChatFocusRequest>()
-        .init_resource::<ui::toast::Toasts>()
+        .init_resource::<notify::Toasts>()
         // In-world identity (#1226): this frame's overhead nametags, and
         // the hover link between a People row and the body it names.
         .init_resource::<ui::nametag::PeerNametags>()
@@ -395,7 +396,7 @@ pub fn run() {
         // History does not survive logout.
         .init_resource::<ui::undo::RoomUndoHistory>()
         .init_resource::<ui::undo::AvatarUndoHistory>()
-        .init_resource::<ui::undo::RoomWriteSignals>()
+        .init_resource::<state::RoomWriteSignals>()
         .init_resource::<ui::undo::PendingUndoLabels>()
         .init_resource::<ui::undo::UndoShortcut>()
         .add_systems(
@@ -451,6 +452,10 @@ pub fn run() {
                 .chain()
                 .run_if(in_state(AppState::Login)),
         )
+        // Before anything reads it: the avatar editor's hold, mirrored out
+        // of the egui layer so the player's physics and animation drivers
+        // do not import it (#1158).
+        .add_systems(PreUpdate, ui::avatar::mirror_rig_hold)
         .add_systems(
             Update,
             (

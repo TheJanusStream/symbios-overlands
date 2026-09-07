@@ -384,7 +384,7 @@ pub(crate) fn cleanup_on_logout(
     commands.insert_resource(PublishFeedback::<InventoryRecord>::default());
     // Toasts are session-scoped feedback: a "Copied: …" from the old
     // session must not greet the next login's first InGame frames.
-    commands.insert_resource(crate::ui::toast::Toasts::default());
+    commands.insert_resource(crate::notify::Toasts::default());
     // Grammar compile statuses (#829) describe the OLD session's world;
     // the next login's arrival compile rewrites its own set.
     commands.insert_resource(crate::world_builder::grammar_diag::GrammarDiagnostics::default());

@@ -153,9 +153,9 @@ pub(super) fn publish_movement_facts(
     query: LocalHumanoid,
     bodies: Query<(&ChildOf, &bevy_symbios_avatar::AvatarBody), With<super::rigged::RiggedRoot>>,
     camera: Query<&GlobalTransform, With<Camera3d>>,
-    mut published: ResMut<crate::ui::modes::LocalMovement>,
+    mut published: ResMut<crate::player::LocalMovement>,
 ) {
-    let mut facts = crate::ui::modes::LocalMovement::default();
+    let mut facts = crate::player::LocalMovement::default();
     // The camera's own submersion, not the avatar's (#1241 f160): a
     // third-person orbit camera dips under the surface by itself, and the
     // water plane is back-face culled, so from below there is nothing at
@@ -251,7 +251,7 @@ pub(super) fn apply_humanoid_walk(
     spatial_query: SpatialQuery,
     traveling: Option<Res<TravelingTo>>,
     jump_queued: Res<JumpQueued>,
-    avatar_editor: Option<Res<crate::ui::avatar::AvatarEditorState>>,
+    hold: Res<super::RigHold>,
     bodies: Query<(&ChildOf, &bevy_symbios_avatar::AvatarBody), With<super::rigged::RiggedRoot>>,
 ) {
     if traveling.is_some() {
@@ -480,9 +480,7 @@ pub(super) fn apply_humanoid_walk(
     // selected the drive gates (deliberately selection-scoped, see
     // `super::avatar_visuals_row_selected`) let this system run, and
     // WASD slewed the "frozen" avatar's facing mid-edit.
-    let frozen = avatar_editor
-        .map(|e| e.holds_avatar_still())
-        .unwrap_or(false);
+    let frozen = hold.still;
     if let Some(facing) = facing_target
         && !frozen
     {
@@ -637,6 +635,8 @@ mod speed_change {
         app.init_resource::<ButtonInput<KeyCode>>();
         app.init_resource::<avian3d::collider_tree::ColliderTrees>();
         app.init_resource::<JumpQueued>();
+        // Nothing held: this harness walks a body, it does not edit one.
+        app.init_resource::<crate::player::RigHold>();
         app.insert_resource(WaterSurfaces { planes: Vec::new() });
         app.insert_resource(LiveAvatarRecord(AvatarRecord::wearing("3jzfcijpj2z2a")));
         app.insert_resource(Time::<Fixed>::from_hz(HZ));

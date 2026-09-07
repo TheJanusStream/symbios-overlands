@@ -123,7 +123,7 @@ pub(super) fn broadcast_avatar_state(
     mut chunk: super::chunk::ChunkSend,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
     mut notices: ResMut<super::chunk::OversizeNotices>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     time: Res<Time>,
 ) {
     if !live.is_changed() {
@@ -179,7 +179,7 @@ pub(super) fn broadcast_room_state(
     mut chunk: super::chunk::ChunkSend,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
     mut notices: ResMut<super::chunk::OversizeNotices>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     time: Res<Time>,
     mut dirty: Local<bool>,
     mut last_sent: Local<Option<f64>>,

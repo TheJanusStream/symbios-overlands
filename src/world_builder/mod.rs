@@ -277,7 +277,7 @@ pub fn announce_world_rebuilt(
     mut commands: Commands,
     announce: Option<Res<RebuildAnnounce>>,
     compiled: Option<Res<WorldCompiled>>,
-    mut toasts: ResMut<crate::ui::toast::Toasts>,
+    mut toasts: ResMut<crate::notify::Toasts>,
     time: Res<Time>,
 ) {
     let Some(announce) = announce else {

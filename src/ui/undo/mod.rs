@@ -73,7 +73,7 @@ use bevy::prelude::*;
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
 use crate::pds::{AvatarRecord, RoomRecord};
-use crate::state::{CurrentRoomDid, LiveAvatarRecord, LiveRoomRecord};
+use crate::state::{CurrentRoomDid, LiveAvatarRecord, LiveRoomRecord, RoomWriteSignals};
 
 use super::avatar::AvatarEditorState;
 use super::room::{GenNodeId, RoomEditorState};
@@ -418,19 +418,6 @@ where
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
-}
-
-/// Raised by the non-editor writers of [`LiveRoomRecord`] in the same
-/// system (and frame) that writes the record, consumed by
-/// [`capture_room_history`] when it observes the corresponding tick.
-/// The avatar record has no non-editor writers, so no counterpart
-/// exists for it.
-#[derive(Resource, Default)]
-pub struct RoomWriteSignals {
-    /// Portal travel / inbound owner broadcast — clear the history.
-    pub foreign: bool,
-    /// Lot auto-population — fold into the current entry.
-    pub derived: bool,
 }
 
 /// Latest-wins label slots for the next captured entry, one per record

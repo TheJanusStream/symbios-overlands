@@ -400,7 +400,7 @@ pub(crate) fn draw_generators_tab(
     confirms: &mut TreeConfirms,
     // Toast channel + session clock for structural-op feedback (#841's
     // Save-to-Inventory success/full toasts).
-    toasts: &mut crate::ui::toast::Toasts,
+    toasts: &mut crate::notify::Toasts,
     now: f64,
     // Undo-entry label channel (#865), pre-bound to the hosting editor's
     // slot so this shared widget stays editor-agnostic.

@@ -57,7 +57,7 @@ use super::{ActiveTarget, DragState, GizmoDetachedPrim};
 /// Say what a finished drag did, when it is not what was asked (#1237
 /// f144, #1243 f150). Silent on success — a toast per completed drag
 /// would be noise on the app's most-repeated gesture.
-fn report_drag(toasts: &mut crate::ui::toast::Toasts, time: &Time, outcome: DragOutcome) {
+fn report_drag(toasts: &mut crate::notify::Toasts, time: &Time, outcome: DragOutcome) {
     if let Some(text) = outcome.toast() {
         toasts.warn(text, time.elapsed_secs_f64());
     }
@@ -157,7 +157,7 @@ pub(super) fn manage_gizmo_drag(
         // #1237 f144 / #1243 f150: every commit refusal in this system was
         // a `warn!` to a console the user does not have, and the scene
         // went on showing the move as having succeeded.
-        ResMut<crate::ui::toast::Toasts>,
+        ResMut<crate::notify::Toasts>,
         Res<Time>,
     ),
     room_record: Option<ResMut<LiveRoomRecord>>,

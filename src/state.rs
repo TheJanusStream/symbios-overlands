@@ -516,6 +516,26 @@ pub struct StoredAvatarRecord(pub AvatarRecord);
 /// [`LiveAvatarRecord`] and [`LiveInventoryRecord`] use, so all three
 /// editors share one mental model and one Save/Load/Reset
 /// implementation ([`crate::ui::editable`]).
+/// Raised by the non-editor writers of [`LiveRoomRecord`] in the same
+/// system (and frame) that writes the record, consumed by
+/// [`crate::ui::undo::capture_room_history`] when it observes the
+/// corresponding tick.
+/// The avatar record has no non-editor writers, so no counterpart
+/// exists for it.
+///
+/// Lives here rather than in `ui::undo` (#1158): its writers are
+/// `network::inbound`, `terrain::lots` and `player::portal` — domain
+/// systems that were importing the egui layer for two bools. The undo
+/// STACK stays in `ui::undo`, which is where an editor's history
+/// belongs; this is the signal that crosses into it.
+#[derive(Resource, Default)]
+pub struct RoomWriteSignals {
+    /// Portal travel / inbound owner broadcast — clear the history.
+    pub foreign: bool,
+    /// Lot auto-population — fold into the current entry.
+    pub derived: bool,
+}
+
 #[derive(Resource, Clone)]
 pub struct LiveRoomRecord(pub RoomRecord);
 

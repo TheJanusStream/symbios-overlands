@@ -731,7 +731,7 @@ pub fn incoming_offer_ui(
         Res<Time>,
         ResMut<crate::diagnostics::MetricsRegistry>,
         ResMut<crate::state::BusyAutoDeclines>,
-        ResMut<crate::ui::toast::Toasts>,
+        ResMut<crate::notify::Toasts>,
         Local<Option<(u64, Option<usize>)>>,
         ResMut<crate::state::MutedDids>,
     ),

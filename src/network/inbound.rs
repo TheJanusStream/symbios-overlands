@@ -113,7 +113,7 @@ pub(super) struct InboundBuffers<'w, 's> {
     panels: Res<'w, crate::ui::toolbar::UiPanels>,
     /// Gift-lifecycle feedback (#843): accepted/declined responses toast
     /// to the sender the moment they land.
-    toasts: ResMut<'w, crate::ui::toast::Toasts>,
+    toasts: ResMut<'w, crate::notify::Toasts>,
     /// Busy-gate auto-declines counted while an offer dialog is up
     /// (#843); the dialog reports them when it closes.
     busy_declines: ResMut<'w, crate::state::BusyAutoDeclines>,
@@ -134,7 +134,7 @@ pub(super) struct InboundBuffers<'w, 's> {
     /// Undo-capture classification (#862): an inbound owner
     /// `RoomStateUpdate` wholesale-replaces `LiveRoomRecord`, and the
     /// history must reset instead of recording it as a local edit.
-    undo_signals: ResMut<'w, crate::ui::undo::RoomWriteSignals>,
+    undo_signals: ResMut<'w, crate::state::RoomWriteSignals>,
     /// Chat-keyword emotes (#1068): an arriving message plays a gesture on
     /// its sender's own body.
     emotes: MessageWriter<'w, crate::player::emote::EmoteRequest>,
@@ -1080,7 +1080,7 @@ pub(super) fn handle_incoming_messages(
                 // these, but reject here too so a hand-crafted payload
                 // can't stuff an unplaceable item into the recipient's
                 // stash via the accept path.
-                if !crate::ui::inventory::is_drop_placeable(&generator) {
+                if !crate::pds::inventory::is_drop_placeable(&generator) {
                     sender.to(
                         msg.sender,
                         OverlandsMessage::item_offer_response(

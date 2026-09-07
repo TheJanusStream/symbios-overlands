@@ -256,7 +256,7 @@ fn draw_row(ui: &mut egui::Ui, label: &str, status: RowStatus) -> RowAction {
     // truncated hard (on a char boundary) because FetchError debug
     // strings can carry full URLs.
     if let Some(reason) = retry_reason {
-        let reason = crate::ui::toast::elide(&reason, 90);
+        let reason = crate::notify::elide(&reason, 90);
         ui.horizontal(|ui| {
             ui.add_space(22.0);
             ui.weak(egui::RichText::new(reason).small());

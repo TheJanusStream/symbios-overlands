@@ -4,7 +4,7 @@ use bevy_egui::egui;
 
 use super::{LocomotionPanel, fp_slider, fp3_extents};
 use crate::pds::HoverBoatParams;
-use crate::ui::modes::LocalMovement;
+use crate::player::LocalMovement;
 
 impl LocomotionPanel for HoverBoatParams {
     fn draw(&mut self, ui: &mut egui::Ui, dirty: &mut bool, _facts: &LocalMovement) {

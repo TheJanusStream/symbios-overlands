@@ -20,6 +20,10 @@ fn test_app() -> App {
     app.init_asset::<Image>();
     app.init_asset::<SkinnedMeshInverseBindposes>();
     app.add_message::<crate::player::emote::EmoteRequest>();
+    // The editor's hold, mirrored out of the UI layer (#1158). Default
+    // is "nothing held", which is the state every test that does not
+    // deliberately set one wants; the two that do overwrite it.
+    app.init_resource::<crate::player::RigHold>();
     app
 }
 
@@ -2539,9 +2543,10 @@ fn selecting_a_part_holds_the_pose_as_it_stands() {
     );
 
     // Select a PART: the pose must not move by a single bit.
-    let mut editor = crate::ui::avatar::AvatarEditorState::default();
-    editor.select_attachment_part_from_scene_pick(String::from("3jzfcijpj2z2a"), vec![0]);
-    app.insert_resource(editor);
+    app.insert_resource(crate::player::RigHold {
+        pose: true,
+        ..Default::default()
+    });
     for _ in 0..30 {
         app.world_mut()
             .resource_mut::<Time>()
@@ -2560,9 +2565,10 @@ fn selecting_a_part_holds_the_pose_as_it_stands() {
     );
 
     // A WHOLE-prop selection still pins the bind pose (#1062).
-    let mut editor = crate::ui::avatar::AvatarEditorState::default();
-    editor.select_attachment_from_scene_pick(String::from("3jzfcijpj2z2a"));
-    app.insert_resource(editor);
+    app.insert_resource(crate::player::RigHold {
+        at_rest: true,
+        ..Default::default()
+    });
     app.world_mut()
         .resource_mut::<Time>()
         .advance_by(std::time::Duration::from_secs_f32(STEP_SECS));
@@ -2670,7 +2676,7 @@ fn land_until_settled(app: &mut App, chassis: Entity) {
 
 fn toast_lines(app: &App) -> Vec<String> {
     app.world()
-        .resource::<crate::ui::toast::Toasts>()
+        .resource::<crate::notify::Toasts>()
         .shown()
         .iter()
         .map(|(_, text)| (*text).to_owned())
@@ -2689,7 +2695,7 @@ fn toast_lines(app: &App) -> Vec<String> {
 fn a_failed_build_tells_the_owner_and_leaves_the_editor_something_to_say() {
     bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default);
     let mut app = test_app();
-    app.init_resource::<crate::ui::toast::Toasts>();
+    app.init_resource::<crate::notify::Toasts>();
     let body = engine_default_for_did("did:plc:doomed");
     let chassis = app
         .world_mut()
@@ -2739,7 +2745,7 @@ fn a_failed_build_tells_the_owner_and_leaves_the_editor_something_to_say() {
 fn a_peers_failed_build_is_recorded_but_not_toasted() {
     bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default);
     let mut app = test_app();
-    app.init_resource::<crate::ui::toast::Toasts>();
+    app.init_resource::<crate::notify::Toasts>();
     let chassis = app
         .world_mut()
         .spawn((
@@ -2912,7 +2918,7 @@ fn a_body_that_is_not_standing_yet_wears_a_stand_in() {
 fn a_slow_build_announces_itself_once_and_a_fast_one_never_does() {
     bevy::tasks::AsyncComputeTaskPool::get_or_init(Default::default);
     let mut app = test_app();
-    app.init_resource::<crate::ui::toast::Toasts>();
+    app.init_resource::<crate::notify::Toasts>();
     let chassis = app
         .world_mut()
         .spawn((
