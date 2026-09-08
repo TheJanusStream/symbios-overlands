@@ -92,8 +92,27 @@ impl RoomGeneratorRecord {
 /// never a half-updated child. It also makes unchanged generators free to
 /// republish — same content, same rkey, no write.
 pub fn child_rkey(name: &str, generator: &Generator) -> String {
-    let canonical =
-        serde_json::to_string(&RoomGeneratorRecord::new(name, generator)).unwrap_or_default();
+    let canonical = match serde_json::to_string(&RoomGeneratorRecord::new(name, generator)) {
+        Ok(json) => json,
+        // A generator this build cannot write back — a union arm decoded
+        // to `Unknown` and marked `skip_serializing` (#1111) — has no
+        // content to address, and the save carrying it is refused before
+        // any of these keys is used: `wire_ready` at the top of
+        // `publish_room_record`, then a per-child `preflight` inside
+        // `plan_room_writes`. But this arm is still *reached*, by design,
+        // on the readout path: `measure_publish` exists to show the owner
+        // that refusal, and it builds a manifest to do it. So it must not
+        // panic, and it must not fold — the `unwrap_or_default()` that
+        // stood here hashed the same empty string for every unwritable
+        // generator, so two of them collided on one rkey and the manifest
+        // pointed both names at whichever won. Keying the sentinel by
+        // name keeps `generator_refs` a bijection even for a record that
+        // will never be published. (#1305; `child_rkey` returning
+        // `Result` is #1315.)
+        // Never ambiguous with a real body: `serde_json` writes an object,
+        // so every `Ok` string starts with `{`.
+        Err(_) => format!("unserializable generator {name}"),
+    };
     format!("{:016x}", crate::seeded_defaults::fnv1a_64(&canonical))
 }
 
@@ -689,6 +708,80 @@ mod split_wire_tests {
         record.generators.remove("oak_grove");
         let readout = measure_publish(&record);
         assert!(readout.largest.is_some());
+    }
+
+    /// A generator carrying an audio node kind newer than this build's
+    /// mirror — the value `SovereignNodeKind::from_native`'s wildcard
+    /// produces (#1305 / #1170 finding 105) — is refused everywhere it
+    /// could be written, and the one place it is deliberately *not*
+    /// refused still keeps its rkeys apart.
+    ///
+    /// The finding read this as silent data loss. It is not:
+    /// `SovereignNodeKind::Unknown` is `skip_serializing`, so the record
+    /// stops being writable rather than quietly writing silence, and both
+    /// write paths say so in the owner's words. What was genuinely
+    /// unguarded is the third assertion — `child_rkey` used to hash the
+    /// empty string for every such generator, so two of them under
+    /// different names addressed one record.
+    #[test]
+    fn a_generator_this_build_cannot_write_is_refused_and_never_collides() {
+        use crate::pds::audio::{
+            SovereignAudioConfig, SovereignAudioPatch, SovereignGraphNode, SovereignNodeGraph,
+            SovereignNodeKind,
+        };
+
+        fn from_a_newer_build(x: f32) -> Generator {
+            let mut g = cuboid_at(x);
+            g.audio = SovereignAudioConfig::Patch {
+                patch: SovereignAudioPatch {
+                    graph: SovereignNodeGraph {
+                        nodes: vec![SovereignGraphNode {
+                            kind: SovereignNodeKind::Unknown,
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            };
+            g
+        }
+
+        let mut record = RoomRecord::default_for_did("did:plc:unmirrored-node");
+        record
+            .generators
+            .insert(String::from("hum"), from_a_newer_build(0.0));
+
+        // 1. `publish_room_record`'s first act, before any network I/O and
+        //    before anything is hashed.
+        let refusal = crate::pds::record_size::wire_ready(&record, "world")
+            .expect_err("a world holding an unmirrored node kind cannot be written");
+        assert!(
+            refusal.contains("newer version of Overlands"),
+            "save refusal should be the #1111 sentence, got: {refusal}"
+        );
+
+        // 2. The owner sees the same refusal in the size gauge rather than
+        //    only on a failed Save (#1207) — which is why `measure_publish`
+        //    builds a manifest over an unwritable record on purpose, and
+        //    why `child_rkey`'s fallback must not panic.
+        let readout = measure_publish(&record);
+        let shown = readout.unserializable.expect("the readout refuses too");
+        assert!(
+            shown.contains("newer version of Overlands"),
+            "readout refusal should be the #1111 sentence, got: {shown}"
+        );
+
+        // 3. Two unwritable generators do not share an rkey — with each
+        //    other, or with a writable one. Under `unwrap_or_default()`
+        //    the first pair both hashed `fnv1a_64("")`, so the manifest
+        //    pointed two names at one record.
+        let hum = child_rkey("hum", &from_a_newer_build(0.0));
+        let drone = child_rkey("drone", &from_a_newer_build(1.0));
+        assert_ne!(hum, drone, "unwritable children must stay addressable");
+        assert_ne!(hum, child_rkey("hum", &cuboid_at(0.0)));
+        assert_eq!(hum, child_rkey("hum", &from_a_newer_build(9.0)));
+        assert_eq!(hum.len(), 16);
     }
 
     #[test]

@@ -394,10 +394,35 @@ impl SovereignNodeKind {
             N::Gate(c) => Self::Gate(SovereignGate::from_native(c)),
             N::Chorus(c) => Self::Chorus(SovereignChorus::from_native(c)),
             N::Reverb(c) => Self::Reverb(SovereignReverb::from_native(c)),
-            // NodeKind is `#[non_exhaustive]` — a future variant added
-            // in the audio crate is decoded as Unknown by mirror clients
-            // that don't yet know it.
-            _ => Self::Unknown,
+            // `NodeKind` is `#[non_exhaustive]`, so this arm cannot be
+            // deleted — but it must never be *taken*. What the comment
+            // here used to say about forward compatibility is true of a
+            // mirror *reader*, which meets an unknown `kind` tag on the
+            // wire and needs somewhere to put it; it was never true of
+            // this direction, which converts a value the running engine
+            // just produced. A kind that lands here becomes `Unknown`,
+            // and `Unknown` is `skip_serializing` (#1111), so the whole
+            // record it rides in stops being writable: `wire_ready`
+            // refuses every save of the world holding it.
+            //
+            // `every_native_node_kind_has_a_mirror_arm` is what turns the
+            // next upstream node into a red test run rather than a
+            // refused save in the owner's face; this pair is the belt for
+            // that brace, on the build where the roster has gone stale.
+            other => {
+                debug_assert!(
+                    false,
+                    "bevy_symbios_audio::NodeKind::{other:?} has no mirror arm in \
+                     pds::audio — add one, or every world holding this node \
+                     becomes unpublishable"
+                );
+                bevy::log::warn!(
+                    "audio node kind {other:?} is newer than this build's mirror — \
+                     it will play as silence, and saving a world that holds it \
+                     will be refused"
+                );
+                Self::Unknown
+            }
         }
     }
 }
