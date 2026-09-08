@@ -76,6 +76,11 @@ impl RoomGeneratorRecord {
 /// Content-addressed record key for a child generator: lowercase hex of
 /// `fnv1a_64` over the child's canonical serialized body.
 ///
+/// `Err` when the generator has no body to address — a union arm this build
+/// decoded as `Unknown` and cannot write back (#1111). The message is
+/// [`unserializable_reason`](crate::pds::record_size::unserializable_reason)'s,
+/// so a caller can show it to the owner unchanged.
+///
 /// "Canonical" is a property the wire types have to earn, not one
 /// `serde_json` supplies: it emits struct fields in declaration order but
 /// `HashMap` entries in iteration order, which `RandomState` re-seeds per
@@ -91,29 +96,26 @@ impl RoomGeneratorRecord {
 /// so a visitor racing a publish sees a fully consistent old or new room,
 /// never a half-updated child. It also makes unchanged generators free to
 /// republish — same content, same rkey, no write.
-pub fn child_rkey(name: &str, generator: &Generator) -> String {
-    let canonical = match serde_json::to_string(&RoomGeneratorRecord::new(name, generator)) {
-        Ok(json) => json,
-        // A generator this build cannot write back — a union arm decoded
-        // to `Unknown` and marked `skip_serializing` (#1111) — has no
-        // content to address, and the save carrying it is refused before
-        // any of these keys is used: `wire_ready` at the top of
-        // `publish_room_record`, then a per-child `preflight` inside
-        // `plan_room_writes`. But this arm is still *reached*, by design,
-        // on the readout path: `measure_publish` exists to show the owner
-        // that refusal, and it builds a manifest to do it. So it must not
-        // panic, and it must not fold — the `unwrap_or_default()` that
-        // stood here hashed the same empty string for every unwritable
-        // generator, so two of them collided on one rkey and the manifest
-        // pointed both names at whichever won. Keying the sentinel by
-        // name keeps `generator_refs` a bijection even for a record that
-        // will never be published. (#1305; `child_rkey` returning
-        // `Result` is #1315.)
-        // Never ambiguous with a real body: `serde_json` writes an object,
-        // so every `Ok` string starts with `{`.
-        Err(_) => format!("unserializable generator {name}"),
-    };
-    format!("{:016x}", crate::seeded_defaults::fnv1a_64(&canonical))
+pub fn child_rkey(name: &str, generator: &Generator) -> Result<String, String> {
+    // Fallible because there is a real answer and it is not a key: a
+    // generator this build cannot write back — a union arm decoded to
+    // `Unknown` and marked `skip_serializing` (#1111) — has no content to
+    // address. Until #1315 this swallowed the error and hashed a sentinel,
+    // which meant the one caller that reaches this arm on purpose
+    // (`measure_publish`, building a manifest to show the owner the refusal)
+    // got a key back that addressed nothing, and every other caller trusted
+    // it. The refusal now travels to whoever asked.
+    let canonical =
+        serde_json::to_string(&RoomGeneratorRecord::new(name, generator)).map_err(|e| {
+            crate::pds::record_size::unserializable_reason(
+                &format!("room generator \"{name}\""),
+                &e.to_string(),
+            )
+        })?;
+    Ok(format!(
+        "{:016x}",
+        crate::seeded_defaults::fnv1a_64(&canonical)
+    ))
 }
 
 /// Both shapes `room/self` takes on the wire (#697 version-by-shape): the
@@ -152,7 +154,7 @@ struct RoomManifestOut {
 }
 
 impl RoomManifestOut {
-    fn from_record(record: &RoomRecord) -> Self {
+    fn from_record(record: &RoomRecord) -> Result<Self, String> {
         // Refs this build could not decode go in FIRST, so a live generator
         // authored under the same name wins (#1175). That collision is the
         // one case where dropping an opaque ref is right: the owner has
@@ -162,13 +164,10 @@ impl RoomManifestOut {
         // out of the orphan sweep.
         let mut generator_refs: std::collections::BTreeMap<String, String> =
             record.opaque_refs.clone();
-        generator_refs.extend(
-            record
-                .generators
-                .iter()
-                .map(|(name, generator)| (name.clone(), child_rkey(name, generator))),
-        );
-        Self {
+        for (name, generator) in &record.generators {
+            generator_refs.insert(name.clone(), child_rkey(name, generator)?);
+        }
+        Ok(Self {
             lex_type: COLLECTION.into(),
             environment: record.environment.clone(),
             generator_refs,
@@ -180,7 +179,7 @@ impl RoomManifestOut {
                 .collect(),
             contact_effects: record.contact_effects.clone(),
             default_landing: record.default_landing,
-        }
+        })
     }
 }
 
@@ -424,7 +423,15 @@ pub fn max_publish_record_bytes(record: &RoomRecord) -> Option<usize> {
 /// material from a newer build — `wire_ready` refuses the same save).
 pub fn measure_publish(record: &RoomRecord) -> crate::pds::record_size::SizeReadout {
     let mut readout = crate::pds::record_size::SizeReadout::default();
-    readout.consider(&RoomManifestOut::from_record(record), "room manifest");
+    // The manifest can only fail to build for one reason — a generator whose
+    // body will not serialize — and that is a refusal to *show*, not to
+    // propagate: this function exists so the owner sees why Save is disabled.
+    // `SizeReadout::refuse` is the seam for exactly that (a refusal decided
+    // without serializing), and the per-child loop below names the offender.
+    match RoomManifestOut::from_record(record) {
+        Ok(manifest) => readout.consider(&manifest, "room manifest"),
+        Err(reason) => readout.refuse(reason),
+    }
     for (name, generator) in &record.generators {
         readout.consider(
             &RoomGeneratorRecord::new(name, generator),
@@ -451,7 +458,7 @@ fn plan_room_writes(
     existing_children: &std::collections::HashSet<String>,
     manifest_exists: bool,
 ) -> Result<Vec<Vec<RepoWrite>>, String> {
-    let manifest = RoomManifestOut::from_record(record);
+    let manifest = RoomManifestOut::from_record(record)?;
     crate::pds::record_size::preflight(&manifest, "room manifest")?;
 
     // Desired child set, deduped by rkey (identical content under two
@@ -459,7 +466,7 @@ fn plan_room_writes(
     let mut desired: std::collections::BTreeMap<String, RepoWrite> =
         std::collections::BTreeMap::new();
     for (name, generator) in &record.generators {
-        let rkey = child_rkey(name, generator);
+        let rkey = child_rkey(name, generator)?;
         if existing_children.contains(&rkey) || desired.contains_key(&rkey) {
             continue;
         }
@@ -663,7 +670,7 @@ pub async fn reset_room_record(
     // already have destroyed the owner's saved room. The publish below
     // re-checks per record; this early manifest-level check just fails fast
     // on the worst case.
-    crate::pds::record_size::preflight(&RoomManifestOut::from_record(record), "room manifest")?;
+    crate::pds::record_size::preflight(&RoomManifestOut::from_record(record)?, "room manifest")?;
     delete_room_record(client, session, refresh).await?;
     publish_room_record(client, session, refresh, record).await
 }
@@ -718,13 +725,14 @@ mod split_wire_tests {
     ///
     /// The finding read this as silent data loss. It is not:
     /// `SovereignNodeKind::Unknown` is `skip_serializing`, so the record
-    /// stops being writable rather than quietly writing silence, and both
-    /// write paths say so in the owner's words. What was genuinely
-    /// unguarded is the third assertion — `child_rkey` used to hash the
-    /// empty string for every such generator, so two of them under
-    /// different names addressed one record.
+    /// stops being writable rather than quietly writing silence, and every
+    /// write path says so in the owner's words. What was genuinely
+    /// unguarded was the address: `child_rkey` used to hash the empty
+    /// string for every such generator, so two of them under different
+    /// names addressed one record. Since #1315 there is no address at all,
+    /// which is the true answer.
     #[test]
-    fn a_generator_this_build_cannot_write_is_refused_and_never_collides() {
+    fn a_generator_this_build_cannot_write_is_refused_and_has_no_address() {
         use crate::pds::audio::{
             SovereignAudioConfig, SovereignAudioPatch, SovereignGraphNode, SovereignNodeGraph,
             SovereignNodeKind,
@@ -763,8 +771,8 @@ mod split_wire_tests {
 
         // 2. The owner sees the same refusal in the size gauge rather than
         //    only on a failed Save (#1207) — which is why `measure_publish`
-        //    builds a manifest over an unwritable record on purpose, and
-        //    why `child_rkey`'s fallback must not panic.
+        //    builds a manifest over an unwritable record on purpose, and so
+        //    why `child_rkey` must return rather than panic.
         let readout = measure_publish(&record);
         let shown = readout.unserializable.expect("the readout refuses too");
         assert!(
@@ -772,27 +780,52 @@ mod split_wire_tests {
             "readout refusal should be the #1111 sentence, got: {shown}"
         );
 
-        // 3. Two unwritable generators do not share an rkey — with each
-        //    other, or with a writable one. Under `unwrap_or_default()`
-        //    the first pair both hashed `fnv1a_64("")`, so the manifest
-        //    pointed two names at one record.
-        let hum = child_rkey("hum", &from_a_newer_build(0.0));
-        let drone = child_rkey("drone", &from_a_newer_build(1.0));
-        assert_ne!(hum, drone, "unwritable children must stay addressable");
-        assert_ne!(hum, child_rkey("hum", &cuboid_at(0.0)));
-        assert_eq!(hum, child_rkey("hum", &from_a_newer_build(9.0)));
-        assert_eq!(hum.len(), 16);
+        // 3. There is no key for an unwritable child, and since #1315 that
+        //    is what the type says. It used to hash a sentinel — first the
+        //    empty string, under which every unwritable generator collided
+        //    on one rkey and the manifest pointed two names at whichever
+        //    won, then a name-keyed one that could not collide but still
+        //    addressed nothing. A `Result` says the true thing: ask for the
+        //    address of content that cannot be written and you get the
+        //    reason, not a number.
+        let reason = child_rkey("hum", &from_a_newer_build(0.0))
+            .expect_err("an unwritable generator has no address");
+        assert!(
+            reason.contains("newer version of Overlands"),
+            "rkey refusal should be the #1111 sentence, got: {reason}"
+        );
+        // The plan refuses for the same reason, at the manifest, before any
+        // child is written — so a caller that skipped `wire_ready` still
+        // cannot half-publish the room.
+        let planned = plan_room_writes(&record, &HashSet::new(), false)
+            .expect_err("the plan cannot address the child");
+        assert!(planned.contains("newer version of Overlands"), "{planned}");
+        // A writable sibling is unaffected.
+        assert_eq!(
+            child_rkey("hum", &cuboid_at(0.0))
+                .expect("a writable generator has an address")
+                .len(),
+            16
+        );
     }
 
     #[test]
     fn child_rkey_is_content_addressed_hex() {
         let a = cuboid_at(1.0);
-        let key = child_rkey("tree", &a);
-        assert_eq!(key, child_rkey("tree", &a), "deterministic");
-        assert_ne!(key, child_rkey("bush", &a), "name participates");
+        let key = child_rkey("tree", &a).expect("test fixtures are addressable");
+        assert_eq!(
+            key,
+            child_rkey("tree", &a).expect("test fixtures are addressable"),
+            "deterministic"
+        );
         assert_ne!(
             key,
-            child_rkey("tree", &cuboid_at(2.0)),
+            child_rkey("bush", &a).expect("test fixtures are addressable"),
+            "name participates"
+        );
+        assert_ne!(
+            key,
+            child_rkey("tree", &cuboid_at(2.0)).expect("test fixtures are addressable"),
             "content participates"
         );
         assert_eq!(key.len(), 16);
@@ -853,11 +886,13 @@ mod split_wire_tests {
     /// ever matched `existing_children`.
     #[test]
     fn child_rkey_ignores_hashmap_insertion_order() {
-        let baseline = child_rkey("tree", &lsystem_with_maps(0));
+        let baseline =
+            child_rkey("tree", &lsystem_with_maps(0)).expect("test fixtures are addressable");
         for rotation in 0..50 {
             assert_eq!(
                 baseline,
-                child_rkey("tree", &lsystem_with_maps(rotation)),
+                child_rkey("tree", &lsystem_with_maps(rotation))
+                    .expect("test fixtures are addressable"),
                 "rotation {rotation} minted a different rkey for identical content"
             );
         }
@@ -926,9 +961,12 @@ mod split_wire_tests {
                 round_meshes: Vec::new(),
             })
         };
-        let baseline = child_rkey("hut", &build(0));
+        let baseline = child_rkey("hut", &build(0)).expect("test fixtures are addressable");
         for rotation in 0..names.len() {
-            assert_eq!(baseline, child_rkey("hut", &build(rotation)));
+            assert_eq!(
+                baseline,
+                child_rkey("hut", &build(rotation)).expect("test fixtures are addressable")
+            );
         }
     }
 
@@ -942,7 +980,10 @@ mod split_wire_tests {
                 .traits
                 .insert(name.into(), vec![format!("{name}-trait")]);
         }
-        let once = serde_json::to_string(&RoomManifestOut::from_record(&record)).unwrap();
+        let once = serde_json::to_string(
+            &RoomManifestOut::from_record(&record).expect("test fixtures are addressable"),
+        )
+        .unwrap();
         let traits = once.split("\"traits\":{").nth(1).expect("traits object");
         let order: Vec<&str> = traits
             .split('}')
@@ -968,7 +1009,8 @@ mod split_wire_tests {
             .next()
             .map(|(n, g)| (n.clone(), g.clone()))
             .unwrap();
-        let unchanged_rkey = child_rkey(&unchanged_name, &unchanged_gen);
+        let unchanged_rkey =
+            child_rkey(&unchanged_name, &unchanged_gen).expect("test fixtures are addressable");
         let orphan_rkey = "00000000deadbeef".to_string();
         let existing: HashSet<String> = [unchanged_rkey.clone(), orphan_rkey.clone()]
             .into_iter()
@@ -1088,11 +1130,17 @@ mod split_wire_tests {
         for seed in [0u64, 1, 42, 0xDEAD_BEEF] {
             let record = RoomRecord::default_for_seed(seed, "did:plc:split");
             // Write side.
-            let manifest = RoomManifestOut::from_record(&record);
+            let manifest =
+                RoomManifestOut::from_record(&record).expect("test fixtures are addressable");
             let children: HashMap<String, Option<Generator>> = record
                 .generators
                 .iter()
-                .map(|(name, g)| (child_rkey(name, g), Some(g.clone())))
+                .map(|(name, g)| {
+                    (
+                        child_rkey(name, g).expect("test fixtures are addressable"),
+                        Some(g.clone()),
+                    )
+                })
                 .collect();
             // Read side: decode the manifest bytes and join the children.
             let wire: RoomSelfWire =
@@ -1129,9 +1177,10 @@ mod split_wire_tests {
         record.generators.clear();
         record.generators.insert("kept".into(), cuboid_at(1.0));
         record.generators.insert("lost".into(), cuboid_at(2.0));
-        let manifest = RoomManifestOut::from_record(&record);
+        let manifest =
+            RoomManifestOut::from_record(&record).expect("test fixtures are addressable");
         let children: HashMap<String, Option<Generator>> = [(
-            child_rkey("kept", &record.generators["kept"]),
+            child_rkey("kept", &record.generators["kept"]).expect("test fixtures are addressable"),
             Some(record.generators["kept"].clone()),
         )]
         .into_iter()
@@ -1163,7 +1212,8 @@ mod split_wire_tests {
         // client whose child schema this build cannot parse (here: no
         // `name`, which `RoomGeneratorRecord` requires). This is a listing
         // response, not a hand-built map — the decode is the defect.
-        let ours = child_rkey("mine", &record.generators["mine"]);
+        let ours =
+            child_rkey("mine", &record.generators["mine"]).expect("test fixtures are addressable");
         let theirs = "0123456789abcdef".to_string();
         let did = "did:plc:opaque";
         let coll = crate::pds::ROOM_GENERATOR_COLLECTION;
@@ -1193,7 +1243,8 @@ mod split_wire_tests {
         );
 
         // The manifest the newer client wrote names both.
-        let mut manifest = RoomManifestOut::from_record(&record);
+        let mut manifest =
+            RoomManifestOut::from_record(&record).expect("test fixtures are addressable");
         manifest
             .generator_refs
             .insert("theirs".into(), theirs.clone());
@@ -1208,6 +1259,7 @@ mod split_wire_tests {
         assert_eq!(assembled.opaque_refs.get("theirs"), Some(&theirs));
         assert_eq!(
             RoomManifestOut::from_record(&assembled)
+                .expect("test fixtures are addressable")
                 .generator_refs
                 .get("theirs"),
             Some(&theirs),
@@ -1254,10 +1306,15 @@ mod split_wire_tests {
             .opaque_refs
             .insert("shared".into(), "deadbeefdeadbeef".into());
 
-        let refs = RoomManifestOut::from_record(&record).generator_refs;
+        let refs = RoomManifestOut::from_record(&record)
+            .expect("test fixtures are addressable")
+            .generator_refs;
         assert_eq!(
             refs.get("shared"),
-            Some(&child_rkey("shared", &record.generators["shared"])),
+            Some(
+                &child_rkey("shared", &record.generators["shared"])
+                    .expect("test fixtures are addressable")
+            ),
             "the live generator's rkey, not the opaque one"
         );
         let existing: HashSet<String> = ["deadbeefdeadbeef".to_string()].into_iter().collect();
@@ -1273,7 +1330,7 @@ mod split_wire_tests {
         let record = RoomRecord::default_for_did("did:plc:bytes");
         let max = max_publish_record_bytes(&record).unwrap();
         let manifest_bytes = crate::pds::record_size::serialized_record_bytes(
-            &RoomManifestOut::from_record(&record),
+            &RoomManifestOut::from_record(&record).expect("test fixtures are addressable"),
         )
         .unwrap();
         assert!(max >= manifest_bytes);

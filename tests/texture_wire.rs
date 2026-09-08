@@ -113,7 +113,8 @@ fn line(label: &str, texture: &SovereignTextureConfig) -> String {
     kind.material_mut()
         .expect("a primitive has a material")
         .texture = texture.clone();
-    let rkey = child_rkey("corpus", &Generator::from_kind(kind));
+    let rkey = child_rkey("corpus", &Generator::from_kind(kind))
+        .expect("fixture generators are addressable");
     format!("{label}\t{rkey}\t{bytes}")
 }
 

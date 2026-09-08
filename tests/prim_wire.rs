@@ -31,7 +31,7 @@ fn fixture_path() -> PathBuf {
 fn line(label: &str, kind: &GeneratorKind) -> String {
     let bytes = serde_json::to_string(kind).expect("primitive serialises");
     let g = Generator::from_kind(kind.clone());
-    let rkey = child_rkey("corpus", &g);
+    let rkey = child_rkey("corpus", &g).expect("fixture generators are addressable");
     format!("{label}\t{rkey}\t{bytes}")
 }
 
@@ -181,7 +181,13 @@ fn seeded_room_bytes_are_pinned() {
             names.sort();
             let rkeys: String = names
                 .iter()
-                .map(|name| format!("{name}={}\n", child_rkey(name, &room.generators[*name])))
+                .map(|name| {
+                    format!(
+                        "{name}={}\n",
+                        child_rkey(name, &room.generators[*name])
+                            .expect("fixture generators are addressable")
+                    )
+                })
                 .collect();
             format!(
                 "seed {seed}\t{:016x}\t{} generators",
