@@ -8,1030 +8,271 @@
 //! `enum(Ty)`, `nested(SovTy)`) and default. [`SovereignGroundConfig`] and
 //! [`SovereignRockConfig`] are the two hand-rolled predecessors of the macro.
 
-use super::types::{Fp, Fp2, Fp3, Fp64};
+use super::types::{Fp, Fp2, Fp3};
 use serde::{Deserialize, Serialize};
 
 use super::serde_util::define_sovereign_mirror;
 
-/// Procedural "ground" texture parameters (grass / dirt / snow layers).
-/// Mirrors `bevy_symbios_texture::ground::GroundConfig` with fixed-point wrappers.
+/// The mirror type carrying an upstream config on the wire.
 ///
-/// Default-eliding wire format (#695), like the macro-generated mirrors.
-#[derive(Deserialize, Clone, Debug, PartialEq)]
-#[serde(default)]
-pub struct SovereignGroundConfig {
-    pub seed: u32,
-    pub macro_scale: Fp64,
-    pub macro_octaves: u32,
-    pub micro_scale: Fp64,
-    pub micro_octaves: u32,
-    pub micro_weight: Fp64,
-    pub color_dry: Fp3,
-    pub color_moist: Fp3,
-    pub normal_strength: Fp,
+/// Implemented for every config in the per-field registry by
+/// `define_texture_mirrors!`, which is also what lets a generated mirror
+/// name a *nested* mirror: the registry gives the nested field's upstream
+/// type, and this maps it to the `Sovereign*` that wraps it, with no
+/// hand-written table to fall out of step.
+pub trait HasSovereignMirror {
+    /// The `Sovereign*` type that carries this config on the wire.
+    type Mirror;
 }
 
-crate::pds::serde_util::impl_default_eliding_serialize!(SovereignGroundConfig {
-    seed,
-    macro_scale,
-    macro_octaves,
-    micro_scale,
-    micro_octaves,
-    micro_weight,
-    color_dry,
-    color_moist,
-    normal_strength,
-});
-
-/// Procedural "rock" texture parameters. Mirrors
-/// `bevy_symbios_texture::rock::RockConfig`.
+/// The upstream enum a mirror's `enum(T)` field holds.
 ///
-/// Default-eliding wire format (#695), like the macro-generated mirrors.
-#[derive(Deserialize, Clone, Debug, PartialEq)]
-#[serde(default)]
-pub struct SovereignRockConfig {
-    pub seed: u32,
-    pub scale: Fp64,
-    pub octaves: u32,
-    pub attenuation: Fp64,
-    pub color_light: Fp3,
-    pub color_dark: Fp3,
-    pub weathering: SovereignWeatheringConfig,
-    pub normal_strength: Fp,
+/// The registry names each enum *variant* by path and a macro cannot take
+/// the type off the end of one; two configs also both call their field
+/// `layout` and mean different enums. Six fields, listed once — and a
+/// wrong entry is a compile error, because `to_native` builds the upstream
+/// config as a struct literal.
+macro_rules! sovereign_enum_ty {
+    (SovereignMetalConfig, style) => {
+        bevy_symbios_texture::metal::MetalStyle
+    };
+    (SovereignPaversConfig, layout) => {
+        bevy_symbios_texture::pavers::PaversLayout
+    };
+    (SovereignEncausticConfig, pattern) => {
+        bevy_symbios_texture::encaustic::EncausticPattern
+    };
+    (SovereignGravelConfig, metric) => {
+        bevy_symbios_texture::noise::CellMetric
+    };
+    (SovereignParquetConfig, layout) => {
+        bevy_symbios_texture::parquet::ParquetLayout
+    };
+    (SovereignFabricConfig, weave) => {
+        bevy_symbios_texture::fabric::WeaveKind
+    };
 }
 
-crate::pds::serde_util::impl_default_eliding_serialize!(SovereignRockConfig {
-    seed,
-    scale,
-    octaves,
-    attenuation,
-    color_light,
-    color_dark,
-    weathering,
-    normal_strength,
-});
+/// Declare every texture mirror from `symbios_texture`'s per-field registry.
+///
+/// The registry carries one row per field of every upstream config — its
+/// kind, its envelope, its mutation step and its UI label — and this maps
+/// the *kind* to a wire representation. Nothing about any individual field
+/// is written here, so an upstream field addition is no longer a hard
+/// compile break needing a hand edit per config (#1304).
+///
+/// The registry has no idea what overlands calls its mirrors, so the
+/// roster below supplies the names, zipped with the registry positionally:
+/// a count mismatch fails to compile, and so does a mis-ordered pair,
+/// because `to_native` would then build the wrong upstream config.
+///
+/// A roster entry may carry a `wire { … }` order. `serde_json` writes
+/// struct fields in the order the eliding serializer is handed, and a room
+/// child is content-addressed over those bytes, so the four mirrors whose
+/// historical field order differs from the registry's must keep theirs or
+/// every record carrying them would be re-addressed on its next publish.
+macro_rules! define_texture_mirrors {
+    (
+        [ $( [ $Sov:ident $( wire { $($wire:ident),+ $(,)? } )? ] ),+ $(,)? ]
+        $(
+            $Native:ty, $header:literal, $editor:ident
+            $(, fixup $fixup:ident )?
+            { $(
+                $kind:ident ( $field:ident $($rest:tt)* )
+                $( explore ( $xlo:expr, $xhi:expr ) )?
+            ),+ $(,)? }
+            $( layout { $($layout:tt)* } )?
+        ),+ $(,)?
+    ) => {
+        $(
+            define_texture_mirrors!(@one
+                $Sov, $Native,
+                [ $( wire { $($wire),+ } )? ],
+                $( $kind ($field $($rest)*) ),+ ,
+            );
+        )+
+    };
 
-impl Default for SovereignGroundConfig {
-    fn default() -> Self {
-        Self {
-            seed: 13,
-            macro_scale: Fp64(2.0),
-            macro_octaves: 5,
-            micro_scale: Fp64(8.0),
-            micro_octaves: 4,
-            micro_weight: Fp64(0.35),
-            color_dry: Fp3([0.52, 0.40, 0.26]),
-            color_moist: Fp3([0.28, 0.20, 0.12]),
-            normal_strength: Fp(2.0),
+    // Walk one config's rows, accumulating the wire field list, then
+    // declare the mirror from it.
+    (@one $Sov:ident, $Native:ty, [$($wire:tt)*], $($rows:tt)*) => {
+        define_texture_mirrors!(@munch $Sov, $Native, [$($wire)*], [], $($rows)*);
+    };
+
+    (@munch $Sov:ident, $Native:ty, [$($wire:tt)*], [$($done:tt)*],) => {
+        define_sovereign_mirror!(eliding_derived
+            #[doc = concat!(
+                "DAG-CBOR-safe mirror of [`", stringify!($Native), "`], \
+                 declared from the upstream per-field registry."
+            )]
+            $Sov => $Native { $($done)* } $($wire)*
+        );
+
+        impl HasSovereignMirror for $Native {
+            type Mirror = $Sov;
         }
-    }
+
+        impl $Sov {
+            /// Clamp every field into the envelope the upstream registry
+            /// gives it, in place.
+            ///
+            /// The round trip through the native type is the point: the
+            /// envelope is upstream's, so a bound tuned there reaches a
+            /// record arriving here without being copied. Quantisation is
+            /// lossless in both directions for an in-envelope config —
+            /// `Fp`'s grid already carries the value this mirror holds.
+            pub fn clamp_to_envelope(&mut self) {
+                let mut native = self.to_native();
+                symbios_texture::ClampToEnvelope::clamp_to_envelope(&mut native);
+                *self = Self::from_native(&native);
+            }
+        }
+    };
+
+    // One arm per registry kind; the trailing arguments of a row (label,
+    // envelope, mutation step) belong to the other consumers.
+    (@munch $S:ident, $N:ty, [$($w:tt)*], [$($d:tt)*],
+     seed ( $f:ident $($a:tt)* ), $($rest:tt)*) => {
+        define_texture_mirrors!(@munch $S, $N, [$($w)*], [$($d)* u32 : $f,], $($rest)*);
+    };
+    (@munch $S:ident, $N:ty, [$($w:tt)*], [$($d:tt)*],
+     f64 ( $f:ident $($a:tt)* ), $($rest:tt)*) => {
+        define_texture_mirrors!(@munch $S, $N, [$($w)*], [$($d)* fp64 : $f,], $($rest)*);
+    };
+    (@munch $S:ident, $N:ty, [$($w:tt)*], [$($d:tt)*],
+     f64_round ( $f:ident $($a:tt)* ), $($rest:tt)*) => {
+        define_texture_mirrors!(@munch $S, $N, [$($w)*], [$($d)* fp64 : $f,], $($rest)*);
+    };
+    (@munch $S:ident, $N:ty, [$($w:tt)*], [$($d:tt)*],
+     f32 ( $f:ident $($a:tt)* ), $($rest:tt)*) => {
+        define_texture_mirrors!(@munch $S, $N, [$($w)*], [$($d)* fp : $f,], $($rest)*);
+    };
+    (@munch $S:ident, $N:ty, [$($w:tt)*], [$($d:tt)*],
+     usize ( $f:ident $($a:tt)* ), $($rest:tt)*) => {
+        define_texture_mirrors!(@munch $S, $N, [$($w)*], [$($d)* usize : $f,], $($rest)*);
+    };
+    (@munch $S:ident, $N:ty, [$($w:tt)*], [$($d:tt)*],
+     color3 ( $f:ident $($a:tt)* ), $($rest:tt)*) => {
+        define_texture_mirrors!(@munch $S, $N, [$($w)*], [$($d)* fp3 : $f,], $($rest)*);
+    };
+    (@munch $S:ident, $N:ty, [$($w:tt)*], [$($d:tt)*],
+     bool ( $f:ident $($a:tt)* ), $($rest:tt)*) => {
+        define_texture_mirrors!(@munch $S, $N, [$($w)*], [$($d)* bool : $f,], $($rest)*);
+    };
+    // The shared upstream enum rides the wire as itself; only its type has
+    // to be named, and `sovereign_enum_ty!` is the six-row table for that.
+    (@munch $S:ident, $N:ty, [$($w:tt)*], [$($d:tt)*],
+     enum_pick ( $f:ident $($a:tt)* ), $($rest:tt)*) => {
+        define_texture_mirrors!(
+            @munch $S, $N, [$($w)*],
+            [$($d)* enum(sovereign_enum_ty!($S, $f)) : $f,], $($rest)*
+        );
+    };
+    // A nested config's mirror comes from the trait rather than a table.
+    (@munch $S:ident, $N:ty, [$($w:tt)*], [$($d:tt)*],
+     nested ( $f:ident, $sub:ty, $($a:tt)* ), $($rest:tt)*) => {
+        define_texture_mirrors!(
+            @munch $S, $N, [$($w)*],
+            [$($d)* nested(<$sub as HasSovereignMirror>::Mirror) : $f,], $($rest)*
+        );
+    };
 }
 
-impl SovereignGroundConfig {
-    pub fn to_native(&self) -> bevy_symbios_texture::ground::GroundConfig {
-        bevy_symbios_texture::ground::GroundConfig {
-            seed: self.seed,
-            macro_scale: self.macro_scale.0,
-            macro_octaves: self.macro_octaves as usize,
-            micro_scale: self.micro_scale.0,
-            micro_octaves: self.micro_octaves as usize,
-            micro_weight: self.micro_weight.0,
-            color_dry: self.color_dry.0,
-            color_moist: self.color_moist.0,
-            normal_strength: self.normal_strength.0,
-        }
-    }
-
-    pub fn from_native(n: &bevy_symbios_texture::ground::GroundConfig) -> Self {
-        Self {
-            seed: n.seed,
-            macro_scale: Fp64(n.macro_scale),
-            macro_octaves: n.macro_octaves as u32,
-            micro_scale: Fp64(n.micro_scale),
-            micro_octaves: n.micro_octaves as u32,
-            micro_weight: Fp64(n.micro_weight),
-            color_dry: Fp3(n.color_dry),
-            color_moist: Fp3(n.color_moist),
-            normal_strength: Fp(n.normal_strength),
-        }
-    }
+/// The roster: overlands' name for each mirror, in the registry's order.
+///
+/// This is the only per-variant list the mirrors need; everything else
+/// about a field comes from upstream. Four entries carry an explicit wire
+/// order because their historical field order differs from the registry's
+/// — see `define_texture_mirrors!` above.
+macro_rules! texture_mirrors_with_roster {
+    ( $($registry:tt)* ) => {
+        define_texture_mirrors!(
+            [
+            [SovereignBarkConfig wire {
+                    seed, scale, octaves, warp_u, warp_v, warp_octaves, color_light,
+                    color_dark, normal_strength, furrow_multiplier, furrow_scale_u,
+                    furrow_scale_v, furrow_shape
+            }],
+            [SovereignRockConfig],
+            [SovereignEdgeWear],
+            [SovereignCorrosion],
+            [SovereignCreviceDirt],
+            [SovereignStreaks],
+            [SovereignWeatheringConfig],
+            [SovereignGroundConfig],
+            [SovereignLeafConfig],
+            [SovereignNeedleConfig],
+            [SovereignBroadleafConfig],
+            [SovereignMossConfig],
+            [SovereignLichenConfig],
+            [SovereignReedConfig],
+            [SovereignCactusSkinConfig],
+            [SovereignFrondConfig],
+            [SovereignGrassTuftConfig],
+            [SovereignTwigConfig],
+            [SovereignBrickConfig],
+            [SovereignWindowConfig],
+            [SovereignPlankConfig],
+            [SovereignShingleConfig],
+            [SovereignStuccoConfig],
+            [SovereignConcreteConfig],
+            [SovereignMetalConfig wire {
+                    seed, style, scale, seam_count, seam_sharpness, brush_stretch,
+                    rivet_size, hole_size, roughness, metallic, rust_level, color_metal,
+                    color_rust, weathering, normal_strength
+            }],
+            [SovereignPaversConfig wire {
+                    seed, scale, aspect_ratio, grout_width, bevel, cell_variance,
+                    roughness, color_stone, color_grout, layout, weathering,
+                    normal_strength
+            }],
+            [SovereignAshlarConfig],
+            [SovereignCobblestoneConfig],
+            [SovereignThatchConfig],
+            [SovereignMarbleConfig wire {
+                    seed, scale, octaves, warp_strength, warp_octaves, vein_frequency,
+                    vein_sharpness, roughness, color_base, color_vein, weathering,
+                    normal_strength
+            }],
+            [SovereignCorrugatedConfig],
+            [SovereignAsphaltConfig],
+            [SovereignWainscotingConfig],
+            [SovereignStainedGlassConfig],
+            [SovereignIronGrilleConfig],
+            [SovereignEncausticConfig],
+            [SovereignSoftDiscConfig],
+            [SovereignSparkConfig],
+            [SovereignSnowflakeConfig],
+            [SovereignPuffConfig],
+            [SovereignRingConfig],
+            [SovereignPetalConfig],
+            [SovereignShardConfig],
+            [SovereignLogEndConfig],
+            [SovereignChainLinkConfig],
+            [SovereignLavaConfig],
+            [SovereignCrackedEarthConfig],
+            [SovereignGravelConfig],
+            [SovereignForestFloorConfig],
+            [SovereignEnamelConfig],
+            [SovereignObsidianConfig],
+            [SovereignChitinConfig],
+            [SovereignSolarPanelConfig],
+            [SovereignParquetConfig],
+            [SovereignTruchetConfig],
+            [SovereignIceConfig],
+            [SovereignSnowConfig],
+            [SovereignSandConfig],
+            [SovereignFabricConfig],
+            [SovereignFlowerConfig],
+            [SovereignFlameConfig],
+            [SovereignLeafSpriteConfig],
+            ]
+            $($registry)*
+        );
+    };
 }
 
-impl Default for SovereignRockConfig {
-    fn default() -> Self {
-        Self {
-            seed: 7,
-            scale: Fp64(3.0),
-            octaves: 8,
-            attenuation: Fp64(2.0),
-            color_light: Fp3([0.37, 0.42, 0.36]),
-            color_dark: Fp3([0.22, 0.20, 0.18]),
-            weathering: SovereignWeatheringConfig::default(),
-            normal_strength: Fp(4.0),
-        }
-    }
-}
-
-impl SovereignRockConfig {
-    pub fn to_native(&self) -> bevy_symbios_texture::rock::RockConfig {
-        bevy_symbios_texture::rock::RockConfig {
-            seed: self.seed,
-            scale: self.scale.0,
-            octaves: self.octaves as usize,
-            attenuation: self.attenuation.0,
-            color_light: self.color_light.0,
-            color_dark: self.color_dark.0,
-            weathering: self.weathering.to_native(),
-            normal_strength: self.normal_strength.0,
-        }
-    }
-
-    pub fn from_native(n: &bevy_symbios_texture::rock::RockConfig) -> Self {
-        Self {
-            seed: n.seed,
-            scale: Fp64(n.scale),
-            octaves: n.octaves as u32,
-            attenuation: Fp64(n.attenuation),
-            color_light: Fp3(n.color_light),
-            color_dark: Fp3(n.color_dark),
-            weathering: SovereignWeatheringConfig::from_native(&n.weathering),
-            normal_strength: Fp(n.normal_strength),
-        }
-    }
-}
-
-// --- Foliage cards ---------------------------------------------------------
-
-define_sovereign_mirror!(eliding SovereignLeafConfig => bevy_symbios_texture::leaf::LeafConfig {
-    u32  : seed = 0,
-    fp3  : color_base = [0.12, 0.19, 0.11],
-    fp3  : color_edge = [0.35, 0.28, 0.05],
-    fp64 : serration_strength = 0.12,
-    fp64 : vein_angle = 2.5,
-    fp64 : micro_detail = 0.3,
-    fp   : normal_strength = 1.0,
-    fp64 : lobe_count = 4.0,
-    fp64 : lobe_depth = 0.23,
-    fp64 : lobe_sharpness = 1.0,
-    fp64 : petiole_length = 0.12,
-    fp64 : petiole_width = 0.022,
-    fp64 : midrib_width = 0.12,
-    fp64 : vein_count = 6.0,
-    fp64 : venule_strength = 0.50,
-});
-
-define_sovereign_mirror!(eliding SovereignNeedleConfig => bevy_symbios_texture::needle::NeedleConfig {
-    u32   : seed = 0,
-    usize : variant_rows = 1,
-    usize : variant_cols = 1,
-    usize : pair_count = 11,
-    fp3   : color_base = [0.05, 0.13, 0.07],
-    fp3   : color_tip = [0.16, 0.31, 0.14],
-    fp3   : color_shoot = [0.21, 0.13, 0.07],
-    fp64  : needle_angle = 42.0,
-    fp64  : needle_length = 0.3,
-    fp64  : needle_width = 0.009,
-    fp64  : length_taper = 0.55,
-    fp64  : shoot_length = 0.9,
-    fp64  : shoot_width = 0.009,
-    fp    : normal_strength = 1.2,
-});
-
-define_sovereign_mirror!(eliding SovereignBroadleafConfig => bevy_symbios_texture::broadleaf::BroadleafConfig {
-    u32   : seed = 0,
-    usize : variant_rows = 1,
-    usize : variant_cols = 1,
-    fp3   : color_base = [0.13, 0.26, 0.08],
-    fp3   : color_edge = [0.28, 0.38, 0.12],
-    fp64  : lobe_count = 5.0,
-    fp64  : lobe_depth = 0.34,
-    fp64  : fan_angle = 78.0,
-    fp64  : radius = 0.92,
-    fp64  : base_notch = 0.18,
-    fp64  : vein_width = 0.05,
-    fp64  : petiole_length = 0.1,
-    fp    : normal_strength = 1.4,
-});
-
-define_sovereign_mirror!(eliding SovereignMossConfig => bevy_symbios_texture::moss::MossConfig {
-    u32   : seed = 21,
-    fp64  : cushion_scale = 5.0,
-    usize : cushion_octaves = 4,
-    fp64  : filament_scale = 34.0,
-    usize : filament_octaves = 3,
-    fp64  : filament_weight = 0.45,
-    fp3   : color_deep = [0.03, 0.09, 0.03],
-    fp3   : color_tip = [0.26, 0.44, 0.10],
-    fp3   : color_dry = [0.38, 0.34, 0.14],
-    fp64  : dry_patches = 0.25,
-    fp64  : dry_scale = 2.5,
-    fp64  : cushion_depth = 0.6,
-    fp    : normal_strength = 2.4,
-});
-
-define_sovereign_mirror!(eliding SovereignLichenConfig => bevy_symbios_texture::lichen::LichenConfig {
-    u32   : seed = 7,
-    fp64  : patch_scale = 3.0,
-    usize : patch_octaves = 2,
-    fp64  : coverage = 0.45,
-    fp64  : rim_width = 0.06,
-    fp64  : species_scale = 1.8,
-    fp3   : color_rock = [0.13, 0.13, 0.12],
-    fp3   : color_lichen_a = [0.14, 0.17, 0.10],
-    fp3   : color_lichen_b = [0.26, 0.13, 0.04],
-    fp3   : color_rim = [0.38, 0.40, 0.32],
-    fp64  : grain_scale = 40.0,
-    fp64  : grain_strength = 0.18,
-    fp64  : relief = 0.5,
-    fp    : normal_strength = 1.8,
-});
-
-define_sovereign_mirror!(eliding SovereignReedConfig => bevy_symbios_texture::reed::ReedConfig {
-    u32   : seed = 0,
-    usize : variant_rows = 1,
-    usize : variant_cols = 1,
-    usize : blade_count = 6,
-    fp3   : color_base = [0.10, 0.16, 0.06],
-    fp3   : color_tip = [0.38, 0.44, 0.16],
-    fp3   : color_catkin = [0.24, 0.13, 0.05],
-    fp64  : blade_width = 0.022,
-    fp64  : height_min = 0.62,
-    fp64  : height_max = 0.98,
-    fp64  : lean = 0.09,
-    fp64  : tip_fraction = 0.28,
-    fp64  : catkin_share = 0.4,
-    fp64  : catkin_length = 0.2,
-    fp64  : catkin_width = 0.022,
-    fp    : normal_strength = 1.2,
-});
-
-define_sovereign_mirror!(eliding SovereignCactusSkinConfig => bevy_symbios_texture::cactus::CactusSkinConfig {
-    u32   : seed = 0,
-    usize : rib_count = 8,
-    usize : areole_rows = 9,
-    fp64  : rib_depth = 0.85,
-    fp64  : rib_sharpness = 0.85,
-    fp3   : color_skin = [0.22, 0.42, 0.27],
-    fp3   : color_valley = [0.07, 0.17, 0.11],
-    fp3   : color_areole = [0.55, 0.50, 0.40],
-    fp3   : color_spine = [0.86, 0.82, 0.66],
-    fp64  : areole_size = 0.022,
-    fp64  : spine_reach = 3.2,
-    usize : spine_count = 8,
-    fp64  : waxiness = 0.55,
-    fp    : normal_strength = 1.4,
-});
-
-define_sovereign_mirror!(eliding SovereignFrondConfig => bevy_symbios_texture::frond::FrondConfig {
-    u32   : seed = 0,
-    usize : variant_rows = 1,
-    usize : variant_cols = 1,
-    fp3   : color_base = [0.11, 0.30, 0.09],
-    fp3   : color_edge = [0.22, 0.42, 0.13],
-    fp64  : width = 0.13,
-    fp64  : tip_taper = 1.4,
-    fp64  : midrib_width = 0.16,
-    fp64  : vein_count = 9.0,
-    fp64  : lobe_count = 0.0,
-    fp64  : lobe_depth = 0.0,
-    fp    : normal_strength = 1.3,
-});
-
-define_sovereign_mirror!(eliding SovereignGrassTuftConfig => bevy_symbios_texture::grass::GrassTuftConfig {
-    u32   : seed = 0,
-    usize : variant_rows = 1,
-    usize : variant_cols = 1,
-    usize : blade_count = 9,
-    fp3   : color_base = [0.11, 0.17, 0.06],
-    fp3   : color_tip = [0.36, 0.46, 0.14],
-    fp3   : color_dry = [0.46, 0.39, 0.15],
-    fp64  : blade_width = 0.05,
-    fp64  : blade_taper = 1.3,
-    fp64  : height_min = 0.55,
-    fp64  : height_max = 0.96,
-    fp64  : fan_spread = 0.34,
-    fp64  : curve = 0.14,
-    fp64  : base_spread = 0.16,
-    fp64  : dry_fraction = 0.22,
-    fp    : normal_strength = 1.2,
-});
-
-define_sovereign_mirror!(eliding SovereignTwigConfig => bevy_symbios_texture::twig::TwigConfig {
-    nested(SovereignLeafConfig) : leaf = SovereignLeafConfig::default(),
-    fp3   : stem_color = [0.18, 0.08, 0.06],
-    fp64  : stem_half_width = 0.021,
-    usize : leaf_pairs = 4,
-    fp64  : leaf_angle = std::f64::consts::FRAC_PI_2 - 0.35,
-    fp64  : leaf_scale = 0.38,
-    fp64  : stem_curve = 0.015,
-    bool  : sympodial = true,
-});
-
-define_sovereign_mirror!(eliding SovereignBarkConfig => bevy_symbios_texture::bark::BarkConfig {
-    u32   : seed = 42,
-    fp64  : scale = 2.0,
-    usize : octaves = 6,
-    fp64  : warp_u = 0.15,
-    fp64  : warp_v = 0.55,
-    usize : warp_octaves = 3,
-    fp3   : color_light = [0.45, 0.28, 0.14],
-    fp3   : color_dark = [0.09, 0.05, 0.03],
-    fp    : normal_strength = 3.0,
-    fp64  : furrow_multiplier = 0.78,
-    fp64  : furrow_scale_u = 2.0,
-    fp64  : furrow_scale_v = 0.48,
-    fp64  : furrow_shape = 2.0,
-});
-
-define_sovereign_mirror!(eliding SovereignWindowConfig => bevy_symbios_texture::window::WindowConfig {
-    u32   : seed = 42,
-    fp64  : frame_width = 0.08,
-    usize : panes_x = 2,
-    usize : panes_y = 3,
-    fp64  : mullion_thickness = 0.025,
-    fp64  : corner_radius = 0.02,
-    fp64  : glass_opacity = 0.30,
-    fp64  : grime_level = 0.15,
-    fp3   : color_frame = [0.85, 0.82, 0.78],
-    fp    : normal_strength = 3.0,
-});
-
-define_sovereign_mirror!(eliding SovereignStainedGlassConfig => bevy_symbios_texture::stained_glass::StainedGlassConfig {
-    u32   : seed = 63,
-    usize : cell_count = 12,
-    fp64  : lead_width = 0.05,
-    fp    : saturation = 0.85,
-    fp64  : glass_roughness = 0.06,
-    fp64  : grime_level = 0.12,
-    fp    : normal_strength = 2.5,
-});
-
-define_sovereign_mirror!(eliding SovereignIronGrilleConfig => bevy_symbios_texture::iron_grille::IronGrilleConfig {
-    u32   : seed = 71,
-    usize : bars_x = 4,
-    usize : bars_y = 6,
-    fp64  : bar_width = 0.04,
-    bool  : round_bars = true,
-    fp64  : rust_level = 0.30,
-    fp3   : color_iron = [0.14, 0.13, 0.13],
-    fp3   : color_rust = [0.42, 0.22, 0.08],
-    fp    : normal_strength = 3.5,
-});
-
-// --- Tileable surfaces -----------------------------------------------------
-
-define_sovereign_mirror!(eliding SovereignBrickConfig => bevy_symbios_texture::brick::BrickConfig {
-    u32  : seed = 42,
-    fp64 : scale = 4.0,
-    fp64 : row_offset = 0.5,
-    fp64 : aspect_ratio = 2.0,
-    fp64 : mortar_size = 0.05,
-    fp64 : bevel = 0.5,
-    fp64 : cell_variance = 0.15,
-    fp64 : roughness = 0.5,
-    fp3  : color_brick = [0.56, 0.28, 0.18],
-    fp3  : color_mortar = [0.76, 0.73, 0.67],
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp   : normal_strength = 4.0,
-});
-
-define_sovereign_mirror!(eliding SovereignPlankConfig => bevy_symbios_texture::plank::PlankConfig {
-    u32  : seed = 42,
-    fp64 : plank_count = 5.0,
-    fp64 : grain_scale = 12.0,
-    fp64 : joint_width = 0.06,
-    fp64 : stagger = 0.5,
-    fp64 : knot_density = 0.25,
-    fp64 : grain_warp = 0.35,
-    fp3  : color_wood_light = [0.72, 0.52, 0.30],
-    fp3  : color_wood_dark = [0.42, 0.26, 0.12],
-    fp   : normal_strength = 2.5,
-});
-
-define_sovereign_mirror!(eliding SovereignShingleConfig => bevy_symbios_texture::shingle::ShingleConfig {
-    u32  : seed = 42,
-    fp64 : scale = 5.0,
-    fp64 : shape_profile = 0.5,
-    fp64 : overlap = 0.45,
-    fp64 : stagger = 0.5,
-    fp64 : moss_level = 0.18,
-    fp3  : color_tile = [0.40, 0.25, 0.18],
-    fp3  : color_grout = [0.18, 0.14, 0.12],
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp   : normal_strength = 5.0,
-});
-
-define_sovereign_mirror!(eliding SovereignStuccoConfig => bevy_symbios_texture::stucco::StuccoConfig {
-    u32   : seed = 13,
-    fp64  : scale = 8.0,
-    usize : octaves = 6,
-    fp64  : roughness = 0.35,
-    fp3   : color_base = [0.92, 0.89, 0.84],
-    fp3   : color_shadow = [0.72, 0.70, 0.66],
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp    : normal_strength = 2.0,
-});
-
-define_sovereign_mirror!(eliding SovereignConcreteConfig => bevy_symbios_texture::concrete::ConcreteConfig {
-    u32   : seed = 17,
-    fp64  : scale = 5.0,
-    usize : octaves = 5,
-    fp64  : roughness = 0.45,
-    fp64  : formwork_lines = 4.0,
-    fp64  : formwork_depth = 0.12,
-    fp64  : pit_density = 0.08,
-    fp3   : color_base = [0.55, 0.54, 0.52],
-    fp3   : color_pit = [0.35, 0.34, 0.33],
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp    : normal_strength = 2.5,
-});
-
-// ── Weathering layer mirrors ─────────────────────────────────────────────
-//
-// The upstream ageing post-pass is a nested config carried by every generator
-// that can weather.  Each layer's `amount` defaults to 0, so an untouched
-// block bakes exactly the material the generator drew.
-
-define_sovereign_mirror!(eliding SovereignEdgeWear => bevy_symbios_texture::weathering::EdgeWear {
-    fp   : amount = 0.0,
-    fp3  : color = [0.55, 0.55, 0.58],
-    fp64 : threshold = 0.35,
-    fp64 : breakup_scale = 8.0,
-    fp   : roughness = 0.35,
-    fp   : metallic = 0.9,
-});
-
-define_sovereign_mirror!(eliding SovereignCorrosion => bevy_symbios_texture::weathering::Corrosion {
-    fp   : amount = 0.0,
-    fp3  : color = [0.34, 0.13, 0.05],
-    fp   : coverage = 0.18,
-    fp64 : spread = 0.08,
-    fp64 : barrier_scale = 5.0,
-    fp64 : relief = 0.04,
-    fp   : roughness = 0.92,
-    fp   : metallic = 0.0,
-});
-
-define_sovereign_mirror!(eliding SovereignCreviceDirt => bevy_symbios_texture::weathering::CreviceDirt {
-    fp   : amount = 0.0,
-    fp3  : color = [0.10, 0.09, 0.07],
-    fp64 : depth = 0.04,
-    fp   : gravity = 0.6,
-    fp   : roughness = 0.95,
-    fp   : occlusion = 0.55,
-});
-
-define_sovereign_mirror!(eliding SovereignStreaks => bevy_symbios_texture::weathering::Streaks {
-    fp   : amount = 0.0,
-    fp3  : color = [0.12, 0.11, 0.10],
-    fp   : density = 0.25,
-    fp64 : length = 0.35,
-    fp64 : wander = 0.5,
-    fp   : roughness = 0.85,
-});
-
-define_sovereign_mirror!(eliding SovereignWeatheringConfig => bevy_symbios_texture::weathering::WeatheringConfig {
-    u32 : seed = 0,
-    nested(SovereignEdgeWear) : edge_wear = SovereignEdgeWear::default(),
-    nested(SovereignCorrosion) : corrosion = SovereignCorrosion::default(),
-    nested(SovereignCreviceDirt) : crevice_dirt = SovereignCreviceDirt::default(),
-    nested(SovereignStreaks) : streaks = SovereignStreaks::default(),
-});
-
-// ── Generators added in bevy_symbios_texture 0.8 ─────────────────────────
-
-define_sovereign_mirror!(eliding SovereignCrackedEarthConfig => bevy_symbios_texture::cracked_earth::CrackedEarthConfig {
-    u32  : seed = 11,
-    fp64 : scale = 7.0,
-    fp64 : jitter = 0.85,
-    fp64 : crack_width = 0.010,
-    fp64 : crack_depth = 0.55,
-    fp64 : curl = 0.22,
-    fp64 : curl_reach = 0.035,
-    fp   : plate_variance = 0.10,
-    fp64 : grain_scale = 26.0,
-    fp64 : grain_strength = 0.12,
-    fp3  : color_plate = [0.44, 0.33, 0.22],
-    fp3  : color_crack = [0.13, 0.09, 0.06],
-    fp   : normal_strength = 3.0,
-});
-
-define_sovereign_mirror!(eliding SovereignGravelConfig => bevy_symbios_texture::gravel::GravelConfig {
-    u32  : seed = 23,
-    fp64 : scale = 20.0,
-    enum(bevy_symbios_texture::noise::CellMetric) : metric = bevy_symbios_texture::noise::CellMetric::Euclidean,
-    fp64 : jitter = 0.9,
-    fp64 : roundness = 1.6,
-    fp64 : size_variance = 0.45,
-    fp   : cell_variance = 0.13,
-    fp64 : fines_level = 0.55,
-    fp64 : grain_scale = 60.0,
-    fp3  : color_stone = [0.40, 0.38, 0.35],
-    fp3  : color_dark = [0.17, 0.16, 0.15],
-    fp3  : color_fines = [0.26, 0.24, 0.21],
-    fp   : normal_strength = 2.5,
-});
-
-define_sovereign_mirror!(eliding SovereignForestFloorConfig => bevy_symbios_texture::forest_floor::ForestFloorConfig {
-    u32   : seed = 31,
-    fp64  : litter_scale = 7.0,
-    usize : layers = 3,
-    fp64  : coverage = 0.85,
-    fp64  : leaf_length = 1.15,
-    fp64  : leaf_width = 0.5,
-    fp64  : leaf_thickness = 0.35,
-    fp    : midrib = 0.22,
-    fp64  : humus_scale = 14.0,
-    fp3   : color_humus = [0.09, 0.07, 0.05],
-    fp3   : color_leaf = [0.46, 0.31, 0.12],
-    fp3   : color_leaf_old = [0.22, 0.16, 0.09],
-    fp    : normal_strength = 2.2,
-});
-
-define_sovereign_mirror!(eliding SovereignEnamelConfig => bevy_symbios_texture::enamel::EnamelConfig {
-    u32  : seed = 17,
-    fp3  : color = [0.62, 0.20, 0.16],
-    fp3  : color_body = [0.80, 0.78, 0.74],
-    fp   : gloss_roughness = 0.18,
-    fp   : metallic = 0.0,
-    fp   : crackle = 0.0,
-    fp64 : crackle_scale = 26.0,
-    fp64 : crackle_width = 0.0025,
-    fp64 : orange_peel = 0.11,
-    fp64 : orange_peel_scale = 34.0,
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp   : normal_strength = 3.5,
-});
-
-define_sovereign_mirror!(eliding SovereignObsidianConfig => bevy_symbios_texture::obsidian::ObsidianConfig {
-    u32  : seed = 29,
-    fp3  : color = [0.035, 0.032, 0.045],
-    fp3  : color_sheen = [0.16, 0.15, 0.22],
-    fp64 : band_cycles_u = 5.0,
-    fp64 : band_cycles_v = 2.0,
-    fp64 : band_warp = 0.26,
-    fp64 : band_warp_scale = 1.6,
-    fp64 : band_sharpness = 0.35,
-    fp   : band_contrast = 0.8,
-    fp   : gloss_roughness = 0.12,
-    fp   : metallic = 0.6,
-    fp64 : relief = 0.05,
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp   : normal_strength = 0.8,
-});
-
-define_sovereign_mirror!(eliding SovereignChitinConfig => bevy_symbios_texture::chitin::ChitinConfig {
-    u32  : seed = 37,
-    fp64 : scale = 6.0,
-    fp64 : jitter = 0.75,
-    fp64 : softness = 24.0,
-    fp64 : plate_fill = 0.9,
-    fp64 : plate_relief = 0.55,
-    fp64 : seam_width = 0.006,
-    fp   : seam_depth = 0.75,
-    fp   : iridescence = 0.22,
-    fp3  : color = [0.20, 0.34, 0.20],
-    fp3  : color_deep = [0.05, 0.09, 0.07],
-    fp   : gloss_roughness = 0.28,
-    fp   : metallic = 0.45,
-    fp64 : pit_scale = 40.0,
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp   : normal_strength = 2.0,
-});
-
-define_sovereign_mirror!(eliding SovereignSolarPanelConfig => bevy_symbios_texture::solar_panel::SolarPanelConfig {
-    u32  : seed = 41,
-    fp64 : cells_x = 4.0,
-    fp64 : cells_y = 4.0,
-    fp64 : cell_gap = 0.06,
-    fp64 : corner_cut = 0.14,
-    fp64 : busbars = 3.0,
-    fp64 : busbar_width = 0.014,
-    fp64 : fingers = 18.0,
-    fp64 : finger_width = 0.003,
-    fp3  : color_cell = [0.020, 0.030, 0.075],
-    fp3  : color_backing = [0.72, 0.72, 0.70],
-    fp3  : color_wire = [0.62, 0.63, 0.65],
-    fp   : cell_variance = 0.18,
-    fp   : crystal_mottle = 0.30,
-    fp64 : crystal_scale = 22.0,
-    fp   : glass_roughness = 0.10,
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp   : normal_strength = 1.0,
-});
-
-define_sovereign_mirror!(eliding SovereignParquetConfig => bevy_symbios_texture::parquet::ParquetConfig {
-    u32  : seed = 43,
-    enum(bevy_symbios_texture::parquet::ParquetLayout) : layout = bevy_symbios_texture::parquet::ParquetLayout::Herringbone,
-    fp64 : scale = 8.0,
-    fp64 : aspect = 4.0,
-    fp64 : joint_width = 0.05,
-    fp64 : joint_depth = 0.5,
-    fp64 : grain_lines = 7.0,
-    fp   : grain_contrast = 0.35,
-    fp64 : grain_warp = 0.22,
-    fp   : board_variance = 0.13,
-    fp3  : color_wood = [0.36, 0.20, 0.09],
-    fp3  : color_grain = [0.19, 0.10, 0.04],
-    fp3  : color_joint = [0.07, 0.04, 0.02],
-    fp   : gloss_roughness = 0.32,
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp   : normal_strength = 1.6,
-});
-
-define_sovereign_mirror!(eliding SovereignTruchetConfig => bevy_symbios_texture::truchet::TruchetConfig {
-    u32  : seed = 47,
-    fp64 : scale = 6.0,
-    fp64 : trace_width = 0.09,
-    fp64 : trace_relief = 0.6,
-    fp64 : density = 0.85,
-    fp3  : color_panel = [0.035, 0.055, 0.050],
-    fp3  : color_trace = [0.16, 0.42, 0.34],
-    fp3  : color_glow = [0.10, 0.85, 0.60],
-    fp   : emissive_intensity = 1.0,
-    fp   : panel_roughness = 0.72,
-    fp   : trace_roughness = 0.30,
-    fp   : trace_metallic = 0.65,
-    fp64 : mottle_scale = 18.0,
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp   : normal_strength = 1.4,
-});
-
-define_sovereign_mirror!(eliding SovereignMetalConfig => bevy_symbios_texture::metal::MetalConfig {
-    u32  : seed = 31,
-    enum(bevy_symbios_texture::metal::MetalStyle) : style = bevy_symbios_texture::metal::MetalStyle::Brushed,
-    fp64 : scale = 6.0,
-    fp64 : seam_count = 6.0,
-    fp64 : seam_sharpness = 2.5,
-    fp64 : brush_stretch = 8.0,
-    fp64 : rivet_size = 0.34,
-    fp64 : hole_size = 0.45,
-    fp64 : roughness = 0.25,
-    fp   : metallic = 0.85,
-    fp64 : rust_level = 0.15,
-    fp3  : color_metal = [0.42, 0.44, 0.47],
-    fp3  : color_rust = [0.42, 0.24, 0.12],
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp   : normal_strength = 3.0,
-});
-
-define_sovereign_mirror!(eliding SovereignPaversConfig => bevy_symbios_texture::pavers::PaversConfig {
-    u32  : seed = 23,
-    fp64 : scale = 5.0,
-    fp64 : aspect_ratio = 1.0,
-    fp64 : grout_width = 0.08,
-    fp64 : bevel = 0.5,
-    fp64 : cell_variance = 0.10,
-    fp64 : roughness = 0.30,
-    fp3  : color_stone = [0.48, 0.44, 0.40],
-    fp3  : color_grout = [0.28, 0.27, 0.26],
-    enum(bevy_symbios_texture::pavers::PaversLayout) : layout = bevy_symbios_texture::pavers::PaversLayout::Square,
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp   : normal_strength = 3.5,
-});
-
-define_sovereign_mirror!(eliding SovereignAshlarConfig => bevy_symbios_texture::ashlar::AshlarConfig {
-    u32   : seed = 13,
-    usize : rows = 4,
-    usize : cols = 4,
-    fp64  : mortar_size = 0.04,
-    fp64  : bevel = 0.4,
-    fp64  : cell_variance = 0.18,
-    fp64  : chisel_depth = 0.4,
-    fp64  : roughness = 0.45,
-    fp3   : color_stone = [0.52, 0.50, 0.47],
-    fp3   : color_mortar = [0.72, 0.70, 0.65],
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp    : normal_strength = 4.5,
-});
-
-define_sovereign_mirror!(eliding SovereignCobblestoneConfig => bevy_symbios_texture::cobblestone::CobblestoneConfig {
-    u32  : seed = 7,
-    fp64 : scale = 6.0,
-    fp64 : gap_width = 0.12,
-    fp64 : cell_variance = 0.20,
-    fp64 : roundness = 1.2,
-    fp3  : color_stone = [0.46, 0.43, 0.40],
-    fp3  : color_mud = [0.22, 0.18, 0.14],
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp   : normal_strength = 5.0,
-});
-
-define_sovereign_mirror!(eliding SovereignThatchConfig => bevy_symbios_texture::thatch::ThatchConfig {
-    u32  : seed = 19,
-    fp64 : density = 12.0,
-    fp64 : anisotropy = 8.0,
-    fp64 : warp_strength = 0.15,
-    fp64 : layer_count = 8.0,
-    fp64 : layer_shadow = 0.55,
-    fp3  : color_straw = [0.62, 0.54, 0.28],
-    fp3  : color_shadow = [0.22, 0.17, 0.09],
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp   : normal_strength = 3.5,
-});
-
-define_sovereign_mirror!(eliding SovereignMarbleConfig => bevy_symbios_texture::marble::MarbleConfig {
-    u32   : seed = 55,
-    fp64  : scale = 3.0,
-    usize : octaves = 5,
-    fp64  : warp_strength = 0.6,
-    usize : warp_octaves = 3,
-    fp64  : vein_frequency = 3.0,
-    fp64  : vein_sharpness = 2.0,
-    fp64  : roughness = 0.08,
-    fp3   : color_base = [0.92, 0.90, 0.87],
-    fp3   : color_vein = [0.42, 0.38, 0.34],
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp    : normal_strength = 1.5,
-});
-
-define_sovereign_mirror!(eliding SovereignCorrugatedConfig => bevy_symbios_texture::corrugated::CorrugatedConfig {
-    u32  : seed = 31,
-    fp64 : ridges = 8.0,
-    fp64 : ridge_depth = 1.0,
-    fp64 : roughness = 0.35,
-    fp64 : rust_level = 0.25,
-    fp   : metallic = 0.85,
-    fp3  : color_metal = [0.72, 0.74, 0.76],
-    fp3  : color_rust = [0.55, 0.30, 0.12],
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp   : normal_strength = 4.0,
-});
-
-define_sovereign_mirror!(eliding SovereignAsphaltConfig => bevy_symbios_texture::asphalt::AsphaltConfig {
-    u32  : seed = 88,
-    fp64 : scale = 4.0,
-    fp64 : aggregate_density = 0.22,
-    fp64 : aggregate_scale = 16.0,
-    fp64 : roughness = 0.90,
-    fp64 : stain_level = 0.25,
-    fp3  : color_base = [0.06, 0.06, 0.07],
-    fp3  : color_aggregate = [0.35, 0.33, 0.30],
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp   : normal_strength = 2.5,
-});
-
-define_sovereign_mirror!(eliding SovereignWainscotingConfig => bevy_symbios_texture::wainscoting::WainscotingConfig {
-    u32   : seed = 37,
-    usize : panels_x = 1,
-    usize : panels_y = 2,
-    fp64  : frame_width = 0.20,
-    fp64  : panel_inset = 0.06,
-    fp64  : grain_scale = 10.0,
-    fp64  : grain_warp = 0.30,
-    fp3   : color_wood_light = [0.65, 0.44, 0.20],
-    fp3   : color_wood_dark = [0.28, 0.16, 0.07],
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp    : normal_strength = 4.0,
-});
-
-define_sovereign_mirror!(eliding SovereignEncausticConfig => bevy_symbios_texture::encaustic::EncausticConfig {
-    u32  : seed = 47,
-    fp64 : scale = 5.0,
-    enum(bevy_symbios_texture::encaustic::EncausticPattern) : pattern = bevy_symbios_texture::encaustic::EncausticPattern::Octagon,
-    fp64 : grout_width = 0.06,
-    fp64 : glaze_roughness = 0.04,
-    fp3  : color_a = [0.72, 0.38, 0.22],
-    fp3  : color_b = [0.22, 0.35, 0.65],
-    fp3  : color_grout = [0.82, 0.80, 0.75],
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp   : normal_strength = 3.0,
-});
-
-// --- Particle sprite cards -------------------------------------------------
-// Alpha-silhouette billboard sheets. `variant_rows`/`variant_cols` bake an
-// N×M atlas of per-cell-seeded variants; the particle system's RandomFrame
-// mode draws one cell per particle for per-particle shape variety. Every
-// count-shaped field is clamped by the upstream generator at bake time, and
-// re-clamped at the record boundary in `sanitize/material.rs`.
-
-define_sovereign_mirror!(eliding SovereignSoftDiscConfig => bevy_symbios_texture::soft_disc::SoftDiscConfig {
-    u32   : seed = 0,
-    usize : variant_rows = 1,
-    usize : variant_cols = 1,
-    fp3   : color_core = [1.0, 0.98, 0.9],
-    fp3   : color_halo = [1.0, 0.72, 0.25],
-    fp64  : core_radius = 0.15,
-    fp64  : falloff = 2.5,
-    fp64  : ellipticity = 0.0,
-    fp64  : scale_jitter = 0.15,
-    fp    : normal_strength = 1.0,
-});
-
-define_sovereign_mirror!(eliding SovereignSparkConfig => bevy_symbios_texture::spark::SparkConfig {
-    u32   : seed = 0,
-    usize : variant_rows = 2,
-    usize : variant_cols = 2,
-    usize : points = 4,
-    fp3   : color_core = [1.0, 0.95, 0.8],
-    fp3   : color_tip = [1.0, 0.45, 0.1],
-    fp64  : core_radius = 0.12,
-    fp64  : arm_sharpness = 3.0,
-    fp64  : falloff = 1.8,
-    fp64  : length_jitter = 0.3,
-    fp    : normal_strength = 1.0,
-});
-
-define_sovereign_mirror!(eliding SovereignSnowflakeConfig => bevy_symbios_texture::snowflake::SnowflakeConfig {
-    u32   : seed = 0,
-    usize : variant_rows = 2,
-    usize : variant_cols = 2,
-    usize : arms = 6,
-    fp3   : color = [0.92, 0.96, 1.0],
-    fp64  : core_radius = 0.12,
-    fp64  : arm_width = 0.045,
-    usize : branch_pairs = 3,
-    fp64  : branch_angle = 1.05,
-    fp64  : branch_scale = 0.45,
-    fp64  : softness = 0.02,
-    fp    : normal_strength = 1.5,
-});
-
-define_sovereign_mirror!(eliding SovereignPuffConfig => bevy_symbios_texture::puff::PuffConfig {
-    u32   : seed = 0,
-    usize : variant_rows = 2,
-    usize : variant_cols = 2,
-    fp3   : color_base = [0.86, 0.86, 0.9],
-    fp3   : color_shadow = [0.52, 0.52, 0.58],
-    fp64  : noise_scale = 3.0,
-    usize : octaves = 4,
-    fp64  : warp = 0.45,
-    fp64  : density = 0.9,
-    fp64  : edge_falloff = 2.0,
-    fp64  : contrast = 1.3,
-    fp    : normal_strength = 1.0,
-});
-
-define_sovereign_mirror!(eliding SovereignRingConfig => bevy_symbios_texture::ring::RingConfig {
-    u32   : seed = 0,
-    usize : variant_rows = 1,
-    usize : variant_cols = 1,
-    fp3   : color = [0.85, 0.93, 1.0],
-    fp64  : radius = 0.6,
-    fp64  : thickness = 0.12,
-    fp64  : falloff = 2.0,
-    fp64  : waviness = 0.0,
-    usize : wave_count = 6,
-    fp64  : radius_jitter = 0.1,
-    fp    : normal_strength = 1.0,
-});
-
-define_sovereign_mirror!(eliding SovereignPetalConfig => bevy_symbios_texture::petal::PetalConfig {
-    u32   : seed = 0,
-    usize : variant_rows = 2,
-    usize : variant_cols = 2,
-    fp3   : color_base = [0.98, 0.72, 0.82],
-    fp3   : color_edge = [0.93, 0.5, 0.66],
-    fp3   : color_throat = [0.99, 0.88, 0.55],
-    fp64  : length = 0.92,
-    fp64  : width = 0.6,
-    fp64  : peak = 0.65,
-    fp64  : tip_notch = 0.08,
-    fp64  : curl = 0.4,
-    fp64  : asymmetry = 0.15,
-    fp    : normal_strength = 1.5,
-});
-
-define_sovereign_mirror!(eliding SovereignShardConfig => bevy_symbios_texture::shard::ShardConfig {
-    u32   : seed = 0,
-    usize : variant_rows = 2,
-    usize : variant_cols = 2,
-    fp3   : color_base = [0.46, 0.43, 0.4],
-    fp3   : color_edge = [0.24, 0.22, 0.21],
-    usize : sides = 5,
-    fp64  : irregularity = 0.45,
-    fp64  : edge_band = 0.18,
-    fp64  : grain = 0.35,
-    fp    : normal_strength = 2.5,
-});
-
-define_sovereign_mirror!(eliding SovereignLeafSpriteConfig => bevy_symbios_texture::leaf_sprite::LeafSpriteConfig {
-    u32   : seed = 0,
-    usize : variant_rows = 2,
-    usize : variant_cols = 2,
-    nested(SovereignLeafConfig) : leaf = SovereignLeafConfig::default(),
-    fp64  : shape_jitter = 0.5,
-    fp    : tint_jitter = 0.25,
-});
-
-define_sovereign_mirror!(eliding SovereignFlameConfig => bevy_symbios_texture::flame::FlameConfig {
-    u32   : seed = 0,
-    usize : variant_rows = 2,
-    usize : variant_cols = 2,
-    fp64  : elongation = 1.6,
-    fp64  : turbulence = 0.55,
-    fp64  : lean_jitter = 0.25,
-    fp64  : falloff = 1.6,
-    fp3   : color_core = [1.0, 0.97, 0.78],
-    fp3   : color_mid = [1.0, 0.55, 0.10],
-    fp3   : color_tip = [0.85, 0.16, 0.02],
-    fp    : normal_strength = 1.0,
-});
-
-define_sovereign_mirror!(eliding SovereignFlowerConfig => bevy_symbios_texture::flower::FlowerConfig {
-    u32   : seed = 0,
-    usize : variant_rows = 2,
-    usize : variant_cols = 2,
-    nested(SovereignPetalConfig) : petal = SovereignPetalConfig::default(),
-    usize : petal_count = 6,
-    fp64  : center_radius = 0.14,
-    fp3   : center_color = [0.96, 0.78, 0.25],
-    fp64  : dot_density = 0.5,
-    fp    : normal_strength = 1.5,
-});
-
-// --- Additional tileable surfaces ------------------------------------------
-// Opaque repeat-tiling textures (the render-properties catch-all already
-// treats them as surfaces). `Lava` additionally emits a glow map: the
-// upstream patch system wires `emissive_texture` and defaults the emissive
-// factor to white, so the crust glows without any extra material wiring.
-
-define_sovereign_mirror!(eliding SovereignFabricConfig => bevy_symbios_texture::fabric::FabricConfig {
-    u32  : seed = 29,
-    enum(bevy_symbios_texture::fabric::WeaveKind) : weave = bevy_symbios_texture::fabric::WeaveKind::Plain,
-    fp64 : thread_count = 24.0,
-    fp64 : thread_width = 0.85,
-    fp64 : weave_contrast = 0.6,
-    fp64 : fuzz = 0.35,
-    fp3  : color_warp = [0.55, 0.36, 0.24],
-    fp3  : color_weft = [0.62, 0.44, 0.30],
-    nested(SovereignWeatheringConfig) : weathering = SovereignWeatheringConfig::default(),
-    fp   : normal_strength = 3.0,
-});
-
-define_sovereign_mirror!(eliding SovereignSandConfig => bevy_symbios_texture::sand::SandConfig {
-    u32  : seed = 91,
-    fp64 : ripple_count = 10.0,
-    fp64 : ripple_warp = 0.6,
-    fp64 : grain_density = 0.12,
-    fp64 : grain_scale = 24.0,
-    fp3  : color_crest = [0.86, 0.74, 0.52],
-    fp3  : color_trough = [0.62, 0.50, 0.34],
-    fp   : normal_strength = 2.5,
-});
-
-define_sovereign_mirror!(eliding SovereignSnowConfig => bevy_symbios_texture::snow::SnowConfig {
-    u32   : seed = 73,
-    fp64  : drift_scale = 2.5,
-    usize : drift_octaves = 4,
-    fp64  : sparkle_density = 0.08,
-    fp64  : crust_roughness = 0.85,
-    fp3   : color_snow = [0.93, 0.95, 0.99],
-    fp3   : color_shadow = [0.62, 0.70, 0.86],
-    fp    : normal_strength = 1.8,
-});
-
-define_sovereign_mirror!(eliding SovereignIceConfig => bevy_symbios_texture::ice::IceConfig {
-    u32  : seed = 117,
-    fp64 : scale = 3.0,
-    fp64 : crack_density = 4.0,
-    fp64 : vein_sharpness = 7.0,
-    fp64 : frost_level = 0.25,
-    fp3  : color_ice = [0.72, 0.84, 0.94],
-    fp3  : color_crack = [0.30, 0.44, 0.62],
-    fp   : normal_strength = 1.5,
-});
-
-define_sovereign_mirror!(eliding SovereignLavaConfig => bevy_symbios_texture::lava::LavaConfig {
-    u32  : seed = 666,
-    fp64 : plate_scale = 6.0,
-    fp64 : crack_width = 0.14,
-    fp64 : glow_falloff = 1.6,
-    fp3  : color_crust = [0.08, 0.07, 0.07],
-    fp3  : color_glow = [1.0, 0.45, 0.06],
-    fp   : emissive_intensity = 1.0,
-    fp   : normal_strength = 4.0,
-});
-
-// --- Alpha-masked mesh cards -----------------------------------------------
-// Card-kind silhouettes (like Leaf / Window): clamp-to-edge, alpha-masked.
-// ChainLink fences a wire mesh; LogEnd is a cut-log cross-section. Their
-// `cell_count` / `ring_count` / `crack_count` are `fp64` frequencies bounded
-// by the texture size, so they need no extra sanitiser clamp.
-
-define_sovereign_mirror!(eliding SovereignChainLinkConfig => bevy_symbios_texture::chain_link::ChainLinkConfig {
-    u32  : seed = 83,
-    fp64 : cell_count = 8.0,
-    fp64 : wire_radius = 0.07,
-    fp64 : weave_depth = 0.6,
-    fp64 : rust_level = 0.2,
-    fp3  : color_wire = [0.62, 0.64, 0.66],
-    fp3  : color_rust = [0.45, 0.24, 0.10],
-    fp   : normal_strength = 3.0,
-});
-
-define_sovereign_mirror!(eliding SovereignLogEndConfig => bevy_symbios_texture::log_end::LogEndConfig {
-    u32  : seed = 7,
-    fp64 : ring_count = 14.0,
-    fp64 : ring_warp = 0.35,
-    fp64 : ring_contrast = 1.8,
-    fp64 : crack_count = 5.0,
-    fp64 : bark_width = 0.07,
-    fp3  : color_early = [0.78, 0.62, 0.42],
-    fp3  : color_late = [0.48, 0.33, 0.18],
-    fp3  : color_bark = [0.30, 0.20, 0.12],
-    fp   : normal_strength = 2.5,
-});
+symbios_texture::for_each_texture_field!(texture_mirrors_with_roster);
 
 /// Internally-tagged enum carrying the full configuration of any supported
 /// `bevy_symbios_texture` generator. Serialises with a `$type` discriminant
@@ -1548,156 +789,14 @@ mod tests {
         }
     }
 
-    /// A mirror's declared defaults must match the upstream config's own
-    /// `Default`.
-    ///
-    /// This is the one way a mirror can be wrong that the compiler cannot
-    /// catch: `to_native()` is generated from the same field list, so a
-    /// *missing* field is a build error, but a mistyped default constant
-    /// compiles fine. It would then corrupt every record silently, because
-    /// the wire format elides fields equal to the mirror's default — so a
-    /// value the author never set would come back as something the upstream
-    /// generator never chose.
-    #[test]
-    fn mirror_defaults_match_upstream() {
-        use bevy_symbios_texture::TextureConfig as T;
-
-        // Compared through serde rather than `PartialEq`, which the upstream
-        // configs do not implement; a JSON diff also names the offending
-        // field when this fails.
-        macro_rules! assert_default_matches {
-            ($sov:expr, $native:expr) => {{
-                let mirrored = serde_json::to_value(&$sov).expect("mirror serialises");
-                let upstream = serde_json::to_value(&$native).expect("upstream serialises");
-                assert_eq!(
-                    mirrored,
-                    upstream,
-                    "mirror default drifted from upstream for {}",
-                    stringify!($native)
-                );
-            }};
-        }
-
-        assert_default_matches!(
-            SovereignCrackedEarthConfig::default().to_native(),
-            bevy_symbios_texture::cracked_earth::CrackedEarthConfig::default()
-        );
-        assert_default_matches!(
-            SovereignGravelConfig::default().to_native(),
-            bevy_symbios_texture::gravel::GravelConfig::default()
-        );
-        assert_default_matches!(
-            SovereignForestFloorConfig::default().to_native(),
-            bevy_symbios_texture::forest_floor::ForestFloorConfig::default()
-        );
-        assert_default_matches!(
-            SovereignEnamelConfig::default().to_native(),
-            bevy_symbios_texture::enamel::EnamelConfig::default()
-        );
-        assert_default_matches!(
-            SovereignObsidianConfig::default().to_native(),
-            bevy_symbios_texture::obsidian::ObsidianConfig::default()
-        );
-        assert_default_matches!(
-            SovereignChitinConfig::default().to_native(),
-            bevy_symbios_texture::chitin::ChitinConfig::default()
-        );
-        assert_default_matches!(
-            SovereignSolarPanelConfig::default().to_native(),
-            bevy_symbios_texture::solar_panel::SolarPanelConfig::default()
-        );
-        assert_default_matches!(
-            SovereignParquetConfig::default().to_native(),
-            bevy_symbios_texture::parquet::ParquetConfig::default()
-        );
-        assert_default_matches!(
-            SovereignTruchetConfig::default().to_native(),
-            bevy_symbios_texture::truchet::TruchetConfig::default()
-        );
-        // The weathering block, and the three pre-existing configs that
-        // gained fields in 0.8.
-        assert_default_matches!(
-            SovereignWeatheringConfig::default().to_native(),
-            bevy_symbios_texture::weathering::WeatheringConfig::default()
-        );
-        assert_default_matches!(
-            SovereignRockConfig::default().to_native(),
-            bevy_symbios_texture::rock::RockConfig::default()
-        );
-        assert_default_matches!(
-            SovereignMetalConfig::default().to_native(),
-            bevy_symbios_texture::metal::MetalConfig::default()
-        );
-        assert_default_matches!(
-            SovereignFabricConfig::default().to_native(),
-            bevy_symbios_texture::fabric::FabricConfig::default()
-        );
-
-        // The fifteen built surfaces that gained a weathering block in
-        // symbios-texture 0.4.
-        assert_default_matches!(
-            SovereignAshlarConfig::default().to_native(),
-            bevy_symbios_texture::ashlar::AshlarConfig::default()
-        );
-        assert_default_matches!(
-            SovereignAsphaltConfig::default().to_native(),
-            bevy_symbios_texture::asphalt::AsphaltConfig::default()
-        );
-        assert_default_matches!(
-            SovereignBrickConfig::default().to_native(),
-            bevy_symbios_texture::brick::BrickConfig::default()
-        );
-        assert_default_matches!(
-            SovereignCobblestoneConfig::default().to_native(),
-            bevy_symbios_texture::cobblestone::CobblestoneConfig::default()
-        );
-        assert_default_matches!(
-            SovereignConcreteConfig::default().to_native(),
-            bevy_symbios_texture::concrete::ConcreteConfig::default()
-        );
-        assert_default_matches!(
-            SovereignCorrugatedConfig::default().to_native(),
-            bevy_symbios_texture::corrugated::CorrugatedConfig::default()
-        );
-        assert_default_matches!(
-            SovereignEncausticConfig::default().to_native(),
-            bevy_symbios_texture::encaustic::EncausticConfig::default()
-        );
-        assert_default_matches!(
-            SovereignMarbleConfig::default().to_native(),
-            bevy_symbios_texture::marble::MarbleConfig::default()
-        );
-        assert_default_matches!(
-            SovereignPaversConfig::default().to_native(),
-            bevy_symbios_texture::pavers::PaversConfig::default()
-        );
-        assert_default_matches!(
-            SovereignShingleConfig::default().to_native(),
-            bevy_symbios_texture::shingle::ShingleConfig::default()
-        );
-        assert_default_matches!(
-            SovereignStuccoConfig::default().to_native(),
-            bevy_symbios_texture::stucco::StuccoConfig::default()
-        );
-        assert_default_matches!(
-            SovereignThatchConfig::default().to_native(),
-            bevy_symbios_texture::thatch::ThatchConfig::default()
-        );
-        assert_default_matches!(
-            SovereignWainscotingConfig::default().to_native(),
-            bevy_symbios_texture::wainscoting::WainscotingConfig::default()
-        );
-
-        // Guard the enum dispatch too: a default mirror must convert to the
-        // upstream default of the same variant.
-        let via_mirror = SovereignTextureConfig::Truchet(Default::default()).to_texture_config();
-        let direct = T::Truchet(Default::default());
-        assert_eq!(
-            serde_json::to_value(&via_mirror).expect("mirror dispatch serialises"),
-            serde_json::to_value(&direct).expect("upstream serialises"),
-            "enum dispatch lost or altered the config"
-        );
-    }
+    // `mirror_defaults_match_upstream` lived here: twenty-six hand-written
+    // assertions that a mirror's declared default matched upstream's. Since
+    // #1304 there is no declared default to drift — `Default` is
+    // `Self::from_native(&Native::default())` — and the check that matters is
+    // exhaustive and lives with the bytes it protects, in
+    // `tests/texture_wire.rs`: `every_mirror_default_matches_upstream` covers
+    // all fifty-seven, and the blessed fixture fails loudly if a default move
+    // ever changes which fields elide.
 
     /// Every sprite variant must carry a non-"Unknown" label and convert to a
     /// non-`None` upstream `TextureConfig` — i.e. it is wired through all the

@@ -68,4 +68,5 @@ mod prim_wire;
 mod publish_snapshot;
 mod sign_generator;
 mod texture_referenced;
+mod texture_wire;
 mod vegetation_wind;

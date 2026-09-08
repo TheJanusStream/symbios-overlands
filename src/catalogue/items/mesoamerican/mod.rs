@@ -63,7 +63,10 @@ pub(super) fn limestone(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::ASHLAR),
         texture: SovereignTextureConfig::Ashlar(SovereignAshlarConfig {
             color_stone: Fp3(color),
-            color_mortar: Fp3([color[0] * 0.82, color[1] * 0.8, color[2] * 0.72]),
+            color_mortar: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.82, 0.8, 0.72],
+            )),
             rows: 3,
             cols: 4,
             chisel_depth: Fp64(0.5),
@@ -82,7 +85,10 @@ pub(super) fn painted(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::STUCCO),
         texture: SovereignTextureConfig::Stucco(SovereignStuccoConfig {
             color_base: Fp3(color),
-            color_shadow: Fp3([color[0] * 0.75, color[1] * 0.7, color[2] * 0.68]),
+            color_shadow: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.75, 0.7, 0.68],
+            )),
             scale: Fp64(6.0),
             roughness: Fp64(0.4),
             ..Default::default()
@@ -103,8 +109,14 @@ pub(super) fn patterned_floor(color: [f32; 3]) -> SovereignMaterialSettings {
         texture: SovereignTextureConfig::Encaustic(SovereignEncausticConfig {
             pattern: bevy_symbios_texture::encaustic::EncausticPattern::Diamond,
             color_a: Fp3(color),
-            color_b: Fp3([color[0] * 0.45, color[1] * 0.30, color[2] * 0.26]),
-            color_grout: Fp3([color[0] * 0.85, color[1] * 0.82, color[2] * 0.76]),
+            color_b: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.45, 0.30, 0.26],
+            )),
+            color_grout: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.85, 0.82, 0.76],
+            )),
             scale: Fp64(4.0),
             weathering: ageing::stained(0x72, 0.7),
             ..Default::default()
@@ -120,7 +132,10 @@ pub(super) fn cobble(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::COBBLE),
         texture: SovereignTextureConfig::Cobblestone(SovereignCobblestoneConfig {
             color_stone: Fp3(color),
-            color_mud: Fp3([color[0] * 0.5, color[1] * 0.45, color[2] * 0.38]),
+            color_mud: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.5, 0.45, 0.38],
+            )),
             roundness: Fp64(1.4),
             ..Default::default()
         }),
@@ -137,7 +152,7 @@ pub(super) fn jade(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::MARBLE),
         texture: SovereignTextureConfig::Marble(SovereignMarbleConfig {
             color_base: Fp3(color),
-            color_vein: Fp3([color[0] * 0.5, color[1] * 0.7, color[2] * 0.5]),
+            color_vein: Fp3(crate::catalogue::items::util::tint(color, [0.5, 0.7, 0.5])),
             vein_frequency: Fp64(4.0),
             roughness: Fp64(0.15),
             ..Default::default()
@@ -205,8 +220,11 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.0),
         uv_scale: tiles_per_metre(tile::PLANK_BOARD * 5.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
-            color_wood_light: Fp3([color[0] * 1.25, color[1] * 1.25, color[2] * 1.2]),
-            color_wood_dark: Fp3([color[0] * 0.6, color[1] * 0.6, color[2] * 0.55]),
+            color_wood_light: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [1.25, 1.25, 1.2],
+            )),
+            color_wood_dark: Fp3(crate::catalogue::items::util::tint(color, [0.6, 0.6, 0.55])),
             plank_count: Fp64(5.0),
             knot_density: Fp64(0.25),
             ..Default::default()
@@ -224,7 +242,10 @@ pub(super) fn thatch(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::THATCH),
         texture: SovereignTextureConfig::Thatch(SovereignThatchConfig {
             color_straw: Fp3(color),
-            color_shadow: Fp3([color[0] * 0.32, color[1] * 0.30, color[2] * 0.18]),
+            color_shadow: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.32, 0.30, 0.18],
+            )),
             density: Fp64(15.0),
             layer_count: Fp64(9.0),
             layer_shadow: Fp64(0.6),

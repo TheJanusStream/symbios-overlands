@@ -63,7 +63,10 @@ pub(super) fn chitin(color: [f32; 3]) -> SovereignMaterialSettings {
             color: Fp3(color),
             // The shell darkens into its sutures and wherever a plate sits
             // lower than its neighbour.
-            color_deep: Fp3([color[0] * 0.28, color[1] * 0.3, color[2] * 0.26]),
+            color_deep: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.28, 0.3, 0.26],
+            )),
             gloss_roughness: Fp(0.3),
             metallic: Fp(0.5),
             ..Default::default()

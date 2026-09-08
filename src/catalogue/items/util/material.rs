@@ -6,6 +6,22 @@
 use crate::pds::generator::FaceKey;
 use crate::pds::{Fp, Fp2, Fp3, Fp64, SovereignMaterialSettings, SovereignTextureConfig};
 
+/// Tint a linear-RGB colour by a per-channel factor, kept in gamut.
+///
+/// The catalogue lightens and darkens palette colours all over — a plank's
+/// light grain from its base wood, a highlight from a wall — by multiplying
+/// each channel. A factor above one can push a channel that was already
+/// bright past 1.0, which is not a colour: the texture envelope clamps it
+/// on the way onto the wire, so a record built from it does not survive its
+/// own round trip. Seven catalogue entries were doing this (#1313).
+pub(in crate::catalogue::items) fn tint(color: [f32; 3], factors: [f32; 3]) -> [f32; 3] {
+    [
+        (color[0] * factors[0]).clamp(0.0, 1.0),
+        (color[1] * factors[1]).clamp(0.0, 1.0),
+        (color[2] * factors[2]).clamp(0.0, 1.0),
+    ]
+}
+
 /// Shared foundation material — neutral rough-cut stone that sits
 /// under any of the structure palettes.
 pub(in crate::catalogue::items) fn foundation_mat() -> SovereignMaterialSettings {
@@ -723,7 +739,7 @@ pub(in crate::catalogue::items) fn lit_interior(
 ) -> SovereignMaterialSettings {
     SovereignMaterialSettings {
         base_color: Fp3(color),
-        emission_color: Fp3([color[0] * 1.1, color[1], color[2] * 0.85]),
+        emission_color: Fp3(tint(color, [1.1, 1.0, 0.85])),
         emission_strength: Fp(lit),
         roughness: Fp(0.85),
         metallic: Fp(0.0),

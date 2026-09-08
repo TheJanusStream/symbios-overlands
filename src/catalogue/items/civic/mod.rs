@@ -99,8 +99,14 @@ pub(super) fn wood(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.0),
         uv_scale: tiles_per_metre(tile::PLANK_BOARD * 4.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
-            color_wood_light: Fp3([color[0] * 1.22, color[1] * 1.22, color[2] * 1.22]),
-            color_wood_dark: Fp3([color[0] * 0.58, color[1] * 0.58, color[2] * 0.58]),
+            color_wood_light: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [1.22, 1.22, 1.22],
+            )),
+            color_wood_dark: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.58, 0.58, 0.58],
+            )),
             plank_count: Fp64(4.0),
             knot_density: Fp64(0.25),
             grain_warp: Fp64(0.4),
@@ -120,7 +126,10 @@ pub(super) fn cloth(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::FABRIC_THREAD * 18.0),
         texture: SovereignTextureConfig::Fabric(SovereignFabricConfig {
             color_warp: Fp3(color),
-            color_weft: Fp3([color[0] * 0.72, color[1] * 0.72, color[2] * 0.72]),
+            color_weft: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.72, 0.72, 0.72],
+            )),
             thread_count: Fp64(18.0),
             fuzz: Fp64(0.4),
             ..Default::default()
@@ -139,7 +148,10 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::COBBLE),
         texture: SovereignTextureConfig::Cobblestone(SovereignCobblestoneConfig {
             color_stone: Fp3(color),
-            color_mud: Fp3([color[0] * 0.5, color[1] * 0.48, color[2] * 0.42]),
+            color_mud: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.5, 0.48, 0.42],
+            )),
             roundness: Fp64(1.2),
             weathering: ageing::stained(0x21, 0.45),
             ..Default::default()
@@ -193,7 +205,10 @@ pub(super) fn marble(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::MARBLE),
         texture: SovereignTextureConfig::Marble(SovereignMarbleConfig {
             color_base: Fp3(color),
-            color_vein: Fp3([color[0] * 0.6, color[1] * 0.58, color[2] * 0.56]),
+            color_vein: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.6, 0.58, 0.56],
+            )),
             vein_frequency: Fp64(3.0),
             scale: Fp64(2.5),
             weathering: ageing::stained(0x24, 0.4),
@@ -235,7 +250,7 @@ pub(super) fn bronze(color: [f32; 3]) -> SovereignMaterialSettings {
         texture: SovereignTextureConfig::Metal(SovereignMetalConfig {
             style: MetalStyle::Brushed,
             color_metal: Fp3(color),
-            color_rust: Fp3([color[0] * 0.5, color[1] * 0.45, color[2] * 0.3]),
+            color_rust: Fp3(crate::catalogue::items::util::tint(color, [0.5, 0.45, 0.3])),
             roughness: Fp64(0.4),
             metallic: Fp(0.9),
             rust_level: Fp64(0.08),

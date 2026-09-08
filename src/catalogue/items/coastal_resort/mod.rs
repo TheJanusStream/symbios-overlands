@@ -66,7 +66,10 @@ pub(super) fn stucco(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::STUCCO),
         texture: SovereignTextureConfig::Stucco(SovereignStuccoConfig {
             color_base: Fp3(color),
-            color_shadow: Fp3([color[0] * 0.78, color[1] * 0.76, color[2] * 0.72]),
+            color_shadow: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.78, 0.76, 0.72],
+            )),
             scale: Fp64(7.0),
             roughness: Fp64(0.4),
             ..Default::default()
@@ -96,8 +99,11 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.0),
         uv_scale: tiles_per_metre(tile::PLANK_BOARD * 6.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
-            color_wood_light: Fp3([color[0] * 1.2, color[1] * 1.2, color[2] * 1.18]),
-            color_wood_dark: Fp3([color[0] * 0.62, color[1] * 0.6, color[2] * 0.56]),
+            color_wood_light: Fp3(crate::catalogue::items::util::tint(color, [1.2, 1.2, 1.18])),
+            color_wood_dark: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.62, 0.6, 0.56],
+            )),
             plank_count: Fp64(6.0),
             stagger: Fp64(0.0),
             knot_density: Fp64(0.22),
@@ -237,7 +243,10 @@ pub(super) fn sand(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::SAND),
         texture: SovereignTextureConfig::Sand(SovereignSandConfig {
             color_crest: Fp3(color),
-            color_trough: Fp3([color[0] * 0.78, color[1] * 0.76, color[2] * 0.68]),
+            color_trough: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.78, 0.76, 0.68],
+            )),
             ripple_count: Fp64(8.0),
             ..Default::default()
         }),

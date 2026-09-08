@@ -120,6 +120,18 @@ pub(crate) use impl_default_eliding_serialize;
 ///   `#[serde(default)]` on read and
 ///   [`impl_default_eliding_serialize!`] on write, so a default-valued
 ///   config collapses to `{}` on the wire.
+/// * `eliding_derived` — the texture mirrors since #1313: `eliding`, but
+///   the field list carries no defaults and `Default` is
+///   `Self::from_native(&Native::default())`. The defaults were a third
+///   copy of the upstream `impl Default`, and the wire *elides* fields
+///   equal to them, so a drifted copy silently re-interprets every stored
+///   record's absent keys. Deriving them removes the copy; the field list
+///   itself then comes from the upstream per-field registry. An optional
+///   `wire { … }` list gives the serializer a different field order from
+///   the declaration — needed only where a mirror's historical order
+///   differs from the registry's, because `serde_json` writes fields in
+///   the order it is handed and a room child is content-addressed over
+///   those bytes.
 /// * `verbatim` — the audio mirrors: a plain derived `Serialize` /
 ///   `Deserialize`, every field written every time in declaration order.
 ///   Generators carrying an audio patch are content-addressed over those
@@ -154,6 +166,79 @@ macro_rules! define_sovereign_mirror {
             $( $kind $(($sub))? : $field = $default ),+
         });
     };
+    // Defaults derived from the upstream type; declaration order is also
+    // the wire order.
+    (
+        eliding_derived
+        $(#[$meta:meta])*
+        $sov:ident => $native:path {
+            $( $(#[$fmeta:meta])* $kind:ident $( ( $sub:ty ) )? : $field:ident ),+ $(,)?
+        }
+    ) => {
+        $crate::pds::serde_util::define_sovereign_mirror!(@derived
+            $(#[$meta])* $sov => $native {
+                $( $(#[$fmeta])* $kind $(($sub))? : $field ),+
+            }
+            writes { $( $field ),+ }
+        );
+    };
+
+    // Defaults derived, and an explicit wire order for the serializer.
+    (
+        eliding_derived
+        $(#[$meta:meta])*
+        $sov:ident => $native:path {
+            $( $(#[$fmeta:meta])* $kind:ident $( ( $sub:ty ) )? : $field:ident ),+ $(,)?
+        }
+        wire { $( $wire:ident ),+ $(,)? }
+    ) => {
+        $crate::pds::serde_util::define_sovereign_mirror!(@derived
+            $(#[$meta])* $sov => $native {
+                $( $(#[$fmeta])* $kind $(($sub))? : $field ),+
+            }
+            writes { $( $wire ),+ }
+        );
+    };
+
+    (@derived
+        $(#[$meta:meta])*
+        $sov:ident => $native:path {
+            $( $(#[$fmeta:meta])* $kind:ident $( ( $sub:ty ) )? : $field:ident ),+ $(,)?
+        }
+        writes { $( $wire:ident ),+ }
+    ) => {
+        $(#[$meta])*
+        #[derive(serde::Deserialize, Clone, Debug, PartialEq)]
+        #[serde(default)]
+        pub struct $sov {
+            $( $(#[$fmeta])* pub $field: $crate::pds::serde_util::define_sovereign_mirror!(@ty $kind $(($sub))?), )+
+        }
+
+        $crate::pds::serde_util::impl_default_eliding_serialize!($sov {
+            $( $wire ),+
+        });
+
+        impl Default for $sov {
+            fn default() -> Self {
+                Self::from_native(&<$native as Default>::default())
+            }
+        }
+
+        impl $sov {
+            pub fn to_native(&self) -> $native {
+                $native {
+                    $( $field: $crate::pds::serde_util::define_sovereign_mirror!(@to_native $kind $(($sub))?, self.$field), )+
+                }
+            }
+
+            pub fn from_native(native: &$native) -> Self {
+                Self {
+                    $( $field: $crate::pds::serde_util::define_sovereign_mirror!(@from_native $kind $(($sub))?, native.$field), )+
+                }
+            }
+        }
+    };
+
     (
         verbatim
         $(#[$meta:meta])*

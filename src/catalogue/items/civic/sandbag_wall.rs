@@ -69,7 +69,10 @@ fn burlap(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::FABRIC_THREAD * 30.0),
         texture: SovereignTextureConfig::Fabric(SovereignFabricConfig {
             color_warp: Fp3(color),
-            color_weft: Fp3([color[0] * 0.78, color[1] * 0.78, color[2] * 0.78]),
+            color_weft: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.78, 0.78, 0.78],
+            )),
             thread_count: Fp64(30.0),
             fuzz: Fp64(0.42),
             ..Default::default()

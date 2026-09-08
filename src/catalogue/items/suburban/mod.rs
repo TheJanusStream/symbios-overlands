@@ -81,8 +81,14 @@ pub(super) fn siding(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.0),
         uv_scale: tiles_per_metre(tile::PLANK_BOARD * SIDING_COURSES as f32),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
-            color_wood_light: Fp3([color[0] * 1.08, color[1] * 1.08, color[2] * 1.08]),
-            color_wood_dark: Fp3([color[0] * 0.85, color[1] * 0.85, color[2] * 0.85]),
+            color_wood_light: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [1.08, 1.08, 1.08],
+            )),
+            color_wood_dark: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.85, 0.85, 0.85],
+            )),
             plank_count: Fp64(SIDING_COURSES),
             knot_density: Fp64(0.0),
             grain_warp: Fp64(0.1),
@@ -107,8 +113,14 @@ pub(super) fn wood(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.0),
         uv_scale: tiles_per_metre(tile::PLANK_BOARD * 4.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
-            color_wood_light: Fp3([color[0] * 1.12, color[1] * 1.12, color[2] * 1.12]),
-            color_wood_dark: Fp3([color[0] * 0.78, color[1] * 0.78, color[2] * 0.78]),
+            color_wood_light: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [1.12, 1.12, 1.12],
+            )),
+            color_wood_dark: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.78, 0.78, 0.78],
+            )),
             plank_count: Fp64(4.0),
             knot_density: Fp64(0.15),
             stagger: Fp64(0.0),
@@ -144,7 +156,7 @@ pub(super) fn shingle(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::SHINGLE),
         texture: SovereignTextureConfig::Shingle(SovereignShingleConfig {
             color_tile: Fp3(color),
-            color_grout: Fp3([color[0] * 0.6, color[1] * 0.6, color[2] * 0.62]),
+            color_grout: Fp3(crate::catalogue::items::util::tint(color, [0.6, 0.6, 0.62])),
             scale: Fp64(6.0),
             shape_profile: Fp64(0.2),
             moss_level: Fp64(0.05),
@@ -178,7 +190,10 @@ pub(super) fn render(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::STUCCO),
         texture: SovereignTextureConfig::Stucco(SovereignStuccoConfig {
             color_base: Fp3(color),
-            color_shadow: Fp3([color[0] * 0.85, color[1] * 0.85, color[2] * 0.83]),
+            color_shadow: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.85, 0.85, 0.83],
+            )),
             scale: Fp64(7.0),
             roughness: Fp64(0.3),
             ..Default::default()

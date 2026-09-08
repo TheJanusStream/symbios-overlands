@@ -121,7 +121,10 @@ pub(super) fn marble(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::MARBLE),
         texture: SovereignTextureConfig::Marble(SovereignMarbleConfig {
             color_base: Fp3(color),
-            color_vein: Fp3([color[0] * 0.5, color[1] * 0.48, color[2] * 0.44]),
+            color_vein: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.5, 0.48, 0.44],
+            )),
             vein_frequency: Fp64(3.0),
             ..Default::default()
         }),
@@ -137,7 +140,10 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::ASHLAR),
         texture: SovereignTextureConfig::Ashlar(SovereignAshlarConfig {
             color_stone: Fp3(color),
-            color_mortar: Fp3([color[0] * 1.15, color[1] * 1.15, color[2] * 1.12]),
+            color_mortar: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [1.15, 1.15, 1.12],
+            )),
             rows: 4,
             cols: 4,
             chisel_depth: Fp64(0.4),
@@ -175,7 +181,10 @@ pub(super) fn paving(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::PAVERS),
         texture: SovereignTextureConfig::Pavers(SovereignPaversConfig {
             color_stone: Fp3(color),
-            color_grout: Fp3([color[0] * 0.55, color[1] * 0.55, color[2] * 0.55]),
+            color_grout: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.55, 0.55, 0.55],
+            )),
             grout_width: Fp64(0.06),
             cell_variance: Fp64(0.12),
             weathering: ageing::stained(0x71, 0.5),
@@ -293,8 +302,11 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.0),
         uv_scale: tiles_per_metre(tile::PLANK_BOARD * 5.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
-            color_wood_light: Fp3([color[0] * 1.2, color[1] * 1.2, color[2] * 1.18]),
-            color_wood_dark: Fp3([color[0] * 0.62, color[1] * 0.6, color[2] * 0.56]),
+            color_wood_light: Fp3(crate::catalogue::items::util::tint(color, [1.2, 1.2, 1.18])),
+            color_wood_dark: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.62, 0.6, 0.56],
+            )),
             plank_count: Fp64(5.0),
             stagger: Fp64(0.0),
             knot_density: Fp64(0.2),

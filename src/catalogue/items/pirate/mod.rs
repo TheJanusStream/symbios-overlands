@@ -133,8 +133,14 @@ pub(super) fn strake(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.0),
         uv_scale: tiles_per_metre(STRAKE_W * PLANK_COUNT as f32),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
-            color_wood_light: Fp3([color[0] * 1.18, color[1] * 1.16, color[2] * 1.12]),
-            color_wood_dark: Fp3([color[0] * 0.55, color[1] * 0.52, color[2] * 0.48]),
+            color_wood_light: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [1.18, 1.16, 1.12],
+            )),
+            color_wood_dark: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.55, 0.52, 0.48],
+            )),
             plank_count: Fp64(PLANK_COUNT),
             stagger: Fp64(0.0),
             // A caulked seam is a real, wide, black line of oakum and pitch —
@@ -158,8 +164,14 @@ pub(super) fn board(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.0),
         uv_scale: tiles_per_metre(tile::PLANK_BOARD * PLANK_COUNT as f32),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
-            color_wood_light: Fp3([color[0] * 1.2, color[1] * 1.18, color[2] * 1.14]),
-            color_wood_dark: Fp3([color[0] * 0.6, color[1] * 0.57, color[2] * 0.52]),
+            color_wood_light: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [1.2, 1.18, 1.14],
+            )),
+            color_wood_dark: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.6, 0.57, 0.52],
+            )),
             plank_count: Fp64(PLANK_COUNT),
             stagger: Fp64(0.0),
             knot_density: Fp64(0.28),
@@ -197,7 +209,10 @@ pub(super) fn ashlar(color: [f32; 3], seed: u32) -> SovereignMaterialSettings {
             rows: ASHLAR_COLS,
             cols: ASHLAR_COLS,
             color_stone: Fp3(color),
-            color_mortar: Fp3([color[0] * 0.82, color[1] * 0.82, color[2] * 0.80]),
+            color_mortar: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.82, 0.82, 0.80],
+            )),
             chisel_depth: Fp64(0.5),
             cell_variance: Fp64(0.16),
             weathering: ageing::stained(seed, 0.7),
@@ -217,7 +232,10 @@ pub(super) fn cobbles(color: [f32; 3], seed: u32) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::COBBLE),
         texture: SovereignTextureConfig::Cobblestone(SovereignCobblestoneConfig {
             color_stone: Fp3(color),
-            color_mud: Fp3([color[0] * 0.42, color[1] * 0.40, color[2] * 0.36]),
+            color_mud: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.42, 0.40, 0.36],
+            )),
             roundness: Fp64(1.5),
             cell_variance: Fp64(0.22),
             weathering: ageing::stained(seed, 0.55),
@@ -239,7 +257,10 @@ pub(super) fn shingle(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::SHINGLE),
         texture: SovereignTextureConfig::Shingle(SovereignShingleConfig {
             color_tile: Fp3(color),
-            color_grout: Fp3([color[0] * 0.4, color[1] * 0.38, color[2] * 0.34]),
+            color_grout: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.4, 0.38, 0.34],
+            )),
             // A roof this close to the water grows more moss than a dry one.
             moss_level: Fp64(0.3),
             ..Default::default()
@@ -296,7 +317,10 @@ pub(super) fn hemp(color: [f32; 3]) -> SovereignMaterialSettings {
         texture: SovereignTextureConfig::Fabric(SovereignFabricConfig {
             weave: WeaveKind::Twill,
             color_warp: Fp3(color),
-            color_weft: Fp3([color[0] * 0.78, color[1] * 0.74, color[2] * 0.66]),
+            color_weft: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.78, 0.74, 0.66],
+            )),
             thread_count: Fp64(ROPE_LAY),
             thread_width: Fp64(0.95),
             weave_contrast: Fp64(0.75),
@@ -519,7 +543,10 @@ pub(super) fn strand(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::SAND),
         texture: SovereignTextureConfig::Sand(SovereignSandConfig {
             color_crest: Fp3(color),
-            color_trough: Fp3([color[0] * 0.7, color[1] * 0.70, color[2] * 0.68]),
+            color_trough: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.7, 0.70, 0.68],
+            )),
             ripple_count: Fp64(5.0),
             grain_density: Fp64(0.3),
             grain_scale: Fp64(14.0),

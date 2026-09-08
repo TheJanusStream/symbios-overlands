@@ -65,8 +65,8 @@ pub(super) fn lacquer(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.15),
         uv_scale: tiles_per_metre(tile::PLANK_BOARD * 3.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
-            color_wood_light: Fp3([color[0] * 1.15, color[1] * 1.1, color[2] * 1.1]),
-            color_wood_dark: Fp3([color[0] * 0.7, color[1] * 0.5, color[2] * 0.5]),
+            color_wood_light: Fp3(crate::catalogue::items::util::tint(color, [1.15, 1.1, 1.1])),
+            color_wood_dark: Fp3(crate::catalogue::items::util::tint(color, [0.7, 0.5, 0.5])),
             plank_count: Fp64(3.0),
             knot_density: Fp64(0.05),
             grain_warp: Fp64(0.2),
@@ -84,8 +84,11 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.0),
         uv_scale: tiles_per_metre(tile::PLANK_BOARD * 5.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
-            color_wood_light: Fp3([color[0] * 1.25, color[1] * 1.25, color[2] * 1.2]),
-            color_wood_dark: Fp3([color[0] * 0.6, color[1] * 0.6, color[2] * 0.55]),
+            color_wood_light: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [1.25, 1.25, 1.2],
+            )),
+            color_wood_dark: Fp3(crate::catalogue::items::util::tint(color, [0.6, 0.6, 0.55])),
             plank_count: Fp64(5.0),
             knot_density: Fp64(0.2),
             ..Default::default()
@@ -103,7 +106,7 @@ pub(super) fn roof_tile(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::SHINGLE),
         texture: SovereignTextureConfig::Shingle(SovereignShingleConfig {
             color_tile: Fp3(color),
-            color_grout: Fp3([color[0] * 0.5, color[1] * 0.5, color[2] * 0.55]),
+            color_grout: Fp3(crate::catalogue::items::util::tint(color, [0.5, 0.5, 0.55])),
             scale: Fp64(7.0),
             shape_profile: Fp64(0.75),
             overlap: Fp64(0.5),
@@ -122,7 +125,10 @@ pub(super) fn plaster(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::STUCCO),
         texture: SovereignTextureConfig::Stucco(SovereignStuccoConfig {
             color_base: Fp3(color),
-            color_shadow: Fp3([color[0] * 0.82, color[1] * 0.82, color[2] * 0.8]),
+            color_shadow: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.82, 0.82, 0.8],
+            )),
             scale: Fp64(7.0),
             roughness: Fp64(0.3),
             ..Default::default()
@@ -141,7 +147,10 @@ pub(super) fn paper(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::FABRIC_THREAD * 40.0),
         texture: SovereignTextureConfig::Fabric(SovereignFabricConfig {
             color_warp: Fp3(color),
-            color_weft: Fp3([color[0] * 0.92, color[1] * 0.92, color[2] * 0.9]),
+            color_weft: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.92, 0.92, 0.9],
+            )),
             thread_count: Fp64(40.0),
             thread_width: Fp64(0.95),
             fuzz: Fp64(0.15),
@@ -159,7 +168,7 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::ASHLAR_BLOCK * 2.0),
         texture: SovereignTextureConfig::Ashlar(SovereignAshlarConfig {
             color_stone: Fp3(color),
-            color_mortar: Fp3([color[0] * 1.2, color[1] * 1.2, color[2] * 1.15]),
+            color_mortar: Fp3(crate::catalogue::items::util::tint(color, [1.2, 1.2, 1.15])),
             rows: 2,
             cols: 2,
             chisel_depth: Fp64(0.4),
@@ -177,7 +186,7 @@ pub(super) fn rough_stone(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::COBBLE),
         texture: SovereignTextureConfig::Cobblestone(SovereignCobblestoneConfig {
             color_stone: Fp3(color),
-            color_mud: Fp3([color[0] * 0.5, color[1] * 0.45, color[2] * 0.4]),
+            color_mud: Fp3(crate::catalogue::items::util::tint(color, [0.5, 0.45, 0.4])),
             roundness: Fp64(1.5),
             ..Default::default()
         }),
@@ -196,7 +205,7 @@ pub(super) fn water(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::ICE),
         texture: SovereignTextureConfig::Ice(SovereignIceConfig {
             color_ice: Fp3(color),
-            color_crack: Fp3([color[0] * 1.5, color[1] * 1.5, color[2] * 1.4]),
+            color_crack: Fp3(crate::catalogue::items::util::tint(color, [1.5, 1.5, 1.4])),
             crack_density: Fp64(2.0),
             frost_level: Fp64(0.0),
             ..Default::default()
@@ -235,7 +244,10 @@ pub(super) fn thatch(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::THATCH),
         texture: SovereignTextureConfig::Thatch(SovereignThatchConfig {
             color_straw: Fp3(color),
-            color_shadow: Fp3([color[0] * 0.32, color[1] * 0.30, color[2] * 0.18]),
+            color_shadow: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.32, 0.30, 0.18],
+            )),
             density: Fp64(14.0),
             layer_count: Fp64(9.0),
             layer_shadow: Fp64(0.6),

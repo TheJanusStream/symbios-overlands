@@ -72,7 +72,10 @@ pub(super) fn marble(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::MARBLE),
         texture: SovereignTextureConfig::Marble(SovereignMarbleConfig {
             color_base: Fp3(color),
-            color_vein: Fp3([color[0] * 0.55, color[1] * 0.52, color[2] * 0.5]),
+            color_vein: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.55, 0.52, 0.5],
+            )),
             vein_frequency: Fp64(3.0),
             scale: Fp64(2.5),
             weathering: ageing::stained(0x31, 0.7),
@@ -91,7 +94,10 @@ pub(super) fn sandstone(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::ASHLAR_BLOCK * 3.0),
         texture: SovereignTextureConfig::Ashlar(SovereignAshlarConfig {
             color_stone: Fp3(color),
-            color_mortar: Fp3([color[0] * 0.78, color[1] * 0.76, color[2] * 0.7]),
+            color_mortar: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.78, 0.76, 0.7],
+            )),
             rows: 4,
             cols: 3,
             chisel_depth: Fp64(0.35),
@@ -112,7 +118,7 @@ pub(super) fn adobe(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::STUCCO),
         texture: SovereignTextureConfig::Stucco(SovereignStuccoConfig {
             color_base: Fp3(color),
-            color_shadow: Fp3([color[0] * 0.7, color[1] * 0.66, color[2] * 0.6]),
+            color_shadow: Fp3(crate::catalogue::items::util::tint(color, [0.7, 0.66, 0.6])),
             roughness: Fp64(0.55),
             weathering: ageing::stained(0x33, 0.6),
             ..Default::default()

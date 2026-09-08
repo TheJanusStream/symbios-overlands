@@ -168,8 +168,14 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.0),
         uv_scale: tiles_per_metre(tile::PLANK_BOARD * 6.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
-            color_wood_light: Fp3([color[0] * 1.14, color[1] * 1.10, color[2] * 1.06]),
-            color_wood_dark: Fp3([color[0] * 0.62, color[1] * 0.58, color[2] * 0.56]),
+            color_wood_light: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [1.14, 1.10, 1.06],
+            )),
+            color_wood_dark: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.62, 0.58, 0.56],
+            )),
             plank_count: Fp64(6.0),
             stagger: Fp64(0.0),
             knot_density: Fp64(0.18),

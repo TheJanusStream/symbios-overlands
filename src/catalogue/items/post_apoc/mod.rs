@@ -121,8 +121,8 @@ pub(super) fn plank(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.0),
         uv_scale: tiles_per_metre(tile::PLANK_BOARD * 5.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
-            color_wood_light: Fp3([color[0] * 1.2, color[1] * 1.2, color[2] * 1.2]),
-            color_wood_dark: Fp3([color[0] * 0.6, color[1] * 0.6, color[2] * 0.6]),
+            color_wood_light: Fp3(crate::catalogue::items::util::tint(color, [1.2, 1.2, 1.2])),
+            color_wood_dark: Fp3(crate::catalogue::items::util::tint(color, [0.6, 0.6, 0.6])),
             plank_count: Fp64(5.0),
             knot_density: Fp64(0.4),
             grain_warp: Fp64(0.5),

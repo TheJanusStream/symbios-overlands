@@ -1,12 +1,11 @@
 //! Sanitiser for [`SovereignMaterialSettings`] and the embedded
 //! [`SovereignTextureConfig`] open union. Color channels go to `[0,1]`,
-//! roughness/metallic to `[0,1]`, emission strength is capped, and each
-//! procedural-texture variant has its octave / cell / grid loop counts
-//! clamped so a hostile record can't tell the texture pipeline to
-//! iterate billions of times per pixel.
+//! roughness/metallic to `[0,1]`, and emission strength is capped here; the
+//! texture config's own fields are clamped into the envelope the upstream
+//! per-field registry gives them, so a hostile record cannot tell the
+//! texture pipeline to iterate billions of times per pixel.
 
 use super::Sanitize;
-use super::limits;
 use crate::pds::texture::{SovereignMaterialSettings, SovereignTextureConfig};
 use crate::pds::types::{Fp, Fp3};
 
@@ -53,203 +52,90 @@ impl Sanitize for SovereignMaterialSettings {
     }
 }
 
+/// Every procedural texture field is clamped into the envelope the upstream
+/// per-field registry gives it (#1304).
+///
+/// The envelope replaces a hand-written clamp list that covered sixty-two
+/// fields of the several hundred, and was the *loosest* of the three tables
+/// bounding those fields on twenty of them: the tuned ranges lived upstream
+/// in the genetic operators and the inspector sliders, while the one table a
+/// hostile record actually met carried round numbers picked to bound a loop.
+/// Twenty-eight integer fields — `warp_octaves` among them — had no clamp
+/// here at all, and nothing but `noise`'s own internal ceiling stood between
+/// a hostile record and the pixel loop.
+///
+/// The match is exhaustive, so a new variant cannot be added without
+/// deciding what happens to it, and every arm is the same decision.
 impl Sanitize for SovereignTextureConfig {
     fn sanitize(&mut self) {
-        let axis = limits::MAX_TEXTURE_GRID_AXIS;
         match self {
-            SovereignTextureConfig::Ground(g) => {
-                g.macro_octaves = g.macro_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
-                g.micro_octaves = g.micro_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
-            }
-            SovereignTextureConfig::Rock(r) => {
-                r.octaves = r.octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
-            }
-            SovereignTextureConfig::Bark(b) => {
-                b.octaves = b.octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
-            }
-            SovereignTextureConfig::Stucco(s) => {
-                s.octaves = s.octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
-            }
-            SovereignTextureConfig::Concrete(c) => {
-                c.octaves = c.octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
-            }
-            SovereignTextureConfig::Marble(m) => {
-                m.octaves = m.octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
-            }
-            SovereignTextureConfig::Snow(s) => {
-                s.drift_octaves = s.drift_octaves.clamp(1, limits::MAX_ROCK_OCTAVES);
-            }
-            // Variants with explicit cell / grid loop counts — without these
-            // a peer can ship a `cell_count: 4_000_000_000` (or
-            // `bars_x: u32::MAX`) and pin every guest's procedural texture
-            // task on a per-pixel inner loop billions of iterations long.
-            SovereignTextureConfig::Twig(t) => {
-                t.leaf_pairs = t.leaf_pairs.clamp(1, limits::MAX_TEXTURE_LEAF_PAIRS);
-            }
-            SovereignTextureConfig::Window(w) => {
-                w.panes_x = w.panes_x.clamp(1, axis);
-                w.panes_y = w.panes_y.clamp(1, axis);
-            }
-            SovereignTextureConfig::StainedGlass(s) => {
-                s.cell_count = s.cell_count.clamp(1, limits::MAX_TEXTURE_VORONOI_CELLS);
-            }
-            SovereignTextureConfig::IronGrille(i) => {
-                i.bars_x = i.bars_x.clamp(1, axis);
-                i.bars_y = i.bars_y.clamp(1, axis);
-            }
-            SovereignTextureConfig::Ashlar(a) => {
-                a.rows = a.rows.clamp(1, axis);
-                a.cols = a.cols.clamp(1, axis);
-            }
-            SovereignTextureConfig::Wainscoting(w) => {
-                w.panels_x = w.panels_x.clamp(1, axis);
-                w.panels_y = w.panels_y.clamp(1, axis);
-            }
-            // Particle sprite cards. Each atlas dimension drives a cell
-            // count (rows × cols cell constructions) and each count-shaped
-            // field drives a per-pixel inner loop; clamp both at the record
-            // boundary so a hostile record can't depend on the upstream
-            // generator's internal clamps still being present.
-            SovereignTextureConfig::SoftDisc(s) => {
-                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
-            }
-            SovereignTextureConfig::Spark(s) => {
-                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
-                s.points = s.points.clamp(2, limits::MAX_SPRITE_SPARK_POINTS);
-            }
-            SovereignTextureConfig::Snowflake(s) => {
-                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
-                s.arms = s.arms.clamp(3, limits::MAX_SPRITE_SNOWFLAKE_ARMS);
-                s.branch_pairs = s
-                    .branch_pairs
-                    .min(limits::MAX_SPRITE_SNOWFLAKE_BRANCH_PAIRS);
-            }
-            SovereignTextureConfig::Puff(s) => {
-                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
-                s.octaves = s.octaves.clamp(1, limits::MAX_SPRITE_PUFF_OCTAVES);
-            }
-            SovereignTextureConfig::Ring(s) => {
-                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
-                s.wave_count = s.wave_count.clamp(2, limits::MAX_SPRITE_RING_WAVES);
-            }
-            SovereignTextureConfig::Shard(s) => {
-                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
-                s.sides = s.sides.clamp(3, limits::MAX_SPRITE_SHARD_SIDES);
-            }
-            SovereignTextureConfig::Petal(s) => {
-                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
-            }
-            SovereignTextureConfig::Flame(s) => {
-                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
-            }
-            SovereignTextureConfig::LeafSprite(s) => {
-                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
-            }
-            SovereignTextureConfig::Flower(s) => {
-                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
-                s.petal_count = s.petal_count.clamp(4, limits::MAX_SPRITE_FLOWER_PETALS);
-            }
-            // Foliage billboard card: an atlas of tufts, each tuft a
-            // `blade_count`-branch per-pixel silhouette test.
-            SovereignTextureConfig::GrassTuft(s) => {
-                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
-                s.blade_count = s.blade_count.clamp(1, limits::MAX_TEXTURE_GRASS_BLADES);
-            }
-            // Frond pinna card: only atlas dims drive a loop count; the vein /
-            // lobe counts are `fp64` frequencies bounded by texture size.
-            SovereignTextureConfig::Frond(s) => {
-                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
-            }
-            // Reed clump card: an atlas of clumps, each a `blade_count`-branch
-            // per-pixel silhouette test — same shape as the grass tuft.
-            SovereignTextureConfig::Reed(s) => {
-                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
-                s.blade_count = s.blade_count.clamp(1, limits::MAX_TEXTURE_GRASS_BLADES);
-            }
-            // Needle cluster card: `pair_count` drives a per-pixel loop over
-            // two needle segments per pair.
-            SovereignTextureConfig::Needle(s) => {
-                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
-                s.pair_count = s.pair_count.clamp(1, limits::MAX_TEXTURE_GRASS_BLADES);
-            }
-            // Palmate broadleaf card: the lobe count is an `fp64` angular
-            // frequency, not a loop bound — only the atlas needs clamping.
-            SovereignTextureConfig::Broadleaf(s) => {
-                clamp_atlas(&mut s.variant_rows, &mut s.variant_cols);
-            }
-            // Moss / lichen encrustations: octave counts drive the FBM loop.
-            SovereignTextureConfig::Moss(s) => {
-                s.cushion_octaves = s.cushion_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
-                s.filament_octaves = s.filament_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
-            }
-            SovereignTextureConfig::Lichen(s) => {
-                s.patch_octaves = s.patch_octaves.clamp(1, limits::MAX_GROUND_OCTAVES);
-            }
-            // Forest floor: every litter layer walks a 3x3 cell neighbourhood
-            // per texel, so the layer count is a real loop bound.
-            SovereignTextureConfig::ForestFloor(s) => {
-                s.layers = s.layers.clamp(1, limits::MAX_TEXTURE_LITTER_LAYERS);
-            }
-            // Forward to the asset-reference sanitiser — caps URL / DID /
-            // CID lengths so a hostile peer can't smuggle a megabyte URL
-            // through a referenced texture slot.
-            SovereignTextureConfig::Referenced { source } => source.sanitize(),
-            // Variants whose only count-shaped fields are `fp64` scale
-            // factors (Brick, Plank, Shingle, Metal, Pavers, Cobblestone,
-            // Thatch, Corrugated, Asphalt, Encaustic, Leaf; and the Fabric /
-            // Sand / Ice / Lava surfaces, whose thread / ripple / crack
-            // counts are likewise `fp64` frequencies): per-pixel cost is
-            // bounded by `MAX_TEXTURE_SIZE`, so no extra clamp is needed.
-            // Cactus skin: rib / areole / spine counts are integer feature
-            // frequencies, not loop bounds — per-pixel cost is bounded by
-            // `MAX_TEXTURE_SIZE`, so no extra clamp is needed.
-            SovereignTextureConfig::None
-            | SovereignTextureConfig::CactusSkin(_)
-            | SovereignTextureConfig::Leaf(_)
-            | SovereignTextureConfig::Brick(_)
-            | SovereignTextureConfig::Plank(_)
-            | SovereignTextureConfig::Shingle(_)
-            | SovereignTextureConfig::Metal(_)
-            | SovereignTextureConfig::Pavers(_)
-            | SovereignTextureConfig::Cobblestone(_)
-            | SovereignTextureConfig::Thatch(_)
-            | SovereignTextureConfig::Corrugated(_)
-            | SovereignTextureConfig::Asphalt(_)
-            | SovereignTextureConfig::Encaustic(_)
-            | SovereignTextureConfig::Fabric(_)
-            | SovereignTextureConfig::Sand(_)
-            | SovereignTextureConfig::Ice(_)
-            | SovereignTextureConfig::Lava(_)
-            | SovereignTextureConfig::ChainLink(_)
-            | SovereignTextureConfig::LogEnd(_)
-            // Surfaces added in bevy_symbios_texture 0.8. Their plate / stone
-            // / tile / wafer counts are `fp64` feature frequencies bounded by
-            // `MAX_TEXTURE_SIZE`, and the cellular lattices behind Cracked
-            // Earth, Gravel, Chitin and Enamel's craze clamp their own cell
-            // count upstream. Corrosion growth is a fixed number of sweeps
-            // regardless of how far it spreads, so no layer here scales its
-            // cost with a record-supplied value.
-            | SovereignTextureConfig::CrackedEarth(_)
-            | SovereignTextureConfig::Gravel(_)
-            | SovereignTextureConfig::Enamel(_)
-            | SovereignTextureConfig::Obsidian(_)
-            | SovereignTextureConfig::Chitin(_)
-            | SovereignTextureConfig::SolarPanel(_)
-            | SovereignTextureConfig::Parquet(_)
-            | SovereignTextureConfig::Truchet(_)
-            | SovereignTextureConfig::Unknown => {}
+            // Nothing to bound: `None` carries no config, and `Unknown` is
+            // the forward-compatibility arm whose payload this build cannot
+            // interpret — and cannot re-serialise either.
+            Self::None | Self::Unknown => {}
+            // Not a generator config at all. Forwards to the asset-reference
+            // sanitiser, which caps URL / DID / CID lengths so a hostile peer
+            // cannot smuggle a megabyte URL through a texture slot.
+            Self::Referenced { source } => source.sanitize(),
+            Self::Leaf(c) => c.clamp_to_envelope(),
+            Self::Twig(c) => c.clamp_to_envelope(),
+            Self::Bark(c) => c.clamp_to_envelope(),
+            Self::Window(c) => c.clamp_to_envelope(),
+            Self::StainedGlass(c) => c.clamp_to_envelope(),
+            Self::IronGrille(c) => c.clamp_to_envelope(),
+            Self::Ground(c) => c.clamp_to_envelope(),
+            Self::Rock(c) => c.clamp_to_envelope(),
+            Self::Brick(c) => c.clamp_to_envelope(),
+            Self::Plank(c) => c.clamp_to_envelope(),
+            Self::Shingle(c) => c.clamp_to_envelope(),
+            Self::Stucco(c) => c.clamp_to_envelope(),
+            Self::Concrete(c) => c.clamp_to_envelope(),
+            Self::Metal(c) => c.clamp_to_envelope(),
+            Self::Pavers(c) => c.clamp_to_envelope(),
+            Self::Ashlar(c) => c.clamp_to_envelope(),
+            Self::Cobblestone(c) => c.clamp_to_envelope(),
+            Self::Thatch(c) => c.clamp_to_envelope(),
+            Self::Marble(c) => c.clamp_to_envelope(),
+            Self::Corrugated(c) => c.clamp_to_envelope(),
+            Self::Asphalt(c) => c.clamp_to_envelope(),
+            Self::Wainscoting(c) => c.clamp_to_envelope(),
+            Self::Encaustic(c) => c.clamp_to_envelope(),
+            Self::SoftDisc(c) => c.clamp_to_envelope(),
+            Self::Spark(c) => c.clamp_to_envelope(),
+            Self::Snowflake(c) => c.clamp_to_envelope(),
+            Self::Puff(c) => c.clamp_to_envelope(),
+            Self::Ring(c) => c.clamp_to_envelope(),
+            Self::Petal(c) => c.clamp_to_envelope(),
+            Self::Shard(c) => c.clamp_to_envelope(),
+            Self::LeafSprite(c) => c.clamp_to_envelope(),
+            Self::Flame(c) => c.clamp_to_envelope(),
+            Self::Flower(c) => c.clamp_to_envelope(),
+            Self::GrassTuft(c) => c.clamp_to_envelope(),
+            Self::Frond(c) => c.clamp_to_envelope(),
+            Self::Reed(c) => c.clamp_to_envelope(),
+            Self::Needle(c) => c.clamp_to_envelope(),
+            Self::Broadleaf(c) => c.clamp_to_envelope(),
+            Self::Moss(c) => c.clamp_to_envelope(),
+            Self::Lichen(c) => c.clamp_to_envelope(),
+            Self::Fabric(c) => c.clamp_to_envelope(),
+            Self::Sand(c) => c.clamp_to_envelope(),
+            Self::Snow(c) => c.clamp_to_envelope(),
+            Self::Ice(c) => c.clamp_to_envelope(),
+            Self::Lava(c) => c.clamp_to_envelope(),
+            Self::CactusSkin(c) => c.clamp_to_envelope(),
+            Self::CrackedEarth(c) => c.clamp_to_envelope(),
+            Self::Gravel(c) => c.clamp_to_envelope(),
+            Self::ForestFloor(c) => c.clamp_to_envelope(),
+            Self::Enamel(c) => c.clamp_to_envelope(),
+            Self::Obsidian(c) => c.clamp_to_envelope(),
+            Self::Chitin(c) => c.clamp_to_envelope(),
+            Self::SolarPanel(c) => c.clamp_to_envelope(),
+            Self::Parquet(c) => c.clamp_to_envelope(),
+            Self::Truchet(c) => c.clamp_to_envelope(),
+            Self::ChainLink(c) => c.clamp_to_envelope(),
+            Self::LogEnd(c) => c.clamp_to_envelope(),
         }
     }
-}
-
-/// Clamp a sprite atlas's `(rows, cols)` into `1..=MAX_PARTICLE_ATLAS_DIM`.
-///
-/// The upstream `generate_atlas` clamps these before allocating cells, but
-/// clamping at the record boundary keeps the cost bound independent of the
-/// installed `bevy_symbios_texture` version.
-fn clamp_atlas(rows: &mut u32, cols: &mut u32) {
-    *rows = (*rows).clamp(1, limits::MAX_PARTICLE_ATLAS_DIM);
-    *cols = (*cols).clamp(1, limits::MAX_PARTICLE_ATLAS_DIM);
 }
 
 #[cfg(test)]
@@ -280,9 +166,12 @@ mod tests {
         assert_eq!(m.uv_rotation.0, -360.0, "rotation keeps its sign");
     }
 
-    /// A hostile record can set count-shaped sprite fields to `u32::MAX`; the
-    /// sanitiser must bring them back inside the per-feature loop budget so the
-    /// texture task can't be told to iterate billions of times per pixel.
+    /// A hostile record can set count-shaped sprite fields to `u32::MAX`;
+    /// the envelope must bring them back inside the per-feature loop budget
+    /// so the texture task cannot be told to iterate billions of times per
+    /// pixel. The exhaustive version of this — every numeric field of every
+    /// variant — is `tests/texture_wire.rs`; these two are here because the
+    /// atlas dimensions were the original reason this sanitiser existed.
     #[test]
     fn hostile_sprite_counts_are_clamped() {
         let snow = SovereignSnowflakeConfig {
@@ -297,10 +186,10 @@ mod tests {
         let SovereignTextureConfig::Snowflake(s) = cfg else {
             panic!("variant changed under sanitize");
         };
-        assert!(s.variant_rows <= limits::MAX_PARTICLE_ATLAS_DIM);
-        assert!(s.variant_cols <= limits::MAX_PARTICLE_ATLAS_DIM);
-        assert!(s.arms <= limits::MAX_SPRITE_SNOWFLAKE_ARMS);
-        assert!(s.branch_pairs <= limits::MAX_SPRITE_SNOWFLAKE_BRANCH_PAIRS);
+        assert!(s.variant_rows <= 16, "atlas rows: {}", s.variant_rows);
+        assert!(s.variant_cols <= 16, "atlas cols: {}", s.variant_cols);
+        assert!(s.arms <= 8, "arms: {}", s.arms);
+        assert!(s.branch_pairs <= 5, "branch pairs: {}", s.branch_pairs);
 
         let flower = SovereignFlowerConfig {
             petal_count: u32::MAX,
@@ -312,7 +201,7 @@ mod tests {
         let SovereignTextureConfig::Flower(f) = cfg else {
             panic!("variant changed under sanitize");
         };
-        assert!(f.petal_count <= limits::MAX_SPRITE_FLOWER_PETALS);
+        assert!(f.petal_count <= 12, "petals: {}", f.petal_count);
         assert!(f.variant_rows >= 1, "atlas dim floored to at least 1");
     }
 }

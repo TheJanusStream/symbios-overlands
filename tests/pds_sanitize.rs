@@ -518,11 +518,8 @@ fn lsystem_material_octaves_are_clamped() {
     assert!(settings.uv_scale.0.is_finite(), "uv_scale left non-finite");
     match &settings.texture {
         SovereignTextureConfig::Bark(b) => {
-            assert!(
-                b.octaves <= limits::MAX_ROCK_OCTAVES,
-                "bark octaves {} > cap",
-                b.octaves
-            );
+            // The cap is the upstream envelope now, not a constant here.
+            assert!(b.octaves <= 12, "bark octaves {} > cap", b.octaves);
             assert!(b.octaves >= 1, "bark octaves clamped below floor");
         }
         other => panic!("bark variant mutated: {other:?}"),
@@ -1053,38 +1050,38 @@ fn texture_loop_counts_are_clamped() {
         panic!("sanitize changed LSystem variant");
     };
 
-    let axis = limits::MAX_TEXTURE_GRID_AXIS;
-    let cells = limits::MAX_TEXTURE_VORONOI_CELLS;
-    let leaves = limits::MAX_TEXTURE_LEAF_PAIRS;
-
+    // Each bound is now the field's own envelope, tuned upstream beside the
+    // genetic operators and the inspector slider, rather than a round number
+    // picked here to bound a loop. Every one of these is tighter than the
+    // constant it replaces (#1304).
     match &materials[&0].texture {
-        SovereignTextureConfig::StainedGlass(s) => assert!(s.cell_count <= cells),
+        SovereignTextureConfig::StainedGlass(s) => assert!(s.cell_count <= 30),
         other => panic!("StainedGlass mutated: {other:?}"),
     }
     match &materials[&1].texture {
         SovereignTextureConfig::IronGrille(g) => {
-            assert!(g.bars_x <= axis && g.bars_y <= axis);
+            assert!(g.bars_x <= 12 && g.bars_y <= 12);
         }
         other => panic!("IronGrille mutated: {other:?}"),
     }
     match &materials[&2].texture {
         SovereignTextureConfig::Window(w) => {
-            assert!(w.panes_x <= axis && w.panes_y <= axis);
+            assert!(w.panes_x <= 16 && w.panes_y <= 16);
         }
         other => panic!("Window mutated: {other:?}"),
     }
     match &materials[&3].texture {
-        SovereignTextureConfig::Ashlar(a) => assert!(a.rows <= axis && a.cols <= axis),
+        SovereignTextureConfig::Ashlar(a) => assert!(a.rows <= 8 && a.cols <= 6),
         other => panic!("Ashlar mutated: {other:?}"),
     }
     match &materials[&4].texture {
         SovereignTextureConfig::Wainscoting(w) => {
-            assert!(w.panels_x <= axis && w.panels_y <= axis);
+            assert!(w.panels_x <= 4 && w.panels_y <= 4);
         }
         other => panic!("Wainscoting mutated: {other:?}"),
     }
     match &materials[&5].texture {
-        SovereignTextureConfig::Twig(t) => assert!(t.leaf_pairs <= leaves),
+        SovereignTextureConfig::Twig(t) => assert!(t.leaf_pairs <= 8),
         other => panic!("Twig mutated: {other:?}"),
     }
 }

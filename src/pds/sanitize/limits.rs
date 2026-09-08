@@ -18,50 +18,7 @@ pub const MAX_EROSION_DROPS: u32 = 500_000;
 pub const MAX_THERMAL_ITERATIONS: u32 = 500;
 /// Splat texture resolution per side (pixels).
 pub const MAX_TEXTURE_SIZE: u32 = 4096;
-/// Ground / rock generator octaves.
-pub const MAX_GROUND_OCTAVES: u32 = 12;
-pub const MAX_ROCK_OCTAVES: u32 = 16;
-/// Per-axis count cap for grid-based procedural textures (window panes,
-/// iron grille bars, ashlar courses, wainscoting panels). The texture
-/// pipeline iterates over `count` cells per pixel; with the
-/// `MAX_TEXTURE_SIZE` 4096² envelope a 64×64 grid fits well under a
-/// second of compute, while a million-cell grid would spin
-/// `AsyncComputeTaskPool` for hours.
-pub const MAX_TEXTURE_GRID_AXIS: u32 = 64;
-/// Cell-count cap for Voronoi-style cell textures (stained glass).
-/// The seed iteration is 1-D rather than per-axis, so the budget is
-/// linear in `cell_count` — 256 keeps the worst case bounded while
-/// still allowing dense decorative panels.
-pub const MAX_TEXTURE_VORONOI_CELLS: u32 = 256;
-/// Leaf-pair count cap for the foliage twig generator. The twig
-/// generator emits a leaf pair per slot along the stem; the texture
-/// pipeline iterates over each pair per pixel, so the budget mirrors
-/// the grid-axis cap.
-pub const MAX_TEXTURE_LEAF_PAIRS: u32 = 32;
-/// Per-feature count caps for the particle sprite-card generators. Each
-/// bounds a per-pixel inner loop (arms / sides / waves) or a per-frame
-/// sub-feature loop (snowflake branches, flower petals); the values mirror
-/// the upstream generator's own internal clamps so a hostile record is
-/// bounded even if a future upstream version relaxes them. The shared atlas
-/// dimension cap lives at [`MAX_PARTICLE_ATLAS_DIM`].
-pub const MAX_SPRITE_SPARK_POINTS: u32 = 12;
-pub const MAX_SPRITE_SNOWFLAKE_ARMS: u32 = 8;
-pub const MAX_SPRITE_SNOWFLAKE_BRANCH_PAIRS: u32 = 5;
-pub const MAX_SPRITE_PUFF_OCTAVES: u32 = 8;
-pub const MAX_SPRITE_RING_WAVES: u32 = 16;
-pub const MAX_SPRITE_SHARD_SIDES: u32 = 9;
-pub const MAX_SPRITE_FLOWER_PETALS: u32 = 12;
-/// Blade count for the grass-tuft foliage card. Each blade adds a branch to
-/// the per-pixel silhouette test, so cap it at the record boundary; the value
-/// mirrors the upstream generator's own internal clamp.
-pub const MAX_TEXTURE_GRASS_BLADES: u32 = 24;
 
-/// Maximum stacked litter layers on a forest floor.
-///
-/// Each layer walks a 3x3 cell neighbourhood per texel, so this is a genuine
-/// loop bound rather than a feature frequency. Matches the upstream
-/// `forest_floor::MAX_LAYERS`.
-pub const MAX_TEXTURE_LITTER_LAYERS: u32 = 4;
 /// Scatter placement count.
 pub const MAX_SCATTER_COUNT: u32 = 100_000;
 /// Generator-name length (chars) shared by the room recipe and the

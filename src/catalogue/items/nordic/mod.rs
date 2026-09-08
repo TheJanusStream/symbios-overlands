@@ -70,8 +70,11 @@ pub(super) fn timber(color: [f32; 3]) -> SovereignMaterialSettings {
         metallic: Fp(0.0),
         uv_scale: tiles_per_metre(tile::PLANK_BOARD * 6.0),
         texture: SovereignTextureConfig::Plank(SovereignPlankConfig {
-            color_wood_light: Fp3([color[0] * 1.25, color[1] * 1.25, color[2] * 1.25]),
-            color_wood_dark: Fp3([color[0] * 0.6, color[1] * 0.6, color[2] * 0.6]),
+            color_wood_light: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [1.25, 1.25, 1.25],
+            )),
+            color_wood_dark: Fp3(crate::catalogue::items::util::tint(color, [0.6, 0.6, 0.6])),
             plank_count: Fp64(6.0),
             knot_density: Fp64(0.3),
             grain_warp: Fp64(0.4),
@@ -90,7 +93,10 @@ pub(super) fn thatch(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::THATCH),
         texture: SovereignTextureConfig::Thatch(SovereignThatchConfig {
             color_straw: Fp3(color),
-            color_shadow: Fp3([color[0] * 0.32, color[1] * 0.30, color[2] * 0.18]),
+            color_shadow: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.32, 0.30, 0.18],
+            )),
             density: Fp64(14.0),
             layer_count: Fp64(9.0),
             layer_shadow: Fp64(0.6),
@@ -110,7 +116,7 @@ pub(super) fn turf(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::THATCH),
         texture: SovereignTextureConfig::Thatch(SovereignThatchConfig {
             color_straw: Fp3(color),
-            color_shadow: Fp3([color[0] * 0.4, color[1] * 0.45, color[2] * 0.3]),
+            color_shadow: Fp3(crate::catalogue::items::util::tint(color, [0.4, 0.45, 0.3])),
             density: Fp64(18.0),
             anisotropy: Fp64(4.0),
             layer_count: Fp64(10.0),
@@ -129,7 +135,7 @@ pub(super) fn stone(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::ASHLAR_BLOCK * 3.0),
         texture: SovereignTextureConfig::Ashlar(SovereignAshlarConfig {
             color_stone: Fp3(color),
-            color_mortar: Fp3([color[0] * 1.3, color[1] * 1.3, color[2] * 1.25]),
+            color_mortar: Fp3(crate::catalogue::items::util::tint(color, [1.3, 1.3, 1.25])),
             rows: 3,
             cols: 3,
             chisel_depth: Fp64(0.5),
@@ -148,7 +154,10 @@ pub(super) fn rough_stone(color: [f32; 3]) -> SovereignMaterialSettings {
         uv_scale: tiles_per_metre(tile::COBBLE),
         texture: SovereignTextureConfig::Cobblestone(SovereignCobblestoneConfig {
             color_stone: Fp3(color),
-            color_mud: Fp3([color[0] * 0.45, color[1] * 0.4, color[2] * 0.32]),
+            color_mud: Fp3(crate::catalogue::items::util::tint(
+                color,
+                [0.45, 0.4, 0.32],
+            )),
             roundness: Fp64(1.4),
             ..Default::default()
         }),
@@ -219,7 +228,7 @@ pub(super) fn log_end(color: [f32; 3]) -> SovereignMaterialSettings {
         // Card — clamp-to-edge, must span its quad exactly once.
         uv_scale: Fp(1.0),
         texture: SovereignTextureConfig::LogEnd(SovereignLogEndConfig {
-            color_early: Fp3([color[0] * 1.2, color[1] * 1.2, color[2] * 1.15]),
+            color_early: Fp3(crate::catalogue::items::util::tint(color, [1.2, 1.2, 1.15])),
             color_late: Fp3(color),
             ..Default::default()
         }),
