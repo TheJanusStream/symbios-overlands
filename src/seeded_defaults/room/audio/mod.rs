@@ -177,6 +177,40 @@ mod tests {
         );
     }
 
+    /// **Everything this app authors already fits the envelope.**
+    ///
+    /// `gen-jobs` clamps a patch to [`Envelope::default()`] just before
+    /// `bake` (#1305), which bounds what a hostile record can cost the
+    /// worker. That is only safe if it is a no-op on our own content, and
+    /// "our own content" is a third producer neither the envelope's author
+    /// nor the sanitiser's had in front of them — which is exactly how
+    /// #1304 shipped an envelope narrower than the shipped catalogue and
+    /// failed sixteen round-trip tests. So run the content through it.
+    ///
+    /// Compared bit for bit, over a spread of seeds and both escalation
+    /// extremes, because a clamp that moved a value would change what the
+    /// room *sounds like* without changing any record.
+    #[test]
+    fn no_seeded_ambient_recipe_is_touched_by_the_bake_envelope() {
+        use bevy_symbios_audio::{ClampToEnvelope, Envelope};
+
+        for seed in [0_u64, 1, 7, 9, 42, 1337, u64::MAX] {
+            for escalation in [0.0_f32, 1.0] {
+                let mut scene = SceneCharacter::for_seed(seed);
+                scene.escalation = escalation;
+                let recipe = AmbientRecipe::from_scene(&scene, seed).recipe;
+                let mut clamped = recipe.clone();
+                clamped.clamp_to_envelope(&Envelope::default());
+                assert_eq!(
+                    clamped, recipe,
+                    "the bake envelope rewrites the seed-{seed} ambient bed \
+                     at escalation {escalation} — widen the envelope \
+                     upstream, never clamp shipped content"
+                );
+            }
+        }
+    }
+
     #[test]
     fn deterministic_five_layer_recipe() {
         let mut scene = SceneCharacter::for_seed(9);

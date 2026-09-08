@@ -16,10 +16,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use bevy_symbios_audio::{
-    AdsrEnvelope, AudioPatch, BiquadBandpass, BiquadHighpass, BiquadLowpass, BrownNoise, Chorus,
-    Connection, Event, Gain, Gate, GraphNode, Instrument, Lfo, Mix, NodeGraph, NodeId, NodeKind,
-    PinkNoise, Reverb, SawtoothOsc, SequenceRecipe, SineOsc, SquareOsc, Track, TriangleOsc,
-    WhiteNoise,
+    AudioPatch, Connection, Event, Gate, GraphNode, Instrument, NodeGraph, NodeId, NodeKind,
+    SequenceRecipe, SineOsc, Track,
 };
 use symbios_overlands::pds::SovereignAudioConfig;
 use symbios_overlands::pds::audio::SovereignNodeKind;
@@ -31,26 +29,18 @@ fn fixture_path() -> PathBuf {
 /// Every node kind at its upstream default — the roster the mirror must
 /// carry one arm for.
 fn every_kind() -> Vec<NodeKind> {
-    vec![
-        NodeKind::Silence,
-        NodeKind::Sine(SineOsc::default()),
-        NodeKind::Square(SquareOsc::default()),
-        NodeKind::Sawtooth(SawtoothOsc::default()),
-        NodeKind::Triangle(TriangleOsc::default()),
-        NodeKind::WhiteNoise(WhiteNoise::default()),
-        NodeKind::PinkNoise(PinkNoise::default()),
-        NodeKind::BrownNoise(BrownNoise::default()),
-        NodeKind::Adsr(AdsrEnvelope::default()),
-        NodeKind::BiquadLowpass(BiquadLowpass::default()),
-        NodeKind::BiquadHighpass(BiquadHighpass::default()),
-        NodeKind::BiquadBandpass(BiquadBandpass::default()),
-        NodeKind::Lfo(Lfo::default()),
-        NodeKind::Mix(Mix::default()),
-        NodeKind::Gain(Gain::default()),
-        NodeKind::Gate(Gate::default()),
-        NodeKind::Chorus(Chorus::default()),
-        NodeKind::Reverb(Reverb::default()),
-    ]
+    // Upstream's own roster (symbios-audio 0.2, generated there from
+    // `for_each_node_kind!`), not a copy of it. `NodeKind` is
+    // `#[non_exhaustive]`, so a hand-written list here could only ever pin
+    // the bytes of the kinds somebody remembered to add — and a kind missing
+    // from the fixture is exactly a kind whose wire format nothing checks.
+    let roster = NodeKind::defaults();
+    assert!(
+        roster.len() >= 18,
+        "upstream roster shrank to {} kinds",
+        roster.len()
+    );
+    roster
 }
 
 /// A patch wiring every kind into one graph, with both connection forms

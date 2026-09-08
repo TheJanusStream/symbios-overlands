@@ -371,8 +371,11 @@ fn event_without_pitch_mode_field_decodes_to_varispeed() {
 #[test]
 fn unknown_node_kind_decodes_to_unknown_variant() {
     // Forward-compat: a node kind from a future crate version that this
-    // mirror doesn't know must decode to Unknown (→ Silence on bake),
-    // not fail the whole record.
+    // mirror doesn't know must decode to Unknown, not fail the whole
+    // record. Since symbios-audio 0.2 that maps to `NodeKind::Unknown`
+    // upstream rather than collapsing to `Silence` — still silent at the
+    // speakers, but `try_bake` warns once per bake that the graph holds
+    // one, and the record cannot be written back (#1305).
     use symbios_overlands::pds::audio::SovereignNodeKind;
     let json = r#"{ "kind": "FutureFilter", "cutoff": 1 }"#;
     let k: SovereignNodeKind = serde_json::from_str(json).expect("unknown kind → Unknown");

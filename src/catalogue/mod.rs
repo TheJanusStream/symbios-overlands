@@ -354,6 +354,72 @@ pub trait CatalogueEntry: Sync {
 mod tests {
     use super::*;
 
+    /// **Every sound the catalogue ships already fits the bake envelope.**
+    ///
+    /// `gen-jobs` clamps to [`Envelope::default()`] just before `bake`
+    /// (#1305). That bounds what a hostile record can cost the worker, and
+    /// it is only safe if it is a no-op on content we author — but the
+    /// catalogue is a *third* producer, seen by neither the envelope's
+    /// author upstream nor the record sanitiser's. That is precisely how
+    /// #1304 shipped a texture envelope narrower than the shipped catalogue
+    /// (a `panes_x: 12` greenhouse, a `ridges: 24` silo) and failed sixteen
+    /// round-trip tests. An envelope is a validity bound: it must be at
+    /// least as wide as anything any producer makes, and the way to know is
+    /// to run the producer's content through it.
+    ///
+    /// If this ever fails, widen the envelope upstream. Never narrow the
+    /// content to fit.
+    #[test]
+    fn no_catalogue_sound_is_touched_by_the_bake_envelope() {
+        use crate::pds::Generator;
+        use crate::pds::audio::SovereignAudioConfig;
+        use bevy_symbios_audio::{ClampToEnvelope, Envelope};
+
+        fn check(generator: &Generator, slug: &str, checked: &mut usize) {
+            match &generator.audio {
+                SovereignAudioConfig::Patch { patch } => {
+                    let native = patch.to_native();
+                    let mut clamped = native.clone();
+                    clamped.clamp_to_envelope(&Envelope::default());
+                    assert_eq!(
+                        clamped, native,
+                        "the bake envelope rewrites the patch on \"{slug}\" — \
+                         widen the envelope upstream, never clamp shipped content"
+                    );
+                    *checked += 1;
+                }
+                SovereignAudioConfig::Sequence { recipe } => {
+                    let native = recipe.to_native();
+                    let mut clamped = native.clone();
+                    clamped.clamp_to_envelope(&Envelope::default());
+                    assert_eq!(
+                        clamped, native,
+                        "the bake envelope rewrites the recipe on \"{slug}\" — \
+                         widen the envelope upstream, never clamp shipped content"
+                    );
+                    *checked += 1;
+                }
+                SovereignAudioConfig::None
+                | SovereignAudioConfig::Referenced { .. }
+                | SovereignAudioConfig::Unknown => {}
+            }
+            for child in &generator.children {
+                check(child, slug, checked);
+            }
+        }
+
+        let mut checked = 0;
+        for entry in ENTRIES {
+            check(&entry.build("did:plc:envelope"), entry.slug(), &mut checked);
+        }
+        // The catalogue does carry sound; a walk that found none would pass
+        // vacuously and tell us nothing.
+        assert!(
+            checked > 0,
+            "no catalogue entry carries audio — the walk proved nothing"
+        );
+    }
+
     #[test]
     fn role_derives_expected_category() {
         use CatalogueCategory::*;

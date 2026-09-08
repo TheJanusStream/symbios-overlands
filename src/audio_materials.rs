@@ -506,6 +506,80 @@ mod tests {
     use super::*;
     use bevy_symbios_audio::bake;
 
+    /// **Every impact sound this app makes already fits the bake envelope.**
+    ///
+    /// `gen-jobs` clamps to [`Envelope::default()`] just before `bake`
+    /// (#1305), so a clamp that moved anything here would change what a
+    /// footstep sounds like without changing any record.
+    ///
+    /// Enumerating [`ImpactMaterial`] rather than texture variants is the
+    /// complete check, not a sample of one: `impact_recipe_for` resolves
+    /// every texture through `classify` into one of these, and the recipe
+    /// depends on nothing else but the volume — both extremes of which are
+    /// covered here.
+    #[test]
+    fn no_impact_recipe_is_touched_by_the_bake_envelope() {
+        use bevy_symbios_audio::{ClampToEnvelope, Envelope};
+
+        let materials = [
+            ImpactMaterial::Rock,
+            ImpactMaterial::Ground,
+            ImpactMaterial::Wood,
+            ImpactMaterial::Stone,
+            ImpactMaterial::Metal,
+            ImpactMaterial::Soft,
+            ImpactMaterial::Generic,
+        ];
+        for material in materials {
+            for volume in [0.0_f32, 0.5, 1.0] {
+                // Built the way `impact_recipe_for` builds it, from the
+                // classified material rather than from a texture, so the
+                // roster above is the whole domain.
+                let recipe = SequenceRecipe {
+                    bpm: 60.0,
+                    sample_rate: 44_100,
+                    duration_beats: material.duration_secs(),
+                    loop_start_beats: None,
+                    loop_crossfade_beats: 0.0,
+                    instruments: vec![Instrument {
+                        id: "impact".to_string(),
+                        patch: build_impact_patch(material.params()),
+                    }],
+                    tracks: vec![Track {
+                        events: vec![bevy_symbios_audio::Event {
+                            time_beats: 0.0,
+                            instrument_id: "impact".to_string(),
+                            pitch_multiplier: 1.0,
+                            volume,
+                            gate_beats: material.duration_secs(),
+                            release_beats: 0.0,
+                            pitch_mode: bevy_symbios_audio::PitchMode::Varispeed,
+                        }],
+                    }],
+                };
+                let mut clamped = recipe.clone();
+                clamped.clamp_to_envelope(&Envelope::default());
+                assert_eq!(
+                    clamped, recipe,
+                    "the bake envelope rewrites the {material:?} impact at \
+                     volume {volume} — widen the envelope upstream, never \
+                     clamp shipped content"
+                );
+            }
+        }
+    }
+
+    /// And the one hand-authored patch that is not a catalogue entry.
+    #[test]
+    fn the_teleporter_hum_is_not_touched_by_the_bake_envelope() {
+        use bevy_symbios_audio::{ClampToEnvelope, Envelope};
+
+        let patch = crate::world_builder::spatial_audio::teleporter_hum_patch();
+        let mut clamped = patch.clone();
+        clamped.clamp_to_envelope(&Envelope::default());
+        assert_eq!(clamped, patch);
+    }
+
     /// Helper: assert that a baked buffer is non-silent (sum of |sample|
     /// over the attack window exceeds a sensible floor).
     fn assert_audible(buffer: &[f32], context: &str) {

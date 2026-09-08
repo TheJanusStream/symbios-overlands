@@ -14,7 +14,10 @@
 //! worker `.wasm` that links it stays slim instead of pulling Bevy.
 
 use serde::{Deserialize, Serialize};
-use symbios_audio::{AudioPatch, SequenceRecipe, bake, bake_sequence, samples_to_wav_bytes_pcm16};
+use symbios_audio::{
+    AudioPatch, ClampToEnvelope, Envelope, SequenceRecipe, bake, bake_sequence,
+    samples_to_wav_bytes_pcm16,
+};
 use symbios_ground::{
     DiamondSquare, FbmNoise, HeightMap, HydraulicErosion, TerrainGenerator, ThermalErosion,
     VoronoiTerracing,
@@ -235,14 +238,27 @@ impl AudioBakeJob {
     fn run(self) -> Vec<u8> {
         match self {
             AudioBakeJob::Patch {
-                patch,
+                mut patch,
                 sample_rate,
                 duration_secs,
             } => {
+                // The second line, not a replacement for the first. The
+                // mirror sanitiser clamps on the load path, on the `Fp` grid,
+                // before `to_native` — but it only sees patches that arrived
+                // as a *record*. This one sees whatever reached the worker,
+                // and the worker is where an unbounded graph actually costs
+                // something: `bake` is `try_bake(..).expect(..)`, so a
+                // malformed graph panics it, and on wasm the compute pool
+                // runs on the main thread. `pds_sanitize`'s drift guard
+                // asserts these two clamps agree constant for constant.
+                patch.clamp_to_envelope(&Envelope::default());
                 let samples = bake(&patch, sample_rate, duration_secs);
                 samples_to_wav_bytes_pcm16(&samples, sample_rate)
             }
-            AudioBakeJob::Sequence { recipe } => {
+            AudioBakeJob::Sequence { mut recipe } => {
+                // Clamped before `sample_rate` is read, so the rate the WAV
+                // header claims is the rate the mixdown actually baked at.
+                recipe.clamp_to_envelope(&Envelope::default());
                 let sample_rate = recipe.sample_rate;
                 let samples = bake_sequence(&recipe);
                 samples_to_wav_bytes_pcm16(&samples, sample_rate)

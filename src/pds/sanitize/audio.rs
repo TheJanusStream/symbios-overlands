@@ -263,6 +263,229 @@ mod tests {
     use crate::pds::audio::{
         SovereignChorus, SovereignGain, SovereignMix, SovereignNodeKind, SovereignReverb,
     };
+    use bevy_symbios_audio::{ClampToEnvelope, Envelope};
+
+    // -----------------------------------------------------------------
+    // Drift guard: this sanitiser and symbios-audio's `Envelope` are two
+    // implementations of one table (#1305)
+    // -----------------------------------------------------------------
+
+    /// Replace every **floating-point** leaf of `value` with `fill`.
+    ///
+    /// Integers are left alone deliberately: `sample_rate` is a `u32` and
+    /// `NodeId` a transparent `u32`, and neither can decode a value chosen to
+    /// overflow an `f32`. `serde_json` distinguishes the two, and every field
+    /// these clamps touch is a float.
+    fn fill_floats(value: &mut serde_json::Value, fill: f64) {
+        match value {
+            serde_json::Value::Number(n) if n.is_f64() => {
+                *value = serde_json::json!(fill);
+            }
+            serde_json::Value::Array(items) => items.iter_mut().for_each(|v| fill_floats(v, fill)),
+            serde_json::Value::Object(map) => {
+                map.values_mut().for_each(|v| fill_floats(v, fill));
+            }
+            _ => {}
+        }
+    }
+
+    /// Every field of `T` set to `fill`, via its own serde representation.
+    ///
+    /// This is what makes the guard below *total* rather than a spot check:
+    /// no per-kind hostile constructor to write, and no list of field names
+    /// to keep in step with upstream.
+    fn hostile<T>(value: &T, fill: f64) -> T
+    where
+        T: serde::Serialize + serde::de::DeserializeOwned,
+    {
+        let mut json = serde_json::to_value(value).expect("config serialises");
+        fill_floats(&mut json, fill);
+        serde_json::from_value(json).expect("config decodes")
+    }
+
+    /// The fills, and what each one is for.
+    ///
+    /// `±1e300` is the interesting one: JSON cannot carry NaN, but serde
+    /// decodes a number into `f32` by casting the parsed `f64`, and a
+    /// float-to-float cast **saturates**, so `1e300` arrives as
+    /// `f32::INFINITY`. That reaches the same non-finite branch of
+    /// `clamp_finite` that NaN does — the branch that resolves to the
+    /// *field's default* — so the default column of the table is covered
+    /// generically, which is where the `q = 0.707` vs `FRAC_1_SQRT_2` drift
+    /// lived (#1160). The finite fills cover the `lo`/`hi` columns.
+    const FILLS: [f64; 5] = [1e300, -1e300, 1e9, -1e9, 0.0];
+
+    #[test]
+    fn the_infinity_injection_actually_injects_infinity() {
+        // The premise of every fill below. If serde ever starts rejecting an
+        // out-of-range float instead of saturating, the guard would silently
+        // stop testing the default column, so it is asserted rather than
+        // assumed.
+        let v: f32 = serde_json::from_value(serde_json::json!(1e300)).expect("decodes");
+        assert!(v.is_infinite() && v.is_sign_positive());
+        let v: f32 = serde_json::from_value(serde_json::json!(-1e300)).expect("decodes");
+        assert!(v.is_infinite() && v.is_sign_negative());
+        // And the integer fields really are distinguishable, so `fill_floats`
+        // can leave them alone.
+        assert!(serde_json::to_value(0.0f32).expect("ok").is_f64());
+        assert!(!serde_json::to_value(44_100u32).expect("ok").is_f64());
+    }
+
+    /// The six collection caps are the same numbers on both sides.
+    ///
+    /// They are the half of the envelope that is *named* in two places, so
+    /// they are the half that can drift by a plain edit.
+    #[test]
+    fn the_caps_match_the_upstream_envelope() {
+        let e = Envelope::default();
+        assert_eq!(MAX_AUDIO_NODES, e.max_nodes);
+        assert_eq!(MAX_CONNECTIONS_PER_PORT, e.max_connections_per_port);
+        assert_eq!(MAX_TRACK_EVENTS, e.max_track_events);
+        assert_eq!(MAX_SEQUENCE_INSTRUMENTS, e.max_instruments);
+        assert_eq!(MAX_SEQUENCE_TRACKS, e.max_tracks);
+        assert_eq!(MAX_INSTRUMENT_ID_BYTES, e.max_instrument_id_bytes);
+    }
+
+    /// **The drift guard.** For every node kind upstream ships, and every
+    /// field of it, clamping through this sanitiser and clamping through
+    /// `symbios-audio`'s `Envelope` land on the same value.
+    ///
+    /// Two implementations of one table, in two crates, that have to agree
+    /// or a record means different things on the two sides of the worker
+    /// boundary: the mirror sanitiser runs on the load path (on the `Fp`
+    /// grid, before `to_native`), and `clamp_to_envelope` runs inside
+    /// `gen-jobs` just before `bake`.
+    ///
+    /// Compared as **wire values**, not as structs: `Fp` holds a raw `f32`
+    /// and quantises only in `Serialize`, so `to_value` is what puts both
+    /// sides on the grid the record actually carries — and it side-steps
+    /// `NaN != NaN`. Never derive one side's constants from the other by
+    /// round-tripping through `f32`; that is how `q` ended up one tick out
+    /// (7070 vs 7071, #1160).
+    #[test]
+    fn every_node_kind_clamps_the_same_on_both_sides() {
+        for fill in FILLS {
+            for kind in bevy_symbios_audio::NodeKind::defaults() {
+                let native = hostile(&kind, fill);
+
+                // This side: mirror the hostile value, then sanitise.
+                let mut mirrored = SovereignNodeKind::from_native(&native);
+                mirrored.sanitize();
+
+                // Upstream: clamp the hostile value, then mirror.
+                let mut clamped = native.clone();
+                clamped.clamp_to_envelope(&Envelope::default());
+                let expected = SovereignNodeKind::from_native(&clamped);
+
+                assert_eq!(
+                    serde_json::to_value(&mirrored).expect("serialises"),
+                    serde_json::to_value(&expected).expect("serialises"),
+                    "{} disagrees between pds::sanitize and symbios-audio's \
+                     Envelope at fill {fill:e}",
+                    kind.label()
+                );
+            }
+        }
+    }
+
+    /// The same equivalence for a whole recipe — the collection caps, the
+    /// instrument-id byte cap, the loop bounds that clamp against an
+    /// already-clamped duration, and every event field.
+    #[test]
+    fn a_sequence_recipe_clamps_the_same_on_both_sides() {
+        use bevy_symbios_audio::{AudioPatch, Event, Instrument, NodeKind, SequenceRecipe, Track};
+
+        let seed = SequenceRecipe {
+            loop_start_beats: Some(2.0),
+            instruments: vec![
+                Instrument {
+                    // Three bytes per character, so the byte cap lands
+                    // mid-character and both sides must walk back to a
+                    // boundary rather than panic.
+                    id: "☃".repeat(200),
+                    patch: AudioPatch {
+                        seed: 3,
+                        graph: bevy_symbios_audio::NodeGraph {
+                            nodes: vec![bevy_symbios_audio::GraphNode {
+                                id: bevy_symbios_audio::NodeId(0),
+                                kind: NodeKind::Chorus(Default::default()),
+                                inputs: Default::default(),
+                            }],
+                            output: bevy_symbios_audio::NodeId(0),
+                        },
+                    },
+                };
+                3
+            ],
+            tracks: vec![
+                Track {
+                    events: vec![
+                        Event {
+                            instrument_id: "☃".repeat(200),
+                            ..Event::default()
+                        };
+                        4
+                    ],
+                };
+                2
+            ],
+            ..SequenceRecipe::default()
+        };
+
+        for fill in FILLS {
+            let native = hostile(&seed, fill);
+
+            let mut mirrored = crate::pds::audio::SovereignSequenceRecipe::from_native(&native);
+            mirrored.sanitize();
+
+            let mut clamped = native.clone();
+            clamped.clamp_to_envelope(&Envelope::default());
+            let expected = crate::pds::audio::SovereignSequenceRecipe::from_native(&clamped);
+
+            assert_eq!(
+                serde_json::to_value(&mirrored).expect("serialises"),
+                serde_json::to_value(&expected).expect("serialises"),
+                "SequenceRecipe disagrees at fill {fill:e}"
+            );
+        }
+    }
+
+    /// Connections agree too — the one place an arbitrary float reaches the
+    /// summed bus directly.
+    ///
+    /// `SovereignConnection::Unknown` is deliberately not exercised: native
+    /// `Connection` is not `#[non_exhaustive]` and has no such variant, so
+    /// there is no upstream value to clamp and nothing to compare against.
+    /// The mirror keeps the arm as a read-side seam; it has no image here.
+    #[test]
+    fn connections_clamp_the_same_on_both_sides() {
+        use bevy_symbios_audio::{Connection, NodeId};
+
+        for fill in FILLS {
+            for seed in [
+                Connection::Constant { value: 1.0 },
+                Connection::Node {
+                    id: NodeId(7),
+                    amount: 1.0,
+                },
+            ] {
+                let native = hostile(&seed, fill);
+
+                let mut mirrored = crate::pds::audio::SovereignConnection::from_native(&native);
+                mirrored.sanitize();
+
+                let mut clamped = native.clone();
+                clamped.clamp_to_envelope(&Envelope::default());
+                let expected = crate::pds::audio::SovereignConnection::from_native(&clamped);
+
+                assert_eq!(
+                    serde_json::to_value(&mirrored).expect("serialises"),
+                    serde_json::to_value(&expected).expect("serialises"),
+                    "{native:?} disagrees at fill {fill:e}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn chorus_clamps_hostile_values() {

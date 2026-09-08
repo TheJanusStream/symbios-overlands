@@ -318,10 +318,19 @@ impl SovereignConnection {
 // NodeKind (closed enum mirror)
 // ===========================================================================
 
-/// Mirror of [`bevy_symbios_audio::NodeKind`]. `Unknown` is the
-/// forward-compat seam — a future variant added in a newer audio
-/// crate version decodes here and maps to `Silence` on `to_native`
-/// (mute fallback).
+/// Mirror of [`bevy_symbios_audio::NodeKind`].
+///
+/// `Unknown` is the forward-compat seam on the **read** side: a `kind` tag
+/// written by a newer engine decodes here rather than failing the whole
+/// record. Since symbios-audio 0.2 it maps to `NodeKind::Unknown` on
+/// `to_native` instead of collapsing to `Silence`, so the bake still plays
+/// silence — upstream samples that variant as `0.0` — but says so once per
+/// bake instead of doing it mutely.
+///
+/// It is `skip_serializing`, and that is load-bearing: `Unknown` is a unit
+/// variant, so decoding drops the fields it could not read, and writing it
+/// back would replace content this build merely failed to understand with a
+/// husk. The save is refused instead (#1111).
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(tag = "kind")]
 pub enum SovereignNodeKind {
@@ -352,7 +361,13 @@ impl SovereignNodeKind {
     pub fn to_native(&self) -> bevy_symbios_audio::NodeKind {
         use bevy_symbios_audio::NodeKind as N;
         match self {
-            Self::Silence | Self::Unknown => N::Silence,
+            Self::Silence => N::Silence,
+            // Not `N::Silence`: upstream has its own `Unknown`, which samples
+            // 0.0 and makes `try_bake` warn once per bake naming how many of
+            // them the graph holds. Same audible result, no longer mute about
+            // it — and it keeps the round-trip honest, so the roster tests
+            // below can assert that a *known* kind never lands here.
+            Self::Unknown => N::Unknown,
             Self::Sine(c) => N::Sine(c.to_native()),
             Self::Square(c) => N::Square(c.to_native()),
             Self::Sawtooth(c) => N::Sawtooth(c.to_native()),
@@ -394,6 +409,11 @@ impl SovereignNodeKind {
             N::Gate(c) => Self::Gate(SovereignGate::from_native(c)),
             N::Chorus(c) => Self::Chorus(SovereignChorus::from_native(c)),
             N::Reverb(c) => Self::Reverb(SovereignReverb::from_native(c)),
+            // Upstream's own forward-compat seam, reached when a patch this
+            // build loaded from a newer engine is mirrored back. Explicit, so
+            // it is *not* the wildcard below: this one is expected and quiet,
+            // that one is a stale mirror and shouts.
+            N::Unknown => Self::Unknown,
             // `NodeKind` is `#[non_exhaustive]`, so this arm cannot be
             // deleted — but it must never be *taken*. What the comment
             // here used to say about forward compatibility is true of a
@@ -1006,46 +1026,47 @@ mod tests {
         );
     }
 
-    /// Every node kind the audio crate ships has a mirror arm, and the arm
-    /// round-trips: `from_native` must never land a known kind on
-    /// `Unknown`, because `Unknown` plays as silence (#1170 finding 105 —
-    /// the `_ => Unknown` fallback in `from_native` is what a future
-    /// upstream node falls into, and it does so without a sound).
+    /// Every node kind the audio crate ships has a mirror arm, the arm
+    /// round-trips, and no two kinds share one.
     ///
-    /// `NodeKind` is `#[non_exhaustive]`, so this cannot be a compile-time
-    /// property and the roster below is the one hand-written list left:
-    /// it is the eighteen kinds of `bevy_symbios_audio` 0.3 and belongs on
-    /// the dependency-bump checklist alongside the avian canary.
+    /// **The roster comes from upstream** — `NodeKind::defaults()`, added in
+    /// symbios-audio 0.2 and generated there from `for_each_node_kind!`.
+    /// This used to be a hand-written list of eighteen kinds sitting on the
+    /// dependency-bump checklist beside the avian canary, and the trouble
+    /// with that is the shape of the failure it was guarding against:
+    /// `NodeKind` is `#[non_exhaustive]`, so a kind added upstream could not
+    /// reach `from_native`'s wildcard in a test run *unless somebody
+    /// remembered to add it here too* — and the person most likely to forget
+    /// is the person doing the bump. Walking upstream's own roster makes the
+    /// next addition a red test on the bump itself.
+    ///
+    /// What the first assertion means, now that the arms exist: `from_native`
+    /// landing a **known** kind on `Unknown` would make every world holding
+    /// that node unpublishable, because `Unknown` is `skip_serializing` and
+    /// `wire_ready` refuses the save (#1305). It is not a silent mute; it is
+    /// a save the owner cannot complete until the mirror is extended.
     #[test]
     fn every_native_node_kind_has_a_mirror_arm() {
-        use native::NodeKind as N;
-        let roster = [
-            N::Silence,
-            N::Sine(Default::default()),
-            N::Square(Default::default()),
-            N::Sawtooth(Default::default()),
-            N::Triangle(Default::default()),
-            N::WhiteNoise(Default::default()),
-            N::PinkNoise(Default::default()),
-            N::BrownNoise(Default::default()),
-            N::Adsr(Default::default()),
-            N::BiquadLowpass(Default::default()),
-            N::BiquadHighpass(Default::default()),
-            N::BiquadBandpass(Default::default()),
-            N::Lfo(Default::default()),
-            N::Mix(Default::default()),
-            N::Gain(Default::default()),
-            N::Gate(Default::default()),
-            N::Chorus(Default::default()),
-            N::Reverb(Default::default()),
-        ];
+        let roster = native::NodeKind::defaults();
+        assert!(
+            roster.len() >= 18,
+            "upstream roster shrank to {} kinds — a removal is a wire break, \
+             not a bump",
+            roster.len()
+        );
         let mut seen = std::collections::HashSet::new();
         for kind in &roster {
+            assert_ne!(
+                *kind,
+                native::NodeKind::Unknown,
+                "defaults() must never offer Unknown"
+            );
             let mirror = SovereignNodeKind::from_native(kind);
             assert_ne!(
                 mirror,
                 SovereignNodeKind::Unknown,
-                "{kind:?} has no mirror arm — it would decode as silence"
+                "{kind:?} has no mirror arm — every world holding one would \
+                 become unpublishable"
             );
             assert_eq!(
                 &mirror.to_native(),
@@ -1057,7 +1078,29 @@ mod tests {
                 "{kind:?} shares a mirror arm with another kind"
             );
         }
-        // One mirror arm per native kind, plus `Unknown` itself.
-        assert_eq!(seen.len(), roster.len());
+        assert_eq!(seen.len(), roster.len(), "one mirror arm per native kind");
+    }
+
+    /// The two `Unknown`s are each other's image, in both directions.
+    ///
+    /// Neither is reachable from a roster walk — that is the point of them —
+    /// so the pairing needs its own assertion. Before symbios-audio 0.2 the
+    /// mirror's `Unknown` flattened to `N::Silence` on the way out, which
+    /// erased the distinction between "this build knows this node is silent"
+    /// and "this build has no idea what this node is".
+    #[test]
+    fn the_two_unknowns_mirror_each_other() {
+        assert_eq!(
+            SovereignNodeKind::Unknown.to_native(),
+            native::NodeKind::Unknown
+        );
+        assert_eq!(
+            SovereignNodeKind::from_native(&native::NodeKind::Unknown),
+            SovereignNodeKind::Unknown
+        );
+        // And it is still unwritable on both sides of the boundary, which is
+        // what turns an unmirrored node into a refused save rather than a
+        // husk on the owner's PDS.
+        assert!(serde_json::to_value(SovereignNodeKind::Unknown).is_err());
     }
 }
