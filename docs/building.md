@@ -60,10 +60,10 @@ overland.
 
 ```bash
 rustup target add wasm32-unknown-unknown
-# Pin the CLI to the `wasm-bindgen` crate version in Cargo.lock (0.2.127) —
+# Pin the CLI to the `wasm-bindgen` crate version in Cargo.lock (0.2.128) —
 # the CLI refuses a `.wasm` built against a different crate version, so a
 # skew between the two breaks the deploy. Bump both together.
-cargo install wasm-bindgen-cli --version 0.2.127
+cargo install wasm-bindgen-cli --version 0.2.128
 
 # `--workspace` builds the app *and* the off-thread generation Web Worker
 # (the slim, no-Bevy `gen-worker`) for wasm in one pass.
@@ -102,7 +102,7 @@ Unpinned, the workflow would sit one upstream release away from the CLI being
 `Cargo.lock` is git-ignored: the CI checkout has no
 lockfile, so `cargo build` there resolves `wasm-bindgen` fresh to the newest
 semver-compatible release, while the CLI version is a hand-maintained literal
-in the workflow. The two are pinned together *today* (both 0.2.127) and drift
+in the workflow. The two are pinned together *today* (both 0.2.128) and drift
 apart on the next upstream release. Patch-level skew has been tolerated in
 practice across several deploys, so this is a latent risk rather than a
 standing breakage — but if a deploy starts producing glue that fails at

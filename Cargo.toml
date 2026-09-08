@@ -168,16 +168,7 @@ web-sys = { version = "0.3", features = [
     "Location",
     "History",
 ] }
-# EXACT, and it must stay exact (#1152). The deploy installs
-# `wasm-bindgen-cli --version 0.2.127` as a literal, and the CLI refuses a
-# `.wasm` built by a crate outside its schema window — wasm-bindgen-shared
-# 0.2.127 declares SCHEMA_VERSION 0.2.122, so the window is 0.2.122..=0.2.127
-# today and closes at the next upstream schema bump. With `"0.2"` and an
-# untracked Cargo.lock, CI resolved the crate fresh on every run, so the day
-# upstream published past that window the deploy broke with no change to the
-# repo, on a push to main, with nobody watching. Pinning the crate exactly
-# means the crate and the CLI literal move in one diff or not at all.
-wasm-bindgen = "=0.2.127"
+wasm-bindgen = "=0.2.128"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 gloo-timers = { version = "0.3", features = ["futures"] }
