@@ -338,6 +338,23 @@ pub fn run() {
         .init_resource::<state::PendingOutgoingOffers>()
         .init_resource::<state::BusyAutoDeclines>()
         .init_resource::<state::MutedDids>()
+        // The two halves of the mute list need defaults here, not just the
+        // `insert_resource` in `load_prefs_at_startup` (#1317).
+        //
+        // That system opens with `let Some(prefs) = load() else { return }`,
+        // so on an EMPTY store — a first visit, or a stored blob that no
+        // longer parses — it returns before inserting anything. Every other
+        // resource it can insert is defaulted here or by its own plugin and
+        // is therefore unaffected; these two were added later (#1223) on the
+        // unconditional-insert path and never got a default, so on that path
+        // they simply did not exist. `adopt_owner_mute_list` and
+        // `save_prefs_when_changed` both take `ResMut<MutedByOwner>`, and
+        // under Bevy 0.19 a missing required parameter is a PANIC rather
+        // than a skipped system — which on wasm aborts the app and freezes
+        // the canvas on the last frame it drew, so the login screen showed
+        // the attract backdrop and no UI at all.
+        .init_resource::<state::MutedByOwner>()
+        .init_resource::<prefs::LegacyMutedDids>()
         .init_resource::<ui::login::LoginError>()
         .init_resource::<ui::login::LoginUiLatch>()
         .init_resource::<ui::login::LoginPostFeed>()

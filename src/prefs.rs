@@ -468,6 +468,49 @@ pub fn adopt_owner_mute_list(
 mod tests {
     use super::*;
 
+    /// The empty-store path must leave a world the mute systems can run in
+    /// (#1317).
+    ///
+    /// [`load_prefs_at_startup`] opens with
+    /// `let Some(prefs) = load() else { return }`, so on a first visit — or a
+    /// stored blob that no longer parses — it inserts **nothing at all**.
+    /// Every resource its consumers require therefore has to be registered as
+    /// a default by the app itself; `lib.rs` does that, beside
+    /// `state::MutedDids`.
+    ///
+    /// Getting it wrong is not a degraded feature, it is the whole app: under
+    /// Bevy 0.19 a missing required parameter is a **panic**, not a skipped
+    /// system. On wasm that panic aborts the module and the canvas freezes on
+    /// the last frame it drew, which is how a missing `MutedByOwner` default
+    /// shipped a login screen showing the attract backdrop and no UI.
+    ///
+    /// This walks the resources [`adopt_owner_mute_list`] requires and runs it
+    /// against defaults alone, so a newly-required resource cannot reach a
+    /// release un-defaulted. [`save_prefs_when_changed`], chained after it,
+    /// takes the same `ResMut<MutedByOwner>`; it is deliberately not run here
+    /// because it writes to the real prefs store.
+    #[test]
+    fn adopting_a_mute_list_needs_no_stored_prefs() {
+        let mut app = App::new();
+        // Exactly what `adopt_owner_mute_list` requires. `AtprotoSession` is
+        // an `Option` parameter, so its absence is the nobody-signed-in case
+        // rather than a validation failure — which is the case a first visit
+        // to the login screen actually is.
+        app.init_resource::<crate::state::MutedByOwner>()
+            .init_resource::<LegacyMutedDids>()
+            .init_resource::<crate::state::MutedDids>()
+            .add_systems(Update, adopt_owner_mute_list);
+
+        // The assertion is that this does not panic.
+        app.update();
+
+        assert!(
+            app.world()
+                .contains_resource::<crate::state::MutedByOwner>(),
+            "the owner mute list must survive a run with no stored prefs"
+        );
+    }
+
     /// #1226 f325. The sequence: an existing user updates the app and their
     /// prefs file predates the nametag setting entirely. `LocalSettings`
     /// grows only with `serde(default)`-compatible fields, so the missing
