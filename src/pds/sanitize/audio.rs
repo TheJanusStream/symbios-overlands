@@ -184,15 +184,50 @@ impl Sanitize for SovereignNodeKind {
     }
 }
 
+/// Bound on a connection's DC value and on a node connection's `amount` —
+/// the same number `symbios_audio::envelope`'s `MAX_CONNECTION_MAGNITUDE`
+/// carries, and the drift guard below asserts the two agree.
+///
+/// It was `1_000_000.0` until #1316, which is 4.6x more than [`Fp`] can
+/// represent: the wire form is `(v * FP_SCALE).round() as i32`, a cast that
+/// **saturates**, so a value the sanitiser accepted at 500_000 came back from
+/// the wire as 214_748.3647 — silently, and leaving `sanitize` non-idempotent
+/// across a round trip for this one field. It was also the only bound in the
+/// table unrelated to its neighbours: the combiner gains are ±64 and the
+/// widest other bound is an LFO depth at ±10_000.
+pub const MAX_CONNECTION_MAGNITUDE: f32 = 100_000.0;
+
+// The proof, at compile time, that this sanitiser cannot accept a value the
+// writer cannot store. That is the property #1316 was actually about — the
+// number itself is only as good as the thing keeping it honest, and a
+// comment would not have caught the original.
+const _: () = assert!(
+    (MAX_CONNECTION_MAGNITUDE as f64 * crate::pds::types::FP_SCALE as f64) <= i32::MAX as f64,
+    "MAX_CONNECTION_MAGNITUDE does not survive Fp's i32 wire form — see #1316"
+);
+
 impl Sanitize for SovereignConnection {
     fn sanitize(&mut self) {
         match self {
             SovereignConnection::Constant { value } => {
-                value.0 = clamp_finite(value.0, -1_000_000.0, 1_000_000.0, 0.0);
+                value.0 = clamp_finite(
+                    value.0,
+                    -MAX_CONNECTION_MAGNITUDE,
+                    MAX_CONNECTION_MAGNITUDE,
+                    0.0,
+                );
             }
             SovereignConnection::Node { amount, .. } => {
-                amount.0 = clamp_finite(amount.0, -1_000_000.0, 1_000_000.0, 1.0);
+                amount.0 = clamp_finite(
+                    amount.0,
+                    -MAX_CONNECTION_MAGNITUDE,
+                    MAX_CONNECTION_MAGNITUDE,
+                    1.0,
+                );
             }
+            // No native counterpart — `Connection` is not `#[non_exhaustive]`
+            // upstream, so this arm is a read-side seam only and there is
+            // nothing to bound.
             SovereignConnection::Unknown => {}
         }
     }
