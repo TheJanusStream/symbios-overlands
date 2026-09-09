@@ -251,7 +251,7 @@ fn edit_button(
     let button_text = if is_open {
         "Editing… (window open)"
     } else {
-        "\u{270E} Edit audio\u{2026}"
+        "\u{270F} Edit audio\u{2026}"
     };
     if ui
         .add_enabled(!is_open, egui::Button::new(button_text))

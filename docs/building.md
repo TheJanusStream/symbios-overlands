@@ -288,6 +288,26 @@ Mind the multi-line literals: a `\`-continued string spans lines, so a
 line-oriented scan misses its tail — which is exactly how the `⚠` at
 `editor.rs:606` was nearly left out.
 
+**Refresh the hosted audio-editor glyph list on a `bevy_symbios_audio` bump.**
+The same law, for the Audio Editor pop-out the room editor hosts from
+`bevy_symbios_audio::ui` (#1318: its instrument-selector pencil shipped as an
+empty box, and four more of its symbols turned out to be tofu on inspection).
+`HOSTED_AUDIO_EDITOR_GLYPHS`, beside `HOSTED_EDITOR_GLYPHS`, is the floor that
+IS checked. After a bump, re-scan the dependency's `src/ui/*.rs` for non-ASCII
+characters in string literals — **counting `\u{…}` escapes**, which is how that
+editor writes most of its symbols and how the pencil hid from a raw-glyph grep
+(the crate's own scan now decodes them, so a bump cannot smuggle one in again):
+
+```bash
+grep -ohP '"(?:[^"\\]|\\.)*"' \
+    ~/.cargo/registry/src/*/bevy_symbios_audio-*/src/ui/*.rs \
+    | grep -oP '\\u\{[0-9A-Fa-f]+\}|[^\x00-\x7F]' | sort | uniq -c
+```
+
+Do not guess coverage from the glyph's looks: the bundled Noto Sans is a
+Latin/Greek/Cyrillic face and egui's tail is emoji plus a few icons, so `✔`
+draws and `✓` does not, `↔` draws and `←` does not. The test is the probe.
+
 The other three `#[ignore]`d tests are probes rather than canaries — they
 assert nothing and print measurements — so nothing is owed for them.
 

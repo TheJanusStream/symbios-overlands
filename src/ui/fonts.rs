@@ -971,6 +971,34 @@ pub(crate) mod glyph_coverage_tests {
         '⚠', // U+26A0, the generator-mismatch warning
     ];
 
+    /// Non-ASCII glyphs drawn by the Audio Editor pop-out the room editor
+    /// HOSTS from `bevy_symbios_audio::ui` (#1318).
+    ///
+    /// Same law and same shape as [`HOSTED_EDITOR_GLYPHS`], for the other
+    /// editor this crate draws but does not own. Its instrument-selector
+    /// pencil shipped as an empty box, and so did the graph view's check
+    /// mark, ballot cross and input arrow on inspection: Noto Sans is a
+    /// Latin/Greek/Cyrillic face and egui's embedded tail is emoji plus a
+    /// few icons, so a text-only symbol is tofu unless one of them happens
+    /// to carry it — and which ones they carry is not guessable (`✔` yes,
+    /// `✓` no; `↔` yes, `←` no). Probe, never assume. **Refresh this on a
+    /// `bevy_symbios_audio` bump** — the dependency-bump checklist says how.
+    const HOSTED_AUDIO_EDITOR_GLYPHS: &[char] = &[
+        '×',  // U+00D7, the pitch multiplier
+        '—',  // U+2014, the valid-graph readout
+        '“',  // U+201C, the instrument name in the patch header
+        '”',  // U+201D
+        '✏',  // U+270F, the instrument selector — the glyph this list was added for
+        '✔',  // U+2714, the valid-graph readout
+        '✖',  // U+2716, remove instrument / delete connection
+        '➕', // U+2795, add instrument / track / constant
+        '⟲',  // U+27F2, reset
+        '⬅',  // U+2B05, a node input's source
+        '🎲', // U+1F3B2, mutate / reroll
+        '📋', // U+1F4CB, copy JSON
+        '🗑',  // U+1F5D1, delete event
+    ];
+
     /// The charmaps of every face the proportional family falls back
     /// through, in the order the app installs them (Noto Sans first, egui's
     /// embedded tail after, no CJK).
@@ -1026,10 +1054,14 @@ pub(crate) mod glyph_coverage_tests {
     /// OUTSIDE a literal, a literal runs to its closing quote across
     /// newlines, and a char literal is recognised so that `'"'` cannot
     /// open a string that swallows the rest of the file. Escapes stay
-    /// opaque — only the raw glyphs matter — which means a continued
-    /// literal comes back carrying the source's own indentation. That is
-    /// fine for every needle these scans look for and would not be for a
-    /// whitespace check; nothing here does one.
+    /// opaque, with one exception: **`\u{…}` is decoded**, because an
+    /// escaped code point is a glyph on screen exactly like a raw one and
+    /// the glyph scan must see it (#1318 — the Edit-audio pencil that
+    /// shipped as tofu was written `\u{270E}`, six ASCII characters to the
+    /// lexer that existed then). A continued literal still comes back
+    /// carrying the source's own indentation. That is fine for every
+    /// needle these scans look for and would not be for a whitespace
+    /// check; nothing here does one.
     ///
     /// A mis-lexed literal still costs coverage, never a false failure.
     fn string_literals(source: &str) -> Vec<String> {
@@ -1059,9 +1091,29 @@ pub(crate) mod glyph_coverage_tests {
                     loop {
                         match chars.next() {
                             None | Some('"') => break,
-                            Some('\\') => {
-                                chars.next();
-                            }
+                            Some('\\') => match chars.next() {
+                                Some('u') if chars.peek() == Some(&'{') => {
+                                    chars.next();
+                                    let mut hex = String::new();
+                                    for h in chars.by_ref() {
+                                        if h == '}' {
+                                            break;
+                                        }
+                                        hex.push(h);
+                                    }
+                                    // A malformed escape costs the glyph,
+                                    // never a false failure.
+                                    if let Some(c) =
+                                        u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32)
+                                    {
+                                        literal.push(c);
+                                    }
+                                }
+                                // `\"`, `\\`, `\n` and the rest: consumed,
+                                // pushed as nothing, and a `\"` does not
+                                // end the literal.
+                                _ => {}
+                            },
                             Some(other) => literal.push(other),
                         }
                     }
@@ -1383,7 +1435,17 @@ pub(crate) mod glyph_coverage_tests {
             let source = std::fs::read_to_string(&path).expect("UI source is readable");
             for literal in string_literals(&source) {
                 for c in literal.chars() {
-                    if c.is_ascii() || needs_cjk(&c.to_string()) {
+                    // CJK loads its face on sight and the scripts in
+                    // `UNSUPPORTED_SCRIPTS` are gaps the app names to the
+                    // user (#1262 f360): neither is a finding here. Both
+                    // reach this scan only through `\u{…}` escapes — the
+                    // gap table's own sample words (#1318).
+                    let text = c.to_string();
+                    if c.is_ascii()
+                        || needs_cjk(&text)
+                        || unsupported_script(&text).is_some()
+                        || is_zero_width(c)
+                    {
                         continue;
                     }
                     if !atlas.draws(c) {
@@ -1405,6 +1467,64 @@ pub(crate) mod glyph_coverage_tests {
             missing.is_empty(),
             "UI label glyphs the bundled fonts cannot draw (tofu in-world):\n  {}",
             missing.join("\n  ")
+        );
+    }
+
+    /// Zero-width format characters — ZWSP, ZWJ, the bidi controls, BOM.
+    /// epaint lays them out as nothing, so they cannot be tofu, and the
+    /// scan only meets them at all now that `\u{…}` is decoded: the name
+    /// sanitiser's tests spell `\u{200B}` and `\u{200D}` out.
+    fn is_zero_width(c: char) -> bool {
+        matches!(
+            c,
+            '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{FEFF}'
+        )
+    }
+
+    /// #1318: an escaped code point is a glyph on screen, so the lexer
+    /// decodes `\u{…}`. Every other escape stays opaque and cannot end
+    /// the literal, and a malformed escape costs that glyph, never a
+    /// panic or a false failure.
+    #[test]
+    fn the_literal_lexer_decodes_unicode_escapes() {
+        let source = "ui.button(\"\\u{270F} Edit\\n\\\"q\\\"\");";
+        assert_eq!(string_literals(source), vec!["\u{270F} Editq".to_string()]);
+        let malformed = "x(\"\\u{ZZ} rest\", \"tail\");";
+        assert_eq!(
+            string_literals(malformed),
+            vec![" rest".to_string(), "tail".to_string()]
+        );
+        // The shipped failure: the escaped pencil is now the pencil, and the
+        // atlas says what it always would have said about it.
+        let shipped = "\"\\u{270E} Edit audio\\u{2026}\"";
+        let literal = &string_literals(shipped)[0];
+        assert!(literal.starts_with('\u{270E}') && literal.ends_with('\u{2026}'));
+        assert!(
+            !BaseAtlas::new().draws('\u{270E}'),
+            "the tofu the scan could not see"
+        );
+    }
+
+    /// Every glyph the HOSTED Audio Editor draws must be in the base font
+    /// set too (#1318). Same law as the avatar list below it.
+    #[test]
+    fn every_hosted_audio_editor_glyph_is_in_the_base_font_set() {
+        let atlas = BaseAtlas::new();
+        let missing: Vec<String> = HOSTED_AUDIO_EDITOR_GLYPHS
+            .iter()
+            .filter(|c| !atlas.draws(**c))
+            .map(|c| format!("{c} U+{:04X}", u32::from(*c)))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "glyphs the hosted audio editor draws that the bundled fonts cannot \
+             (tofu in the Audio Editor):\n  {}",
+            missing.join("\n  ")
+        );
+        assert!(HOSTED_AUDIO_EDITOR_GLYPHS.len() >= 10);
+        assert!(
+            HOSTED_AUDIO_EDITOR_GLYPHS.contains(&'\u{270F}'),
+            "the instrument selector's pencil is the glyph this list was added for"
         );
     }
 
