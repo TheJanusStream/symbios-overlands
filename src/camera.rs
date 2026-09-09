@@ -12,6 +12,7 @@ use bevy::audio::SpatialListener;
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::{post_process::bloom::Bloom, prelude::*};
+use bevy_egui::{EguiGlobalSettings, PrimaryEguiContext};
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin, PanOrbitCameraSystemSet};
 use transform_gizmo_bevy::GizmoCamera;
 
@@ -26,6 +27,10 @@ pub struct CameraPlugin;
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(PanOrbitCameraPlugin)
+            // #1317: this plugin, not bevy_egui, decides which camera egui
+            // draws through. `insert_resource` is order-independent against
+            // `EguiPlugin`, whose `init_resource` never overwrites a value.
+            .insert_resource(egui_global_settings())
             .add_systems(Startup, spawn_orbit_camera)
             .add_systems(
                 Update,
@@ -315,6 +320,14 @@ fn clamp_camera_to_terrain(
 /// rule is enforced by the `every_camera_query_says_which_camera` scan —
 /// which exists because the failure mode here is a silent fallback, not a
 /// panic, and a third camera would have cost another sitting to find.
+///
+/// The same accident has a second face (#1317). bevy_egui, left to its
+/// default, hangs its primary context on the FIRST camera it meets, and
+/// with two cameras spawning in `Startup` that is a coin toss the wasm
+/// build lost: egui drew through the inactive preview camera, and every
+/// login surface vanished without an error. So the egui context is named
+/// on this camera's spawn as well, and [`egui_global_settings`] turns the
+/// automatic pick off.
 #[derive(Component)]
 pub struct WorldCamera;
 
@@ -328,12 +341,39 @@ pub struct WorldCamera;
 /// `(IsWorldCamera, Without<SkyBox>)`.
 pub type IsWorldCamera = (With<Camera3d>, With<WorldCamera>);
 
+/// bevy_egui's global settings, with its automatic primary-context pick
+/// turned OFF (#1317).
+///
+/// The default hands `PrimaryEguiContext` to the first entity an
+/// `Added<Camera>` query yields on the first frame. This crate spawns two
+/// cameras in `Startup` with no ordering between them — the world camera
+/// below and #1288's item-preview camera — so which one egui draws through
+/// was decided by archetype order. Native usually got the world camera; the
+/// wasm build got the preview camera, which starts inactive, so bevy_egui
+/// dropped the view before its pass ever ran. Nothing panicked and nothing
+/// logged: the UI systems kept running, laid out for a 256 px screen, and
+/// drew into nowhere. Two sessions went into finding that.
+///
+/// The remedy bevy_egui documents is the one applied: no automatic pick,
+/// and [`PrimaryEguiContext`] spelled out on the camera that means it. The
+/// other half — a camera spawn is explicit about egui or gets none — is
+/// held by `the_world_camera_owns_the_egui_context_whichever_camera_spawns_first`.
+pub fn egui_global_settings() -> EguiGlobalSettings {
+    EguiGlobalSettings {
+        auto_create_primary_context: false,
+        ..default()
+    }
+}
+
 fn spawn_orbit_camera(mut commands: Commands) {
     let pos = cfg::INITIAL_POS;
     let fc = cfg::fog::COLOR;
     commands.spawn((
         Camera3d::default(),
         WorldCamera,
+        // #1317: the primary egui context lives HERE, by name. See
+        // `egui_global_settings` for why it must not be left to bevy_egui.
+        PrimaryEguiContext,
         // WebGL2's `glow` backend has no `tex_storage_2d_multisample`
         // entrypoint, so Bevy's default `Msaa::Sample4` panics during
         // render-target allocation as soon as the first frame renders
@@ -891,6 +931,89 @@ mod tests {
         assert!(
             !visible,
             "a pointer visibly stuck at the screen edge while the view turns is its own lie"
+        );
+    }
+
+    /// Which of the two `Startup` camera spawns applies first (#1317).
+    #[derive(Clone, Copy, Debug)]
+    enum SpawnOrder {
+        WorldFirst,
+        PreviewFirst,
+    }
+
+    /// The app's two cameras and bevy_egui's context picker, and nothing
+    /// else — the shape `run()` ships, minus everything that needs a
+    /// window. `MinimalPlugins` carries no render world, and no component
+    /// either spawn puts on its camera needs one to exist.
+    fn boot_with_two_cameras(order: SpawnOrder, settings: EguiGlobalSettings) -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(settings)
+            .init_resource::<Assets<Image>>()
+            .init_resource::<bevy_egui::EguiUserTextures>();
+        match order {
+            SpawnOrder::WorldFirst => {
+                app.add_systems(
+                    Startup,
+                    (spawn_orbit_camera, crate::item_preview::setup_preview).chain(),
+                );
+            }
+            SpawnOrder::PreviewFirst => {
+                app.add_systems(
+                    Startup,
+                    (crate::item_preview::setup_preview, spawn_orbit_camera).chain(),
+                );
+            }
+        }
+        // Registered exactly as `EguiPlugin` registers it, gate included.
+        app.add_systems(
+            PreUpdate,
+            bevy_egui::setup_primary_egui_context_system
+                .run_if(|s: Res<EguiGlobalSettings>| s.auto_create_primary_context),
+        );
+        app.update();
+        app
+    }
+
+    /// `(is the world camera, is the preview camera)` for every entity
+    /// that carries `PrimaryEguiContext` after the first frame.
+    fn primary_context_holders(app: &mut App) -> Vec<(bool, bool)> {
+        let mut holders = app.world_mut().query_filtered::<(
+            Has<WorldCamera>,
+            Has<crate::item_preview::PreviewCamera>,
+        ), With<PrimaryEguiContext>>();
+        holders.iter(app.world()).collect()
+    }
+
+    /// #1317. Exactly one primary egui context, on the world camera, no
+    /// matter whose spawn lands first.
+    #[test]
+    fn the_world_camera_owns_the_egui_context_whichever_camera_spawns_first() {
+        for order in [SpawnOrder::WorldFirst, SpawnOrder::PreviewFirst] {
+            let mut app = boot_with_two_cameras(order, egui_global_settings());
+            assert_eq!(
+                primary_context_holders(&mut app),
+                vec![(true, false)],
+                "{order:?}: the primary egui context must sit on the world \
+                 camera and nowhere else"
+            );
+        }
+    }
+
+    /// #1317, the control: with bevy_egui's default left on, the preview
+    /// camera spawning first is enough to hand it a primary context. That
+    /// is the shipped wasm failure — egui drawing through an inactive
+    /// off-screen camera — so this is the proof that the test above can
+    /// see the thing it guards against.
+    #[test]
+    fn auto_create_primary_context_is_a_spawn_order_race() {
+        let mut app =
+            boot_with_two_cameras(SpawnOrder::PreviewFirst, EguiGlobalSettings::default());
+        let holders = primary_context_holders(&mut app);
+        assert!(
+            holders.iter().any(|&(_, preview)| preview),
+            "with the automatic pick on, the preview camera should have won \
+             a context of its own; holders: {holders:?}"
         );
     }
 }

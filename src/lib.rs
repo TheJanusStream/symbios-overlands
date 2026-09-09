@@ -215,6 +215,9 @@ pub fn run() {
                     ..default()
                 }),
         )
+        // The plugin's automatic primary-context pick is turned off by
+        // `camera::CameraPlugin`, which names the world camera instead
+        // (#1317); plugin order does not matter for that.
         .add_plugins(EguiPlugin::default());
     // Native-only: WebGL2 lacks the POLYGON_MODE_LINE wgpu feature the
     // wireframe plugin depends on, and Overlands' WASM build can land on

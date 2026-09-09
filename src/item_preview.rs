@@ -23,6 +23,16 @@
 //! world camera blind to the stage and the preview camera blind to the
 //! world: it is the isolation, and the distance is not.
 //!
+//! ## Two cameras, one egui context
+//!
+//! bevy_egui, by default, attaches its primary context to whichever
+//! camera it meets first, and with this camera and the world camera both
+//! spawning in `Startup` that was a race the wasm build lost (#1317):
+//! egui drew through this inactive camera and the login screen went
+//! blank. [`crate::camera`] now names the world camera as egui's and turns
+//! the automatic pick off, so this camera must never carry
+//! `PrimaryEguiContext`.
+//!
 //! **`RenderLayers` does not propagate down the hierarchy in Bevy 0.19** —
 //! only `Visibility` does — and the spawn path builds a whole tree, whose
 //! particle emitters go on adding children later. So the stage root
@@ -179,7 +189,7 @@ impl ItemPreview {
 /// identifies its own camera positively for the same reason everything
 /// else now identifies the player's.
 #[derive(Component)]
-struct PreviewCamera;
+pub struct PreviewCamera;
 
 pub struct ItemPreviewPlugin;
 
@@ -218,7 +228,10 @@ impl Plugin for ItemPreviewPlugin {
 /// Create the render target, hand it to egui, and spawn the camera and key
 /// light that will look at whatever the stage holds. Runs once; the camera
 /// starts inactive because nothing is selected yet.
-fn setup_preview(
+///
+/// `pub(crate)` for `crate::camera`'s #1317 test, which boots both camera
+/// spawns in either order and checks who ends up with the egui context.
+pub(crate) fn setup_preview(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut egui_textures: ResMut<EguiUserTextures>,
@@ -235,6 +248,12 @@ fn setup_preview(
         .spawn((
             Camera3d::default(),
             PreviewCamera,
+            // Deliberately NO egui context. bevy_egui's automatic pick is
+            // off (#1317, `crate::camera::egui_global_settings`), so a
+            // camera gets one only by naming `PrimaryEguiContext`, and this
+            // one never should: egui drawing through an inactive 256 px
+            // off-screen camera is exactly what took the login screen off
+            // the wasm build.
             Camera {
                 // Ahead of the main camera, so the texture egui samples
                 // this frame was drawn this frame.
