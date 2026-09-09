@@ -497,7 +497,11 @@ generation cores shared with the wasm Web Worker.
   contact-sheet renders through the real spawn path (`--avatar` — vehicle seeds
   only, since a rigged body has no tree to walk — `--catalogue` / `--prim` /
   `--room` / `--generator`, with `--ages` for a plant age-progression grid and
-  `--wear` for a wearable dressed on seeded rigged bodies, one per row),
+  `--wear` for a wearable dressed on seeded rigged bodies, one per row;
+  `--terrain` is the one whose subject is the *ground*, building the room's
+  real heightmap and four-layer splat and shooting grazing views across
+  `--view` metres of it — `--room` puts settlement structures on a flat plane
+  and skips terrain entirely),
   plus the no-render text modes — offline diagnostics (`--analyze-session`,
   `--diff-sessions`, `--road-dump`), the survey/dump tools (`--family-seeds`,
   `--outfit`, `--find-part`, `--dump`) and the content

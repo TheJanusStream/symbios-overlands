@@ -374,14 +374,35 @@ cargo run --bin render -- --catalogue medieval_castle
 cargo run --bin render -- --avatar did:plc:example
 cargo run --bin render -- --prim cuboid
 cargo run --bin render -- --room 3            # whole seeded room, by seed or DID
+cargo run --bin render -- --terrain 3        # the room's GROUND: heightmap + splat
 cargo run --bin render -- --wear satchel      # a wearable, actually worn
 cargo run --bin render -- --generator /tmp/x.json  # a dumped + edited Generator
 ```
 
 When more than one subject is given the highest-precedence one wins:
-`--generator` > `--room` > `--prim` > `--wear` > `--catalogue` > `--avatar`,
+`--generator` > `--terrain` > `--room` > `--prim` > `--wear` > `--catalogue` >
+`--avatar`,
 with the no-render modes below running ahead of all of them. That order is
 asserted by `render_tool`'s own tests, so it is checkable rather than a claim.
+
+`--terrain <seed|did>` is the *ground* instrument (#994), and the only render
+mode whose subject is not an object: it builds the room's real heightmap,
+bakes the four splat layers and shoots four grazing landscape views across
+`--view` metres (default 300). `--room` deliberately puts settlement
+structures on a flat plane and skips terrain, so until this existed no splat
+could be seen outside the running game:
+
+```bash
+cargo run --profile test-release --bin render -- --terrain 7 --view 300 --elev 32
+```
+
+It waits for the splat pass to resolve rather than for a frame count — the
+material wears a flat placeholder colour until then, and a render that caught
+that frame would look finished and show no ground texture at all — and it
+frames a *fixed* camera rather than auto-framing the subject's bounds, so two
+renders of the same seed are comparable. How much repetition a view shows is a
+function of distance: one tile covers `world_extent / tile_scale` metres, which
+at the shipped defaults is 11.4 m, so a 300 m view shows about 26 repeats.
 
 `--wear <slug>` is the attachments instrument, and the surface the
 catalogue-item wear loop is judged from. It dresses seeded rigged bodies in a

@@ -30,6 +30,15 @@ pub(super) enum Subject {
     Single(Box<Generator>),
     Lineup(Vec<Generator>),
     Room(Box<RoomRecord>),
+    /// `--terrain` (#994): the room's real heightmap under its four-layer
+    /// splat, shot as grazing landscape views across `view_m` metres.
+    ///
+    /// The record is handed to the terrain systems as a `LiveRoomRecord`
+    /// rather than spawned here, so what appears is what the game builds.
+    Terrain {
+        record: Box<RoomRecord>,
+        view_m: f32,
+    },
     /// `--wear` (#1088): rigged bodies wearing one attachment. One grid row
     /// per body seed × pose in [`WEAR_POSES`], the item engine-seated at
     /// `socket` exactly as a worn identity-offset record is in-game.
@@ -108,6 +117,13 @@ type SubjectQuery<'w, 's> =
 /// tool).
 const FRAME_GRACE: u32 = 300;
 
+/// Frames `--terrain` waits for the splat pass before giving up. Generous
+/// because the work behind it is a heightmap job plus four texture bakes on
+/// the compute pool, and it is a hard failure rather than a fallback: a
+/// terrain render that quietly captured the placeholder colour would be a
+/// picture of nothing, and it would look like a finished render.
+const TERRAIN_GRACE: u32 = 4000;
+
 #[derive(Resource)]
 pub(super) struct RenderJob {
     pub(super) subject: Subject,
@@ -151,6 +167,11 @@ pub(super) fn setup(
     // own atmosphere for a room.
     let ambient = match &job.subject {
         Subject::Room(record) => {
+            let env = &record.environment;
+            commands.insert_resource(ClearColor(srgb3(env.sky_color.0)));
+            env.ambient_brightness.0.max(80.0)
+        }
+        Subject::Terrain { record, .. } => {
             let env = &record.environment;
             commands.insert_resource(ClearColor(srgb3(env.sky_color.0)));
             env.ambient_brightness.0.max(80.0)
@@ -266,6 +287,12 @@ pub(super) fn setup(
                     &mut bindposes,
                 );
             }
+        }
+        Subject::Terrain { record, .. } => {
+            // No `spawn_ground`: the terrain systems build the real one. The
+            // sun matters more here than in any other mode — a grazing light
+            // is what makes a repeating normal map legible as a repeat.
+            spawn_env_sun(&mut commands, &record.environment);
         }
         Subject::Room(record) => {
             spawn_env_sun(&mut commands, &record.environment);
@@ -447,11 +474,42 @@ pub(super) fn drive(
     subject: SubjectQuery,
     emitters: Query<&GlobalTransform, With<ParticleEmitterMarker>>,
     mut cams: Query<(&mut Transform, &TileCam)>,
+    terrain_ready: Option<Res<crate::terrain::SplatApplied>>,
 ) {
     // Auto-frame the cameras on the subject's world AABB once it resolves
     // (Bevy computes mesh `Aabb`s a frame after spawn). A lineup frames each
     // slot's row on that slot's own centre but with one shared camera
     // distance, so relative subject size across rows stays honest.
+    // `--terrain` frames itself rather than auto-framing (#994). Two reasons,
+    // and both are about the render being an instrument: the subject's AABB is
+    // the whole kilometre-wide heightmap, so auto-framing would answer a
+    // question nobody asked, and a fixed camera is what makes two renders
+    // — before a change and after it — comparable at all.
+    if let Subject::Terrain { view_m, .. } = &job.subject {
+        if capture.framed {
+            // fall through to the capture below
+        } else if terrain_ready.is_some() {
+            for (mut transform, cam) in &mut cams {
+                let a = ANGLES[cam.0].to_radians();
+                // Grazing on purpose. A repeat reads worst along the ground,
+                // where one tile's features line up with the next; a top-down
+                // view flatters it.
+                let pos = cam_offset(a, *view_m, *view_m, Some(job.elev.unwrap_or(9.0)));
+                *transform = Transform::from_translation(pos).looking_at(Vec3::ZERO, Vec3::Y);
+            }
+            capture.framed = true;
+            return;
+        } else {
+            capture.waited += 1;
+            assert!(
+                capture.waited < TERRAIN_GRACE,
+                "terrain never finished: the splat pass has not applied after {TERRAIN_GRACE} \
+                 frames — a heightmap or texture-bake job did not land"
+            );
+            return;
+        }
+    }
+
     if !capture.framed {
         capture.waited += 1;
         let rows = targets.0.len() / ANGLES.len();

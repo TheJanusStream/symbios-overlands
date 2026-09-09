@@ -278,6 +278,68 @@ pub(crate) fn rebuild_heightmap_for_record(record: &crate::pds::RoomRecord) -> H
 
 pub struct TerrainPlugin;
 
+/// Register the terrain pipeline for a headless embedder — the render tool's
+/// `--terrain` mode (#994).
+///
+/// [`TerrainPlugin`]'s systems are gated on *resources*, not on `AppState`,
+/// which is what makes this possible at all: insert a [`LiveRoomRecord`] and
+/// the same six systems that build a room's ground in game build it here. The
+/// omissions are deliberate and each is a thing a still frame cannot show —
+/// roads, lot population, terrain regeneration, water-level moisture sync,
+/// referenced-layer network fetches and the cleanup schedules.
+///
+/// **Keep this in step with [`TerrainPlugin`].** It is the same failure mode
+/// `register_headless_spawn` carries: a system added there and not here makes
+/// the render tool quietly disagree with the game, and the tool is the
+/// instrument every terrain judgement is made with.
+pub(crate) fn register_headless_terrain(app: &mut App) {
+    app.add_plugins(MaterialPlugin::<SplatTerrainMaterial>::default())
+        .init_resource::<TerrainSplatState>()
+        .init_resource::<referenced::ReferencedLayerStatus>()
+        .add_systems(
+            Update,
+            (
+                heightmap::start_terrain_generation.run_if(
+                    resource_exists::<LiveRoomRecord>
+                        .and_then(not(resource_exists::<TerrainTask>))
+                        .and_then(not(resource_exists::<FinishedHeightMap>))
+                        .and_then(not(resource_exists::<TerrainGenFailed>)),
+                ),
+                splat::start_texture_tasks.run_if(
+                    resource_exists::<LiveRoomRecord>
+                        .and_then(not(resource_exists::<TextureTasksStarted>)),
+                ),
+                heightmap::poll_terrain_task.run_if(resource_exists::<TerrainTask>),
+                heightmap::spawn_terrain_mesh.run_if(
+                    resource_exists::<FinishedHeightMap>
+                        .and_then(not(resource_exists::<SplatMaterialHandle>)),
+                ),
+                splat::collect_texture_results,
+                splat::apply_splat_textures,
+                mark_splat_applied,
+            )
+                .chain(),
+        );
+}
+
+/// Present once the splat pass has resolved: the ground is showing its four
+/// baked layers rather than the flat placeholder colour, so a frame is worth
+/// capturing.
+///
+/// A marker rather than a public accessor on [`TerrainSplatState`], which
+/// stays private — an embedder needs the *fact*, not the four handles behind
+/// it. Inserted only by [`register_headless_terrain`]; the game has no use
+/// for it, because in game the ground appearing is the signal.
+#[derive(Resource)]
+pub(crate) struct SplatApplied;
+
+/// Publish [`SplatApplied`] on the first frame the splat pass reports done.
+fn mark_splat_applied(mut commands: Commands, state: Res<TerrainSplatState>) {
+    if state.applied {
+        commands.insert_resource(SplatApplied);
+    }
+}
+
 impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(SymbiosTexturePlugin::default())

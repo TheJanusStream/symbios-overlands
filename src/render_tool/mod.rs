@@ -159,8 +159,8 @@ struct Args {
     /// iterate on an L-system grammar (or any generator) without recompiling
     /// the crate: `--dump` a catalogue entry to seed the JSON, edit the
     /// grammar / scalars, re-render. Highest precedence among the render
-    /// subjects (`--generator` > `--room` > `--prim` > `--wear` >
-    /// `--catalogue` > `--avatar`); the no-render modes still run first.
+    /// subjects (`--generator` > `--terrain` > `--room` > `--prim` > `--wear`
+    /// > `--catalogue` > `--avatar`); the no-render modes still run first.
     #[arg(long)]
     generator: Option<String>,
     /// With `--catalogue <slug>`, `--prim <tag>` (overrides applied), or
@@ -186,6 +186,26 @@ struct Args {
     /// Primitive subject: a kind tag (`cuboid`, `sphere`, `tube`, `bevel`, …).
     #[arg(long)]
     prim: Option<String>,
+    /// Terrain subject (#994): a u64 seed or DID — builds the room's real
+    /// heightmap and its four-layer splat, then shoots four grazing landscape
+    /// views across `--view` metres of it.
+    ///
+    /// The one render mode whose subject is the *ground*. `--room` spawns
+    /// settlement structures on a flat plane and skips terrain entirely, so
+    /// until this existed nothing could see a splat outside the running game
+    /// — which is why the tile-repetition defect went four rounds unjudged.
+    /// It runs the game's own terrain systems (see
+    /// `terrain::register_headless_terrain`), waits for the splat pass to
+    /// resolve rather than a frame count, and frames a fixed camera so two
+    /// renders are comparable.
+    #[arg(long)]
+    terrain: Option<String>,
+    /// How many metres of ground a `--terrain` view spans (default 300).
+    /// The repetition this mode exists to judge is a function of distance:
+    /// one tile covers `world_extent / tile_scale` metres, so a 300 m view
+    /// shows about 26 repeats at the shipped defaults.
+    #[arg(long, default_value_t = 300.0)]
+    view: f32,
     /// Room subject: a u64 seed or DID — renders the seeded settlement cluster.
     #[arg(long)]
     room: Option<String>,
@@ -442,6 +462,19 @@ pub fn run() {
     .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::ZERO));
     // Resources + texture/material plugins the real spawn path reads.
     crate::world_builder::register_headless_spawn(&mut app);
+    // `--terrain` (#994) drives the game's own terrain pipeline; everything it
+    // needs beyond the spawn path lives here so the other modes pay nothing.
+    if let Subject::Terrain { record, .. } = &subject {
+        crate::terrain::register_headless_terrain(&mut app);
+        app.init_resource::<crate::state::LocalSettings>()
+            .init_resource::<crate::diagnostics::MetricsRegistry>()
+            .insert_resource(crate::state::LiveRoomRecord((**record).clone()));
+        // The capture signal is `terrain::SplatApplied`. Waiting a fixed
+        // number of frames instead would race an async heightmap and four
+        // texture bakes, and the frame it would catch is the flat placeholder
+        // colour the material wears until the splat pass resolves — a render
+        // that looks like a finished one and shows no ground texture at all.
+    }
     // Rigged bodies for `--wear` (#1088): the engine's spawn/pose plugin
     // (stateless, no game dependencies) and the one-shot dressing system
     // that parents the worn prop once the joints exist.
@@ -491,8 +524,8 @@ fn fixed_step(mut time: ResMut<Time>) {
 
 /// Build the subject + a filename label from the CLI args.
 ///
-/// Precedence: `--generator` → `--room` → `--prim` → `--wear` → `--catalogue`
-/// → `--avatar` → seed 7. Pinned by
+/// Precedence: `--generator` → `--terrain` → `--room` → `--prim` → `--wear`
+/// → `--catalogue` → `--avatar` → seed 7. Pinned by
 /// `tests::the_subject_precedence_is_the_one_the_docs_claim`, because this
 /// order is stated in four places and three of them had drifted (#1162).
 fn resolve_subject(args: &Args) -> (Subject, String) {
@@ -507,6 +540,24 @@ fn resolve_subject(args: &Args) -> (Subject, String) {
             .unwrap_or("generator")
             .to_string();
         return (Subject::Single(Box::new(generator)), format!("gen-{label}"));
+    }
+    if let Some(terrain) = &args.terrain {
+        let record = match terrain.parse::<u64>() {
+            Ok(seed) => RoomRecord::default_for_seed(seed, &format!("did:render:{seed}")),
+            Err(_) => RoomRecord::default_for_did(terrain),
+        };
+        let label = format!(
+            "terrain-{}-{:.0}m",
+            terrain.replace([':', '/'], "_"),
+            args.view
+        );
+        return (
+            Subject::Terrain {
+                record: Box::new(record),
+                view_m: args.view.max(10.0),
+            },
+            label,
+        );
     }
     if let Some(room) = &args.room {
         let record = match room.parse::<u64>() {
@@ -615,8 +666,9 @@ fn age_sweep(subject: Subject, label: &str, ages: &str) -> (Subject, String) {
     let Subject::Single(base) = subject else {
         panic!(
             "--ages needs a single-generator subject \
-             (--generator/--prim/--catalogue/--avatar); --room and --wear \
-             resolve to multi-subject sheets and have no single tree to age"
+             (--generator/--prim/--catalogue/--avatar); --room, --terrain and \
+             --wear resolve to multi-subject sheets and have no single tree \
+             to age"
         );
     };
     let ages: Vec<u32> = ages
@@ -761,6 +813,20 @@ mod tests {
         assert!(
             label_for(&["--room", "3", "--prim", "cuboid", "--wear", wear]).starts_with("room-"),
             "--room outranks both"
+        );
+        // `--terrain` above `--room` (#994): the two take the same argument
+        // and build the same record, and the one that renders the ground has
+        // to be reachable when both are given.
+        assert!(
+            label_for(&["--terrain", "3", "--room", "3", "--prim", "cuboid"])
+                .starts_with("terrain-"),
+            "--terrain outranks --room"
+        );
+        assert_eq!(
+            label_for(&["--terrain", "3", "--view", "250"]),
+            "terrain-3-250m",
+            "a terrain label carries its view distance, so two views do not \
+             overwrite one file"
         );
     }
 }
