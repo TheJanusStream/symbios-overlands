@@ -201,15 +201,12 @@ pub(super) fn draw_tab(
                 .and_then(|rig| rig.resolved.as_mut())
                 .and_then(|resolved| resolved.attachments.iter_mut().find(|a| a.rkey == rkey));
             let Some(worn) = worn_item else {
-                *editing_parts = None;
-                aim.aim(GizmoTarget::None);
+                aim.close_parts_editor(editing_parts);
                 return;
             };
             ui.horizontal(|ui| {
                 if ui.button("⬅ Worn items").clicked() {
-                    *editing_parts = None;
-                    aim.aim(GizmoTarget::None);
-                    aim.parts_tree.view.set_selected(Vec::new());
+                    aim.close_parts_editor(editing_parts);
                 }
                 let what = worn
                     .record

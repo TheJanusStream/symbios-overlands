@@ -308,6 +308,24 @@ impl AimCtx<'_> {
         }
         *self.gizmo = target;
     }
+
+    /// Back from the parts editor to the worn list (#1098). The panel's
+    /// own aim — a part of the item it showed — goes with it, and
+    /// [`Self::aim`] drops the part row's highlight on the way out. A
+    /// differently-aimed gizmo is left alone, since closing this panel
+    /// says nothing about one (#1298, settled on the issue): an aim goes
+    /// when what it aims at goes (#1103), and a visuals node does not
+    /// vanish when a parts panel closes.
+    ///
+    /// `editing_parts` travels as an argument rather than in the bundle:
+    /// it is the panel's open/closed switch, and the bundle is shared by
+    /// tab arms that never open it.
+    pub(super) fn close_parts_editor(&mut self, editing_parts: &mut Option<String>) {
+        *editing_parts = None;
+        if self.gizmo.worn_part().is_some() {
+            self.aim(GizmoTarget::None);
+        }
+    }
 }
 
 impl AvatarEditorState {
@@ -359,8 +377,12 @@ impl AvatarEditorState {
     /// take-off has already shortened, so there is no session queue to keep
     /// in step — and nothing left to go stale across an undo or a logout.
     pub(crate) fn forget_attachments(&mut self, rkeys: impl IntoIterator<Item = String>) {
-        let Some(aimed) = self.gizmo.worn_prop().map(str::to_owned) else {
-            return;
+        // Either worn variant names the item that carries it (#1299): a
+        // part aim outliving its item is the #1103 shape — a stale aim the
+        // sync pass merely fails to attach — so both arms answer here.
+        let aimed = match &self.gizmo {
+            GizmoTarget::WornProp { rkey } | GizmoTarget::WornPart { rkey, .. } => rkey.clone(),
+            GizmoTarget::None | GizmoTarget::VisualsNode { .. } => return,
         };
         if rkeys.into_iter().any(|rkey| rkey == aimed) {
             self.aim(GizmoTarget::None);
@@ -438,12 +460,17 @@ impl AvatarEditorState {
 
     /// Back from the parts editor to the worn list. Drops the part
     /// selection with it — but leaves a differently-aimed gizmo alone,
-    /// since closing this panel says nothing about one.
+    /// since closing this panel says nothing about one. One body, two
+    /// entry points, like [`Self::aim`]: [`AimCtx::close_parts_editor`]
+    /// is the body, and the tab's own buttons call it there under the
+    /// split borrow (#1298).
     pub fn close_parts_editor(&mut self) {
-        self.editing_parts = None;
-        if self.gizmo.worn_part().is_some() {
-            self.aim(GizmoTarget::None);
+        AimCtx {
+            gizmo: &mut self.gizmo,
+            visuals_tree: &mut self.visuals_tree,
+            parts_tree: &mut self.parts_tree,
         }
+        .close_parts_editor(&mut self.editing_parts);
     }
 
     /// Select a part of a worn item (#1098) — from the parts tree or a
@@ -2000,6 +2027,131 @@ mod tests {
         );
         state.release_on_scene_miss(false);
         assert!(!state.has_visuals_selection());
+    }
+
+    /// #1299: taking off a worn item releases a gizmo aimed at it whether
+    /// the aim is the WHOLE prop or a PART of it. `forget_attachments`
+    /// tested `worn_prop()` alone, so a part aim outlived its item — the
+    /// #1103 shape exactly, invisible only because `sync_gizmo_selection`
+    /// then found no entity for the stale `(rkey, path)` and attached
+    /// nothing: a second bug covering for the first. An aim on a
+    /// different item is not the departing item's and survives, and a
+    /// visuals node is nobody's worn item.
+    #[test]
+    fn taking_off_a_worn_item_releases_a_part_gizmo_aimed_at_it() {
+        let rkey = String::from("3jzfcijpj2z2a");
+        let other = String::from("3jzfcijpj2z2b");
+        type Aim = fn(&mut AvatarEditorState, String);
+        let aims: [(&str, Aim); 2] = [
+            ("whole prop", |s, k| s.select_attachment_from_scene_pick(k)),
+            ("part", |s, k| {
+                s.select_attachment_part_from_scene_pick(k, vec![0]);
+            }),
+        ];
+        for (what, aim) in aims {
+            let mut state = AvatarEditorState::default();
+            aim(&mut state, rkey.clone());
+            state.forget_attachments([other.clone()]);
+            assert!(
+                state.gizmo().is_aimed(),
+                "{what}: taking off a different item leaves the aim alone"
+            );
+            state.forget_attachments([other.clone(), rkey.clone()]);
+            assert_eq!(
+                *state.gizmo(),
+                GizmoTarget::None,
+                "{what}: taking off the aimed item releases it"
+            );
+            assert!(!state.holds_avatar_still(), "{what}: the freeze released");
+        }
+
+        let mut state = AvatarEditorState::default();
+        state.select_from_scene_pick(vec![0]);
+        state.forget_attachments([rkey]);
+        assert!(
+            state.has_visuals_selection(),
+            "a visuals aim is nobody's worn item"
+        );
+    }
+
+    /// #1298: closing the parts panel releases the PART aim it showed and
+    /// nothing else. The parts row is unlit with it — `AimCtx::aim` drops
+    /// the outgoing row on the way out, so the button needs no clear of
+    /// its own. A visuals-node aim is not this panel's to release: #1103's
+    /// rule is that an aim goes when what it aims at goes, and a visuals
+    /// node does not vanish when a parts panel closes. Exercised on
+    /// [`AimCtx`], the one body both live sites and the method share.
+    #[test]
+    fn closing_the_parts_panel_releases_only_the_part_aim() {
+        let rkey = String::from("3jzfcijpj2z2a");
+
+        let mut state = AvatarEditorState::default();
+        state.select_attachment_part_from_scene_pick(rkey.clone(), vec![0]);
+        assert!(
+            !state.parts_tree.view.selected().is_empty(),
+            "the part row lit"
+        );
+        AimCtx {
+            gizmo: &mut state.gizmo,
+            visuals_tree: &mut state.visuals_tree,
+            parts_tree: &mut state.parts_tree,
+        }
+        .close_parts_editor(&mut state.editing_parts);
+        assert_eq!(state.editing_parts(), None, "the panel closed");
+        assert_eq!(*state.gizmo(), GizmoTarget::None, "the part aim let go");
+        assert!(
+            state.parts_tree.view.selected().is_empty(),
+            "the part row unlit without an explicit clear"
+        );
+
+        let mut state = AvatarEditorState::default();
+        state.select_attachment_part_from_scene_pick(rkey.clone(), vec![0]);
+        state.select_from_scene_pick(vec![1]);
+        assert_eq!(state.editing_parts(), Some(rkey.as_str()));
+        state.close_parts_editor();
+        assert_eq!(state.editing_parts(), None, "the panel closed");
+        assert_eq!(
+            *state.gizmo(),
+            GizmoTarget::VisualsNode { path: vec![1] },
+            "a visuals aim is not the parts panel's to release"
+        );
+        assert!(
+            !state.visuals_tree.view.selected().is_empty(),
+            "the visuals row stays lit"
+        );
+    }
+
+    /// #1298: the parts panel closes through ONE body. Its two live sites
+    /// draw under `avatar_ui`'s split borrow and used to open-code the
+    /// close — and the two copies drifted from the method nobody could
+    /// call, clearing any aim where the method spared a visuals node. A
+    /// source read, like `avatar_edits_report_themselves`: the fact being
+    /// pinned is that no site writes `editing_parts` by hand.
+    #[test]
+    fn the_parts_panel_closes_through_one_body() {
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui/avatar/attachments.rs"),
+        )
+        .expect("attachments.rs is readable");
+        let code = |line: &str| line.split("//").next().unwrap_or("").to_owned();
+        let hand_writes: Vec<usize> = source
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| code(line).contains("editing_parts = None"))
+            .map(|(n, _)| n + 1)
+            .collect();
+        assert!(
+            hand_writes.is_empty(),
+            "attachments.rs writes editing_parts by hand at lines {hand_writes:?}"
+        );
+        let calls = source
+            .lines()
+            .filter(|line| code(line).contains(".close_parts_editor("))
+            .count();
+        assert_eq!(
+            calls, 2,
+            "the missing-item bail-out and the Worn items button both close through it"
+        );
     }
 
     /// Leaving the Attachments tab drops the part selection with the

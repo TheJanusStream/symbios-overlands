@@ -292,6 +292,11 @@ pub struct TerrainPlugin;
 /// `register_headless_spawn` carries: a system added there and not here makes
 /// the render tool quietly disagree with the game, and the tool is the
 /// instrument every terrain judgement is made with.
+///
+/// Native-only, under the same cfg as [`crate::render_tool`] (#1321): the
+/// web deploy never builds the tool, so on wasm32 these three items have no
+/// caller, and CI's wasm check compiles with warnings denied.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn register_headless_terrain(app: &mut App) {
     app.add_plugins(MaterialPlugin::<SplatTerrainMaterial>::default())
         .init_resource::<TerrainSplatState>()
@@ -330,10 +335,12 @@ pub(crate) fn register_headless_terrain(app: &mut App) {
 /// stays private — an embedder needs the *fact*, not the four handles behind
 /// it. Inserted only by [`register_headless_terrain`]; the game has no use
 /// for it, because in game the ground appearing is the signal.
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Resource)]
 pub(crate) struct SplatApplied;
 
 /// Publish [`SplatApplied`] on the first frame the splat pass reports done.
+#[cfg(not(target_arch = "wasm32"))]
 fn mark_splat_applied(mut commands: Commands, state: Res<TerrainSplatState>) {
     if state.applied {
         commands.insert_resource(SplatApplied);
