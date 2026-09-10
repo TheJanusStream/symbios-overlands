@@ -82,7 +82,7 @@ pub(super) fn apply_pending(
     action: PendingAction,
     source: &mut dyn GeneratorTreeSource,
     panel: &mut super::TreePanelState,
-    inventory: Option<&mut LiveInventoryRecord>,
+    inventory: Option<bevy::prelude::Mut<'_, LiveInventoryRecord>>,
     dirty: &mut bool,
     toasts: &mut crate::notify::Toasts,
     now: f64,
@@ -258,7 +258,7 @@ pub(super) fn apply_pending(
             panel.renaming = Some((root_name.clone(), root_name));
         }
         PendingAction::SaveToInventory(id) => {
-            if let Some(inv) = inventory
+            if let Some(mut inv) = inventory
                 && let Some(node) = find_node(&*source, &id)
             {
                 // Cap enforcement (#841): the context-menu item is
@@ -1879,6 +1879,103 @@ mod tests {
             panel.selection.root.as_deref(),
             Some("house"),
             "…under a fresh name, and the selection follows it"
+        );
+    }
+
+    /// #1322. The tree is drawn EVERY frame its tab is showing, and it lends
+    /// the stash to the "+ From Inventory" menus and the "Save to Inventory"
+    /// action. It was lent as a `&mut` taken through `ResMut::deref_mut`,
+    /// which stamps the change tick on access, so an idle World Editor (or
+    /// an open Avatar editor) marked `LiveInventoryRecord` changed on every
+    /// frame. The Inventory panel keys its whole-stash serialization on that
+    /// tick (#1292), so it re-serialized the stash every frame of the #833
+    /// trio layout, and #1301's picture could not restage on it.
+    ///
+    /// Driven through the real `draw_tree_panel` over a stocked stash, then
+    /// the control: a Save to Inventory through the same `Mut` must move
+    /// the tick, or the first half proves nothing.
+    #[test]
+    fn an_idle_tree_draw_leaves_the_stash_tick_alone_and_a_save_moves_it() {
+        use crate::state::LiveInventoryRecord;
+        use bevy::prelude::{DetectChanges, World};
+        use bevy_egui::egui;
+
+        let mut world = World::new();
+        let mut stash = crate::pds::InventoryRecord::default();
+        stash.put_item("lantern".into(), cuboid_root(), None);
+        world.insert_resource(LiveInventoryRecord(stash));
+        // Later work runs at a later tick than the insert; without this a
+        // write would land on the insert's own tick and look like nothing.
+        world.increment_change_tick();
+        let tick = |world: &World| world.resource_ref::<LiveInventoryRecord>().last_changed();
+        let inserted = tick(&world);
+
+        let mut record = empty_record();
+        record.generators.insert("oak".into(), cuboid_root());
+        let mut panel = TreePanelState::default();
+        let mut dirty = false;
+        let mut toasts = crate::notify::Toasts::default();
+        let mut labels = crate::ui::undo::PendingUndoLabels::default();
+        let mut filter = String::new();
+        let mut clipboard: Option<Generator> = None;
+        let ctx = egui::Context::default();
+        for _ in 0..3 {
+            let mut inv = world.resource_mut::<LiveInventoryRecord>();
+            let _ = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(400.0, 600.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    super::super::tree::draw_tree_panel(
+                        ui,
+                        &mut RoomTreeSource::new(&mut record),
+                        &mut panel,
+                        Some(inv.reborrow()),
+                        &mut dirty,
+                        &mut toasts,
+                        0.0,
+                        &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
+                        "did:plc:owner",
+                        &mut filter,
+                        &mut clipboard,
+                    );
+                },
+            );
+            world.increment_change_tick();
+        }
+        assert_eq!(
+            tick(&world),
+            inserted,
+            "three idle draws of the tree marked the stash changed"
+        );
+
+        {
+            let mut inv = world.resource_mut::<LiveInventoryRecord>();
+            apply_pending(
+                PendingAction::SaveToInventory(GenNodeId::root("oak")),
+                &mut RoomTreeSource::new(&mut record),
+                &mut panel,
+                Some(inv.reborrow()),
+                &mut dirty,
+                &mut toasts,
+                0.0,
+                &mut labels.slot(crate::ui::shortcuts::EditorKind::World),
+                &mut None,
+            );
+        }
+        assert_eq!(
+            world.resource::<LiveInventoryRecord>().0.generators.len(),
+            2,
+            "control: the save landed"
+        );
+        assert_ne!(
+            tick(&world),
+            inserted,
+            "control: a real write through the same Mut must move the tick"
         );
     }
 }

@@ -153,3 +153,42 @@ pub fn spawn_attachment_tree(
         attachment,
     );
 }
+
+/// An app holding every asset store and cache [`AvatarSpawnDeps`] fans out
+/// to, and nothing else — the stage a test needs to run the real spawn path.
+///
+/// Shared by `player::attachments`' dressed-body tests and
+/// `ui::catalogue`'s #1301 preview-work count, so the list of what the spawn
+/// path reaches lives beside the bundle that reaches it. A new field on
+/// [`AvatarSpawnDeps`] fails both at once, and is fixed once, here.
+#[cfg(test)]
+pub(crate) fn spawn_path_app() -> bevy::app::App {
+    let mut app = bevy::app::App::new();
+    app.add_plugins((
+        bevy::app::TaskPoolPlugin::default(),
+        bevy::asset::AssetPlugin::default(),
+    ));
+    app.init_asset::<Mesh>();
+    app.init_asset::<StandardMaterial>();
+    app.init_asset::<Image>();
+    app.init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
+    app.init_asset::<WaterMaterial>();
+    app.init_resource::<BlobImageCache>();
+    app.init_resource::<crate::world_builder::audio_resolver::BlobAudioCache>();
+    app.init_resource::<WaterSurfaces>();
+    app.init_resource::<crate::world_builder::lsystem::LSystemMaterialCache>();
+    app.init_resource::<crate::world_builder::lsystem::LSystemMeshCache>();
+    app.init_resource::<crate::world_builder::ShapeMaterialCache>();
+    app.init_resource::<crate::world_builder::ShapeMeshCache>();
+    app.init_resource::<crate::world_builder::prim_cache::PrimMeshCache>();
+    app.init_resource::<crate::world_builder::prim_cache::PrimMaterialCache>();
+    app.init_resource::<bevy_symbios_shape::cache::ShapeMeshCache>();
+    app.init_resource::<crate::world_builder::spatial_audio::BakedAudioCache>();
+    app.insert_resource(crate::world_builder::fresh_texture_cache());
+    // The compile bookkeeping `GeneratorCaches` also borrows.
+    app.init_resource::<crate::world_builder::compile::CompiledWorld>();
+    app.init_resource::<crate::world_builder::compile::CompileJob>();
+    app.init_resource::<crate::diagnostics::SessionLog>();
+    app.init_resource::<Time>();
+    app
+}

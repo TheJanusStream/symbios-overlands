@@ -337,6 +337,7 @@ pub fn run() {
         .init_resource::<boot_params::ClipboardQueue>()
         .init_resource::<world_builder::grammar_diag::GrammarDiagnostics>()
         .init_resource::<ui::catalogue::CatalogueBrowser>()
+        .init_resource::<ui::inventory::InventoryBrowser>()
         .init_resource::<ui::inventory::PendingGeneratorDrop>()
         .init_resource::<state::PendingOutgoingOffers>()
         .init_resource::<state::BusyAutoDeclines>()

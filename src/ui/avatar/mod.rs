@@ -261,7 +261,14 @@ pub(super) struct TabCtx<'a, 'p> {
     pub(super) toasts: &'a mut crate::notify::Toasts,
     /// The stash, for the tree tabs' "+ From Inventory" and
     /// "Save to Inventory" paths. `None` before it has loaded.
-    pub(super) inventory: Option<&'a mut LiveInventoryRecord>,
+    ///
+    /// A `Mut`, not a `&mut` (#1322): this context is built on EVERY frame
+    /// the editor body is drawn, and `ResMut::deref_mut` stamps the change
+    /// tick on access, so lending a `&mut` here marked the stash changed
+    /// every frame with nothing edited — defeating the Inventory panel's
+    /// tick-keyed caches (#1292). A `Mut` stamps only where a callee
+    /// actually writes through it; each consumer takes a `reborrow()`.
+    pub(super) inventory: Option<Mut<'a, LiveInventoryRecord>>,
     pub(super) audio_editor: &'a mut crate::ui::room::audio::AudioEditorState,
     pub(super) grammar_diag: &'a crate::world_builder::grammar_diag::GrammarDiagnostics,
     pub(super) blob_selected_element: &'a mut Option<usize>,
@@ -1386,7 +1393,7 @@ pub fn avatar_ui(
                     changed: &mut widget_changed,
                     labels: &mut undo_labels,
                     toasts: &mut toasts,
-                    inventory: inventory.as_deref_mut(),
+                    inventory: inventory.as_mut().map(|inv| inv.reborrow()),
                     audio_editor,
                     grammar_diag: &grammar_diag,
                     blob_selected_element: &mut blob_ctx.selected_element,

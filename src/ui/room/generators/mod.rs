@@ -489,7 +489,7 @@ pub(crate) fn draw_generators_tab(
     // the three hosts — the room's generators, the avatar's visuals and
     // one worn item's parts — were given the same struct to own.
     panel: &mut TreePanelState,
-    inventory: Option<&mut LiveInventoryRecord>,
+    inventory: Option<bevy::prelude::Mut<'_, LiveInventoryRecord>>,
     audio_editor: &mut super::audio::AudioEditorState,
     // Grammar compile outcomes (#829), rendered by the L-system / Shape
     // forges in the detail panel.

@@ -235,7 +235,7 @@ pub(super) fn draw_tab(
                 ui,
                 &mut source,
                 aim.parts_tree,
-                ctx.inventory.as_deref_mut(),
+                ctx.inventory.as_mut().map(|inv| inv.reborrow()),
                 ctx.audio_editor,
                 ctx.grammar_diag,
                 ctx.changed,
@@ -290,7 +290,7 @@ pub(super) fn draw_tab(
         let outcome = draw_attachments_tab(
             ui,
             ctx.record,
-            ctx.inventory.as_deref_mut(),
+            ctx.inventory.as_mut().map(|inv| inv.reborrow()),
             state,
             ctx.did,
             &mut listed,
@@ -335,7 +335,7 @@ pub(super) fn draw_tab(
 pub(super) fn draw_attachments_tab(
     ui: &mut egui::Ui,
     record: &mut AvatarRecord,
-    inventory: Option<&mut LiveInventoryRecord>,
+    inventory: Option<bevy::prelude::Mut<'_, LiveInventoryRecord>>,
     state: &mut AttachmentsTabState,
     did: Option<&str>,
     selected: &mut Option<String>,

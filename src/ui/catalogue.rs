@@ -70,6 +70,10 @@ pub struct CatalogueBrowser {
     mode: BrowseMode,
     /// Slug of the entry shown in the detail panel.
     selected: Option<String>,
+    /// When [`Self::selected`] was picked, in `Time::elapsed_secs_f64`
+    /// seconds (#1301): the item preview has one stage, and with the
+    /// Inventory also holding a selection the most recent pick is pictured.
+    picked_at: f64,
 }
 
 impl CatalogueBrowser {
@@ -81,46 +85,76 @@ impl CatalogueBrowser {
         self.selected.as_deref()
     }
 
-    /// Set the selection without a draw, for
+    /// When the selection was made (#1301).
+    pub fn picked_at(&self) -> f64 {
+        self.picked_at
+    }
+
+    /// Set the selection without a draw, picked `at`, for
     /// `tests::the_preview_request_mirrors_the_browser_and_the_window_including_absence`.
     /// The field is private because only the detail panel's own click
     /// handling may move it; the mirror test needs a browser in a known
     /// state and building one through egui would test the tree widget
     /// instead of the mirror.
     #[cfg(test)]
-    pub(crate) fn select_for_test(&mut self, slug: Option<&str>) {
+    pub(crate) fn select_for_test(&mut self, slug: Option<&str>, at: f64) {
         self.selected = slug.map(str::to_owned);
+        self.picked_at = at;
     }
 }
 
-/// Publish what the Catalogue is asking the item preview to show
-/// (#1297), so the preview pipeline stops reading the egui layer.
+/// Publish what the Catalogue and the Inventory are asking the item
+/// preview to show (#1297, #1301), so the preview pipeline never reads the
+/// egui layer.
 ///
-/// `PreUpdate`, unconditionally: a mirror inside `catalogue_ui` would run
-/// only while the window is open and latch at its last value the moment
-/// it closed — which for this fact means the stage keeping the last
-/// selection alive, and its camera pass with it, for the rest of the
-/// session. With no panels resource and no browser (before login, the
-/// headless render tool) the answer is `None`.
+/// `PreUpdate`, unconditionally: a mirror inside either window's system
+/// would run only while that window is open and latch at its last value
+/// the moment it closed — which for this fact means the stage keeping the
+/// last selection alive, and its camera pass with it, for the rest of the
+/// session. With no panels resource (before login, the headless render
+/// tool) the answer is `None`; a missing browser or stash is a window with
+/// nothing to bid.
 ///
 /// The predicate lives with the CONSUMER
 /// ([`crate::item_preview::wanted_subject`]) and is called from here, so
-/// the rule that a closed window shows nothing — and that an
-/// unresolvable slug shows nothing rather than the last thing that did —
-/// has one home.
+/// the rules — a closed window shows nothing, an unresolvable pick shows
+/// nothing rather than the last thing that did, the most recent pick holds
+/// the one stage — have one home. The stash is handed over with its change
+/// tick, which is what restages an edited item (#1322 made that tick move
+/// only on real writes).
 ///
 /// Guarded write (#879).
 pub fn mirror_preview_request(
     panels: Option<Res<crate::ui::toolbar::UiPanels>>,
     browser: Option<Res<CatalogueBrowser>>,
+    stash_browser: Option<Res<crate::ui::inventory::InventoryBrowser>>,
+    stash: Option<Res<crate::state::LiveInventoryRecord>>,
     mut request: ResMut<crate::item_preview::PreviewRequest>,
 ) {
-    let wanted = match (panels.as_deref(), browser.as_deref()) {
-        (Some(panels), Some(browser)) => {
-            crate::item_preview::wanted_subject(panels.catalogue, browser.selected_slug())
-        }
-        _ => None,
-    };
+    use crate::item_preview::Pick;
+    let wanted = panels.as_deref().and_then(|panels| {
+        let catalogue = browser
+            .as_deref()
+            .map(|browser| Pick {
+                open: panels.catalogue,
+                selected: browser.selected_slug(),
+                at: browser.picked_at(),
+            })
+            .unwrap_or_default();
+        let inventory = stash_browser
+            .as_deref()
+            .map(|browser| Pick {
+                open: panels.inventory,
+                selected: browser.selected_name(),
+                at: browser.picked_at(),
+            })
+            .unwrap_or_default();
+        crate::item_preview::wanted_subject(
+            catalogue,
+            inventory,
+            stash.as_ref().map(|stash| (&stash.0, stash.last_changed())),
+        )
+    });
     if request.0 != wanted {
         request.0 = wanted;
     }
@@ -525,7 +559,8 @@ pub(crate) fn catalogue_ui(
 
             ui.horizontal_top(|ui| {
                 // ── Left: the tree ──
-                let left_w = (ui.available_width() * 0.46).clamp(180.0, 300.0);
+                let left_w =
+                    (ui.available_width() * 0.46).clamp(crate::ui::layout::LIST_MIN_WIDTH, 300.0);
                 ui.allocate_ui_with_layout(
                     egui::vec2(left_w, ui.available_height()),
                     egui::Layout::top_down(egui::Align::Min),
@@ -566,6 +601,7 @@ pub(crate) fn catalogue_ui(
                                                 ids.first().and_then(|id| leaf_slug(id))
                                             {
                                                 browser.selected = Some(slug.to_string());
+                                                browser.picked_at = time.elapsed_secs_f64();
                                             }
                                         }
                                         // Fires every frame a row is dragged
@@ -588,6 +624,7 @@ pub(crate) fn catalogue_ui(
                                                 .unwrap_or(false);
                                             if placeable {
                                                 browser.selected = Some(slug.to_string());
+                                                browser.picked_at = time.elapsed_secs_f64();
                                                 pending_drop.generator_name =
                                                     Some(slug.to_string());
                                                 pending_drop.source = DropSource::Catalogue;
@@ -751,46 +788,6 @@ fn render_nodes(builder: &mut egui_ltreeview::TreeViewBuilder<'_, String>, nodes
 }
 
 #[allow(clippy::too_many_arguments)]
-/// The item's picture (#1288): the live off-screen render of whatever
-/// [`crate::item_preview`] currently has on its stage.
-///
-/// Drawn only when the preview says it is SHOWING this entry — which it
-/// does not say on the frame the entry is picked, because the camera has
-/// not been reframed onto the new geometry yet. Drawing it a frame early
-/// would put the previous item's picture, or the new one seen from the
-/// previous one's distance, under the right item's name. The panel holds
-/// the space with a plain tile instead, so nothing below it jumps.
-fn draw_preview(ui: &mut egui::Ui, preview: Option<&crate::item_preview::ItemPreview>, slug: &str) {
-    let side = 180.0;
-    let showing = preview.filter(|p| {
-        matches!(
-            p.showing(),
-            Some(crate::item_preview::PreviewSubject::Catalogue(shown)) if shown == slug
-        )
-    });
-    ui.add_space(4.0);
-    match showing {
-        Some(preview) => {
-            ui.add(egui::Image::from_texture((
-                preview.egui_texture,
-                egui::vec2(side, side),
-            )));
-        }
-        None => {
-            // Same square either way so the panel does not reflow between
-            // the frame a selection lands and the frame its picture does —
-            // the reason `draw_avatar_icon`'s miss arm allocates too.
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
-            if ui.is_rect_visible(rect) {
-                let theme = crate::ui::theme::current(ui.ctx());
-                ui.painter().rect_filled(rect, 4.0, theme.chart_fill);
-            }
-        }
-    }
-    ui.add_space(4.0);
-}
-
-#[allow(clippy::too_many_arguments)]
 fn detail_panel(
     ui: &mut egui::Ui,
     selected: Option<&str>,
@@ -813,7 +810,12 @@ fn detail_panel(
     };
     let slug = entry.slug();
 
-    draw_preview(ui, preview, slug);
+    crate::ui::item_picture::draw_preview(
+        ui,
+        preview,
+        crate::ui::item_picture::PictureOf::Catalogue(slug),
+        crate::ui::item_picture::CATALOGUE_SIDE,
+    );
     ui.heading(entry.name());
     ui.add(egui::Label::new(entry.description()).wrap());
     ui.add_space(4.0);
@@ -1037,7 +1039,8 @@ mod tests {
     use std::collections::HashSet;
 
     /// #1297's item-preview singleton, the `PlacementFocus` shape a
-    /// second time. `restage_preview` read `UiPanels` and
+    /// second time, and since #1301 the Inventory's selection beside the
+    /// Catalogue's. `restage_preview` read `UiPanels` and
     /// `CatalogueBrowser` directly to answer one question — "is anyone
     /// looking, and at what" — which pointed the arrow from a render
     /// pipeline into the egui layer for a `bool` and an `Option<&str>`.
@@ -1045,14 +1048,18 @@ mod tests {
     /// Asserted against the PREDICATE the consumer already owned
     /// ([`crate::item_preview::wanted_subject`]) rather than by restating
     /// its answers, so the mirror cannot drift from the rule it carries —
-    /// including the rule that an unresolvable slug shows nothing rather
-    /// than the last thing that did.
+    /// including the rule that an unresolvable pick shows nothing rather
+    /// than the last thing that did. A few answers are also named outright,
+    /// so a predicate that answered `None` to everything could not pass.
     #[test]
     fn the_preview_request_mirrors_the_browser_and_the_window_including_absence() {
         use bevy::ecs::system::RunSystemOnce;
         use bevy::prelude::*;
 
-        use crate::item_preview::{PreviewRequest, wanted_subject};
+        use crate::item_preview::{Pick, PreviewRequest, PreviewSubject, wanted_subject};
+        use crate::pds::InventoryRecord;
+        use crate::state::LiveInventoryRecord;
+        use crate::ui::inventory::InventoryBrowser;
         use crate::ui::toolbar::UiPanels;
 
         let a_real_slug = crate::catalogue::ENTRIES[0].slug();
@@ -1060,12 +1067,14 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<PreviewRequest>();
 
-        fn mirrored(world: &mut World) -> Option<crate::item_preview::PreviewSubject> {
+        fn mirrored(world: &mut World) -> Option<PreviewSubject> {
             world
                 .run_system_once(mirror_preview_request)
                 .expect("the mirror runs");
             world.resource::<PreviewRequest>().0.clone()
         }
+        let pick =
+            |open: bool, selected: Option<&'static str>, at: f64| Pick { open, selected, at };
 
         // Absence: no panels, no browser. Before login and in the headless
         // render tool, neither resource exists, and the answer must be
@@ -1074,45 +1083,306 @@ mod tests {
 
         world.insert_resource(UiPanels::default());
         let mut browser = CatalogueBrowser::default();
-        browser.select_for_test(Some(a_real_slug));
+        browser.select_for_test(Some(a_real_slug), 1.0);
         world.insert_resource(browser);
 
         // A closed window is the whole "is anyone looking" question: it is
         // what turns the camera off.
         world.resource_mut::<UiPanels>().catalogue = false;
+        world.resource_mut::<UiPanels>().inventory = false;
+        let shut = Pick::default();
         assert_eq!(
             mirrored(&mut world),
-            wanted_subject(false, Some(a_real_slug))
+            wanted_subject(pick(false, Some(a_real_slug), 1.0), shut, None)
         );
         assert_eq!(mirrored(&mut world), None);
 
         world.resource_mut::<UiPanels>().catalogue = true;
         assert_eq!(
             mirrored(&mut world),
-            wanted_subject(true, Some(a_real_slug))
+            wanted_subject(pick(true, Some(a_real_slug), 1.0), shut, None)
         );
         assert_eq!(
             mirrored(&mut world),
-            Some(crate::item_preview::PreviewSubject::Catalogue(
-                a_real_slug.to_string()
-            ))
+            Some(PreviewSubject::Catalogue(a_real_slug.to_string()))
         );
 
-        // A selection that no longer resolves shows nothing…
+        // A selection that no longer resolves shows nothing...
         world
             .resource_mut::<CatalogueBrowser>()
-            .select_for_test(Some("not-a-real-entry"));
+            .select_for_test(Some("not-a-real-entry"), 1.0);
         assert_eq!(
             mirrored(&mut world),
             None,
             "an unresolvable slug is nothing"
         );
 
-        // …and so does no selection at all: the request RELEASES.
+        // ...and so does no selection at all: the request RELEASES.
         world
             .resource_mut::<CatalogueBrowser>()
-            .select_for_test(None);
+            .select_for_test(None, 1.0);
         assert_eq!(mirrored(&mut world), None, "the request releases");
+
+        // ---- The Inventory's bid (#1301) ----
+        // Absence: an open Inventory window with no browser and no stash is
+        // a window with nothing to bid.
+        world.resource_mut::<UiPanels>().inventory = true;
+        assert_eq!(mirrored(&mut world), None, "no inventory browser, no stash");
+        let mut stash_browser = InventoryBrowser::default();
+        stash_browser.select("lantern", 2.0);
+        world.insert_resource(stash_browser);
+        assert_eq!(
+            mirrored(&mut world),
+            wanted_subject(
+                pick(true, None, 1.0),
+                pick(true, Some("lantern"), 2.0),
+                None
+            )
+        );
+        assert_eq!(
+            mirrored(&mut world),
+            None,
+            "a selection with no stash loaded"
+        );
+
+        let mut stash = InventoryRecord::default();
+        stash.put_item("lantern".into(), Generator::default_cuboid(), None);
+        stash.put_item(
+            "dunes".into(),
+            Generator {
+                kind: crate::ui::room::construct::make_default_for_kind("Terrain"),
+                ..Default::default()
+            },
+            None,
+        );
+        world.insert_resource(LiveInventoryRecord(stash));
+        let tick = |world: &World| world.resource_ref::<LiveInventoryRecord>().last_changed();
+
+        world.resource_mut::<UiPanels>().inventory = false;
+        assert_eq!(mirrored(&mut world), None, "the Inventory window is shut");
+        world.resource_mut::<UiPanels>().inventory = true;
+        let resolved = mirrored(&mut world);
+        {
+            let stash = world.resource::<LiveInventoryRecord>();
+            assert_eq!(
+                resolved,
+                wanted_subject(
+                    pick(true, None, 1.0),
+                    pick(true, Some("lantern"), 2.0),
+                    Some((&stash.0, tick(&world)))
+                )
+            );
+        }
+        assert_eq!(
+            resolved,
+            Some(PreviewSubject::Inventory {
+                name: "lantern".into(),
+                edit: tick(&world)
+            }),
+            "a resolving name is pictured"
+        );
+
+        world
+            .resource_mut::<InventoryBrowser>()
+            .select("not-in-the-stash", 2.0);
+        assert_eq!(
+            mirrored(&mut world),
+            None,
+            "an unresolvable name is nothing"
+        );
+        world
+            .resource_mut::<InventoryBrowser>()
+            .select("dunes", 2.0);
+        assert_eq!(
+            mirrored(&mut world),
+            None,
+            "a room-scoped item is never staged"
+        );
+        world.resource_mut::<InventoryBrowser>().clear();
+        assert_eq!(mirrored(&mut world), None, "the inventory request releases");
+
+        // An edit moves `edit`, and nothing else does.
+        world
+            .resource_mut::<InventoryBrowser>()
+            .select("lantern", 2.0);
+        let before = mirrored(&mut world);
+        assert_eq!(
+            mirrored(&mut world),
+            before,
+            "an idle frame asks for the same subject"
+        );
+        world.increment_change_tick();
+        world.resource_mut::<LiveInventoryRecord>().0.put_item(
+            "bench".into(),
+            Generator::default_cuboid(),
+            None,
+        );
+        let after = mirrored(&mut world);
+        match (&before, &after) {
+            (
+                Some(PreviewSubject::Inventory { name: a, edit: x }),
+                Some(PreviewSubject::Inventory { name: b, edit: y }),
+            ) => {
+                assert_eq!(a, b, "the same item");
+                assert_ne!(
+                    x, y,
+                    "a stash write must move `edit`, or the picture goes stale"
+                );
+            }
+            other => panic!("expected the lantern before and after, got {other:?}"),
+        }
+
+        // ---- Both open, both holding a pick: the most recent wins ----
+        world
+            .resource_mut::<CatalogueBrowser>()
+            .select_for_test(Some(a_real_slug), 5.0);
+        let both = |world: &mut World| {
+            let got = mirrored(world);
+            let panels = world.resource::<UiPanels>();
+            let catalogue = world.resource::<CatalogueBrowser>();
+            let inventory = world.resource::<InventoryBrowser>();
+            let stash = world.resource_ref::<LiveInventoryRecord>();
+            let expected = wanted_subject(
+                Pick {
+                    open: panels.catalogue,
+                    selected: catalogue.selected_slug(),
+                    at: catalogue.picked_at(),
+                },
+                Pick {
+                    open: panels.inventory,
+                    selected: inventory.selected_name(),
+                    at: inventory.picked_at(),
+                },
+                Some((&stash.0, stash.last_changed())),
+            );
+            assert_eq!(got, expected, "the mirror and the predicate disagree");
+            got
+        };
+        assert!(
+            matches!(both(&mut world), Some(PreviewSubject::Catalogue(_))),
+            "the Catalogue picked at 5.0, after the Inventory's 2.0"
+        );
+        world
+            .resource_mut::<InventoryBrowser>()
+            .select("lantern", 7.0);
+        assert!(
+            matches!(both(&mut world), Some(PreviewSubject::Inventory { .. })),
+            "the Inventory picked at 7.0, after the Catalogue's 5.0"
+        );
+        world.resource_mut::<UiPanels>().inventory = false;
+        assert!(
+            matches!(both(&mut world), Some(PreviewSubject::Catalogue(_))),
+            "closing the winner's window falls back to the other pick"
+        );
+        world.resource_mut::<UiPanels>().inventory = true;
+        world.resource_mut::<UiPanels>().catalogue = false;
+        assert!(
+            matches!(both(&mut world), Some(PreviewSubject::Inventory { .. })),
+            "and the other way round"
+        );
+        // A later pick that cannot be pictured does not take the stage.
+        world.resource_mut::<UiPanels>().catalogue = true;
+        world
+            .resource_mut::<InventoryBrowser>()
+            .select("dunes", 9.0);
+        assert!(
+            matches!(both(&mut world), Some(PreviewSubject::Catalogue(_))),
+            "a room-scoped pick leaves the stage to one that has a picture"
+        );
+    }
+
+    /// #1301, counting the work (#1270's rule). The stage restages when —
+    /// and only when — the request differs from what it holds, and an
+    /// Inventory request carries the stash's change tick. So an item held
+    /// selected must cost no respawn per frame, and an edit to the stash
+    /// exactly one. Driven through the REAL mirror and the REAL
+    /// `restage_preview` over a world with the whole spawn path in it; the
+    /// counter is `item_preview`'s own, as `NODES_BUILT` is the tree's.
+    ///
+    /// There is no generator-compare count to take because there is no
+    /// compare: the subject holds a name and a tick, never a `Generator`,
+    /// and nothing on this path compares one — which is the design, since
+    /// a whole-tree `PartialEq` per frame is what #1135/#1292 removed.
+    #[test]
+    fn an_idle_selection_costs_no_restages_and_an_edit_costs_exactly_one() {
+        use bevy::ecs::system::RunSystemOnce;
+        use bevy::prelude::*;
+
+        use crate::item_preview::{
+            PreviewCamera, PreviewRequest, preview_for_test, restage_preview, take_restage_count,
+        };
+        use crate::pds::InventoryRecord;
+        use crate::state::LiveInventoryRecord;
+        use crate::ui::inventory::InventoryBrowser;
+        use crate::ui::toolbar::UiPanels;
+
+        let mut app = crate::player::visuals::spawn_path_app();
+        let world = app.world_mut();
+        world.init_resource::<PreviewRequest>();
+        world.insert_resource(UiPanels {
+            inventory: true,
+            ..Default::default()
+        });
+        world.insert_resource(CatalogueBrowser::default());
+        let mut stash = InventoryRecord::default();
+        stash.put_item("lantern".into(), Generator::default_cuboid(), None);
+        world.insert_resource(LiveInventoryRecord(stash));
+        let mut browser = InventoryBrowser::default();
+        browser.select("lantern", 1.0);
+        world.insert_resource(browser);
+        let camera = world.spawn((Camera::default(), PreviewCamera)).id();
+        world.insert_resource(preview_for_test(camera));
+
+        let frame = |world: &mut World| {
+            world
+                .run_system_once(mirror_preview_request)
+                .expect("the mirror runs");
+            world
+                .run_system_once(restage_preview)
+                .expect("the restage runs");
+        };
+
+        take_restage_count();
+        frame(world);
+        assert_eq!(take_restage_count(), 1, "selecting stages the item once");
+        for _ in 0..30 {
+            frame(world);
+        }
+        assert_eq!(
+            take_restage_count(),
+            0,
+            "thirty idle frames restage nothing"
+        );
+
+        world.increment_change_tick();
+        world.resource_mut::<LiveInventoryRecord>().0.put_item(
+            "lantern".into(),
+            Generator {
+                children: vec![Generator::default_cuboid()],
+                ..Generator::default_cuboid()
+            },
+            None,
+        );
+        for _ in 0..30 {
+            frame(world);
+        }
+        assert_eq!(
+            take_restage_count(),
+            1,
+            "one edit, then thirty frames: exactly one restage"
+        );
+
+        world.resource_mut::<InventoryBrowser>().clear();
+        frame(world);
+        assert_eq!(
+            take_restage_count(),
+            1,
+            "releasing takes the stage down once"
+        );
+        for _ in 0..30 {
+            frame(world);
+        }
+        assert_eq!(take_restage_count(), 0, "and an empty stage stays empty");
     }
 
     fn collect_slugs<'a>(nodes: &'a [CatNode], out: &mut Vec<&'a str>) {

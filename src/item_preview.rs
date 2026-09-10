@@ -1,19 +1,32 @@
 //! Item preview — a live 3D picture of the selected catalogue entry
-//! (#1288).
+//! (#1288) or stash item (#1301).
 //!
 //! The Catalogue lists 392 entries by name and description alone, so the
 //! only way to find out what one looks like was to copy it into the stash
-//! and wear or place it. This module renders the *selected* entry into an
-//! off-screen texture that [`crate::ui::catalogue`]'s detail panel draws
-//! as an ordinary `egui::Image`, which is why it is not
-//! [`crate::ui::avatar::draw_avatar_icon`]'s neighbour: the profile-picture
-//! path uploads bytes fetched from a PDS, and this one owns a camera.
+//! and wear or place it; the Inventory was the same list of names. This
+//! module renders the *selected* item into an off-screen texture that both
+//! windows' detail panes draw as an ordinary `egui::Image`, which is why it
+//! is not [`crate::ui::avatar::draw_avatar_icon`]'s neighbour: the
+//! profile-picture path uploads bytes fetched from a PDS, and this one owns
+//! a camera.
 //!
 //! The owner chose render-on-selection over a baked atlas: nothing here
 //! goes stale when [`crate::catalogue::ENTRIES`] gains a row or #972
 //! reworks one, and no image asset enters the repo or the wasm bundle.
 //! The accepted cost is that the picture exists only for the SELECTED
-//! entry — the browse tree and the Inventory rows stay text-only.
+//! item — the browse tree and the Inventory's rows stay text-only — and
+//! that there is ONE stage: with both windows open and both holding a
+//! selection, the most recent pick is the one pictured ([`wanted_subject`]).
+//!
+//! ## A stash item is editable, a catalogue entry is not
+//!
+//! A catalogue entry is a `const`, so its picture can never go stale. A
+//! stash item can change under the same name, so its subject carries the
+//! stash's change tick ([`PreviewSubject::Inventory`]) and a write to the
+//! stash restages it once. That makes the tick load-bearing: a draw that
+//! took `&mut` of the stash every frame without editing it would restage
+//! the picture every frame, which is exactly what #1322 removed from the
+//! two editors that did.
 //!
 //! ## The layer is the isolation; the distance is for something else
 //!
@@ -61,8 +74,9 @@
 //! CPU copy (#565 measured that retention as the dominant wasm cost, and
 //! a wasm heap never shrinks). The camera is spawned ONCE and toggled by
 //! [`restage_preview`], never spawned per selection, and it is inactive
-//! whenever the Catalogue window is shut — so a session that never opens
-//! the Catalogue pays the target's memory and no passes at all. `Msaa` is
+//! whenever no open window holds a selection it can picture — so a session
+//! that never selects anything pays the target's memory and no passes at
+//! all. `Msaa` is
 //! off for the same reason the main camera turns it off: Bevy's default
 //! `Sample4` panics on the WebGL2 entry point.
 //!
@@ -90,8 +104,11 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 use bevy_egui::{EguiTextureHandle, EguiUserTextures};
 
+use bevy::ecs::change_detection::Tick;
+
+use crate::pds::{Generator, InventoryRecord};
 use crate::player::visuals::{AvatarSpawnDeps, spawn_visual_tree};
-use crate::state::AppState;
+use crate::state::{AppState, LiveInventoryRecord};
 
 /// The render layer the preview stage, its key light and its camera live
 /// on. Nothing else in the crate uses `RenderLayers` at all, so layer 0 —
@@ -132,14 +149,15 @@ const FRAMING_MARGIN: f32 = 1.25;
 /// the catalogue's smallest entries are centimetres across.
 const MIN_VIEW_DISTANCE: f32 = 0.05;
 
-/// What the Catalogue is asking the preview to show (#1297).
+/// What the UI is asking the preview to show (#1297, #1301).
 ///
 /// `restage_preview` used to read [`crate::ui::toolbar::UiPanels`] and
 /// [`crate::ui::catalogue::CatalogueBrowser`] itself, which pointed the
 /// arrow from a render pipeline into the egui layer for one `bool` and
 /// one `Option<&str>`. Written once a frame by
 /// `ui::catalogue::mirror_preview_request` in `PreUpdate`, the
-/// `world_builder::PlacementFocus` shape a second time.
+/// `world_builder::PlacementFocus` shape a second time — for the Inventory's
+/// selection as well as the Catalogue's since #1301.
 ///
 /// Still DERIVED rather than pushed: the mirror recomputes it from the
 /// panel state through [`wanted_subject`], the same predicate the
@@ -156,6 +174,21 @@ pub struct PreviewRequest(pub Option<PreviewSubject>);
 pub enum PreviewSubject {
     /// A catalogue entry, by [`crate::catalogue::CatalogueEntry::slug`].
     Catalogue(String),
+    /// A stash item (#1301), by its key in [`InventoryRecord::generators`]
+    /// — its NAME. The PDS rkey is derived from the name
+    /// ([`crate::pds::inventory::item_rkey`]), so the name is the identity;
+    /// a rename is a different subject.
+    ///
+    /// `edit` is [`LiveInventoryRecord`]'s change tick when the name was
+    /// resolved, and it is what makes an edit restage the picture. The
+    /// subject compares by value and a name does not change when the
+    /// `Generator` under it does; comparing the `Generator` itself would
+    /// cost a whole-tree `PartialEq` every frame, which is the per-frame
+    /// work #1135/#1292 removed from the Inventory panel. The tick is the
+    /// truth the panel's own dirty caches already key on, so any stash
+    /// write restages the selected item ONCE — one respawn per discrete
+    /// user action, and none while nothing is written (#1322).
+    Inventory { name: String, edit: Tick },
 }
 
 /// The preview's render target, its egui handle, and what is currently on
@@ -355,35 +388,119 @@ fn clear_preview(
     }
 }
 
-/// The subject the UI is asking for: the Catalogue's selected entry, while
-/// the Catalogue window is open. Derived rather than pushed — there is no
-/// request resource for a panel to write every frame, so there is no
+/// One window's bid for the stage (#1301): whether the window is open,
+/// what it has selected, and when that was picked, in
+/// `Time::elapsed_secs_f64` seconds.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Pick<'a> {
+    pub(crate) open: bool,
+    pub(crate) selected: Option<&'a str>,
+    pub(crate) at: f64,
+}
+
+/// The subject the UI is asking for. Derived rather than pushed — there is
+/// no request resource for a panel to write every frame, so there is no
 /// change-tick to guard (#879).
+///
+/// Each window's pick resolves on its own ([`catalogue_subject`],
+/// [`inventory_subject`]); then the most RECENT one that resolves wins
+/// (#1301). There is one stage, and "most recent" is the only order a user
+/// can see: the other window keeps its selection and its facts and shows
+/// the placeholder tile, where clearing its selection instead would take
+/// away a pick the user never touched. A pick that cannot be pictured — a
+/// room-scoped stash item, a name that no longer resolves — does not take
+/// the stage from one that can. On an exact tie the Catalogue keeps it,
+/// which is only a determinism rule: one frame cannot hold two clicks.
+///
+/// `stash` is the live stash and its change tick, `None` before it loads.
 pub(crate) fn wanted_subject(
-    catalogue_open: bool,
-    selected: Option<&str>,
+    catalogue: Pick<'_>,
+    inventory: Pick<'_>,
+    stash: Option<(&InventoryRecord, Tick)>,
 ) -> Option<PreviewSubject> {
+    let from_catalogue = catalogue_subject(catalogue);
+    let from_inventory = inventory_subject(inventory, stash);
+    match (from_catalogue, from_inventory) {
+        (Some(c), Some(i)) => Some(if inventory.at > catalogue.at { i } else { c }),
+        (c, i) => c.or(i),
+    }
+}
+
+/// The Catalogue's bid: its selected entry, while its window is open.
+fn catalogue_subject(pick: Pick<'_>) -> Option<PreviewSubject> {
     // A closed window is the whole "is anyone looking" question: it is what
     // turns the camera off, and a camera pass nobody can see is the one
     // cost this approach could have carried and does not.
-    if !catalogue_open {
+    if !pick.open {
         return None;
     }
-    let slug = selected?;
+    let slug = pick.selected?;
     // A selection that no longer resolves shows nothing rather than the
     // last thing that did.
     crate::catalogue::by_slug(slug)?;
     Some(PreviewSubject::Catalogue(slug.to_string()))
 }
 
+/// The Inventory's bid (#1301): its selected item, while its window is
+/// open, the stash has loaded, the name still resolves, and the item is
+/// something the stage can hold.
+///
+/// That last clause is [`crate::pds::inventory::is_drop_placeable`], and it
+/// is not a nicety. The spawn path runs `avatar_mode`, but the Terrain arm
+/// of `spawn_generator` tags its anchor `RoomEntity` regardless, and a
+/// Water child spawns a volume the width of the whole region and registers
+/// it in `WaterSurfaces` — a room-scoped item on the stage would reach into
+/// the world. An unreadable item (`GeneratorKind::Unknown`) has nothing to
+/// draw. The pane says why in each case; the stage stays out of it.
+fn inventory_subject(
+    pick: Pick<'_>,
+    stash: Option<(&InventoryRecord, Tick)>,
+) -> Option<PreviewSubject> {
+    if !pick.open {
+        return None;
+    }
+    let name = pick.selected?;
+    let (record, edit) = stash?;
+    let generator = record.generators.get(name)?;
+    if !crate::pds::inventory::is_drop_placeable(generator) {
+        return None;
+    }
+    Some(PreviewSubject::Inventory {
+        name: name.to_string(),
+        edit,
+    })
+}
+
+// How many times `restage_preview` swapped the stage, for the #1301 work
+// count in `ui::catalogue`'s tests — the instrument `NODES_BUILT` is for the
+// generator tree. Thread-local, not global: `cargo test --lib` runs the
+// suite on many threads of one process (#1147, #1189).
+#[cfg(test)]
+thread_local! {
+    static RESTAGES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Restages counted on this thread since the last call. Test-only.
+#[cfg(test)]
+pub(crate) fn take_restage_count() -> usize {
+    RESTAGES.with(|n| n.replace(0))
+}
+
 /// Swap the stage over when the selection changes, and switch the camera
 /// off when there is nothing selected.
+///
+/// `pub(crate)` for `ui::catalogue`'s #1301 work count, which runs it
+/// behind the real mirror.
 #[allow(clippy::too_many_arguments)]
-fn restage_preview(
+pub(crate) fn restage_preview(
     mut commands: Commands,
     mut preview: ResMut<ItemPreview>,
     request: Res<PreviewRequest>,
     session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
+    // Where an Inventory subject's `Generator` lives (#1301). Read only on
+    // a restage, never compared: the subject's `edit` tick already said
+    // whether it moved.
+    stash: Option<Res<LiveInventoryRecord>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
@@ -394,6 +511,8 @@ fn restage_preview(
     if wanted.as_ref() == preview.staged() {
         return;
     }
+    #[cfg(test)]
+    RESTAGES.with(|n| n.set(n.get() + 1));
 
     if let Some(stage) = preview.stage.take() {
         commands.entity(stage).despawn();
@@ -408,16 +527,30 @@ fn restage_preview(
         return;
     };
 
-    let PreviewSubject::Catalogue(slug) = &subject;
-    let Some(entry) = crate::catalogue::by_slug(slug) else {
+    // A catalogue entry is BUILT, so it is owned; a stash item is
+    // borrowed from the record for the length of the spawn, so a restage
+    // costs no copy of a tree that may be the full 100 KiB record budget.
+    let generator: Option<std::borrow::Cow<'_, Generator>> = match &subject {
+        PreviewSubject::Catalogue(slug) => crate::catalogue::by_slug(slug).map(|entry| {
+            // The DID an entry builds against personalises a handful of
+            // items (a gateway's plaque, a monument's picture). Signed out,
+            // an empty DID is what the placement-check path already passes.
+            let did = session.as_ref().map(|s| s.did.as_str()).unwrap_or("");
+            std::borrow::Cow::Owned(entry.build(did))
+        }),
+        PreviewSubject::Inventory { name, .. } => stash
+            .as_deref()
+            .and_then(|stash| stash.0.generators.get(name))
+            // `wanted_subject` already refused anything else; this is the
+            // same rule held where the spawn happens, because a request is
+            // a frame old by the time it is read here.
+            .filter(|generator| crate::pds::inventory::is_drop_placeable(generator))
+            .map(std::borrow::Cow::Borrowed),
+    };
+    let Some(generator) = generator else {
         preview.staged = None;
         return;
     };
-    // The DID an entry builds against personalises a handful of items (a
-    // gateway's plaque, a monument's picture). Signed out, an empty DID is
-    // what the placement-check path already passes.
-    let did = session.as_ref().map(|s| s.did.as_str()).unwrap_or("");
-    let generator = entry.build(did);
 
     let stage = commands
         .spawn((
@@ -444,6 +577,20 @@ fn restage_preview(
     preview.staged = Some(subject);
     if let Ok(mut camera) = cameras.get_mut(preview.camera) {
         camera.is_active = true;
+    }
+}
+
+/// An [`ItemPreview`] over `camera` with nothing staged, for tests that run
+/// [`restage_preview`] without the `Startup` system — which needs a render
+/// target and egui's texture registry.
+#[cfg(test)]
+pub(crate) fn preview_for_test(camera: Entity) -> ItemPreview {
+    ItemPreview {
+        egui_texture: bevy_egui::egui::TextureId::User(0),
+        camera,
+        stage: None,
+        staged: None,
+        framed: false,
     }
 }
 
@@ -564,6 +711,20 @@ mod tests {
         crate::catalogue::ENTRIES[0].slug()
     }
 
+    /// The Catalogue's bid alone, with the Inventory shut and no stash —
+    /// the whole of `wanted_subject`'s input before #1301.
+    fn catalogue_only(open: bool, selected: Option<&str>) -> Option<PreviewSubject> {
+        wanted_subject(
+            Pick {
+                open,
+                selected,
+                at: 0.0,
+            },
+            Pick::default(),
+            None,
+        )
+    }
+
     fn preview_showing(subject: Option<PreviewSubject>, framed: bool) -> ItemPreview {
         ItemPreview {
             egui_texture: bevy_egui::egui::TextureId::User(0),
@@ -580,13 +741,13 @@ mod tests {
     /// 256 px texture every frame for the whole session.
     #[test]
     fn nothing_is_previewed_while_the_catalogue_is_closed() {
-        assert_eq!(wanted_subject(false, Some(a_real_slug())), None);
+        assert_eq!(catalogue_only(false, Some(a_real_slug())), None);
         assert_eq!(
-            wanted_subject(true, Some(a_real_slug())),
+            catalogue_only(true, Some(a_real_slug())),
             Some(PreviewSubject::Catalogue(a_real_slug().to_string())),
             "an open window over a real selection is the one case that renders"
         );
-        assert_eq!(wanted_subject(true, None), None, "nothing selected");
+        assert_eq!(catalogue_only(true, None), None, "nothing selected");
     }
 
     /// #1288. A slug the catalogue no longer answers to shows NOTHING,
@@ -597,7 +758,7 @@ mod tests {
     /// one item under the name of another.
     #[test]
     fn an_unresolvable_selection_previews_nothing() {
-        assert_eq!(wanted_subject(true, Some("not-a-real-entry")), None);
+        assert_eq!(catalogue_only(true, Some("not-a-real-entry")), None);
     }
 
     /// #1288. `showing` is deliberately narrower than `staged`: a subject

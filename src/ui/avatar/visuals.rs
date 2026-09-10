@@ -58,7 +58,7 @@ pub(super) fn draw_tab(ui: &mut egui::Ui, ctx: &mut TabCtx, aim: &mut AimCtx, he
             ui,
             &mut source,
             aim.visuals_tree,
-            ctx.inventory.as_deref_mut(),
+            ctx.inventory.as_mut().map(|inv| inv.reborrow()),
             ctx.audio_editor,
             ctx.grammar_diag,
             ctx.changed,

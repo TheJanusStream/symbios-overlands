@@ -1530,7 +1530,11 @@ pub fn room_admin_ui(
                                 ui,
                                 &mut tree_source,
                                 tree,
-                                inventory.as_deref_mut(),
+                                // A reborrowed `Mut`, never `as_deref_mut()`
+                                // (#1322): this runs every frame the tab is
+                                // drawn, and the stash's tick must move only
+                                // when the tree actually writes to it.
+                                inventory.as_mut().map(|inv| inv.reborrow()),
                                 audio_editor,
                                 &grammar_diag,
                                 &mut widget_change,

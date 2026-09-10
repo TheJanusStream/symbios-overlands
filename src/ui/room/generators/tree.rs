@@ -23,7 +23,7 @@ pub(super) fn draw_tree_panel(
     ui: &mut egui::Ui,
     source: &mut dyn GeneratorTreeSource,
     panel: &mut super::TreePanelState,
-    inventory: Option<&mut LiveInventoryRecord>,
+    inventory: Option<bevy::prelude::Mut<'_, LiveInventoryRecord>>,
     dirty: &mut bool,
     toasts: &mut crate::notify::Toasts,
     now: f64,

@@ -207,15 +207,24 @@ session_scoped_resources! {
 /// same lifetime and the same absence of any other teardown, and leaving
 /// exactly one of the pair behind is how the next reader concludes that
 /// editor state is meant to survive a logout.
+///
+/// The Inventory's selection goes too (#1301). A stash item is selected by
+/// NAME, and a name is a claim about one user's stash: carried across, it
+/// would pre-select — and ask the item preview to stage — whatever the next
+/// account happens to have under that name. The Catalogue's selection is a
+/// slug in a list compiled into the binary, the same for everyone, and is
+/// deliberately left alone.
 fn clear_editor_state_on_logout(
     mut commands: Commands,
     travel_tasks: Query<Entity, With<crate::player::PortalTravelTask>>,
     mut avatar_editor: ResMut<crate::ui::avatar::AvatarEditorState>,
     mut room_editor: ResMut<crate::ui::room::RoomEditorState>,
+    mut inventory_browser: ResMut<crate::ui::inventory::InventoryBrowser>,
     in_flight: SessionTasks,
 ) {
     *avatar_editor = crate::ui::avatar::AvatarEditorState::default();
     *room_editor = crate::ui::room::RoomEditorState::default();
+    *inventory_browser = crate::ui::inventory::InventoryBrowser::default();
     // Neither `LocalPlayer` nor `RoomEntity`, so `cleanup_on_logout`'s
     // despawn sweep never reaches these. Dropping the `Task` is enough on
     // native; on wasm the work behind it keeps running (project memory,
@@ -719,6 +728,7 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(crate::ui::avatar::AvatarEditorState::default());
         world.insert_resource(crate::ui::room::RoomEditorState::default());
+        world.insert_resource(crate::ui::inventory::InventoryBrowser::default());
         let pool = bevy::tasks::IoTaskPool::get_or_init(bevy::tasks::TaskPool::default);
         let pending = || pool.spawn(std::future::pending::<Result<(), String>>());
         world.spawn(crate::ui::room::PublishRoomTask {
@@ -833,6 +843,7 @@ mod tests {
         );
         world.insert_resource(editor);
         world.insert_resource(crate::ui::room::RoomEditorState::default());
+        world.insert_resource(crate::ui::inventory::InventoryBrowser::default());
 
         world
             .run_system_once(clear_editor_state_on_logout)
@@ -844,5 +855,32 @@ mod tests {
             "a selection made in the previous session still freezes the new one's body"
         );
         assert_eq!(editor.gizmo().worn_prop(), None);
+    }
+
+    /// The Inventory half of #1301. Sequence: select "lantern" in the
+    /// Inventory, log out, log in as someone else who also owns a
+    /// "lantern". The selection is a name, and a name is only meaningful in
+    /// the stash it was picked from — surviving the boundary, it would
+    /// pre-select the next account's item and stage it in the preview.
+    #[test]
+    fn an_inventory_selection_does_not_survive_logout() {
+        let mut world = World::new();
+        world.insert_resource(crate::ui::avatar::AvatarEditorState::default());
+        world.insert_resource(crate::ui::room::RoomEditorState::default());
+        let mut browser = crate::ui::inventory::InventoryBrowser::default();
+        browser.select("lantern", 12.0);
+        world.insert_resource(browser);
+
+        world
+            .run_system_once(clear_editor_state_on_logout)
+            .expect("teardown system");
+
+        let browser = world.resource::<crate::ui::inventory::InventoryBrowser>();
+        assert_eq!(
+            browser.selected_name(),
+            None,
+            "the previous session's pick is still selected"
+        );
+        assert_eq!(browser.picked_at(), 0.0, "and still stamped");
     }
 }

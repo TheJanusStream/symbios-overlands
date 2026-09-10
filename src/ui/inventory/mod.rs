@@ -1,9 +1,11 @@
 //! Personal inventory stash UI.
 //!
 //! The Inventory window lists every `Generator` the owner has tucked aside
-//! across editing sessions. Each entry can be renamed in place via a modal,
-//! removed, or kept — and once the stash diverges from the PDS-persisted
-//! copy, "Save" commits the live-vs-stored diff as one atomic
+//! across editing sessions. A click selects a row (#1301): the selected row
+//! expands in place to carry that item's controls — Wear / Take off,
+//! Rename, delete — and a pane beside the list pictures it and says what
+//! the row does not ([`browser`]). Once the stash diverges from the
+//! PDS-persisted copy, "Save" commits the live-vs-stored diff as one atomic
 //! `com.atproto.repo.applyWrites` batch — one record per item (#696).
 //! The stash is loaded during `AppState::Loading`
 //! (see [`crate::loading::start_inventory_record_fetch`]) so a freshly-logged-in
@@ -25,9 +27,13 @@
 //! (#699) — only the ground-placement branch is owner-gated, and the drop
 //! handler enforces that, not the drag source.
 
+mod browser;
 mod drop;
 
+pub use browser::InventoryBrowser;
 pub use drop::{handle_generator_drop, preview_generator_drop};
+
+use browser::{PaneItem, RowGesture, RowKind, apply_row_gesture, draw_pane, stash_row};
 
 use std::collections::HashMap;
 
@@ -336,6 +342,20 @@ pub struct WearSurface<'w> {
     toasts: ResMut<'w, crate::notify::Toasts>,
 }
 
+/// What a stash row reads and writes besides the stash itself (#1301): the
+/// drop bus a drag arms, the selection a click makes, and the picture the
+/// pane beside the list draws. Bundled because `inventory_ui` sits at
+/// Bevy's 16-parameter ceiling and the drop bus used to be a parameter of
+/// its own — this bundle took its slot. The two `ResMut`s are written only
+/// on a real gesture ([`RowGesture::acts`]); the preview is `Option`
+/// because `item_preview`'s `Startup` system inserts it.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct RowSurface<'w> {
+    pending_drop: ResMut<'w, PendingGeneratorDrop>,
+    browser: ResMut<'w, InventoryBrowser>,
+    preview: Option<Res<'w, crate::item_preview::ItemPreview>>,
+}
+
 /// A Wear / Take off click on an inventory row (#1096), applied after the
 /// list has released its borrow of the stash.
 enum WearAction {
@@ -458,7 +478,7 @@ pub fn inventory_ui(
     mut live: Option<ResMut<LiveInventoryRecord>>,
     stored: Option<Res<StoredInventoryRecord>>,
     mut feedback: ResMut<PublishFeedback<InventoryRecord>>,
-    mut pending_drop: ResMut<PendingGeneratorDrop>,
+    mut rows: RowSurface,
     mut state: Local<InventoryEditorState>,
     time: Res<Time>,
     mut publish_shortcut: ResMut<crate::ui::shortcuts::PublishShortcut>,
@@ -471,11 +491,23 @@ pub fn inventory_ui(
         undo_labels,
         toasts,
     } = &mut wear;
+    let RowSurface {
+        pending_drop,
+        browser,
+        preview,
+    } = &mut rows;
     let (Some(live), Some(stored), Some(session), Some(refresh_ctx)) =
         (live.as_mut(), stored, session, refresh_ctx)
     else {
         return;
     };
+    // A selection whose name no longer resolves — a delete, a Load or
+    // Reset of the whole stash, a reload — is dropped rather than left
+    // naming nothing (#1301). Asked through `Deref`; the resource is
+    // written only when the answer is yes.
+    if browser.is_stale(&live.0) {
+        browser.clear();
+    }
     // Rows are draggable everywhere: releasing over a peer row in the People
     // window offers the item as a gift, which is a personal transaction and
     // valid in ANY room (#699 — gating the drag on room ownership locked
@@ -508,6 +540,11 @@ pub fn inventory_ui(
                 state.renaming_generator = None;
             }
             crate::ui::confirm::RenameOutcome::Renamed(applied) => {
+                // The selection follows the name (#1301): the name is the
+                // item's key, so without this a rename would drop the
+                // selection the rename was made from. Asked before the
+                // rename, which is what can refuse (a taken name).
+                let carry = browser.is_selected(&old_name);
                 // Through the record's own rename so wear metadata (#1096)
                 // travels with the item — and then the worn props' own
                 // provenance, which the stash cannot reach (#1141). The
@@ -524,6 +561,12 @@ pub fn inventory_ui(
                     // record, so this is a real edit to the avatar and
                     // the save row must show it.
                     undo_labels.set_avatar(format!("rename {old_name} to {applied}"));
+                }
+                if carry
+                    && !live.0.generators.contains_key(&old_name)
+                    && live.0.generators.contains_key(&applied)
+                {
+                    browser.follow_rename(&old_name, &applied);
                 }
                 state.renaming_generator = None;
             }
@@ -799,260 +842,339 @@ pub fn inventory_ui(
             });
 
             crate::ui::layout::fill_above(ui, |ui| {
-                egui::ScrollArea::vertical()
-                    .auto_shrink([true, false])
-                    .show(ui, |ui| {
-                        let mut to_remove: Option<String> = None;
-                        let mut wear_action: Option<WearAction> = None;
-                        let q = state.search.trim().to_lowercase();
-                        let mut names: Vec<String> = live
-                            .0
-                            .generators
-                            .keys()
-                            .filter(|name| {
-                                row_matches(
-                                    name,
-                                    live.0
-                                        .generators
-                                        .get(*name)
-                                        .map(|g| g.kind_tag())
-                                        .unwrap_or("?"),
-                                    live.0.wear.get(*name),
-                                    &q,
-                                )
-                            })
-                            .cloned()
-                            .collect();
-                        // Case-insensitive (#841): plain `sort()` put "Zebra"
-                        // before "apple".
-                        names.sort_by_key(|name| name.to_lowercase());
+                let now = time.elapsed_secs_f64();
+                let q = state.search.trim().to_lowercase();
+                let mut names: Vec<String> = live
+                    .0
+                    .generators
+                    .keys()
+                    .filter(|name| {
+                        row_matches(
+                            name,
+                            live.0
+                                .generators
+                                .get(*name)
+                                .map(|g| g.kind_tag())
+                                .unwrap_or("?"),
+                            live.0.wear.get(*name),
+                            &q,
+                        )
+                    })
+                    .cloned()
+                    .collect();
+                // Case-insensitive (#841): plain `sort()` put "Zebra"
+                // before "apple".
+                names.sort_by_key(|name| name.to_lowercase());
 
-                        // An empty list is never a bare rectangle (#1275
-                        // f134): "nothing here" and "nothing matched" are
-                        // different facts and only one of them is the
-                        // user's fault.
-                        if names.is_empty() {
-                            ui.add_space(4.0);
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(empty_state(count == 0))
-                                        .color(crate::ui::theme::current(ui.ctx()).text_weak),
-                                )
-                                .wrap(),
-                            );
-                        } else if names.len() != count {
-                            // The count line above reports the whole stash
-                            // (it is the cap indicator), so the filter has
-                            // to say what it is hiding — otherwise a
-                            // forgotten query reads as a lost item.
-                            ui.label(
-                                egui::RichText::new(format!("Showing {} of {count}", names.len()))
-                                    .small()
-                                    .color(crate::ui::theme::current(ui.ctx()).text_weak),
-                            );
-                        }
+                // An empty stash is never a bare rectangle (#1275 f134), and
+                // has no pane: there is nothing to select.
+                if count == 0 {
+                    ui.add_space(4.0);
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(empty_state(true))
+                                .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                        )
+                        .wrap(),
+                    );
+                    return;
+                }
 
-                        for name in names {
-                            ui.horizontal(|ui| {
-                                // Generators that make no sense as a dropped
-                                // placement (terrain + water are room-scoped, not
-                                // point-placed) render as a plain label so the
-                                // drag sense doesn't arm a release we'd ignore.
-                                let is_placeable = live
-                                    .0
-                                    .generators
-                                    .get(&name)
-                                    .map(crate::pds::inventory::is_drop_placeable)
-                                    .unwrap_or(false);
-                                // An item this build cannot decode (#1207): a
-                                // gift from a newer client, or a stash saved by
-                                // one. It cannot be placed, worn, renamed or
-                                // written back — only kept or deleted — and it
-                                // is what disables Save for the whole stash.
-                                let unreadable = live
-                                    .0
-                                    .generators
-                                    .get(&name)
-                                    .is_some_and(|g| matches!(g.kind, GeneratorKind::Unknown));
-                                // What KIND of blueprint each row is (#841) —
-                                // names alone ("cuboid_2", "my_tree") didn't say.
-                                let kind_tag = live
-                                    .0
-                                    .generators
-                                    .get(&name)
-                                    .map(|g| g.kind_tag())
-                                    .unwrap_or("?");
-                                // Wearables say so, and where (#1096).
-                                let kind_tag = match live.0.wear.get(&name) {
-                                    Some(meta) => format!(
-                                        "{} · wearable, {}",
-                                        crate::pds::GeneratorKind::display_name(kind_tag),
-                                        crate::pds::avatar::socket_label(&meta.socket)
-                                            .to_lowercase()
-                                    ),
-                                    None => kind_tag.to_string(),
-                                };
-                                if is_placeable {
-                                    // The ⠿ handle + grab cursor make the row
-                                    // read as draggable (#832) — it used to be
-                                    // a plain label whose drag sense was
-                                    // discoverable only by accident.
-                                    let label = egui::Label::new(format!("☰ {name}"))
-                                        .sense(egui::Sense::click_and_drag());
-                                    let resp =
-                                        ui.add(label).on_hover_cursor(egui::CursorIcon::Grab);
-                                    ui.label(
-                                        egui::RichText::new(format!("({kind_tag})"))
-                                            .small()
-                                            .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                // The pane's item is read before the split: the list below
+                // writes the selection on a click, and both halves are
+                // closures alive at once. A click lands in the pane on the
+                // next frame, which is also when its row expands.
+                let pane_name = browser.selected_name().map(str::to_owned);
+                let (to_remove, wear_action) = crate::ui::layout::beside_pane(
+                    ui,
+                    crate::ui::item_picture::INVENTORY_SIDE,
+                    |ui| {
+                        egui::ScrollArea::vertical()
+                            .id_salt("inventory_list_scroll")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                let mut to_remove: Option<String> = None;
+                                let mut wear_action: Option<WearAction> = None;
+                                // "Nothing matched" is a different fact from
+                                // "nothing here" (#1275 f134), and the count
+                                // line above reports the whole stash, so the
+                                // filter says what it is hiding — otherwise a
+                                // forgotten query reads as a lost item.
+                                if names.is_empty() {
+                                    ui.add_space(4.0);
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(empty_state(false)).color(
+                                                crate::ui::theme::current(ui.ctx()).text_weak,
+                                            ),
+                                        )
+                                        .wrap(),
                                     );
-                                    if resp.drag_started() {
-                                        pending_drop.generator_name = Some(name.clone());
-                                        pending_drop.source = DropSource::Inventory;
+                                } else if names.len() != count {
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "Showing {} of {count}",
+                                            names.len()
+                                        ))
+                                        .small()
+                                        .color(crate::ui::theme::current(ui.ctx()).text_weak),
+                                    );
+                                }
+                                for name in &names {
+                                    let Some(generator) = live.0.generators.get(name) else {
+                                        continue;
+                                    };
+                                    // What KIND of blueprint each row is
+                                    // (#841); wearables say so, and where
+                                    // (#1096). These are the search facets,
+                                    // so they stay on the row.
+                                    let kind_tag = generator.kind_tag();
+                                    let tag = match live.0.wear.get(name) {
+                                        Some(meta) => format!(
+                                            "{} · wearable, {}",
+                                            crate::pds::GeneratorKind::display_name(kind_tag),
+                                            crate::pds::avatar::socket_label(&meta.socket)
+                                                .to_lowercase()
+                                        ),
+                                        None => kind_tag.to_string(),
+                                    };
+                                    // An item this build cannot decode
+                                    // (#1207): a gift from a newer client, or
+                                    // a stash saved by one. It cannot be
+                                    // placed, worn, renamed or written back,
+                                    // and it is what disables Save for the
+                                    // whole stash — so it is not selectable,
+                                    // and its delete stays on the row: it is
+                                    // the one thing the owner can do about it.
+                                    if matches!(generator.kind, GeneratorKind::Unknown) {
+                                        ui.horizontal(|ui| {
+                                            ui.with_layout(
+                                                egui::Layout::right_to_left(egui::Align::Center),
+                                                |ui| {
+                                                    if crate::ui::affordances::remove_button(
+                                                        ui,
+                                                        "Delete this item from your inventory",
+                                                    )
+                                                    .clicked()
+                                                    {
+                                                        to_remove = Some(name.clone());
+                                                    }
+                                                    let warn = crate::ui::theme::current(ui.ctx())
+                                                        .status
+                                                        .warn;
+                                                    ui.add_enabled_ui(false, |ui| {
+                                                        ui.add(
+                                                            egui::Button::selectable(
+                                                                false,
+                                                                name.as_str(),
+                                                            )
+                                                            .right_text(
+                                                                egui::RichText::new(
+                                                                    UNREADABLE_ITEM_TAG,
+                                                                )
+                                                                .small()
+                                                                .color(warn),
+                                                            )
+                                                            .truncate()
+                                                            .min_size(egui::vec2(
+                                                                ui.available_width(),
+                                                                0.0,
+                                                            )),
+                                                        );
+                                                    })
+                                                    .response
+                                                    .on_disabled_hover_text(UNREADABLE_ITEM_HOVER);
+                                                },
+                                            );
+                                        });
+                                        continue;
                                     }
-                                    if resp.dragged()
+                                    // Terrain and water are room-scoped, not
+                                    // point-placed: selectable, so their
+                                    // Rename and delete are reachable, and no
+                                    // drag sense, so a release is never armed
+                                    // only to be refused (#832).
+                                    let (kind, tag) =
+                                        if crate::pds::inventory::is_drop_placeable(generator) {
+                                            (RowKind::Placeable, format!("({tag})"))
+                                        } else {
+                                            (RowKind::RoomScoped, format!("({tag} — room-scoped)"))
+                                        };
+                                    let selected = browser.is_selected(name);
+                                    let response = stash_row(ui, name, &tag, kind, selected);
+                                    let gesture = RowGesture::of(&response);
+                                    if gesture.acts() {
+                                        apply_row_gesture(
+                                            gesture,
+                                            name,
+                                            browser,
+                                            pending_drop,
+                                            now,
+                                        );
+                                    }
+                                    if gesture.dragged
                                         && pending_drop.generator_name.as_deref()
                                             == Some(name.as_str())
                                     {
                                         // Follow-the-cursor tooltip keeps the
-                                        // dragger oriented while they hunt for a
-                                        // target — without it, the drag is
-                                        // invisible once the pointer leaves the
-                                        // row. Shared with the Catalogue since
-                                        // #1220 f132.
-                                        drag_tooltip(ui, "inv_drag_tip", &name, owns_room);
+                                        // dragger oriented while they hunt for
+                                        // a target — without it, the drag is
+                                        // invisible once the pointer leaves
+                                        // the row. Shared with the Catalogue
+                                        // since #1220 f132.
+                                        drag_tooltip(ui, "inv_drag_tip", name, owns_room);
                                     }
-                                } else if unreadable {
-                                    ui.label(&name);
-                                    ui.label(
-                                        egui::RichText::new(UNREADABLE_ITEM_TAG)
-                                            .small()
-                                            .color(crate::ui::theme::current(ui.ctx()).status.warn),
-                                    )
-                                    .on_hover_text(UNREADABLE_ITEM_HOVER);
-                                } else {
-                                    // Room-scoped kinds (terrain/water) can't be
-                                    // point-placed — say so instead of rendering
-                                    // an identical-looking row that silently
-                                    // refuses to drag (#832; the catalogue
-                                    // already explains the same distinction).
-                                    ui.label(&name);
-                                    ui.label(
-                                        egui::RichText::new(format!("({kind_tag} — room-scoped)"))
-                                            .small()
-                                            .color(crate::ui::theme::current(ui.ctx()).text_weak),
-                                    );
+                                    // The expansion (#1301): the selected row
+                                    // carries the controls every row used to
+                                    // cram inline, so the unselected rows fall
+                                    // quiet.
+                                    if selected {
+                                        ui.indent(
+                                            ("inventory_row_controls", name.as_str()),
+                                            |ui| {
+                                                ui.horizontal(|ui| {
+                                                    // Wear / Take off (#1096) for
+                                                    // items that carry wear
+                                                    // metadata.
+                                                    if let Some(meta) = live.0.wear.get(name) {
+                                                        wear_buttons(
+                                                            ui,
+                                                            name,
+                                                            meta.socket.as_str(),
+                                                            &mut wear_action,
+                                                            live_avatar.as_deref(),
+                                                        );
+                                                    }
+                                                    if ui
+                                                        .small_button("Rename")
+                                                        .on_hover_text("Rename this item")
+                                                        .clicked()
+                                                    {
+                                                        state.renaming_generator =
+                                                            Some((name.clone(), name.clone()));
+                                                    }
+                                                    ui.with_layout(
+                                                    egui::Layout::right_to_left(
+                                                        egui::Align::Center,
+                                                    ),
+                                                    |ui| {
+                                                        if crate::ui::affordances::remove_button(
+                                                            ui,
+                                                            "Delete this item from your inventory",
+                                                        )
+                                                        .clicked()
+                                                        {
+                                                            to_remove = Some(name.clone());
+                                                        }
+                                                    },
+                                                );
+                                                });
+                                            },
+                                        );
+                                    }
                                 }
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        if crate::ui::affordances::remove_button(
-                                            ui,
-                                            "Delete this item from your inventory",
-                                        )
-                                        .clicked()
-                                        {
-                                            to_remove = Some(name.clone());
-                                        }
-                                        if ui
-                                            .add_enabled(
-                                                !unreadable,
-                                                egui::Button::new("Rename").small(),
-                                            )
-                                            .on_disabled_hover_text(UNREADABLE_ITEM_HOVER)
-                                            .clicked()
-                                        {
-                                            state.renaming_generator =
-                                                Some((name.clone(), name.clone()));
-                                        }
-                                        // Wear / Take off (#1096) for items that
-                                        // carry wear metadata.
-                                        if let Some(meta) = live.0.wear.get(&name) {
-                                            wear_buttons(
-                                                ui,
-                                                &name,
-                                                meta.socket.as_str(),
-                                                &mut wear_action,
-                                                live_avatar.as_deref(),
-                                            );
-                                        }
-                                    },
-                                );
+                                (to_remove, wear_action)
+                            })
+                            .inner
+                    },
+                    |ui| {
+                        // ScrollArea: a persisted rect narrower or shorter
+                        // than the slot must scroll the pane, not clip it
+                        // (#1235).
+                        egui::ScrollArea::vertical()
+                            .id_salt("inventory_pane_scroll")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                let item = pane_name.as_deref().and_then(|name| {
+                                    let generator = live.0.generators.get(name)?;
+                                    let worn = live_avatar
+                                        .as_deref()
+                                        .and_then(|avatar| avatar.0.body.rigged_ref())
+                                        .is_some_and(|rig| {
+                                            crate::ui::avatar::is_worn_from(rig, name)
+                                        });
+                                    Some(PaneItem {
+                                        name,
+                                        generator,
+                                        wear: live.0.wear.get(name),
+                                        worn,
+                                    })
+                                });
+                                draw_pane(ui, item, preview.as_deref());
                             });
-                        }
-                        // Applied after the list so the borrow of `live` the rows
-                        // hold is released before the avatar record is dressed.
-                        if let Some(action) = wear_action.take() {
-                            apply_wear_action(
-                                action,
-                                &live.0,
-                                live_avatar.as_deref_mut(),
-                                avatar_editor.as_mut(),
-                                &session.did,
-                                undo_labels.as_mut(),
-                                toasts.as_mut(),
-                                time.elapsed_secs_f64(),
-                            );
-                        }
-                        // Delete asks first (#1200): this is the one surface with
-                        // no undo, and the click sits beside Rename. A worn item
-                        // is named as such — deleting takes it off too, so the
-                        // prop cannot linger on the body with the only row that
-                        // offered "Take off" gone (finding 131).
-                        if let Some(name) = to_remove {
-                            let worn = live_avatar
-                                .as_deref()
-                                .and_then(|avatar| avatar.0.body.rigged_ref())
-                                .is_some_and(|rig| crate::ui::avatar::is_worn_from(rig, &name));
-                            let body = if worn {
-                                format!(
-                                    "You are wearing \"{name}\" — deleting it also takes it off. \
-                                         The inventory has no undo; the stored copy keeps it until \
-                                         you save."
-                                )
-                            } else {
-                                String::from(
-                                    "The inventory has no undo; the stored copy keeps it until \
-                                         you save.",
-                                )
-                            };
-                            state.delete_confirm.request(
-                                format!("Delete \"{name}\"?"),
-                                body,
-                                "Delete",
-                                name,
-                            );
-                        }
-                        if let Some(name) = state.delete_confirm.show(ui.ctx(), "inventory-delete")
-                        {
-                            let worn = live_avatar
-                                .as_deref()
-                                .and_then(|avatar| avatar.0.body.rigged_ref())
-                                .is_some_and(|rig| crate::ui::avatar::is_worn_from(rig, &name));
+                    },
+                );
+                // Applied after the split so the borrow of `live` the rows
+                // and the pane hold is released before the avatar record is
+                // dressed.
+                if let Some(action) = wear_action {
+                    apply_wear_action(
+                        action,
+                        &live.0,
+                        live_avatar.as_deref_mut(),
+                        avatar_editor.as_mut(),
+                        &session.did,
+                        undo_labels.as_mut(),
+                        toasts.as_mut(),
+                        now,
+                    );
+                }
+                // Delete asks first (#1200): this is the one surface with
+                // no undo. A worn item is named as such — deleting takes it
+                // off too, so the prop cannot linger on the body with the
+                // only row that offered "Take off" gone (finding 131).
+                if let Some(name) = to_remove {
+                    let worn = live_avatar
+                        .as_deref()
+                        .and_then(|avatar| avatar.0.body.rigged_ref())
+                        .is_some_and(|rig| crate::ui::avatar::is_worn_from(rig, &name));
+                    let body = if worn {
+                        format!(
+                            "You are wearing \"{name}\" — deleting it also takes it off. \
+                             The inventory has no undo; the stored copy keeps it until \
+                             you save."
+                        )
+                    } else {
+                        String::from(
+                            "The inventory has no undo; the stored copy keeps it until \
+                             you save.",
+                        )
+                    };
+                    state.delete_confirm.request(
+                        format!("Delete \"{name}\"?"),
+                        body,
+                        "Delete",
+                        name,
+                    );
+                }
+                if let Some(name) = state.delete_confirm.show(ui.ctx(), "inventory-delete") {
+                    let worn = live_avatar
+                        .as_deref()
+                        .and_then(|avatar| avatar.0.body.rigged_ref())
+                        .is_some_and(|rig| crate::ui::avatar::is_worn_from(rig, &name));
+                    if worn {
+                        apply_wear_action(
+                            WearAction::TakeOff(name.clone()),
+                            &live.0,
+                            live_avatar.as_deref_mut(),
+                            avatar_editor.as_mut(),
+                            &session.did,
+                            undo_labels.as_mut(),
+                            toasts.as_mut(),
+                            now,
+                        );
+                    }
+                    if live.0.remove_item(&name).is_some() {
+                        toasts.info(
                             if worn {
-                                apply_wear_action(
-                                    WearAction::TakeOff(name.clone()),
-                                    &live.0,
-                                    live_avatar.as_deref_mut(),
-                                    avatar_editor.as_mut(),
-                                    &session.did,
-                                    undo_labels.as_mut(),
-                                    toasts.as_mut(),
-                                    time.elapsed_secs_f64(),
-                                );
-                            }
-                            if live.0.remove_item(&name).is_some() {
-                                toasts.info(
-                                    if worn {
-                                        format!("Deleted \"{name}\" and took it off.")
-                                    } else {
-                                        format!("Deleted \"{name}\".")
-                                    },
-                                    time.elapsed_secs_f64(),
-                                );
-                            }
-                        }
-                    });
+                                format!("Deleted \"{name}\" and took it off.")
+                            } else {
+                                format!("Deleted \"{name}\".")
+                            },
+                            now,
+                        );
+                    }
+                }
             });
             reload_stash
         });

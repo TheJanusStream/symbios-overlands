@@ -712,34 +712,9 @@ pub(super) mod tests {
     pub(in crate::player) fn dressed_app() -> (bevy::app::App, Entity) {
         use bevy::ecs::system::RunSystemOnce;
 
-        let mut app = bevy::app::App::new();
-        app.add_plugins((
-            bevy::app::TaskPoolPlugin::default(),
-            bevy::asset::AssetPlugin::default(),
-        ));
-        app.init_asset::<bevy::prelude::Mesh>();
-        app.init_asset::<bevy::prelude::StandardMaterial>();
-        app.init_asset::<bevy::prelude::Image>();
-        app.init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
-        app.init_asset::<crate::water::WaterMaterial>();
         // Everything `AvatarSpawnDeps` fans out to.
-        app.init_resource::<crate::world_builder::image_cache::BlobImageCache>();
-        app.init_resource::<crate::world_builder::audio_resolver::BlobAudioCache>();
-        app.init_resource::<crate::water::WaterSurfaces>();
-        app.init_resource::<crate::world_builder::lsystem::LSystemMaterialCache>();
-        app.init_resource::<crate::world_builder::lsystem::LSystemMeshCache>();
-        app.init_resource::<crate::world_builder::ShapeMaterialCache>();
-        app.init_resource::<crate::world_builder::ShapeMeshCache>();
-        app.init_resource::<crate::world_builder::prim_cache::PrimMeshCache>();
-        app.init_resource::<crate::world_builder::prim_cache::PrimMaterialCache>();
-        app.init_resource::<bevy_symbios_shape::cache::ShapeMeshCache>();
-        app.init_resource::<crate::world_builder::spatial_audio::BakedAudioCache>();
-        app.insert_resource(crate::world_builder::fresh_texture_cache());
-        app.init_resource::<crate::world_builder::compile::CompiledWorld>();
-        app.init_resource::<crate::world_builder::compile::CompileJob>();
+        let mut app = crate::player::visuals::spawn_path_app();
         app.init_resource::<crate::diagnostics::MetricsRegistry>();
-        app.init_resource::<crate::diagnostics::SessionLog>();
-        app.init_resource::<bevy::prelude::Time>();
 
         // A local chassis wearing one crown, resolved.
         let record = {

@@ -189,6 +189,52 @@ fn fit_to_screen(
 /// edges. Matches the ~10px the old absolute constants used.
 const MARGIN: f32 = 10.0;
 
+/// The narrowest a browsing list may be drawn beside a detail pane: the
+/// Catalogue's tree floor, and the floor #1301's Inventory list is
+/// measured against (`tests::the_inventory_list_keeps_the_catalogue_floor_beside_its_picture`).
+pub(crate) const LIST_MIN_WIDTH: f32 = 180.0;
+
+/// The spacing egui 0.35 gives a `Separator`. Not a style field — it is
+/// hard-coded in `Style::separator_style` (`widget_style.rs`) — so it is
+/// restated here, and the measurement test above is what catches an egui
+/// that changes it.
+const SEPARATOR_SPACING: f32 = 6.0;
+
+/// A list with a fixed-width pane beside it, separated by a rule (#1301):
+/// the Inventory's master-detail split. The pane gets `pane_width`; the list
+/// gets everything else, never less than nothing.
+///
+/// Both regions are top-down and take the full remaining height, the
+/// Catalogue's idiom (a region inheriting the horizontal flow lays its
+/// children out side by side). Returns what `list` returned.
+pub(crate) fn beside_pane<R>(
+    ui: &mut egui::Ui,
+    pane_width: f32,
+    list: impl FnOnce(&mut egui::Ui) -> R,
+    pane: impl FnOnce(&mut egui::Ui),
+) -> R {
+    let gap = SEPARATOR_SPACING + 2.0 * ui.spacing().item_spacing.x;
+    let list_width = (ui.available_width() - pane_width - gap).max(0.0);
+    ui.horizontal_top(|ui| {
+        let height = ui.available_height();
+        let out = ui
+            .allocate_ui_with_layout(
+                egui::vec2(list_width, height),
+                egui::Layout::top_down(egui::Align::Min),
+                list,
+            )
+            .inner;
+        ui.separator();
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), height),
+            egui::Layout::top_down(egui::Align::Min),
+            pane,
+        );
+        out
+    })
+    .inner
+}
+
 /// Horizontal placement of a [`SlotAnchor::CenterLeft`] window: this
 /// fraction of the leftover width goes to its left. 0.25 reads as
 /// "left of center" — enough room that the right-anchored social
@@ -266,12 +312,19 @@ impl UiWindow {
     /// window (Bevy's default): People 300→280, Inventory 400→340 —
     /// both windows scroll, and top+Inventory+People must fit
     /// 40+340+10+280 ≤ 690 for the #833 acceptance layout.
+    ///
+    /// The Inventory's WIDTH is at its ceiling (#1301). The World Editor is
+    /// `CenterLeft` at x = (1280 - 820) × 0.25 = 115, so its right edge is
+    /// 935; opened first, it leaves the Inventory one free spot, beside it
+    /// at 945, and 1280 - 945 = 335. Swept through the trio test's six
+    /// orders: clean to 335, red at 336. The width buys the list-and-pane
+    /// split its list — see `ui::item_picture::INVENTORY_SIDE`.
     pub fn slot(self) -> Slot {
         use SlotAnchor::*;
         let (anchor, size) = match self {
             Self::Chat => (Right, [380.0, 400.0]),
             Self::People => (Right, [280.0, 280.0]),
-            Self::Inventory => (Right, [300.0, 340.0]),
+            Self::Inventory => (Right, [335.0, 340.0]),
             Self::Diagnostics => (Left, [280.0, 480.0]),
             // 760 wide so the embedded generator tree's 260px side
             // panel leaves a usable detail panel (#830). Height is an
@@ -865,6 +918,64 @@ mod tests {
         for order in orders {
             let rects = open_in_sequence(&order, default_avail());
             assert_layout_clean(&order, &rects, default_avail());
+        }
+    }
+
+    /// #1301. The Inventory's list keeps the Catalogue's floor beside its
+    /// picture, in a real window at the slot's size, under every palette.
+    ///
+    /// Measured rather than added up, because the sum has three terms egui
+    /// owns: `Window::default_size` is the OUTER size, so the frame's
+    /// margin and stroke come off first — and the stroke is a point wider
+    /// in high contrast (#1283) — and the separator's spacing is not a
+    /// style field at all. The arithmetic says 335 - 14 - 22 - 112 = 187;
+    /// this says what egui actually lays out.
+    #[test]
+    fn the_inventory_list_keeps_the_catalogue_floor_beside_its_picture() {
+        use crate::ui::item_picture::INVENTORY_SIDE;
+        use crate::ui::theme::Theme;
+
+        let slot = UiWindow::Inventory.slot();
+        for (palette, theme) in [
+            ("dark", Theme::dark()),
+            ("light", Theme::light()),
+            ("high contrast", Theme::high_contrast()),
+        ] {
+            let ctx = egui::Context::default();
+            let (mut list, mut pane) = (0.0_f32, 0.0_f32);
+            for _ in 0..3 {
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_max(
+                        egui::Pos2::ZERO,
+                        egui::pos2(1280.0, 720.0),
+                    )),
+                    ..Default::default()
+                };
+                let _ = ctx.run_ui(input, |ui| {
+                    crate::ui::theme::apply_theme(ui.ctx(), &theme);
+                    egui::Window::new("Inventory")
+                        .default_pos(egui::pos2(945.0, 40.0))
+                        .default_size(egui::vec2(slot.size[0], slot.size[1]))
+                        .resizable(true)
+                        .show(ui.ctx(), |ui| {
+                            beside_pane(
+                                ui,
+                                INVENTORY_SIDE,
+                                |ui| list = ui.available_width(),
+                                |ui| pane = ui.available_width(),
+                            );
+                        });
+                });
+            }
+            assert!(
+                pane >= INVENTORY_SIDE - 0.5,
+                "{palette}: the pane got {pane:.1}, less than its {INVENTORY_SIDE} picture"
+            );
+            assert!(
+                list >= LIST_MIN_WIDTH,
+                "{palette}: the list got {list:.1} beside the picture, under the \
+                 {LIST_MIN_WIDTH} floor the Catalogue keeps"
+            );
         }
     }
 
