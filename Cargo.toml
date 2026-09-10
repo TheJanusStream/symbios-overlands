@@ -69,13 +69,13 @@ bevy_symbios_texture = { version = "0.12", features = ["egui"] }
 symbios-texture = "0.7"
 bevy_symbios_audio = { version = "0.4", features = ["egui"] }
 transform-gizmo-bevy = "0.11"
-symbios-avatar = "0.7"
+symbios-avatar = "0.8"
 symbios = "1.5"
 symbios-turtle-3d = "0.6"
 symbios-shape = "0.4"
 bevy_symbios_shape = "0.9"
 symbios-tensor = "0.4"
-bevy_symbios_avatar = "0.8"
+bevy_symbios_avatar = "0.9"
 gen-jobs = { path = "crates/gen-jobs" }
 avian3d = "0.7"
 fast-surface-nets = "0.2"

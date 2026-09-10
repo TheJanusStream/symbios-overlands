@@ -16,6 +16,12 @@ pub struct HumanoidParams {
     pub capsule_length: Fp,
     pub mass: Fp,
     pub linear_damping: Fp,
+    /// The travel speed Shift runs at (m/s) — the RUN since #1193, under
+    /// its old wire name; the unshifted walk is derived from the body
+    /// (`player::humanoid::WALK_FROUDE`). Required on the wire and never
+    /// skipped, so every published record carries its own value: the
+    /// default reaches freshly created and freshly seeded records only, and
+    /// an owner moves their own in the Locomotion tab's Run speed.
     pub walk_speed: Fp,
     pub acceleration: Fp,
     pub jump_impulse: Fp,
@@ -55,7 +61,8 @@ impl Default for HumanoidParams {
             capsule_length: Fp(1.24),
             mass: Fp(80.0),
             linear_damping: Fp(0.3),
-            walk_speed: Fp(4.0),
+            // The owner's run (#1323), up from 4.0.
+            walk_speed: Fp(5.0),
             acceleration: Fp(12.0),
             jump_impulse: Fp(450.0),
             swim_speed: Fp(2.5),

@@ -66,15 +66,17 @@ pub(in crate::player) fn fill_rigged_drive(
             // for the one reason that component exists: a body on its first
             // frame has no previous position, and calling the install-time
             // snapshot one would start a peer arriving away from the origin
-            // on a colossal launch.
+            // on a colossal launch. Over the delta of the frame that position
+            // was seen on, not this one's: the transform read here is last
+            // frame's playout (see [`RiggedTrail`], #1323).
             None => {
                 drive.velocity = trail
                     .last
-                    .map_or(Vec3::ZERO, |last| (position - last) / delta);
+                    .map_or(Vec3::ZERO, |(last, over)| (position - last) / over);
                 drive.at = position;
             }
         }
-        trail.last = Some(position);
+        trail.last = Some((position, delta));
         // **The chassis' yaw carried THROUGH the rigged root's half turn**
         // (#1066). The engine's forward is `+Z` and Bevy's is `-Z`, so the
         // body's world forward is the chassis' own `-Z`; handing the driver

@@ -112,21 +112,100 @@ fn chassis_with_body(app: &mut App) -> (Entity, Entity) {
     (chassis, root)
 }
 
-/// One frame of motion: this app's fill, then the sibling crate's driver.
+/// A remote peer's speed is how far it travelled over the frame that travel
+/// took, whatever the frame times do (#1323).
 ///
-/// **Both, always.** Carrying a [`Drive`] is what opts a body into
-/// [`bevy_symbios_avatar::drive_avatar_bodies`], so the two are one unit — the
-/// fill advances no clock and writes no pose on its own, and the driver alone
-/// would run a body off last frame's chassis. Driving through half of a pair
-/// and believing the reading is the #1069 mistake this file already records,
-/// which is why every instrument below goes through this one helper.
-fn drive_frame(app: &mut App) {
-    app.world_mut()
-        .run_system_once(fill_rigged_drive)
-        .expect("the fill runs");
-    app.world_mut()
-        .run_system_once(bevy_symbios_avatar::drive_avatar_bodies)
-        .expect("the driver runs");
+/// A peer's chassis is a bare transform the smoother writes in `Update`, so
+/// the fill differences its position. It reads `GlobalTransform`, which a
+/// bare transform only gets at `PostUpdate`'s propagation: in `Update` it
+/// still holds LAST frame's playout, so each frame's displacement was
+/// travelled over the frame BEFORE. Divided by this frame's delta instead, a
+/// peer walking steadily read `v × previous / this` — twice its speed on the
+/// frame after a dropped vsync frame, and on the frame after a 50–99 ms
+/// hitch enough to push a walk at Froude 0.49 over the engine's 0.5 walk-run
+/// transition, which has no hysteresis. `probe_a_walking_peer_against_the_
+/// walk_run_transition` measured that; this pins the arithmetic under it.
+///
+/// **Driven through the app's real schedule shape** — `app.update()` with
+/// Bevy's own transform propagation and a manually stepped clock — rather
+/// than by writing `GlobalTransform` by hand, because the lag IS the
+/// schedule: a harness that writes `GlobalTransform` in-frame measures a
+/// fill the app does not have. If the premise ever changes (something
+/// propagates a peer between the smoother and the fill), this fails instead
+/// of the fix silently halving a peer's speed.
+#[test]
+fn a_peers_speed_is_its_travel_over_the_frame_the_travel_took() {
+    use bevy::time::TimeUpdateStrategy;
+    use std::time::Duration;
+
+    /// The walk being played out, m/s.
+    const SPEED: f32 = 1.85;
+
+    #[derive(Component)]
+    struct PlayedOut;
+
+    /// The smoother's shape: the peer's `Transform` at this frame's time.
+    fn play_out(time: Res<Time>, mut peers: Query<&mut Transform, With<PlayedOut>>) {
+        for mut transform in &mut peers {
+            transform.translation = Vec3::NEG_Z * SPEED * time.elapsed_secs();
+        }
+    }
+
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, bevy::transform::TransformPlugin));
+    app.init_resource::<crate::player::RigHold>();
+    app.add_systems(Update, (play_out, motion::fill_rigged_drive).chain());
+    let chassis = app
+        .world_mut()
+        .spawn((Transform::default(), PlayedOut))
+        .id();
+    let root = app
+        .world_mut()
+        .spawn((
+            RiggedRoot,
+            Drive::default(),
+            RiggedTrail::default(),
+            Transform::default(),
+            ChildOf(chassis),
+        ))
+        .id();
+
+    // A 60 Hz client that drops one vsync frame, stalls 68 ms (the wasm draft
+    // build this module documents), and then runs at 144 Hz for a while.
+    let frames = std::iter::repeat_n(1.0 / 60.0, 12)
+        .chain([2.0 / 60.0])
+        .chain(std::iter::repeat_n(1.0 / 60.0, 6))
+        .chain([0.068])
+        .chain(std::iter::repeat_n(1.0 / 60.0, 6))
+        .chain(std::iter::repeat_n(1.0 / 144.0, 12));
+    let mut read = Vec::new();
+    for (frame, secs) in frames.enumerate() {
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+            secs,
+        )));
+        app.update();
+        let velocity = app.world().get::<Drive>(root).expect("a drive").velocity;
+        // The first frames have nothing to difference against: the fill's
+        // first sight of the chassis, and the one whose previous position is
+        // still the spawn pose rather than a playout.
+        if frame >= 3 {
+            read.push((frame, secs, velocity.length()));
+        }
+    }
+    println!(
+        "peer speed per frame (frame, delta ms, m/s): {}",
+        read.iter()
+            .map(|(frame, secs, speed)| format!("{frame}:{:.1}:{speed:.3}", secs * 1000.0))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    for (frame, secs, speed) in read {
+        assert!(
+            (speed - SPEED).abs() < 1e-3,
+            "frame {frame} ({:.1} ms) read the peer at {speed:.4} m/s, walking at {SPEED}",
+            secs * 1000.0
+        );
+    }
 }
 
 /// The driver on a body, which is where the state these instruments read
@@ -925,11 +1004,6 @@ fn probe_whether_changing_speed_slides_a_planted_foot() {
 /// the body is still nominally travelling while it holds, so a governor
 /// judged only against an instantaneous stop is judged against the one
 /// profile that makes waiting maximally expensive.
-/// The idle seed every stop instrument stands its body on (#1194): the value
-/// [`super::next_room_seed`] draws first in a fresh process, so the figure is
-/// the one the instrument always read for its first sim when run alone.
-const INSTRUMENT_SEED: u64 = 7;
-
 fn skid_through_a_decelerating_stop(walk_frames: usize, ramp_frames: usize) -> (f32, f32, usize) {
     let mut app = test_app();
     let chassis = app

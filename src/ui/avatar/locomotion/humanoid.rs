@@ -43,9 +43,9 @@ impl LocomotionPanel for HumanoidParams {
                 // run tuned at or below the body's own walk collapses both
                 // branches to one number and Shift stops doing anything —
                 // with no message, no disabled control, just a key that
-                // stopped working. The derived walk is ~1.73 m/s on the
+                // stopped working. The derived walk is ~1.85 m/s on the
                 // default body against a slider that starts at 1.0, so
-                // roughly the bottom 8% of its travel is the trap.
+                // roughly the bottom tenth of its travel is the trap.
                 if let Some(walk) = facts.derived_walk {
                     ui.label(
                         egui::RichText::new(format!("Walk is ~{walk:.1} m/s on this body"))

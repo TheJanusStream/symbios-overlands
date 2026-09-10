@@ -157,8 +157,20 @@ pub(super) struct RiggedBuild {
 #[derive(Component)]
 pub(crate) struct RiggedRoot;
 
-/// Where this body's chassis was on the last frame the fill saw it, or `None`
-/// before the first.
+/// Where this body's chassis was on the last frame the fill saw it, and that
+/// frame's delta, or `None` before the first.
+///
+/// **The delta is the one the NEXT displacement was travelled over** (#1323).
+/// A remote peer's chassis is a bare transform the smoother writes in
+/// `Update`, and the fill reads its `GlobalTransform`, which such a transform
+/// only gets at `PostUpdate`'s propagation — so each frame the fill sees last
+/// frame's playout, and the step from `last` to it was travelled over the
+/// frame `last` was seen on, not over this one. Dividing by this frame's
+/// delta read a steady walker at `v × previous / this`: twice its speed on
+/// the frame after a dropped vsync frame, and over the engine's walk-run
+/// transition after a 50–99 ms hitch. At a steady frame rate the two deltas
+/// are the same number, so every instrument that marches a chassis at a fixed
+/// step reads what it always read.
 ///
 /// **Consumer state, and deliberately not [`bevy_symbios_avatar::Drive::at`]**
 /// (#1171). A body whose motion arrives as positions rather than as a velocity
@@ -177,7 +189,7 @@ pub(crate) struct RiggedRoot;
 /// worth 0.3 mm on the stop skid the first time this was tried.
 #[derive(Component, Default)]
 pub(super) struct RiggedTrail {
-    last: Option<Vec3>,
+    last: Option<(Vec3, f32)>,
 }
 
 /// The next idle-and-blink seed for a body about to join the room.
@@ -193,6 +205,34 @@ pub(super) struct RiggedTrail {
 pub(super) fn next_room_seed() -> u64 {
     static SEED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(7);
     SEED.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The idle seed every instrument stands its body on (#1194): the value
+/// [`next_room_seed`] draws first in a fresh process, so the figure is the one
+/// the instrument always read for its first sim when run alone.
+///
+/// Shared by the body instruments in this module's tests and the turning
+/// harness beside the chassis controller (#1323), so the two read one body.
+#[cfg(test)]
+pub(super) const INSTRUMENT_SEED: u64 = 7;
+
+/// One frame of motion: this app's fill, then the sibling crate's driver.
+///
+/// **Both, always.** Carrying a [`bevy_symbios_avatar::Drive`] is what opts a
+/// body into [`bevy_symbios_avatar::drive_avatar_bodies`], so the two are one
+/// unit — the fill advances no clock and writes no pose on its own, and the
+/// driver alone would run a body off last frame's chassis. Driving through half
+/// of a pair and believing the reading is the #1069 mistake this module's tests
+/// record, which is why every instrument goes through this one helper.
+#[cfg(test)]
+pub(super) fn drive_frame(app: &mut App) {
+    use bevy::ecs::system::RunSystemOnce;
+    app.world_mut()
+        .run_system_once(fill_rigged_drive)
+        .expect("the fill runs");
+    app.world_mut()
+        .run_system_once(bevy_symbios_avatar::drive_avatar_bodies)
+        .expect("the driver runs");
 }
 
 mod build;

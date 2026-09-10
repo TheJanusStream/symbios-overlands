@@ -172,11 +172,26 @@ fn structural_slug(outfit: &AvatarOutfit, slot: PartSlot) -> &'static str {
         .map_or("", |p| p.slug)
 }
 
+/// The gait cadence, in steps a second, at which a seeded humanoid travels
+/// at exactly the preset's default travel speed.
+const NOMINAL_STEP_CADENCE: f32 = 2.2;
+
+/// The travel speed — the run since #1193 — a seeded humanoid gets for its
+/// gait cadence, m/s: the preset's default scaled by the cadence against
+/// [`NOMINAL_STEP_CADENCE`], so a long-legged strider actually covers ground
+/// faster than a short-stepped walker.
+///
+/// Read off [`HumanoidParams::default`] rather than a literal of its own, so
+/// the seeded records and the preset cannot disagree about what a default
+/// run is (#1323 moved it 4.0 → 5.0 m/s), and shared with the procedural
+/// gait's no-record fallback for the same reason.
+pub(crate) fn seeded_travel_speed(step_cadence: f32) -> f32 {
+    HumanoidParams::default().walk_speed.0 * (step_cadence / NOMINAL_STEP_CADENCE)
+}
+
 /// Humanoid locomotion tuned to the **engine** body the seed rolls
 /// (#1060): the collider capsule tracks that body's own stature and the
-/// walk speed tracks the seeded gait cadence (nominal 2.2 steps/s ↔ the
-/// preset's default 4.0 m/s), so a long-legged strider actually covers
-/// ground faster than a short-stepped walker.
+/// travel speed tracks the seeded gait cadence ([`seeded_travel_speed`]).
 ///
 /// Sized from the engine record rather than the retired humanoid
 /// blueprint, and that is a correctness fix rather than a swap of
@@ -191,7 +206,7 @@ fn humanoid_locomotion(seed: u64) -> LocomotionConfig {
     // clamp keeps a rolled extreme inside collider sanity.
     p.capsule_radius = Fp((stature * 0.11).clamp(0.18, 0.34));
     p.capsule_length = Fp((stature - 2.0 * p.capsule_radius.0).max(0.4));
-    p.walk_speed = Fp(4.0 * (gait.step_cadence / 2.2));
+    p.walk_speed = Fp(seeded_travel_speed(gait.step_cadence));
     p.into_config()
 }
 

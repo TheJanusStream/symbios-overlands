@@ -52,10 +52,6 @@ const BLEND_RATE: f32 = 6.0;
 /// Idle look-around frequency (Hz) — deliberately much slower than the
 /// weight-shift sway so the two don't read as one wobble.
 const HEAD_TURN_FREQ_HZ: f32 = 0.08;
-/// The nominal cadence↔walk-speed mapping the seeded locomotion default
-/// uses (`walk_speed = 4.0 * cadence / 2.2`); the bounce phase advances
-/// at full rate when moving at that speed.
-const NOMINAL_SPEED_PER_CADENCE: f32 = 4.0 / 2.2;
 /// Midpoint of the seeded `idle_sway_frequency` range (0.4–1.2 Hz). The
 /// skiff and airship profiles have characteristic frequencies of their own
 /// (engine buzz, lazy drift) far from the human sway band, so they consume
@@ -146,7 +142,8 @@ pub struct GaitAnimation {
     /// record each frame while the humanoid preset is active. Footfall
     /// cadence reaches the seeded/authored `step_cadence` at exactly this
     /// speed (#877); `None` (vehicle presets, missing record) falls back
-    /// to the seeded `walk_speed = cadence × 4.0 / 2.2` mapping.
+    /// to the seeded cadence mapping,
+    /// [`crate::pds::avatar::default_visuals::seeded_travel_speed`].
     walk_speed_hint: Option<f32>,
     /// Which per-family profile [`Self::advance`] drives.
     mode: GaitMode,
@@ -474,11 +471,13 @@ impl GaitAnimation {
         // the avatar's tuned walk speed (#877) — scaled by how fast the
         // avatar actually moves relative to it (wading halves it, standing
         // stops it). Without a tuned speed (no record yet), fall back to
-        // the seeded `walk_speed = 4.0 · cadence / 2.2` mapping, which is
-        // exactly the pre-#877 behavior.
+        // the speed a seeded record would carry for this cadence, which is
+        // the pre-#877 behavior.
         let nominal_speed = self
             .walk_speed_hint
-            .unwrap_or(g.step_cadence * NOMINAL_SPEED_PER_CADENCE)
+            .unwrap_or_else(|| {
+                crate::pds::avatar::default_visuals::seeded_travel_speed(g.step_cadence)
+            })
             .max(0.1);
         let step_rate = g.step_cadence * (speed / nominal_speed).clamp(0.0, 1.6);
         self.phase = (self.phase + step_rate * dt).fract();
@@ -602,7 +601,7 @@ mod tests {
         let mut max_bounce: f32 = 0.0;
         let mut last = (Vec3::ZERO, 0.0, 0.0);
         // Walk at the nominal speed for a while; sample the peak bounce.
-        let speed = a.gait.step_cadence * NOMINAL_SPEED_PER_CADENCE;
+        let speed = crate::pds::avatar::default_visuals::seeded_travel_speed(a.gait.step_cadence);
         for i in 0..600 {
             last = a.advance(1.0 / 60.0, i as f32 / 60.0, speed, 0.0);
             max_bounce = max_bounce.max(last.0.y);
