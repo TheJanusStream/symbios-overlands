@@ -1802,15 +1802,40 @@ mod tests {
         ] {
             let src = std::fs::read_to_string(root.join(rel)).expect("source is readable");
             assert!(
-                src.contains("can_edit_room()"),
-                "{rel} must gate the room gizmo on RoomEditAccess"
-            );
-            assert!(
                 !src.contains("panels.world_editor"),
                 "{rel} reads the window flag directly again — that flag is true \
                  for a visitor standing in a stranger's world"
             );
         }
+        for rel in ["src/editor_gizmo/sync.rs", "src/editor_gizmo/highlight.rs"] {
+            let src = std::fs::read_to_string(root.join(rel)).expect("source is readable");
+            assert!(
+                src.contains("can_edit_room()"),
+                "{rel} must gate the room gizmo on RoomEditAccess"
+            );
+        }
+        // The overlay asks through its mirror since #1297: the gate is
+        // folded into `world_builder::PlacementFocus` by
+        // `ui::room::mirror_placement_focus`, and the visualiser reads
+        // only that. Either half going back to the editor's own state is
+        // the visitor bug again.
+        let overlay = std::fs::read_to_string(root.join("src/world_builder/mod.rs"))
+            .expect("source is readable");
+        assert!(
+            overlay.contains("Res<PlacementFocus>") && !overlay.contains("RoomEditorState>"),
+            "the placement overlay must read PlacementFocus and nothing of the editor"
+        );
+        let mirror =
+            std::fs::read_to_string(root.join("src/ui/room/mod.rs")).expect("source is readable");
+        let body = mirror
+            .split("pub fn mirror_placement_focus(")
+            .nth(1)
+            .expect("the placement mirror exists");
+        let body = body.split("\n}\n").next().unwrap_or("");
+        assert!(
+            body.contains("can_edit_room()"),
+            "mirror_placement_focus must gate the focus on RoomEditAccess"
+        );
     }
 
     /// **The camera rows name gestures a laptop can perform** (#1242

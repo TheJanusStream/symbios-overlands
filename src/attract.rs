@@ -55,7 +55,6 @@ use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraSystemSet};
 use crate::pds::RoomRecord;
 use crate::state::{AppState, LiveRoomRecord, LocalSettings};
 use crate::terrain::FinishedHeightMap;
-use crate::ui::login::{BeginAuthTask, CompleteAuthTask, LoginUiLatch};
 
 /// Marker resource: the world currently compiled from [`LiveRoomRecord`]
 /// is the login screen's demo world, not a session's room. Its presence
@@ -71,6 +70,35 @@ pub struct AttractScene;
 /// already reset when the replacement seeds.
 #[derive(Resource)]
 pub struct AttractReroll;
+
+/// What the login screen is doing right now, as far as the backdrop needs
+/// to know (#1297 step 1). [`start_attract_scene`] used to query the
+/// login flow's three task markers and its auto-submit latch itself,
+/// which pointed the dependency arrow from this plugin into the egui
+/// layer; every one of those reads asked the same question — "is this
+/// Login state about to redirect?" — so that answer is what crosses now,
+/// the [`crate::player::RigHold`] shape of #1158.
+///
+/// Mirrored once per frame in `PreUpdate` by
+/// `ui::login::mirror_login_activity`, the only writer, guarded (#879).
+/// The tasks are spawned and drained inside `ui::login`, so they stay
+/// UI state; a task spawned through `Commands` becomes visible to the
+/// mirror in the frame after its queue flushes, which is the same frame
+/// the entity query it replaced first saw it — and the same flush that
+/// retires the wasm boot handoff marker (#978), so no frame sees the
+/// marker gone with the flight not yet reported. Absent latch: every
+/// field `false`.
+#[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LoginActivity {
+    /// An authorization round-trip is in flight: the PAR + `authorize`
+    /// initiation, the code → token exchange, or (wasm) the
+    /// persisted-session resume.
+    pub auth_in_flight: bool,
+    /// The boot params' auto-submit has already fired this Login entry —
+    /// what `boot_params::entry_plan` needs to tell an armed plan from a
+    /// spent one.
+    pub autosubmitted: bool,
+}
 
 /// Run condition for the terrain / world-builder system groups: the
 /// historical `not(in_state(Login))` gate, widened to also pass while
@@ -90,26 +118,24 @@ pub fn world_pipeline_active(
 /// The guards all mean "this Login state is (or may be) transient":
 /// burning a multi-second world build behind a screen that is about to
 /// redirect would slow the *real* login down for nothing.
-#[allow(clippy::too_many_arguments)]
 pub fn start_attract_scene(
     mut commands: Commands,
     settings: Res<LocalSettings>,
     attract: Option<Res<AttractScene>>,
     record: Option<Res<LiveRoomRecord>>,
-    begin_tasks: Query<(), With<BeginAuthTask>>,
-    complete_tasks: Query<(), With<CompleteAuthTask>>,
+    activity: Res<LoginActivity>,
     boot: Option<Res<crate::boot_params::BootParams>>,
-    latch: Res<LoginUiLatch>,
     #[cfg(not(target_arch = "wasm32"))] native_wait: Option<
         Res<crate::oauth::NativeCallbackReceiver>,
     >,
     #[cfg(target_arch = "wasm32")] handoff: Option<Res<crate::oauth::AuthHandoffPending>>,
-    #[cfg(target_arch = "wasm32")] resume_tasks: Query<(), With<crate::ui::login::ResumeAuthTask>>,
 ) {
     if !settings.login_world_backdrop || attract.is_some() || record.is_some() {
         return;
     }
-    if !begin_tasks.is_empty() || !complete_tasks.is_empty() {
+    // An initiation, an exchange or (wasm) a resume is running: the
+    // screen is about to redirect or hand over.
+    if activity.auth_in_flight {
         return;
     }
     // An armed auto-submit fires on the first idle frame; only once it has
@@ -120,7 +146,7 @@ pub fn start_attract_scene(
     // would suppress the backdrop for the whole login.
     if let Some(boot) = boot.as_deref()
         && matches!(
-            crate::boot_params::entry_plan(boot, latch.autosubmitted, false),
+            crate::boot_params::entry_plan(boot, activity.autosubmitted, false),
             crate::boot_params::EntryPlan::Auto
         )
     {
@@ -134,15 +160,15 @@ pub fn start_attract_scene(
     // session found in the URL/localStorage *before the App ran*. It
     // covers exactly the frames in which the resolving one-shots have
     // queued their task spawn but no other system can see it yet;
-    // afterwards the task queries below take over. Without it the OAuth
-    // return seeded a whole demo world that the `Login → Loading`
+    // afterwards `activity.auth_in_flight` above takes over. Without it
+    // the OAuth return seeded a whole demo world that the `Login → Loading`
     // handover discarded a second later — visible as a flash, and
     // expensive: on wasm a dropped `Task` does *not* cancel its future,
     // so the discarded world's heightmap and splat bakes ran on to
     // completion, holding the four-worker gen pool against the real
     // world's load.
     #[cfg(target_arch = "wasm32")]
-    if handoff.is_some() || !resume_tasks.is_empty() {
+    if handoff.is_some() {
         return;
     }
 
@@ -287,21 +313,22 @@ pub struct AttractPlugin;
 
 impl Plugin for AttractPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            start_attract_scene.run_if(in_state(AppState::Login)),
-        )
-        .add_systems(
-            Update,
-            reroll_attract_scene
-                .run_if(in_state(AppState::Login).and_then(resource_exists::<AttractReroll>)),
-        )
-        .add_systems(
-            PostUpdate,
-            drive_attract_camera
-                .before(PanOrbitCameraSystemSet)
-                .run_if(in_state(AppState::Login).and_then(resource_exists::<AttractScene>)),
-        )
-        .add_systems(OnExit(AppState::Login), end_attract_scene);
+        app.init_resource::<LoginActivity>()
+            .add_systems(
+                Update,
+                start_attract_scene.run_if(in_state(AppState::Login)),
+            )
+            .add_systems(
+                Update,
+                reroll_attract_scene
+                    .run_if(in_state(AppState::Login).and_then(resource_exists::<AttractReroll>)),
+            )
+            .add_systems(
+                PostUpdate,
+                drive_attract_camera
+                    .before(PanOrbitCameraSystemSet)
+                    .run_if(in_state(AppState::Login).and_then(resource_exists::<AttractScene>)),
+            )
+            .add_systems(OnExit(AppState::Login), end_attract_scene);
     }
 }

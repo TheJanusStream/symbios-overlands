@@ -239,6 +239,31 @@ impl PlacementUnit {
 #[derive(Resource)]
 pub struct WorldCompiled;
 
+/// The placement the World Editor has in focus, or `None` (#1297 step 4).
+///
+/// `Some(idx)` means all of: the World Editor window is open, this is the
+/// owner's own room, the Placements tab is showing, and row `idx` is the
+/// selected anchor. [`draw_placement_visualizers`] outlines that placement
+/// and reads nothing else — it used to read the editor's whole state and
+/// the toolbar's access gate itself, which pointed the dependency arrow
+/// from the world pipeline into the egui layer. One `Option<usize>` is
+/// what it ever read, so one `Option<usize>` is what crosses now: the
+/// [`crate::player::RigHold`] shape of #1158.
+///
+/// Mirrored once per frame in `PreUpdate` by
+/// [`crate::ui::room::mirror_placement_focus`], the only writer, guarded
+/// (#879) so the resource is not marked changed every frame. Absent editor
+/// state or an absent access gate (before login, the headless render tool)
+/// reads as `None`. The overlay therefore draws the PREVIOUS frame's panel
+/// state — the mirror runs before the egui pass that changes it, exactly
+/// as `RigHold` does — which is acceptable for an outline that trails a
+/// list click by one frame.
+#[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlacementFocus {
+    /// Index into `RoomRecord::placements` of the focused row.
+    pub selected: Option<usize>,
+}
+
 /// A world rebuild the owner asked for and is waiting on (#1249 f270).
 ///
 /// Re-roll is the headline creative gesture of a seeded world and it was the
@@ -442,6 +467,7 @@ impl Plugin for WorldBuilderPlugin {
             .init_resource::<image_cache::BlobImageCache>()
             .init_resource::<audio_resolver::BlobAudioCache>()
             .init_resource::<asset_failure::AssetRetryRequests>()
+            .init_resource::<PlacementFocus>()
             .init_resource::<spatial_audio::BakedAudioCache>()
             .init_resource::<particles::ParticleQuadMesh>()
             .init_resource::<particles::ParticleAtlasMeshes>()
@@ -606,32 +632,31 @@ fn reset_traits(commands: &mut Commands, entity: Entity) {
     commands.entity(entity).remove::<Sensor>();
 }
 
+/// Outline the focused placement (#1297 step 4): a sphere for an Absolute
+/// anchor, a flat circle or rectangle for a Scatter's bounds, the cell
+/// grid for a Grid.
+///
+/// Reads only [`PlacementFocus`], which already folds in the gate the
+/// gizmo and its highlight use (#1237 f142): the World Editor open, on
+/// the owner's own room, on the Placements tab. This overlay once had
+/// NEITHER an ownership nor a panel gate — a visitor who travelled with a
+/// placement selected arrived in a stranger's overland to find a glowing
+/// green circle floating over their terrain, indexed into the
+/// newly-arrived room's placements — and the mirror is where that gate
+/// lives now.
 fn draw_placement_visualizers(
     mut gizmos: Gizmos<crate::editor_gizmo::EditorOverlayGizmos>,
-    editor_state: Res<crate::ui::room::RoomEditorState>,
+    focus: Res<PlacementFocus>,
     record: Option<Res<LiveRoomRecord>>,
     heightmap: Option<Res<FinishedHeightMap>>,
-    access: crate::ui::toolbar::RoomEditAccess,
 ) {
-    // The same gate the gizmo and its highlight use (#1237 f142). This
-    // overlay had NEITHER an ownership nor a panel gate: a visitor who
-    // travelled with the Placements tab open and a placement selected
-    // arrived in a stranger's overland to find a glowing green circle
-    // floating over their terrain, indexed into the newly-arrived room's
-    // placements.
-    if !access.can_edit_room() {
+    let Some(idx) = focus.selected else {
         return;
-    }
+    };
     let Some(record) = record else {
         return;
     };
     let record = &record.0;
-    if editor_state.selected_tab != crate::ui::room::EditorTab::Placements {
-        return;
-    }
-    let Some(idx) = editor_state.selected_placement else {
-        return;
-    };
     let Some(placement) = record.placements.get(idx) else {
         return;
     };

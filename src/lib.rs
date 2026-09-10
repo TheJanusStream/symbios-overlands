@@ -474,10 +474,20 @@ pub fn run() {
                 .chain()
                 .run_if(in_state(AppState::Login)),
         )
-        // Before anything reads it: the avatar editor's hold, mirrored out
-        // of the egui layer so the player's physics and animation drivers
-        // do not import it (#1158).
-        .add_systems(PreUpdate, ui::avatar::mirror_rig_hold)
+        // Before anything reads them: the avatar editor's hold (#1158),
+        // the World Editor's placement focus and the login flow's activity
+        // (#1297), mirrored out of the egui layer so the player's physics
+        // and animation drivers, the world pipeline's overlay and the
+        // attract backdrop do not import it. Registration is pinned by
+        // `ui::tests::the_mirrored_consumers_do_not_import_the_ui_layer`.
+        .add_systems(
+            PreUpdate,
+            (
+                ui::avatar::mirror_rig_hold,
+                ui::room::mirror_placement_focus,
+                ui::login::mirror_login_activity,
+            ),
+        )
         .add_systems(
             Update,
             (

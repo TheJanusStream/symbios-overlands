@@ -285,6 +285,18 @@ impl RoomEditorState {
         self.selected_placement.is_some() || self.tree.selection.path.is_some()
     }
 
+    /// The placement the editor is SHOWING selected: the anchor row, and
+    /// only while the Placements tab is up (#1297). A selection parked
+    /// behind another tab is state, not focus — the gizmo and the
+    /// highlight follow the anchor regardless, the world outline does
+    /// not. Mirrored out to [`crate::world_builder::PlacementFocus`] by
+    /// [`mirror_placement_focus`].
+    pub fn focused_placement(&self) -> Option<usize> {
+        (self.selected_tab == EditorTab::Placements)
+            .then_some(self.selected_placement)
+            .flatten()
+    }
+
     /// Drop placement / generator-tree selection. Used when the editor
     /// window is collapsed or when the avatar editor takes the gizmo
     /// over via the cross-editor mutex.
@@ -541,6 +553,38 @@ pub(crate) fn compile_truncated_text(t: &crate::world_builder::WorldCompileTrunc
         if t.skipped_placements == 1 { "" } else { "s" },
         crate::world_builder::compile::MAX_ROOM_ENTITIES,
     )
+}
+
+/// Publish [`crate::world_builder::PlacementFocus`] from this frame's
+/// editor state and access gate (#1297 step 4) — the ONE writer of that
+/// resource, and the `ui::avatar::mirror_rig_hold` shape a second time.
+///
+/// The placement visualiser used to read `RoomEditorState` and
+/// [`crate::ui::toolbar::RoomEditAccess`] itself, which pointed the
+/// dependency arrow from the world pipeline into the egui layer. It read
+/// one predicate ([`RoomEditorState::focused_placement`]) behind one gate
+/// ([`crate::ui::toolbar::RoomEditAccess::can_edit_room`], #1237 f142),
+/// so that is what crosses; the gate's reasoning stays with the gate.
+///
+/// `PreUpdate`, unconditionally: a mirror inside `room_admin_ui` would
+/// draw only while the window is open and latch at its last value the
+/// moment it closed. With no editor state, or no access param at all
+/// (before login, the headless render tool), the answer is `None`.
+pub fn mirror_placement_focus(
+    editor: Option<Res<RoomEditorState>>,
+    access: Option<crate::ui::toolbar::RoomEditAccess>,
+    mut focus: ResMut<crate::world_builder::PlacementFocus>,
+) {
+    let selected = match (editor.as_deref(), access.as_ref()) {
+        (Some(editor), Some(access)) if access.can_edit_room() => editor.focused_placement(),
+        _ => None,
+    };
+    let next = crate::world_builder::PlacementFocus { selected };
+    // Guarded write (#879): an unconditional `*focus = next` would mark
+    // the resource changed every frame.
+    if *focus != next {
+        *focus = next;
+    }
 }
 
 /// Toast the entity-budget truncation once per compile that hit it (#1211).
@@ -1772,6 +1816,126 @@ mod recovery_banner_tests {
         assert!(
             decode.headline.contains("read by this version"),
             "{decode:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod placement_focus_tests {
+    use super::*;
+    use crate::state::CurrentRoomDid;
+    use crate::ui::toolbar::UiPanels;
+    use crate::world_builder::PlacementFocus;
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy_symbios_multiuser::auth::AtprotoSession;
+
+    /// A signed-in owner. The mirror reads only `did`; the rest is the
+    /// live signing session the type insists on (same fixture as
+    /// `reauth::tests`).
+    fn session(did: &str) -> AtprotoSession {
+        AtprotoSession {
+            did: String::from(did),
+            handle: String::from("alice"),
+            pds_url: String::from("https://pds.example"),
+            session: std::sync::Arc::new(proto_blue_oauth::session::OAuthSession::new(
+                proto_blue_oauth::types::TokenSet {
+                    issuer: String::from("https://as.example"),
+                    sub: String::from(did),
+                    scope: String::from("atproto"),
+                    access_token: String::from("access"),
+                    refresh_token: Some(String::from("refresh")),
+                    token_type: String::from("DPoP"),
+                    expires_at: Some(String::from("2099-01-01T00:00:00Z")),
+                    aud: Some(String::from("https://as.example")),
+                },
+                proto_blue_oauth::DpopKey::generate().expect("DPoP key"),
+                proto_blue_oauth::DpopNonceCache::new(),
+            )),
+        }
+    }
+
+    fn mirrored(app: &mut App) -> Option<usize> {
+        app.world_mut()
+            .run_system_once(mirror_placement_focus)
+            .expect("the mirror runs");
+        app.world().resource::<PlacementFocus>().selected
+    }
+
+    /// #1297 step (4), the `RigHold` shape a second time
+    /// (`the_rig_hold_mirrors_every_predicate_including_absence`). The
+    /// placement visualiser used to read `RoomEditorState` and
+    /// `RoomEditAccess` itself; now ONE `Option<usize>` crosses, and this
+    /// is the one place the mapping can go wrong. Asserted against the
+    /// predicate rather than by restating its value, and through every
+    /// way the answer can be `None`: nothing to read at all, the editor
+    /// on another tab, the window closed, a visitor in a stranger's room
+    /// — and back, so a latched value cannot pass.
+    #[test]
+    fn the_placement_focus_mirrors_the_editor_and_the_access_gate_including_absence() {
+        // Nothing to read — before login, and the headless render tool.
+        let mut app = App::new();
+        app.init_resource::<PlacementFocus>();
+        assert_eq!(
+            mirrored(&mut app),
+            None,
+            "absent editor state and absent access must focus nothing"
+        );
+
+        // The gate passes but there is no editor state yet.
+        app.insert_resource(UiPanels {
+            world_editor: true,
+            ..Default::default()
+        });
+        app.insert_resource(session("did:plc:alice"));
+        app.insert_resource(CurrentRoomDid(String::from("did:plc:alice")));
+        assert_eq!(mirrored(&mut app), None, "access alone is not a focus");
+
+        // Placements tab, a selection, and the owner's own open editor.
+        let state = RoomEditorState {
+            selected_tab: EditorTab::Placements,
+            selected_placement: Some(7),
+            ..Default::default()
+        };
+        assert_eq!(state.focused_placement(), Some(7), "the predicate itself");
+        app.insert_resource(state);
+        assert_eq!(mirrored(&mut app), Some(7));
+
+        // Another tab: the same selection is not what the editor shows.
+        app.world_mut()
+            .resource_mut::<RoomEditorState>()
+            .selected_tab = EditorTab::Generators;
+        assert_eq!(
+            app.world()
+                .resource::<RoomEditorState>()
+                .focused_placement(),
+            None
+        );
+        assert_eq!(mirrored(&mut app), None, "another tab focuses nothing");
+        app.world_mut()
+            .resource_mut::<RoomEditorState>()
+            .selected_tab = EditorTab::Placements;
+        assert_eq!(mirrored(&mut app), Some(7), "and back");
+
+        // The window closed (#1237 f142's first gate).
+        app.world_mut().resource_mut::<UiPanels>().world_editor = false;
+        assert_eq!(mirrored(&mut app), None, "a closed editor focuses nothing");
+        app.world_mut().resource_mut::<UiPanels>().world_editor = true;
+
+        // A visitor: the selection survived portal travel into a
+        // stranger's room (#1237 f142's second gate).
+        app.insert_resource(CurrentRoomDid(String::from("did:plc:bob")));
+        assert_eq!(mirrored(&mut app), None, "a visitor focuses nothing");
+        app.insert_resource(CurrentRoomDid(String::from("did:plc:alice")));
+        assert_eq!(mirrored(&mut app), Some(7), "home again");
+
+        // And it RELEASES on the editor's own clear.
+        app.world_mut()
+            .resource_mut::<RoomEditorState>()
+            .clear_selection();
+        assert_eq!(
+            mirrored(&mut app),
+            None,
+            "clearing the selection releases the focus"
         );
     }
 }

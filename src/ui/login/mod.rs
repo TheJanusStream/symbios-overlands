@@ -1344,6 +1344,44 @@ mod readme_promise_tests {
     }
 }
 
+/// Publish [`crate::attract::LoginActivity`] from this frame's task
+/// markers and latch (#1297 step 1) — the ONE writer of that resource,
+/// and the `ui::avatar::mirror_rig_hold` shape a third time.
+///
+/// The attract backdrop used to query [`BeginAuthTask`],
+/// [`CompleteAuthTask`], the wasm resume task and [`LoginUiLatch`]
+/// itself, which pointed the dependency arrow from the login-screen
+/// backdrop into the egui layer. It asked one question of the tasks —
+/// is any of them running — and read one flag off the latch, so that is
+/// what crosses. The tasks stay here: every spawn and every drain of
+/// them is a `ui::login` system.
+///
+/// `PreUpdate`, unconditionally, and guarded (#879). With no latch at
+/// all (a harness that never entered `Login`) the flag reads `false`.
+pub fn mirror_login_activity(
+    begin: Query<(), With<BeginAuthTask>>,
+    complete: Query<(), With<CompleteAuthTask>>,
+    #[cfg(target_arch = "wasm32")] resume: Query<(), With<ResumeAuthTask>>,
+    latch: Option<Res<LoginUiLatch>>,
+    mut activity: ResMut<crate::attract::LoginActivity>,
+) {
+    #[allow(unused_mut)]
+    let mut auth_in_flight = !begin.is_empty() || !complete.is_empty();
+    #[cfg(target_arch = "wasm32")]
+    {
+        auth_in_flight |= !resume.is_empty();
+    }
+    let next = crate::attract::LoginActivity {
+        auth_in_flight,
+        autosubmitted: latch.as_deref().is_some_and(|latch| latch.autosubmitted),
+    };
+    // Guarded write (#879): an unconditional `*activity = next` would mark
+    // the resource changed every frame.
+    if *activity != next {
+        *activity = next;
+    }
+}
+
 #[cfg(test)]
 mod entry_latch_tests {
     use super::*;
@@ -1399,5 +1437,103 @@ mod entry_latch_tests {
     #[test]
     fn a_cold_start_still_arms_the_auto_submit() {
         assert!(!latch_after_entering_login(false).autosubmitted);
+    }
+}
+
+#[cfg(test)]
+mod login_activity_tests {
+    use super::*;
+    use crate::attract::LoginActivity;
+    use bevy::ecs::system::RunSystemOnce;
+
+    /// A task that never resolves, on a test-owned one-thread pool: the
+    /// mirror asks only whether the marker EXISTS, and a real round-trip
+    /// needs a network. Never polled; cancelled when its entity despawns.
+    fn pool() -> &'static bevy::tasks::TaskPool {
+        static POOL: std::sync::OnceLock<bevy::tasks::TaskPool> = std::sync::OnceLock::new();
+        POOL.get_or_init(|| bevy::tasks::TaskPoolBuilder::new().num_threads(1).build())
+    }
+
+    fn mirrored(app: &mut App) -> LoginActivity {
+        app.world_mut()
+            .run_system_once(mirror_login_activity)
+            .expect("the mirror runs");
+        *app.world().resource::<LoginActivity>()
+    }
+
+    /// #1297 step (1), the `RigHold` shape a third time. The attract
+    /// backdrop used to query the three task markers and the latch
+    /// itself to ask "is this login screen transient?"; now two booleans
+    /// cross, and this is the one place the mapping can go wrong. Each
+    /// marker on its own must read as in flight, and must RELEASE on
+    /// despawn — a latched `true` would hold the demo world off for the
+    /// whole login, which is the failure the backdrop's own guards exist
+    /// to avoid the other way round.
+    #[test]
+    fn the_login_activity_mirrors_every_task_marker_and_the_latch_including_absence() {
+        let mut app = App::new();
+        app.init_resource::<LoginActivity>();
+
+        // No latch and no tasks — nothing is happening.
+        assert_eq!(
+            mirrored(&mut app),
+            LoginActivity::default(),
+            "an absent latch and no tasks must read as idle"
+        );
+
+        let begin = app
+            .world_mut()
+            .spawn(BeginAuthTask(pool().spawn(std::future::pending())))
+            .id();
+        assert!(
+            mirrored(&mut app).auth_in_flight,
+            "an authorization initiation is in flight"
+        );
+        app.world_mut().despawn(begin);
+        assert!(!mirrored(&mut app).auth_in_flight, "and it releases");
+
+        let complete = app
+            .world_mut()
+            .spawn(CompleteAuthTask(pool().spawn(std::future::pending())))
+            .id();
+        assert!(
+            mirrored(&mut app).auth_in_flight,
+            "a code-to-token exchange is in flight"
+        );
+        app.world_mut().despawn(complete);
+        assert!(!mirrored(&mut app).auth_in_flight, "and it releases");
+
+        // The third marker is the persisted-session resume, whose type
+        // exists only in the wasm build; the mirror's wasm arm is the same
+        // `is_empty()` as the two above and is not reachable from a native
+        // test.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let resume = app
+                .world_mut()
+                .spawn(ResumeAuthTask(pool().spawn(std::future::pending())))
+                .id();
+            assert!(mirrored(&mut app).auth_in_flight, "a resume is in flight");
+            app.world_mut().despawn(resume);
+            assert!(!mirrored(&mut app).auth_in_flight, "and it releases");
+        }
+
+        // The latch's flag crosses as itself, independent of the tasks.
+        app.insert_resource(LoginUiLatch {
+            autosubmitted: true,
+            ..Default::default()
+        });
+        assert_eq!(
+            mirrored(&mut app),
+            LoginActivity {
+                auth_in_flight: false,
+                autosubmitted: true,
+            }
+        );
+        app.world_mut().resource_mut::<LoginUiLatch>().autosubmitted = false;
+        assert!(
+            !mirrored(&mut app).autosubmitted,
+            "the reset latch reads back"
+        );
     }
 }

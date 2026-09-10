@@ -34,10 +34,12 @@ pub fn check_wasm_callback(
     // The boot handoff marker (#978) held the attract backdrop off for
     // exactly this frame; from here the `CompleteAuthTask` spawned below
     // — or, on the bail-out paths, the idle form itself — is the honest
-    // signal. Both this removal and that spawn ride the same command
+    // signal, reaching the backdrop through `mirror_login_activity`
+    // (#1297). Both this removal and that spawn ride the same command
     // queue, so no frame ever sees the marker gone with the task not yet
-    // visible. `check_wasm_resume` clears it too; a second remove is a
-    // no-op and the pair are ordering-independent that way.
+    // visible: the mirror runs in the `PreUpdate` after the flush, before
+    // the backdrop asks. `check_wasm_resume` clears it too; a second
+    // remove is a no-op and the pair are ordering-independent that way.
     commands.remove_resource::<oauth::AuthHandoffPending>();
     let params = oauth::wasm::read_callback_params();
     if let Some(msg) = params.error_message() {
@@ -125,7 +127,8 @@ pub fn check_wasm_resume(
     latch.spent = true;
     // See `check_wasm_callback` — the boot handoff marker is spent once
     // this one-shot has decided, and the `ResumeAuthTask` spawned below
-    // takes over as the attract backdrop's "not idle" signal.
+    // takes over as the attract backdrop's "not idle" signal (through
+    // `mirror_login_activity`, #1297).
     commands.remove_resource::<oauth::AuthHandoffPending>();
     let Some(mut blob) = oauth::wasm::load_persisted() else {
         return;

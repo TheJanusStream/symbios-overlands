@@ -108,3 +108,52 @@ pub mod toolbar;
 pub mod travel;
 pub mod undo;
 pub mod unsaved_guard;
+
+#[cfg(test)]
+mod tests {
+    /// #1297 steps (1) and (4). The placement visualiser and the attract
+    /// backdrop each read the egui layer's state directly; each now reads
+    /// a resource it owns, written once per frame by a `ui` mirror
+    /// (`room::mirror_placement_focus`, `login::mirror_login_activity`) —
+    /// the `player::RigHold` shape of #1158. A source read, like
+    /// `avatar::tests::the_parts_panel_closes_through_one_body`: the
+    /// fact being pinned is that neither consumer reaches back in.
+    /// Comment lines are exempt, because a rustdoc link is not a
+    /// dependency and #1297 group 6 says so.
+    ///
+    /// The second half pins that each mirror is REGISTERED in `lib.rs`:
+    /// a mirror nobody schedules leaves its resource at `Default` for
+    /// the app's whole life, every unit test of it still passes, and the
+    /// consumer silently reads "nothing is happening" — which for the
+    /// login activity means a demo world seeded behind a redirect.
+    #[test]
+    fn the_mirrored_consumers_do_not_import_the_ui_layer() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let code = |line: &str| line.split("//").next().unwrap_or("").to_owned();
+        let lib = std::fs::read_to_string(root.join("src/lib.rs")).expect("lib.rs is readable");
+        for mirror in [
+            "ui::avatar::mirror_rig_hold",
+            "ui::room::mirror_placement_focus",
+            "ui::login::mirror_login_activity",
+        ] {
+            assert!(
+                lib.lines().any(|line| code(line).contains(mirror)),
+                "{mirror} is not registered in src/lib.rs; its resource would stay Default"
+            );
+        }
+        for rel in ["src/world_builder/mod.rs", "src/attract.rs"] {
+            let source = std::fs::read_to_string(root.join(rel)).expect("source is readable");
+            let hits: Vec<usize> = source
+                .lines()
+                .enumerate()
+                .filter(|(_, line)| code(line).contains("crate::ui::"))
+                .map(|(n, _)| n + 1)
+                .collect();
+            assert!(
+                hits.is_empty(),
+                "{rel} imports crate::ui:: outside comments at lines {hits:?}; \
+                 the fact it needs belongs in a resource it owns, mirrored from ui"
+            );
+        }
+    }
+}
