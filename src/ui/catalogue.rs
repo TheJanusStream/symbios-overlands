@@ -80,6 +80,50 @@ impl CatalogueBrowser {
     pub fn selected_slug(&self) -> Option<&str> {
         self.selected.as_deref()
     }
+
+    /// Set the selection without a draw, for
+    /// `tests::the_preview_request_mirrors_the_browser_and_the_window_including_absence`.
+    /// The field is private because only the detail panel's own click
+    /// handling may move it; the mirror test needs a browser in a known
+    /// state and building one through egui would test the tree widget
+    /// instead of the mirror.
+    #[cfg(test)]
+    pub(crate) fn select_for_test(&mut self, slug: Option<&str>) {
+        self.selected = slug.map(str::to_owned);
+    }
+}
+
+/// Publish what the Catalogue is asking the item preview to show
+/// (#1297), so the preview pipeline stops reading the egui layer.
+///
+/// `PreUpdate`, unconditionally: a mirror inside `catalogue_ui` would run
+/// only while the window is open and latch at its last value the moment
+/// it closed — which for this fact means the stage keeping the last
+/// selection alive, and its camera pass with it, for the rest of the
+/// session. With no panels resource and no browser (before login, the
+/// headless render tool) the answer is `None`.
+///
+/// The predicate lives with the CONSUMER
+/// ([`crate::item_preview::wanted_subject`]) and is called from here, so
+/// the rule that a closed window shows nothing — and that an
+/// unresolvable slug shows nothing rather than the last thing that did —
+/// has one home.
+///
+/// Guarded write (#879).
+pub fn mirror_preview_request(
+    panels: Option<Res<crate::ui::toolbar::UiPanels>>,
+    browser: Option<Res<CatalogueBrowser>>,
+    mut request: ResMut<crate::item_preview::PreviewRequest>,
+) {
+    let wanted = match (panels.as_deref(), browser.as_deref()) {
+        (Some(panels), Some(browser)) => {
+            crate::item_preview::wanted_subject(panels.catalogue, browser.selected_slug())
+        }
+        _ => None,
+    };
+    if request.0 != wanted {
+        request.0 = wanted;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -489,7 +533,7 @@ pub(crate) fn catalogue_ui(
                         ui.label(
                             egui::RichText::new(format!(
                                 "{total} {}",
-                                crate::ui::toolbar::plural(total, "entry", "entries")
+                                crate::text::plural(total, "entry", "entries")
                             ))
                             .small()
                             .color(crate::ui::theme::current(ui.ctx()).text_weak),
@@ -991,6 +1035,85 @@ fn inventory_row(
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    /// #1297's item-preview singleton, the `PlacementFocus` shape a
+    /// second time. `restage_preview` read `UiPanels` and
+    /// `CatalogueBrowser` directly to answer one question — "is anyone
+    /// looking, and at what" — which pointed the arrow from a render
+    /// pipeline into the egui layer for a `bool` and an `Option<&str>`.
+    ///
+    /// Asserted against the PREDICATE the consumer already owned
+    /// ([`crate::item_preview::wanted_subject`]) rather than by restating
+    /// its answers, so the mirror cannot drift from the rule it carries —
+    /// including the rule that an unresolvable slug shows nothing rather
+    /// than the last thing that did.
+    #[test]
+    fn the_preview_request_mirrors_the_browser_and_the_window_including_absence() {
+        use bevy::ecs::system::RunSystemOnce;
+        use bevy::prelude::*;
+
+        use crate::item_preview::{PreviewRequest, wanted_subject};
+        use crate::ui::toolbar::UiPanels;
+
+        let a_real_slug = crate::catalogue::ENTRIES[0].slug();
+
+        let mut world = World::new();
+        world.init_resource::<PreviewRequest>();
+
+        fn mirrored(world: &mut World) -> Option<crate::item_preview::PreviewSubject> {
+            world
+                .run_system_once(mirror_preview_request)
+                .expect("the mirror runs");
+            world.resource::<PreviewRequest>().0.clone()
+        }
+
+        // Absence: no panels, no browser. Before login and in the headless
+        // render tool, neither resource exists, and the answer must be
+        // "nobody is looking" rather than a panic.
+        assert_eq!(mirrored(&mut world), None, "no panels, no browser");
+
+        world.insert_resource(UiPanels::default());
+        let mut browser = CatalogueBrowser::default();
+        browser.select_for_test(Some(a_real_slug));
+        world.insert_resource(browser);
+
+        // A closed window is the whole "is anyone looking" question: it is
+        // what turns the camera off.
+        world.resource_mut::<UiPanels>().catalogue = false;
+        assert_eq!(
+            mirrored(&mut world),
+            wanted_subject(false, Some(a_real_slug))
+        );
+        assert_eq!(mirrored(&mut world), None);
+
+        world.resource_mut::<UiPanels>().catalogue = true;
+        assert_eq!(
+            mirrored(&mut world),
+            wanted_subject(true, Some(a_real_slug))
+        );
+        assert_eq!(
+            mirrored(&mut world),
+            Some(crate::item_preview::PreviewSubject::Catalogue(
+                a_real_slug.to_string()
+            ))
+        );
+
+        // A selection that no longer resolves shows nothing…
+        world
+            .resource_mut::<CatalogueBrowser>()
+            .select_for_test(Some("not-a-real-entry"));
+        assert_eq!(
+            mirrored(&mut world),
+            None,
+            "an unresolvable slug is nothing"
+        );
+
+        // …and so does no selection at all: the request RELEASES.
+        world
+            .resource_mut::<CatalogueBrowser>()
+            .select_for_test(None);
+        assert_eq!(mirrored(&mut world), None, "the request releases");
+    }
 
     fn collect_slugs<'a>(nodes: &'a [CatNode], out: &mut Vec<&'a str>) {
         for n in nodes {

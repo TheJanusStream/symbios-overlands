@@ -338,7 +338,7 @@ pub(crate) fn compile_room_record(
     }
 
     // Unblock the loading gate: the world this record describes exists.
-    // Idempotent on later jobs; removed by `logout::cleanup_on_logout`.
+    // Idempotent on later jobs; removed by `ui::logout::cleanup_on_logout`.
     commands.insert_resource(super::super::WorldCompiled);
 }
 

@@ -85,6 +85,7 @@ pub mod visuals;
 
 pub(crate) use hotswap::AppliedAvatar;
 pub(crate) use portal::PORTAL_COOLDOWN_SECS;
+pub use portal::PortalContact;
 pub use portal::PortalCooldown;
 pub use portal::PortalTravelTask;
 pub(crate) use portal::begin_portal_travel;
@@ -101,34 +102,56 @@ use bevy_egui::input::egui_wants_any_keyboard_input;
 
 use crate::config::rover as cfg;
 use crate::state::{AppState, LocalPlayer};
-use crate::ui::unsaved_guard::UnsavedGuard;
 
-/// Run condition: SOME modal dialog owns attention (#852, widened by
-/// #1241 f164). egui modals block the pointer but NOT game keys, so
-/// without this the player could WASD away from a portal
-/// mid-"Unpublished changes" decision and "Publish & travel" would fire
-/// from wherever they had drifted. The five input-driven drive systems
-/// (and the jump latch) gate on `not(this)`; passive physics (suspension,
+/// Whether a modal dialog owns the user's attention, so the player must
+/// not drive (#852, widened by #1241 f164, inverted out of `ui` by #1297
+/// group 3).
+///
+/// egui modals block the pointer but NOT game keys, so without this the
+/// player could WASD away from a portal mid-"Unpublished changes"
+/// decision and "Publish & travel" would fire from wherever they had
+/// drifted. The five input-driven drive systems (and the jump latch) gate
+/// on `not(guard_attention_held)`; passive physics (suspension,
 /// stabilisation, gravity) keeps running, same policy as the egui-focus
 /// gate.
 ///
-/// This asked `Option<Res<UnsavedGuard>>` and therefore knew about
-/// exactly ONE of the app's six modals. The drive systems also gate on
-/// `not(egui_wants_any_keyboard_input)`, which covers the rename dialog
-/// (it focuses its field) and the login/reauth forms — but a
-/// BUTTONS-ONLY dialog focuses no widget at all, which is the whole
-/// reason `confirm::note_modal_open` exists. So a gift offer from a
-/// stranger, or a destructive confirm, blocked every click while W kept
-/// walking the avatar into a portal — and stacked a second modal behind
-/// the first. [`ModalOpen`](crate::ui::confirm::ModalOpen) is the ECS
-/// mirror of that stamp; `mirror_modal_open` writes it in `PreUpdate`,
-/// so the FixedUpdate steps later in the same frame read this frame's
-/// answer.
-pub(crate) fn guard_modal_open(
-    guard: Option<Res<UnsavedGuard>>,
-    modal: Res<crate::ui::confirm::ModalOpen>,
-) -> bool {
-    guard.is_some() || modal.0
+/// Written once per frame by `ui::confirm::mirror_attention_held` in
+/// `PreUpdate`, so the FixedUpdate steps later in the same frame read
+/// this frame's answer. The `RigHold` shape of #1158 a fourth time:
+/// `ui` publishes the fact, the player owns the resource, and neither
+/// half has to import the other's module.
+///
+/// **Default false on purpose.** A frame with no mirror reports "nothing
+/// is holding attention" and the player can move. The opposite default
+/// would freeze anyone whose mirror had gone unregistered — a failure
+/// `ui::tests::the_mirrored_consumers_do_not_import_the_ui_layer` catches
+/// at test time precisely because it is invisible at run time.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AttentionHeld(pub bool);
+
+/// The predicate [`AttentionHeld`] carries: a modal is up, in either of
+/// the two forms this app has one.
+///
+/// The two are not interchangeable and that is the whole history of this
+/// gate. `confirm::note_modal_open` lives in egui's per-context store,
+/// which only a system holding an egui context can read;
+/// `ui::unsaved_guard::UnsavedGuard` is an ECS resource that leaves no
+/// stamp at all. The gate asked about the guard alone and therefore knew
+/// about one of six modals — a gift offer from a stranger blocked every
+/// click while W kept walking the avatar into a portal, stacking a second
+/// modal behind the first.
+///
+/// Pure, and shared by the mirror that writes the resource and the test
+/// that asserts it, so the two read one sentence rather than two copies
+/// of an `||`.
+pub(crate) fn attention_is_held(modal_open: bool, guard_present: bool) -> bool {
+    modal_open || guard_present
+}
+
+/// Run condition: something owns attention, so the drive systems stand
+/// down. See [`AttentionHeld`].
+pub(crate) fn guard_attention_held(held: Res<AttentionHeld>) -> bool {
+    held.0
 }
 
 // Corner offsets in local space for the four suspension rays. The
@@ -309,13 +332,13 @@ impl Plugin for PlayerPlugin {
                     hover_boat::apply_hover_boat_drive
                         .run_if(not(egui_wants_any_keyboard_input))
                         .run_if(not(avatar_visuals_row_selected))
-                        .run_if(not(guard_modal_open)),
+                        .run_if(not(guard_attention_held)),
                     hover_boat::apply_hover_boat_uprighting
                         .run_if(not(avatar_visuals_row_selected)),
                     humanoid::apply_humanoid_walk
                         .run_if(not(egui_wants_any_keyboard_input))
                         .run_if(not(avatar_visuals_row_selected))
-                        .run_if(not(guard_modal_open)),
+                        .run_if(not(guard_attention_held)),
                     // Ungated + chained right after the walk system: a
                     // queued jump tap must die with the first fixed step
                     // that could have acted on it, even when the walk
@@ -324,16 +347,16 @@ impl Plugin for PlayerPlugin {
                     airplane::apply_airplane_forces
                         .run_if(not(egui_wants_any_keyboard_input))
                         .run_if(not(avatar_visuals_row_selected))
-                        .run_if(not(guard_modal_open)),
+                        .run_if(not(guard_attention_held)),
                     helicopter::apply_helicopter_forces
                         .run_if(not(egui_wants_any_keyboard_input))
                         .run_if(not(avatar_visuals_row_selected))
-                        .run_if(not(guard_modal_open)),
+                        .run_if(not(guard_attention_held)),
                     car::apply_car_suspension,
                     car::apply_car_drive
                         .run_if(not(egui_wants_any_keyboard_input))
                         .run_if(not(avatar_visuals_row_selected))
-                        .run_if(not(guard_modal_open)),
+                        .run_if(not(guard_attention_held)),
                     car::apply_car_uprighting.run_if(not(avatar_visuals_row_selected)),
                     respawn::respawn_if_fallen,
                 )
@@ -341,6 +364,7 @@ impl Plugin for PlayerPlugin {
                     .run_if(in_state(AppState::InGame)),
             )
             .init_resource::<RigHold>()
+            .init_resource::<AttentionHeld>()
             .init_resource::<humanoid::JumpQueued>()
             .init_resource::<respawn::PlayerMoveRequest>()
             .init_resource::<crate::player::LocalMovement>()
@@ -362,7 +386,7 @@ impl Plugin for PlayerPlugin {
                     humanoid::latch_jump_input
                         .run_if(not(egui_wants_any_keyboard_input))
                         .run_if(not(avatar_visuals_row_selected))
-                        .run_if(not(guard_modal_open)),
+                        .run_if(not(guard_attention_held)),
                 )
                     .run_if(in_state(AppState::InGame)),
             );

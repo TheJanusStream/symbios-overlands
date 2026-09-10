@@ -14,10 +14,11 @@ use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
-use crate::avatar::{BskyProfileCache, draw_avatar_icon};
+use crate::avatar::BskyProfileCache;
 use crate::network::presence::PeerLabel;
 use crate::protocol::OverlandsMessage;
 use crate::state::{ChatHistory, RemotePeer, SocialResonance};
+use crate::ui::avatar::draw_avatar_icon;
 
 /// Edge length (px) of the avatar icons rendered next to each author's
 /// handle in the chat HUD. Same value used by the People panel so the

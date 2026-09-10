@@ -56,6 +56,18 @@ use super::xrpc::{FetchError, XrpcError, decode_record_json, resolve_pds_outcome
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+/// The root segment every path into an avatar's generator body is
+/// addressed under (#1297).
+///
+/// [`AvatarBody`] carries a single ANONYMOUS root, but the tree widget,
+/// the gizmo's face picking and the world compiler's grammar-diagnostic
+/// cache all key on `(root, path)` — so they need a stable string, and
+/// this is it. It was an associated const on
+/// `ui::room::generators::AvatarVisualsTreeSource`, which meant
+/// `world_builder::compile` had to reach into a panel module to build a
+/// cache key for a record field. The name belongs to the record.
+pub const VISUALS_ROOT_NAME: &str = "visuals";
+
 // ---------------------------------------------------------------------------
 // AvatarRecord
 // ---------------------------------------------------------------------------

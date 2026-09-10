@@ -9,7 +9,11 @@
 //! record then read as the dirty state, so the next Ctrl+S published the
 //! clobbered copy.
 //!
-//! Three outcomes now, decided by [`classify_same_owner_update`]:
+//! Three outcomes now, decided by
+//! [`classify_same_owner_update`](crate::state::classify_same_owner_update)
+//! — which lives in `state` with the record it parks, because the
+//! decision is `network::inbound`'s to make and this module only draws
+//! the question it produces (#1297):
 //!
 //! - **Ignore** — the incoming record equals what this session already
 //!   holds. This is the echo: both sessions rebroadcast on `is_changed`,
@@ -18,9 +22,9 @@
 //! - **Apply** — this session is clean. The other session's copy is
 //!   installed as before, with a toast saying where it came from.
 //! - **Hold** — this session has unpublished edits. The incoming record is
-//!   parked in [`OtherSessionRoom`] and [`other_session_room_ui`] asks
-//!   which copy to keep; the live record is not touched until the owner
-//!   answers. A newer update from the same session replaces the parked
+//!   parked in [`OtherSessionRoom`] (which lives in `state` too) and
+//!   [`other_session_room_ui`] asks which copy to keep; the live record
+//!   is not touched until the owner answers. A newer update from the same session replaces the parked
 //!   one (latest wins), so the choice is always between "mine" and
 //!   "theirs, as of now".
 
@@ -28,41 +32,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::pds::RoomRecord;
-use crate::state::LiveRoomRecord;
-use crate::state::RoomWriteSignals;
-
-/// A room record from the owner's other session, held back because this
-/// session has unpublished edits. Present only while the question is open;
-/// session-scoped (torn down at logout, dropped on portal travel).
-#[derive(Resource, Debug)]
-pub struct OtherSessionRoom {
-    pub record: RoomRecord,
-}
-
-/// What the inbound arm does with a same-owner `RoomStateUpdate`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SameOwnerUpdate {
-    /// Identical to the local live record — the echo. Touch nothing.
-    Ignore,
-    /// Local is clean: install it, and say so.
-    Apply,
-    /// Local has unpublished edits: park it and ask.
-    Hold,
-}
-
-/// The decision, pure so it can be tested without a socket.
-pub fn classify_same_owner_update(
-    local_dirty: bool,
-    incoming_equals_live: bool,
-) -> SameOwnerUpdate {
-    if incoming_equals_live {
-        SameOwnerUpdate::Ignore
-    } else if local_dirty {
-        SameOwnerUpdate::Hold
-    } else {
-        SameOwnerUpdate::Apply
-    }
-}
+use crate::state::{LiveRoomRecord, OtherSessionRoom, RoomWriteSignals};
 
 /// The owner's answer to the held record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -168,35 +138,6 @@ pub fn other_session_room_ui(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// #1203. Sequence: edit the world on the laptop for half an hour
-    /// without saving; open the same world in a browser on another
-    /// machine; the browser's broadcast arrives. The laptop must not
-    /// replace its live record — it holds the copy and asks. Two more
-    /// sequences ride on the same decision: the echo of our own record
-    /// coming back must be ignored (or the two sessions ping-pong
-    /// replacements and reset each other's undo rings), and a clean
-    /// session simply takes the update.
-    #[test]
-    fn a_dirty_session_holds_a_clean_one_applies_and_an_echo_is_ignored() {
-        assert_eq!(
-            classify_same_owner_update(true, false),
-            SameOwnerUpdate::Hold
-        );
-        assert_eq!(
-            classify_same_owner_update(false, false),
-            SameOwnerUpdate::Apply
-        );
-        assert_eq!(
-            classify_same_owner_update(true, true),
-            SameOwnerUpdate::Ignore,
-            "an identical record is the echo of our own broadcast"
-        );
-        assert_eq!(
-            classify_same_owner_update(false, true),
-            SameOwnerUpdate::Ignore
-        );
-    }
 
     /// Keeping mine touches nothing; taking theirs installs the held copy
     /// and resets the ring, because the ring cannot walk back across the

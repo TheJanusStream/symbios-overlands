@@ -12,12 +12,11 @@ use crate::state::{
     CurrentRoomDid, LiveRoomRecord, LocalPlayer, RemotePeer, RoomRecordRecovery, TravelPhase,
     TravelingTo,
 };
-use crate::ui::unsaved_guard::{GuardedAction, UnsavedGuard};
 use crate::world_builder::PortalMarker;
 
 /// An in-flight destination room-record fetch.
 ///
-/// `pub` (with a private field) so `logout::clear_editor_state_on_logout`
+/// `pub` (with a private field) so `ui::logout::clear_editor_state_on_logout`
 /// can sweep these entities (#1140) and `ui::travel`'s *Cancel travel*
 /// button can despawn them (#1231 f25): the task carries neither `LocalPlayer` nor
 /// `RoomEntity`, so the logout despawn passes it by — and on wasm dropping
@@ -51,6 +50,30 @@ pub struct PortalCooldown {
 
 pub(crate) const PORTAL_COOLDOWN_SECS: f64 = 0.75;
 
+/// The local player has walked into an inter-room portal, been stopped
+/// for it, and is waiting on the unsaved-edits question (#1297 group 3).
+///
+/// A REQUEST, not a gate: `ui::travel::raise_guard_for_portal_contact`
+/// turns it into a [`GuardedAction::PortalTravel`](crate::ui::unsaved_guard::GuardedAction)
+/// and drops it, in one command flush, so no frame sees the contact
+/// consumed with no guard standing. The portal used to insert the guard
+/// itself, which made the world's one physical travel trigger the only
+/// non-`ui` surface raising a `ui` dialog; the other four
+/// (gateway rows, People *Visit*, the account menu, and the guard's own
+/// re-ask) always were `ui`.
+///
+/// Held until it is consumed, and re-entry is gated on its presence, so
+/// a player still overlapping the collider does not queue a second one.
+/// Session-scoped: a logout mid-question must not leave it for the next
+/// login (`ui::logout::session_scoped_resources!`).
+#[derive(Resource, Debug, Clone, PartialEq)]
+pub struct PortalContact {
+    /// The overland the portal leads to.
+    pub target_did: String,
+    /// Where in it the portal lands the player.
+    pub target_pos: Vec3,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn handle_portal_interaction(
     mut commands: Commands,
@@ -66,8 +89,8 @@ pub(super) fn handle_portal_interaction(
     portals: Query<&PortalMarker>,
     current_room: Option<Res<CurrentRoomDid>>,
     traveling: Option<Res<TravelingTo>>,
-    guard: Option<Res<UnsavedGuard>>,
-    modal: Res<crate::ui::confirm::ModalOpen>,
+    held: Res<super::AttentionHeld>,
+    contact: Option<Res<PortalContact>>,
     cooldown: Option<Res<PortalCooldown>>,
     time: Res<Time>,
 ) {
@@ -82,8 +105,16 @@ pub(super) fn handle_portal_interaction(
     // (#852, widened by #1241 f164). This asked about the unsaved-edits
     // guard alone, so a player who kept walking under a GIFT OFFER (which
     // blocks the pointer but not the keys) could raise the guard behind
-    // it: two modals, one of them invisible under the other.
-    if guard.is_some() || modal.0 {
+    // it: two modals, one of them invisible under the other. Both kinds
+    // now arrive folded into one answer (#1297 group 3).
+    if held.0 {
+        return;
+    }
+    // A contact already raised and not yet answered. The player is still
+    // standing in the collider, so without this the next frame would ask
+    // again — and the guard the ui raises from the first one has not
+    // reached `AttentionHeld` yet on the frame the request is made.
+    if contact.is_some() {
         return;
     }
     // Post-teleport cooldown: keeps a portal-overlapping arrival from
@@ -130,16 +161,16 @@ pub(super) fn handle_portal_interaction(
             // do, it offers Publish / Discard / Stay first. Starting the
             // fetch directly here would bypass that choice and silently
             // overwrite the live record.
+            //
+            // What is published here is the CONTACT (#1297 group 3); the
+            // guard is raised from it on the ui side, beside the four
+            // other surfaces that raise the same dialog.
             lv.0 = Vec3::ZERO;
             av.0 = Vec3::ZERO;
-            commands.insert_resource(UnsavedGuard::new(GuardedAction::PortalTravel {
-                via: crate::ui::unsaved_guard::TravelVia::Portal,
+            commands.insert_resource(PortalContact {
                 target_did: portal.target_did.clone(),
-                // A portal in the world carries a DID and nothing else;
-                // `travel_label` resolves what it can at render time.
-                target_label: None,
-                target_pos: Some(portal.target_pos),
-            }));
+                target_pos: portal.target_pos,
+            });
         }
         break;
     }
@@ -278,7 +309,7 @@ pub(super) fn poll_portal_travel_tasks(
                 toasts.info(
                     format!(
                         "{} hasn't built a world yet — this one is generated from their identifier.",
-                        crate::ui::travel::travel_label(
+                        crate::network::presence::travel_label(
                             &profile_cache,
                             &travel_data.target_did,
                             travel_data.target_label.as_deref(),
@@ -330,7 +361,7 @@ pub(super) fn poll_portal_travel_tasks(
                 toasts.error(
                     format!(
                         "Couldn't reach {}'s world — walk into the portal again to retry.",
-                        crate::ui::travel::travel_label(
+                        crate::network::presence::travel_label(
                             &profile_cache,
                             &travel_data.target_did,
                             travel_data.target_label.as_deref(),
@@ -378,7 +409,7 @@ pub(super) fn poll_portal_travel_tasks(
         crate::oauth::remember_room(&travel_data.target_did);
         // A same-owner record held for the room being left (#1203) is a
         // question about a world this session is no longer in.
-        commands.remove_resource::<crate::ui::other_session::OtherSessionRoom>();
+        commands.remove_resource::<crate::state::OtherSessionRoom>();
         blob_image_cache.clear();
 
         // 3. Hot-swap the WebRTC Socket
@@ -456,7 +487,7 @@ pub(super) fn poll_portal_travel_tasks(
             "system",
             format!(
                 "Arrived in {}'s world — chat history starts fresh here.",
-                crate::ui::travel::travel_label(
+                crate::network::presence::travel_label(
                     &profile_cache,
                     &travel_data.target_did,
                     travel_data.target_label.as_deref(),
@@ -518,7 +549,6 @@ pub(super) fn release_travel_on_arrival(
         (&mut Position, &mut LinearVelocity, &mut AngularVelocity),
         With<LocalPlayer>,
     >,
-    mut room_editor: Option<ResMut<crate::ui::room::RoomEditorState>>,
 ) {
     let Some(traveling) = traveling.as_deref() else {
         return;
@@ -532,17 +562,12 @@ pub(super) fn release_travel_on_arrival(
     if let Ok((mut pos, mut lin, mut ang)) = players.single_mut() {
         super::hotswap::snap_above_ground(&heightmap.0, &mut pos, &mut lin, &mut ang);
     }
-    // The selection belonged to the world we LEFT (#1237 f142). Travel
-    // swaps the record, the DID, the socket, the peers, the chat and the
-    // player's pose and never touched the editor state, so an index into
-    // the old room's placements arrived pointing into a stranger's. The
-    // ownership gates elsewhere stop it being *drawn* or *dragged*; this
-    // is the state itself not surviving the journey.
-    if let Some(room_editor) = room_editor.as_deref_mut()
-        && room_editor.has_selection()
-    {
-        room_editor.clear_selection();
-    }
+    // The editor selection belonging to the world we LEFT is dropped by
+    // `ui::room::clear_selection_on_room_change`, which watches
+    // `CurrentRoomDid` (#1237 f142, moved out of here by #1297 group 3).
+    // It fires a few frames EARLIER than this — at the record swap rather
+    // than at the arrival release — which is if anything more correct:
+    // the index is stale from the moment the record is replaced.
     commands.remove_resource::<TravelingTo>();
 }
 

@@ -33,6 +33,13 @@
 //!   Inventory editors.
 //! * [`unsaved_guard`] — confirm dialog that gates portal travel and
 //!   logout while any editable record has unpublished edits.
+//! * [`logout`]       — teardown of one signed-in session (#1297
+//!   group 2): it closes every window, clears the pickers, drops the
+//!   session-scoped resources and cancels the publish tasks. It sat
+//!   at the crate root and reached for seventeen `ui` types to do it;
+//!   purifying that would have meant seventeen mirrors with no
+//!   reader, so the file moved to where the state it tears down
+//!   lives. `loading` and `lib` call it by path; nothing else does.
 //! * [`loading`]      — per-task progress panel for the
 //!   `AppState::Loading` gate (fetch / retry / bake status rows).
 //! * [`toolbar`]      — top toolbar with per-panel toggle buttons
@@ -92,6 +99,7 @@ pub mod inventory;
 pub mod layout;
 pub mod loading;
 pub mod login;
+pub mod logout;
 pub mod modes;
 pub mod nametag;
 pub mod num;
@@ -111,21 +119,68 @@ pub mod unsaved_guard;
 
 #[cfg(test)]
 mod tests {
-    /// #1297 steps (1) and (4). The placement visualiser and the attract
-    /// backdrop each read the egui layer's state directly; each now reads
-    /// a resource it owns, written once per frame by a `ui` mirror
-    /// (`room::mirror_placement_focus`, `login::mirror_login_activity`) —
-    /// the `player::RigHold` shape of #1158. A source read, like
-    /// `avatar::tests::the_parts_panel_closes_through_one_body`: the
-    /// fact being pinned is that neither consumer reaches back in.
-    /// Comment lines are exempt, because a rustdoc link is not a
-    /// dependency and #1297 group 6 says so.
+    /// Paths outside `src/ui` that may name `crate::ui::` in code, each
+    /// with the reason it may. Everything else under `src/` is expected
+    /// to reach the layer through a resource IT owns, written once a
+    /// frame by a `ui` mirror in `PreUpdate` (#1158, #1297).
     ///
-    /// The second half pins that each mirror is REGISTERED in `lib.rs`:
-    /// a mirror nobody schedules leaves its resource at `Default` for
-    /// the app's whole life, every unit test of it still passes, and the
-    /// consumer silently reads "nothing is happening" — which for the
-    /// login activity means a demo world seeded behind a redirect.
+    /// Every entry is asserted LIVE by
+    /// [`the_mirrored_consumers_do_not_import_the_ui_layer`]: an
+    /// exemption whose file has stopped importing the layer is deleted
+    /// rather than left standing, or the list quietly stops describing
+    /// the tree it guards.
+    const MAY_IMPORT_UI: &[(&str, &str)] = &[
+        (
+            "src/editor_gizmo/",
+            "#1158's own stated destination: the gizmo IS an editor surface, \
+             so it sits inside the ui layer's concerns even though its files \
+             live outside src/ui.",
+        ),
+        (
+            "src/state.rs",
+            "#1297 group 5, owner decision 2026-09-10: LocalSettings::theme \
+             records WHICH shipped palette this machine chose, and a palette \
+             is ui vocabulary. Moving UserTheme to state would drag the theme \
+             module's meaning out of the layer that renders it, for one \
+             serialised field.",
+        ),
+        (
+            "src/prefs.rs",
+            "#1297 group 5, owner decision 2026-09-10: prefs persistence IS a \
+             ui concern. This module exists to serialise WindowLayout and \
+             UiPanels to disk; inverting it would mean mirroring every panel \
+             flag out of ui for a writer whose only purpose is to write them \
+             back.",
+        ),
+    ];
+
+    /// The `ui` dependency inversion, as one law (#1158 -> #1297, closed
+    /// 2026-09-10). Nothing outside `src/ui` may name `crate::ui::` in
+    /// code unless [`MAY_IMPORT_UI`] says why. What a domain module needs
+    /// from a panel is a FACT, and a fact is a resource it owns, written
+    /// once a frame by a `ui` mirror in `PreUpdate` — the
+    /// `player::RigHold` shape, built six times now.
+    ///
+    /// Four things are pinned, and each of them caught something real:
+    ///
+    /// 1. **The tree**, swept file by file rather than from a list of the
+    ///    ones this work cleared. A list cannot see a NEW domain file
+    ///    reaching into the layer, which is the only regression left.
+    ///    Comment lines do not count, because a rustdoc link is not a
+    ///    dependency and #1297 group 6 says so; nor does a file whose
+    ///    every hit sits inside `#[cfg(test)]`.
+    /// 2. **[`MAY_IMPORT_UI`] against the tree**, so a stale exemption is
+    ///    a failure rather than a comment nobody reads.
+    /// 3. **Each mirror's REGISTRATION in `lib.rs`.** A mirror nobody
+    ///    schedules leaves its resource at `Default` for the app's whole
+    ///    life, every unit test of it still passes, and the consumer
+    ///    silently reads "nothing is happening" — which for the login
+    ///    activity means a demo world seeded behind a redirect. This is
+    ///    not hypothetical: a `cargo fmt` reflow ate one registration on
+    ///    2026-09-10 and the unit tests stayed green.
+    /// 4. **Where the session teardown lives**, which no scan of files
+    ///    still in `src` can check, because the regression is the file
+    ///    moving back out.
     #[test]
     fn the_mirrored_consumers_do_not_import_the_ui_layer() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -135,25 +190,135 @@ mod tests {
             "ui::avatar::mirror_rig_hold",
             "ui::room::mirror_placement_focus",
             "ui::login::mirror_login_activity",
+            "ui::confirm::mirror_attention_held",
+            "ui::catalogue::mirror_preview_request",
         ] {
             assert!(
                 lib.lines().any(|line| code(line).contains(mirror)),
                 "{mirror} is not registered in src/lib.rs; its resource would stay Default"
             );
         }
-        for rel in ["src/world_builder/mod.rs", "src/attract.rs"] {
-            let source = std::fs::read_to_string(root.join(rel)).expect("source is readable");
+        // The whole tree, not a list of the files this work happened to
+        // clear (#1297's close-out). A list cannot catch a NEW domain file
+        // that reaches into the layer, which is the regression that
+        // matters now that the existing ones are gone — so the walk asks
+        // the canonical question of every file instead:
+        //
+        //   grep -rl 'crate::ui::' src --exclude-dir=ui
+        //
+        // minus the two exclusions that command cannot make and #1297
+        // group 6 insisted on, because counting them is how the number
+        // gets argued about instead of acted on: a rustdoc link is not a
+        // dependency, and neither is a `#[cfg(test)]` source-scan helper
+        // reaching for another module's scan list.
+        let mut offenders: Vec<String> = Vec::new();
+        for path in walk_rs(&root.join("src")) {
+            let rel = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            if rel.starts_with("src/ui/") || MAY_IMPORT_UI.iter().any(|(p, _)| rel.starts_with(p)) {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("source is readable");
             let hits: Vec<usize> = source
                 .lines()
                 .enumerate()
                 .filter(|(_, line)| code(line).contains("crate::ui::"))
                 .map(|(n, _)| n + 1)
                 .collect();
+            if hits.is_empty() {
+                continue;
+            }
+            // A file whose every hit sits after its first test gate is a
+            // test helper, not a dependency: `camera.rs`'s `WorldCamera`
+            // marker scan (#1300) and `oauth/capped_fetch.rs`'s reach for
+            // the glyph-coverage list.
+            //
+            // `#[cfg(all(test, …))]` counts, and getting that wrong is not
+            // theoretical — `capped_fetch.rs`'s scan is gated
+            // `#[cfg(all(test, not(target_arch = "wasm32")))]` and this
+            // sweep called it a real importer until the cut matched what
+            // the issue's own baseline command matches:
+            // `^#\[cfg\((all\()?test`. The file says so in its own
+            // comments, because `fonts::glyph_coverage_tests::non_test_source`
+            // has the narrower cut and it bit there first.
+            let first_test = source
+                .lines()
+                .position(|line| {
+                    let line = line.trim_start();
+                    line.starts_with("#[cfg(test)") || line.starts_with("#[cfg(all(test")
+                })
+                .map(|n| n + 1);
+            if first_test.is_some_and(|t| hits[0] > t) {
+                continue;
+            }
+            offenders.push(format!("{rel}:{hits:?}"));
+        }
+        assert!(
+            offenders.is_empty(),
+            "these files outside src/ui import the egui layer in code: {offenders:?}. \
+             The fact each needs belongs in a resource IT owns, written once a frame \
+             by a `ui` mirror in PreUpdate (#1158, #1297) — or, if it is genuinely \
+             the ui layer's own, in MAY_IMPORT_UI above with the reason why"
+        );
+        for (path, reason) in MAY_IMPORT_UI {
+            let live = imports_ui_in_code(root, path);
             assert!(
-                hits.is_empty(),
-                "{rel} imports crate::ui:: outside comments at lines {hits:?}; \
-                 the fact it needs belongs in a resource it owns, mirrored from ui"
+                !live.is_empty(),
+                "the exemption for {path} is stale — nothing under it imports \
+                 crate::ui:: in code any more, so DELETE the entry rather than \
+                 leave it describing a tree that has moved on. Its reason was: \
+                 {reason}"
             );
         }
+    }
+
+    /// Every `.rs` file at or under `dir`.
+    #[cfg(test)]
+    fn walk_rs(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(path) = stack.pop() {
+            if path.is_dir() {
+                let entries = std::fs::read_dir(&path).expect("directory is readable");
+                stack.extend(entries.map(|e| e.expect("entry is readable").path()));
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// Files at or under `rel` (a file path or a directory prefix) that
+    /// name `crate::ui::` on a line with code on it. Shared by the pin
+    /// above and its exemption check.
+    #[cfg(test)]
+    fn imports_ui_in_code(root: &std::path::Path, rel: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut stack = vec![root.join(rel.trim_end_matches('/'))];
+        while let Some(path) = stack.pop() {
+            if path.is_dir() {
+                let entries = std::fs::read_dir(&path).expect("directory is readable");
+                stack.extend(entries.map(|e| e.expect("entry is readable").path()));
+                continue;
+            }
+            if path.extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("source is readable");
+            if source.lines().any(|line| {
+                line.split("//")
+                    .next()
+                    .unwrap_or("")
+                    .contains("crate::ui::")
+            }) {
+                out.push(path.display().to_string());
+            }
+        }
+        out.sort();
+        out
     }
 }

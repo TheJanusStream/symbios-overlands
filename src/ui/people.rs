@@ -23,7 +23,7 @@ use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 use bevy_symbios_multiuser::prelude::*;
 
-use crate::avatar::{BskyProfileCache, draw_avatar_icon};
+use crate::avatar::BskyProfileCache;
 use crate::diagnostics::SessionLog;
 use crate::diagnostics::event::EventPayload;
 use crate::network::presence::{PeerLabel, PeerResolve, peer_status, set_peer_mute};
@@ -33,6 +33,7 @@ use crate::state::{
     IncomingOfferDialog, LiveInventoryRecord, PublishFeedback, PublishStatus, RemotePeer,
     SocialResonance,
 };
+use crate::ui::avatar::draw_avatar_icon;
 use crate::ui::chat::AVATAR_ICON_PX;
 use crate::ui::inventory::{PeerDropTarget, PendingGeneratorDrop};
 

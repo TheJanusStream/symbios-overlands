@@ -587,6 +587,44 @@ pub fn mirror_placement_focus(
     }
 }
 
+/// Drop the room-scoped editor selection when the room changes (#1237
+/// f142, moved out of `player::portal` by #1297 group 3).
+///
+/// The selection is an INDEX into the room record's placements, so it
+/// belongs to one world. Travel swaps the record, the DID, the socket,
+/// the peers, the chat and the player's pose in one step and never
+/// touched the editor state, so an index into the room you left arrived
+/// pointing into a stranger's. The ownership gates elsewhere stop it
+/// being *drawn* or *dragged*; this is the state itself not surviving the
+/// journey.
+///
+/// [`crate::state::CurrentRoomDid`] has exactly two writers —
+/// `install_completed_session` and `poll_portal_travel_tasks` — which are
+/// precisely the two moments a room-scoped selection stops meaning
+/// anything. The clear used to sit inside `release_travel_on_arrival`,
+/// several frames later, and reaching it needed the world pipeline to
+/// hold a `ResMut<RoomEditorState>`; watching the DID from this side is
+/// both earlier and one less edge into the egui layer. At login there is
+/// nothing selected, so the insert fires it harmlessly.
+pub fn clear_selection_on_room_change(
+    room: Option<Res<crate::state::CurrentRoomDid>>,
+    editor: Option<ResMut<RoomEditorState>>,
+) {
+    let Some(room) = room else {
+        return;
+    };
+    if !room.is_changed() {
+        return;
+    }
+    // Guarded (#879): `RoomEditorState` is not prefs-watched, but the undo
+    // ring keys off its change ticks, so a write per frame is not free.
+    if let Some(mut editor) = editor
+        && editor.has_selection()
+    {
+        editor.clear_selection();
+    }
+}
+
 /// Toast the entity-budget truncation once per compile that hit it (#1211).
 /// `Update`, `InGame`. The executor cannot toast itself — `compile_room_record`
 /// sits at the parameter ceiling — so it leaves the resource and this

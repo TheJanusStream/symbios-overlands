@@ -82,7 +82,6 @@ pub mod editor_gizmo;
 pub mod interaction;
 pub mod item_preview;
 pub mod loading;
-pub mod logout;
 pub mod network;
 pub mod notify;
 pub mod oauth;
@@ -96,6 +95,7 @@ pub mod social;
 pub mod splat;
 pub mod state;
 pub mod terrain;
+pub mod text;
 pub mod ui;
 pub mod urban;
 pub mod water;
@@ -303,7 +303,7 @@ pub fn run() {
         .add_plugins(avatar::AvatarPlugin)
         .add_plugins(item_preview::ItemPreviewPlugin)
         .add_plugins(social::SocialPlugin)
-        .add_plugins(logout::LogoutPlugin)
+        .add_plugins(ui::logout::LogoutPlugin)
         .add_plugins(editor_gizmo::EditorGizmoPlugin)
         .add_plugins(interaction::InteractionPlugin)
         .add_plugins(audio_mute::AudioMutePlugin)
@@ -475,10 +475,13 @@ pub fn run() {
                 .run_if(in_state(AppState::Login)),
         )
         // Before anything reads them: the avatar editor's hold (#1158),
-        // the World Editor's placement focus and the login flow's activity
-        // (#1297), mirrored out of the egui layer so the player's physics
-        // and animation drivers, the world pipeline's overlay and the
-        // attract backdrop do not import it. Registration is pinned by
+        // the World Editor's placement focus, the login flow's activity
+        // and whether a modal owns attention (#1297), mirrored out of the
+        // egui layer so the player's physics and animation drivers, the
+        // world pipeline's overlay and the attract backdrop do not import
+        // it. `PreUpdate` matters for the attention hold in particular:
+        // the FixedUpdate drive systems later in the same frame must read
+        // this frame's answer, not last frame's. Registration is pinned by
         // `ui::tests::the_mirrored_consumers_do_not_import_the_ui_layer`.
         .add_systems(
             PreUpdate,
@@ -486,6 +489,8 @@ pub fn run() {
                 ui::avatar::mirror_rig_hold,
                 ui::room::mirror_placement_focus,
                 ui::login::mirror_login_activity,
+                ui::confirm::mirror_attention_held,
+                ui::catalogue::mirror_preview_request,
             ),
         )
         .add_systems(
@@ -698,13 +703,8 @@ pub fn run() {
             EguiPrimaryContextPass,
             ui::other_session::other_session_room_ui
                 .run_if(in_state(AppState::InGame))
-                .run_if(resource_exists::<ui::other_session::OtherSessionRoom>),
+                .run_if(resource_exists::<state::OtherSessionRoom>),
         )
-        // ECS mirror of the egui modal stamp (#1236, read by #1241's
-        // movement gate). PreUpdate so the FixedUpdate drive systems later
-        // in the same frame see this frame's answer, not last frame's.
-        .init_resource::<ui::confirm::ModalOpen>()
-        .add_systems(PreUpdate, ui::confirm::mirror_modal_open)
         // Global keyboard shortcuts (#836): Esc back-out ladder,
         // Enter-to-chat, Ctrl+S publish, Ctrl+Z/Ctrl+Shift+Z undo (#864).
         // Update (not the egui pass) so the ladder's state checks land
@@ -731,6 +731,23 @@ pub fn run() {
         .add_systems(
             Update,
             ui::room::announce_compile_truncation.run_if(in_state(AppState::InGame)),
+        )
+        // #1297 group 3, the two halves the portal handler used to do by
+        // reaching into `ui` itself: walking into a portal now publishes a
+        // contact and THIS raises the unsaved-edits dialog from it, beside
+        // the four other surfaces that raise the same dialog; and the
+        // room-scoped editor selection is dropped by watching
+        // `CurrentRoomDid` rather than by the arrival system holding a
+        // `ResMut<RoomEditorState>`. Both `Update`, `InGame`: the contact
+        // is raised in `Update` and must be answered in the same frame, or
+        // the re-entry check sees it standing with no guard behind it.
+        .add_systems(
+            Update,
+            (
+                ui::travel::raise_guard_for_portal_contact,
+                ui::room::clear_selection_on_room_change,
+            )
+                .run_if(in_state(AppState::InGame)),
         )
         // The invisible-mode banner (#1240 f170, #1241 f160/f161): held
         // still under a gizmo, an unrecognised locomotion preset, and the

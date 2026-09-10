@@ -6,7 +6,7 @@
 //! and wear or place it. This module renders the *selected* entry into an
 //! off-screen texture that [`crate::ui::catalogue`]'s detail panel draws
 //! as an ordinary `egui::Image`, which is why it is not
-//! [`crate::avatar::draw_avatar_icon`]'s neighbour: the profile-picture
+//! [`crate::ui::avatar::draw_avatar_icon`]'s neighbour: the profile-picture
 //! path uploads bytes fetched from a PDS, and this one owns a camera.
 //!
 //! The owner chose render-on-selection over a baked atlas: nothing here
@@ -132,6 +132,22 @@ const FRAMING_MARGIN: f32 = 1.25;
 /// the catalogue's smallest entries are centimetres across.
 const MIN_VIEW_DISTANCE: f32 = 0.05;
 
+/// What the Catalogue is asking the preview to show (#1297).
+///
+/// `restage_preview` used to read [`crate::ui::toolbar::UiPanels`] and
+/// [`crate::ui::catalogue::CatalogueBrowser`] itself, which pointed the
+/// arrow from a render pipeline into the egui layer for one `bool` and
+/// one `Option<&str>`. Written once a frame by
+/// `ui::catalogue::mirror_preview_request` in `PreUpdate`, the
+/// `world_builder::PlacementFocus` shape a second time.
+///
+/// Still DERIVED rather than pushed: the mirror recomputes it from the
+/// panel state through [`wanted_subject`], the same predicate the
+/// consumer used to apply, so there is no request a panel draw could
+/// dirty per frame (#879) and no second copy of the rule.
+#[derive(Resource, Default, Debug, Clone, PartialEq, Eq)]
+pub struct PreviewRequest(pub Option<PreviewSubject>);
+
 /// What the preview is showing, or is being asked to show. Compared by
 /// value: a restage happens when — and only when — this differs from what
 /// is already on the stage, so holding a selection costs one camera pass
@@ -211,6 +227,7 @@ impl Plugin for ItemPreviewPlugin {
                 bevy::app::PropagateSet::<RenderLayers>::default()
                     .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
             )
+            .init_resource::<PreviewRequest>()
             .add_systems(Startup, setup_preview)
             .add_systems(Update, restage_preview.run_if(in_state(AppState::InGame)))
             .add_systems(
@@ -342,7 +359,10 @@ fn clear_preview(
 /// the Catalogue window is open. Derived rather than pushed — there is no
 /// request resource for a panel to write every frame, so there is no
 /// change-tick to guard (#879).
-fn wanted_subject(catalogue_open: bool, selected: Option<&str>) -> Option<PreviewSubject> {
+pub(crate) fn wanted_subject(
+    catalogue_open: bool,
+    selected: Option<&str>,
+) -> Option<PreviewSubject> {
     // A closed window is the whole "is anyone looking" question: it is what
     // turns the camera off, and a camera pass nobody can see is the one
     // cost this approach could have carried and does not.
@@ -362,8 +382,7 @@ fn wanted_subject(catalogue_open: bool, selected: Option<&str>) -> Option<Previe
 fn restage_preview(
     mut commands: Commands,
     mut preview: ResMut<ItemPreview>,
-    panels: Res<crate::ui::toolbar::UiPanels>,
-    browser: Res<crate::ui::catalogue::CatalogueBrowser>,
+    request: Res<PreviewRequest>,
     session: Option<Res<bevy_symbios_multiuser::auth::AtprotoSession>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -371,7 +390,7 @@ fn restage_preview(
     mut deps: AvatarSpawnDeps,
     mut cameras: Query<&mut Camera, With<PreviewCamera>>,
 ) {
-    let wanted = wanted_subject(panels.catalogue, browser.selected_slug());
+    let wanted = request.0.clone();
     if wanted.as_ref() == preview.staged() {
         return;
     }

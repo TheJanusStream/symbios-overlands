@@ -17,9 +17,10 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 use bevy_symbios_multiuser::auth::AtprotoSession;
 
-use crate::avatar::{BskyProfileCache, draw_avatar_icon};
+use crate::avatar::BskyProfileCache;
 use crate::social::{MutualsCache, MutualsState, request_mutuals};
 use crate::state::{CurrentRoomDid, LocalPlayer, TravelingTo};
+use crate::ui::avatar::draw_avatar_icon;
 use crate::ui::chat::AVATAR_ICON_PX;
 use crate::ui::unsaved_guard::{GuardedAction, UnsavedGuard};
 use crate::world_builder::GatewayMarker;

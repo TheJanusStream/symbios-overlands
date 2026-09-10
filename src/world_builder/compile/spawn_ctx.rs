@@ -300,10 +300,7 @@ impl SpawnCtx<'_, '_, '_, '_, '_> {
             // which no UI selection matches — so the root segment is
             // swapped for the editor's own, and the PATH is kept, or every
             // grammar node in a worn tree would file under one key.
-            super::dispatch::synthetic_cache_key(
-                crate::ui::room::generators::AvatarVisualsTreeSource::ROOT_NAME,
-                path,
-            )
+            super::dispatch::synthetic_cache_key(crate::pds::avatar::VISUALS_ROOT_NAME, path)
         } else {
             return;
         };

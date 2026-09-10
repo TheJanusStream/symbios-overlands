@@ -370,7 +370,12 @@ impl<'a> AvatarVisualsTreeSource<'a> {
     /// underlying `AvatarRecord` doesn't actually carry per-root names —
     /// it has a single anonymous root — but the tree-view widget keys on
     /// `(root, path)` so we hand it a stable string here.
-    pub(crate) const ROOT_NAME: &'static str = "visuals";
+    ///
+    /// The string itself lives with the record it addresses
+    /// ([`crate::pds::avatar::VISUALS_ROOT_NAME`], #1297): the world
+    /// compiler builds the same key and should not have to read a panel
+    /// module to learn it.
+    pub(crate) const ROOT_NAME: &'static str = crate::pds::avatar::VISUALS_ROOT_NAME;
 }
 
 impl GeneratorTreeSource for AvatarVisualsTreeSource<'_> {

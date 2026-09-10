@@ -780,7 +780,7 @@ impl Rule for GlareSuspected {
 /// and biases the project's own reading of its failure rates. Shared by the
 /// live and replay arms so the panel and the post-mortem cannot disagree.
 fn reject_detail(n: u64, status: u64) -> String {
-    let times = crate::ui::toolbar::plural(n as usize, "time", "times");
+    let times = crate::text::plural(n as usize, "time", "times");
     if status == 0 {
         format!(
             "could not reach the world server {n} {times} — no reason given, \

@@ -60,6 +60,7 @@
 //!     [`AvatarRecord::default_for_did`] seed.
 
 mod attachments;
+mod icon;
 pub(crate) use attachments::{
     attach_record, is_worn_from, record_for_inventory_item, rename_worn_source,
     save_worn_to_inventory, take_off_rkey, take_off_source, wear_blocked_reason, worn_rkeys_from,
@@ -85,6 +86,7 @@ use crate::ui::editable::{
 };
 use crate::ui::room::RoomEditorState;
 use crate::ui::room::generators::{AvatarVisualsTreeSource, GenNodeId};
+pub use icon::{draw_avatar_icon, icon_initial};
 
 /// Async task for publishing the avatar record to the owner's PDS. Carries the
 /// target `did` + dispatch time so [`poll_publish_avatar_tasks`] can emit a typed

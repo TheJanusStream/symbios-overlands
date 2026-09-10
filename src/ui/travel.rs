@@ -18,16 +18,17 @@
 //!
 //! Destination naming goes through [`travel_label`]: the name the surface
 //! that started the travel already had, else the bsky profile cache, else
-//! the DID's head — all of it spelled by [`PeerLabel`], the app's one
+//! the DID's head — all of it spelled by
+//! [`PeerLabel`](crate::network::presence::PeerLabel), the app's one
 //! naming ladder.
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::avatar::BskyProfileCache;
-use crate::network::presence::PeerLabel;
+use crate::network::presence::travel_label;
 use crate::state::{CurrentRoomDid, LocalPlayer, TravelPhase, TravelingTo};
-use crate::ui::unsaved_guard::UnsavedGuard;
+use crate::ui::unsaved_guard::{GuardedAction, TravelVia, UnsavedGuard};
 use crate::world_builder::PortalMarker;
 
 /// How close (m) the player must be to a portal for the approach prompt.
@@ -39,24 +40,6 @@ const PORTAL_PROMPT_RADIUS_M: f32 = 7.0;
 /// still being built. Not fully opaque on purpose — the world coming up
 /// underneath is the progress cue the compile itself cannot give.
 const ARRIVAL_VEIL_ALPHA: f32 = 0.88;
-
-/// Human display name for a DID, through the app's one naming ladder
-/// ([`PeerLabel`]).
-///
-/// `carried` is the name the surface that started this travel already had
-/// (#1231 f27). It matters because [`BskyProfileCache`] is filled only by
-/// peer-driven fetches — `trigger_avatar_fetches` walks `RemotePeer`
-/// entities — so a mutual the viewer has never shared a room with is never
-/// in it. The gateway row rendered "@alice" from the mutuals list and threw
-/// the handle away, and the overlay one click later said
-/// `did:plc:abcdefgh…` for the same person.
-pub(crate) fn travel_label(cache: &BskyProfileCache, did: &str, carried: Option<&str>) -> String {
-    if let Some(name) = carried.filter(|n| !n.is_empty()) {
-        return name.to_owned();
-    }
-    let handle = cache.get(did).and_then(|p| p.handle.clone());
-    PeerLabel::new(handle.as_deref(), Some(did)).addressed()
-}
 
 /// What the overlay says for a travel in `phase` heading to `name`.
 ///
@@ -361,6 +344,42 @@ fn nearest_portal_did(
         .map(|(marker, _)| marker.target_did.clone())
 }
 
+/// Turn a [`PortalContact`](crate::player::PortalContact) into
+/// the unsaved-edits question (#1297 group 3).
+///
+/// The portal is the app's one PHYSICAL travel trigger: you walk into a
+/// collider. The other four surfaces that start a travel — a gateway row,
+/// People *Visit*, the account menu's destination list, and the guard's
+/// own re-ask — are all `ui`, and all raise
+/// [`GuardedAction::PortalTravel`] themselves. The portal used to as
+/// well, which made `player` the only non-`ui` module inserting a `ui`
+/// dialog resource. It publishes the contact instead and this raises the
+/// dialog, so all five raise sites sit on one side of the line.
+///
+/// The removal and the insert ride ONE command flush, so no frame ever
+/// sees the contact consumed with no guard standing — which matters
+/// because `handle_portal_interaction` keys its re-entry check on exactly
+/// those two facts.
+///
+/// `target_label: None`: a portal in the world carries a DID and nothing
+/// else, so [`travel_label`] resolves what it can at render time. The
+/// gateway and People rows DO carry a name and pass it (#1231 f27).
+pub fn raise_guard_for_portal_contact(
+    mut commands: Commands,
+    contact: Option<Res<crate::player::PortalContact>>,
+) {
+    let Some(contact) = contact.as_deref() else {
+        return;
+    };
+    commands.insert_resource(UnsavedGuard::new(GuardedAction::PortalTravel {
+        via: TravelVia::Portal,
+        target_did: contact.target_did.clone(),
+        target_label: None,
+        target_pos: Some(contact.target_pos),
+    }));
+    commands.remove_resource::<crate::player::PortalContact>();
+}
+
 /// Bottom-center approach prompt naming an inter-room portal's
 /// destination before collider contact commits the travel. Same-room
 /// teleporters are skipped (they act instantly and stay local), as is
@@ -428,45 +447,6 @@ pub fn portal_prompt_ui(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_label_prefers_a_handle_and_shortens_dids() {
-        let cache = BskyProfileCache::default();
-        // No cache entry → shortened DID with an ellipsis.
-        let long = "did:plc:abcdefghijklmnopqrstuvwx";
-        let shown = travel_label(&cache, long, None);
-        assert!(shown.ends_with('…'));
-        assert!(shown.starts_with("did:plc:"));
-        assert!(shown.chars().count() <= 17);
-        // Short identifiers pass through untouched.
-        assert_eq!(travel_label(&cache, "did:web:x", None), "did:web:x");
-    }
-
-    /// THE SEQUENCE (#1231 f27): the visitor clicks *Go* beside "@alice" in
-    /// the gateway picker and the overlay that follows says "Traveling to
-    /// did:plc:abcdefgh…'s world". The refuter is right that this function
-    /// already walks handle → DID head → raw; what it cannot do is fill the
-    /// cache. `BskyProfileCache` is populated by peer-driven fetches over
-    /// `RemotePeer` entities, so a mutual the viewer has never shared a
-    /// room with is never in it — and the row that just rendered her handle
-    /// threw it away. The fix is to carry the label the row already had.
-    #[test]
-    fn a_carried_label_beats_a_cache_that_was_never_going_to_have_the_name() {
-        let cache = BskyProfileCache::default();
-        let did = "did:plc:abcdefghijklmnopqrstuvwx";
-        assert_eq!(
-            travel_label(&cache, did, Some("@alice.bsky.social")),
-            "@alice.bsky.social",
-            "the gateway row's own name survives the click"
-        );
-        // An empty carried label is not a name; fall through the ladder.
-        assert_eq!(
-            travel_label(&cache, did, Some("")),
-            travel_label(&cache, did, None),
-            "an empty carried label is not a name"
-        );
-        assert!(travel_label(&cache, did, None).ends_with('…'));
-    }
 
     /// THE SEQUENCE (#1232 f251): a visitor arrives in a stranger's world
     /// through a landmark link, which can drop them anywhere, and wants to

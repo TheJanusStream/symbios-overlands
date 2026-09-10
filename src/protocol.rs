@@ -302,6 +302,31 @@ pub enum DeclineReason {
     Unanswered,
 }
 
+/// The sentence the SENDER sees when a gift is refused (#1220 f127).
+///
+/// One place, because there are four reasons and they used to share one
+/// sentence — "@them declined" — which misattributed a mechanical throttle
+/// to a person's choice and, worse, taught the sender not to retry in the
+/// one case where retrying works. A muted sender reads `Declined`
+/// deliberately: telling somebody they have been muted is a privacy leak.
+///
+/// It lived in `ui::inventory` and had exactly one non-test caller —
+/// `network::inbound::item_offer`, which is not `ui` at all (#1297).
+/// The sentence explains a [`DeclineReason`]; it belongs beside the
+/// enum whose four variants it exists to tell apart.
+pub fn offer_refusal_line(reason: DeclineReason, who: &str, item: &str) -> String {
+    match reason {
+        DeclineReason::Declined => format!("{who} declined \"{item}\"."),
+        DeclineReason::Busy => {
+            format!("{who} was answering another offer — try \"{item}\" again in a moment.")
+        }
+        DeclineReason::Unavailable => {
+            format!("{who} couldn't take \"{item}\" — their inventory is full.")
+        }
+        DeclineReason::Unanswered => format!("{who} didn't answer about \"{item}\" in time."),
+    }
+}
+
 /// The answer to an [`OverlandsMessage::ItemOffer`] (#1184).
 ///
 /// The second field arrived as predicted (#1220 f127) and cost no protocol
@@ -536,6 +561,49 @@ impl OverlandsMessage {
 mod item_offer_tests {
     use super::*;
     use crate::pds::inventory::WearMeta;
+
+    /// #1220 f127. The sequence: you gift two friends in quick succession,
+    /// the second one's client is still showing the first dialog, and you
+    /// are told "@second declined" — a mechanical throttle reported as a
+    /// person's choice, and phrasing that teaches you not to retry in the
+    /// one case where retrying works.
+    #[test]
+    fn each_refusal_reads_as_the_thing_that_actually_happened() {
+        let declined = offer_refusal_line(DeclineReason::Declined, "@them", "lantern");
+        assert!(declined.contains("declined"), "{declined}");
+
+        let busy = offer_refusal_line(DeclineReason::Busy, "@them", "lantern");
+        assert!(
+            !busy.contains("declined"),
+            "a throttle is not a refusal: {busy}"
+        );
+        assert!(busy.contains("again"), "and it must invite a retry: {busy}");
+
+        let full = offer_refusal_line(DeclineReason::Unavailable, "@them", "lantern");
+        assert!(full.contains("full"), "{full}");
+        assert!(!full.contains("declined"), "{full}");
+
+        let quiet = offer_refusal_line(DeclineReason::Unanswered, "@them", "lantern");
+        assert!(quiet.contains("didn't answer"), "{quiet}");
+        assert!(!quiet.contains("declined"), "{quiet}");
+    }
+
+    /// Every sentence names the item and the person, because the sender may
+    /// have several offers out at once and a toast that says only "declined"
+    /// is unattributable.
+    #[test]
+    fn every_refusal_names_the_person_and_the_item() {
+        for reason in [
+            DeclineReason::Declined,
+            DeclineReason::Busy,
+            DeclineReason::Unavailable,
+            DeclineReason::Unanswered,
+        ] {
+            let line = offer_refusal_line(reason, "@them", "lantern");
+            assert!(line.contains("@them"), "{line}");
+            assert!(line.contains("lantern"), "{line}");
+        }
+    }
 
     fn wear() -> WearMeta {
         let mut meta = WearMeta::for_entry(symbios_avatar::Socket::Crown, None);

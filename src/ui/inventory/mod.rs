@@ -282,27 +282,6 @@ pub fn drag_tooltip(ui: &egui::Ui, id_salt: &str, label: &str, owns_room: bool) 
     });
 }
 
-/// The sentence the SENDER sees when a gift is refused (#1220 f127).
-///
-/// One place, because there are four reasons and they used to share one
-/// sentence — "@them declined" — which misattributed a mechanical throttle
-/// to a person's choice and, worse, taught the sender not to retry in the
-/// one case where retrying works. A muted sender reads `Declined`
-/// deliberately: telling somebody they have been muted is a privacy leak.
-pub fn offer_refusal_line(reason: crate::protocol::DeclineReason, who: &str, item: &str) -> String {
-    use crate::protocol::DeclineReason;
-    match reason {
-        DeclineReason::Declined => format!("{who} declined \"{item}\"."),
-        DeclineReason::Busy => {
-            format!("{who} was answering another offer — try \"{item}\" again in a moment.")
-        }
-        DeclineReason::Unavailable => {
-            format!("{who} couldn't take \"{item}\" — their inventory is full.")
-        }
-        DeclineReason::Unanswered => format!("{who} didn't answer about \"{item}\" in time."),
-    }
-}
-
 /// Per-frame hover snapshot for the peer the cursor is currently over
 /// during an armed drag. Populated by the People GUI so the drop handler
 /// can route release events without reaching into egui itself.
@@ -1419,9 +1398,8 @@ mod gift_tests {
 }
 
 #[cfg(test)]
-mod refusal_tests {
+mod gift_arrival_tests {
     use super::*;
-    use crate::protocol::DeclineReason;
 
     /// #1220 f119. The sequence: a friend gifts you "lantern", you already
     /// have one, you accept — and the item is in your stash as "lantern_2"
@@ -1467,49 +1445,6 @@ mod refusal_tests {
             None,
         );
         assert_eq!(key, "lantern");
-    }
-
-    /// #1220 f127. The sequence: you gift two friends in quick succession,
-    /// the second one's client is still showing the first dialog, and you
-    /// are told "@second declined" — a mechanical throttle reported as a
-    /// person's choice, and phrasing that teaches you not to retry in the
-    /// one case where retrying works.
-    #[test]
-    fn each_refusal_reads_as_the_thing_that_actually_happened() {
-        let declined = offer_refusal_line(DeclineReason::Declined, "@them", "lantern");
-        assert!(declined.contains("declined"), "{declined}");
-
-        let busy = offer_refusal_line(DeclineReason::Busy, "@them", "lantern");
-        assert!(
-            !busy.contains("declined"),
-            "a throttle is not a refusal: {busy}"
-        );
-        assert!(busy.contains("again"), "and it must invite a retry: {busy}");
-
-        let full = offer_refusal_line(DeclineReason::Unavailable, "@them", "lantern");
-        assert!(full.contains("full"), "{full}");
-        assert!(!full.contains("declined"), "{full}");
-
-        let quiet = offer_refusal_line(DeclineReason::Unanswered, "@them", "lantern");
-        assert!(quiet.contains("didn't answer"), "{quiet}");
-        assert!(!quiet.contains("declined"), "{quiet}");
-    }
-
-    /// Every sentence names the item and the person, because the sender may
-    /// have several offers out at once and a toast that says only "declined"
-    /// is unattributable.
-    #[test]
-    fn every_refusal_names_the_person_and_the_item() {
-        for reason in [
-            DeclineReason::Declined,
-            DeclineReason::Busy,
-            DeclineReason::Unavailable,
-            DeclineReason::Unanswered,
-        ] {
-            let line = offer_refusal_line(reason, "@them", "lantern");
-            assert!(line.contains("@them"), "{line}");
-            assert!(line.contains("lantern"), "{line}");
-        }
     }
 }
 

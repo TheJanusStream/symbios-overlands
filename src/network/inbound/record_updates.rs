@@ -307,9 +307,7 @@ pub(super) fn handle_room_state(
     // entity (water, sun colour, scattered shapes) in one pass.
     if let Some(record) = room_record.as_mut() {
         if same_owner {
-            use crate::ui::other_session::{
-                OtherSessionRoom, SameOwnerUpdate, classify_same_owner_update,
-            };
+            use crate::state::{OtherSessionRoom, SameOwnerUpdate, classify_same_owner_update};
             let equals = !crate::state::records_differ(&record.0, &new_record);
             let dirty = bufs
                 .stored_room

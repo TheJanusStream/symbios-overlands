@@ -180,7 +180,7 @@ pub struct AuthHandoffPending;
 ///
 /// Inserted by `ui::login::poll_complete_auth_task` after a successful OAuth
 /// callback (and on WASM by the resume-from-localStorage system on boot).
-/// Removed by `logout::cleanup_on_logout`.
+/// Removed by `ui::logout::cleanup_on_logout`.
 #[derive(Resource, Clone)]
 pub struct OauthRefreshCtx {
     pub client: Arc<OAuthClient>,

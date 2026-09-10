@@ -329,11 +329,7 @@ pub(super) fn handle_response(
         );
     } else {
         bufs.toasts.info(
-            crate::ui::inventory::offer_refusal_line(
-                reason,
-                &pending.target_label,
-                &pending.item_name,
-            ),
+            crate::protocol::offer_refusal_line(reason, &pending.target_label, &pending.item_name),
             now,
         );
     }

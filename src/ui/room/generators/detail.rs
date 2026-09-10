@@ -456,7 +456,7 @@ fn draw_road_editor(
                 text.push_str(&format!(
                     " · {} {}",
                     stats.props,
-                    crate::ui::toolbar::plural(stats.props, "prop", "props")
+                    crate::text::plural(stats.props, "prop", "props")
                 ));
             }
             // Marked stale rather than reported as settled fact (#1245

@@ -721,8 +721,8 @@ pub fn audience_line(visibility: EditVisibility, peers: usize, noun: &str) -> St
         ),
         (EditVisibility::Live, n) => format!(
             "{n} {} here {} these edits as you make them.",
-            crate::ui::toolbar::plural(n, "person", "people"),
-            crate::ui::toolbar::plural(n, "sees", "see"),
+            crate::text::plural(n, "person", "people"),
+            crate::text::plural(n, "sees", "see"),
         ),
     }
 }

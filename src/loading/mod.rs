@@ -135,12 +135,12 @@ pub struct AbortLoading;
 /// stuck load never reaches.
 ///
 /// Aborting is a real logout (the session, socket config and caches were
-/// already installed on Loading entry), so the shared
-/// [`crate::logout::cleanup_on_logout`] system is run on demand via
-/// `run_system_cached`, and the terrain teardown reacts to the
-/// still-visible [`AbortLoading`] flag from its own plugin registration;
-/// only the Loading-specific in-flight state — fetch tasks, backoff
-/// markers, the ambient bake — is drained here.
+/// already installed on Loading entry), and BOTH shared teardowns react
+/// to the still-visible [`AbortLoading`] flag from their own plugin
+/// registrations — the terrain one always did, and the session one joined
+/// it under #1297 group 3 rather than have this module reach into the ui
+/// layer the teardown moved to. Only the Loading-specific in-flight state
+/// — fetch tasks, backoff markers, the ambient bake — is drained here.
 #[allow(clippy::type_complexity)]
 pub(crate) fn abort_loading_to_login(
     mut commands: Commands,
@@ -176,7 +176,6 @@ pub(crate) fn abort_loading_to_login(
     commands.remove_resource::<AmbientHandle>();
     commands.remove_resource::<AmbientResolveFailed>();
     commands.remove_resource::<ambient::AmbientBakeStarted>();
-    commands.run_system_cached(crate::logout::cleanup_on_logout);
     next_state.set(AppState::Login);
 }
 

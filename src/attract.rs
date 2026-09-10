@@ -234,7 +234,7 @@ fn tear_down_demo_world(
     // overlap exists across systems: `terrain::cleanup_terrain` retires
     // the water volumes on this same transition, and they are
     // `RoomEntity`s too. Same idiom as the executor's full-rebuild sweep
-    // and `logout::cleanup_on_logout`.
+    // and `ui::logout::cleanup_on_logout`.
     for e in room_entities {
         commands.entity(e).try_despawn();
     }
@@ -250,7 +250,7 @@ fn tear_down_demo_world(
     // been despawned above. Two unrelated seeds rarely collide, but a
     // re-roll runs the same generators over the same placement slots, so
     // the odds stop being theoretical. Reset both wholesale, exactly as
-    // `logout::cleanup_on_logout` does.
+    // `ui::logout::cleanup_on_logout` does.
     commands.insert_resource(crate::world_builder::compile::CompiledWorld::default());
     commands.insert_resource(crate::world_builder::compile::CompileJob::default());
 }

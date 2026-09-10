@@ -26,8 +26,7 @@
 //!   nothing), Enter applies, Esc cancels, and the field is focused
 //!   only on the frame the dialog opens so Tab still works.
 
-use bevy::ecs::resource::Resource;
-use bevy::ecs::system::ResMut;
+use bevy::ecs::system::{Res, ResMut};
 use bevy_egui::egui;
 
 /// egui temp-data key under which every modal renderer records the pass it
@@ -82,7 +81,7 @@ const POPUP_OPEN_ID: &str = "overlands-popup-open";
 /// Deliberately a SEPARATE signal from [`note_modal_open`]: a menu owns
 /// the Escape key, but it does not own attention. Conflating the two would
 /// freeze the avatar under an open combo box, which is what
-/// [`ModalOpen`] mirrors and #1241 gates movement on.
+/// [`mirror_attention_held`] carries and #1241 gates movement on.
 pub fn note_popup_open(ctx: &egui::Context) {
     let pass = ctx.cumulative_pass_nr();
     ctx.data_mut(|data| data.insert_temp(egui::Id::new(POPUP_OPEN_ID), pass));
@@ -106,33 +105,41 @@ pub fn popup_is_open(ctx: &egui::Context) -> bool {
         .is_some_and(|stamped| now.saturating_sub(stamped) <= 1)
 }
 
-/// ECS mirror of [`modal_is_open`] (#1236, consumed by #1241 f164).
+/// Copy BOTH kinds of modal into [`crate::player::AttentionHeld`]
+/// (#1236's mirror, folded together and inverted by #1297 group 3).
 ///
 /// [`note_modal_open`] lives in egui's per-context store, which only a
 /// system holding an egui context can read — and the systems that most
 /// need the answer are the FixedUpdate drive systems, which hold no egui
-/// context at all. Before this, `player::guard_modal_open` asked
-/// `Option<Res<UnsavedGuard>>` and therefore knew about exactly one of the
-/// six modals in the app: a gift offer from a stranger blocked every click
-/// while W kept walking the avatar into a portal.
+/// context at all. [`UnsavedGuard`](crate::ui::unsaved_guard::UnsavedGuard)
+/// is the other kind: a modal that is an ECS resource and leaves no
+/// stamp. `player::guard_modal_open` used to import both and OR them,
+/// which is the import #1297 group 3 removes; the OR happens here now and
+/// the player reads one resource it owns.
 ///
-/// Written once per frame by [`mirror_modal_open`] in `PreUpdate`, so the
-/// FixedUpdate steps later in the same frame read a value at most one
-/// frame old — the same slack [`modal_is_open`] already runs on.
-#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ModalOpen(pub bool);
-
-/// Copy the egui modal stamp into [`ModalOpen`] (#1236).
+/// Written in `PreUpdate`, so the FixedUpdate steps later in the same
+/// frame read a value at most one frame old — the same slack
+/// [`modal_is_open`] already runs on.
+///
+/// A missing egui context reports the egui half as `false` rather than
+/// returning early: the guard half is knowable without a context, and a
+/// headless build (the render tool) has no dialogs but could still be
+/// handed a guard.
 ///
 /// Guarded (#879): an every-frame `ResMut` write would mark the resource
 /// changed on every frame of the app's life.
-pub fn mirror_modal_open(mut contexts: bevy_egui::EguiContexts, mut open: ResMut<ModalOpen>) {
-    let Ok(ctx) = contexts.ctx_mut() else {
-        return;
+pub fn mirror_attention_held(
+    mut contexts: bevy_egui::EguiContexts,
+    guard: Option<Res<crate::ui::unsaved_guard::UnsavedGuard>>,
+    mut held: ResMut<crate::player::AttentionHeld>,
+) {
+    let modal_open = match contexts.ctx_mut() {
+        Ok(ctx) => modal_is_open(ctx),
+        Err(_) => false,
     };
-    let now = modal_is_open(ctx);
-    if open.0 != now {
-        open.0 = now;
+    let now = crate::player::attention_is_held(modal_open, guard.is_some());
+    if held.0 != now {
+        held.0 = now;
     }
 }
 
@@ -649,21 +656,69 @@ mod tests {
         assert_eq!(outcome, RenameOutcome::Open);
     }
 
-    /// #1241 f164. Sequence: a stranger's gift offer pops up. You cannot
-    /// click anything in the world, but W still walks you — straight into
-    /// a portal — and now a second modal stacks on top of the first.
+    /// #1241 f164, inverted by #1297 group 3. Sequence: a stranger's gift
+    /// offer pops up. You cannot click anything in the world, but W still
+    /// walks you — straight into a portal — and now a second modal stacks
+    /// on top of the first.
     ///
     /// The movement gate asked `Option<Res<UnsavedGuard>>` and therefore
-    /// knew about one of six modals. The drive systems' OTHER gate,
+    /// knew about ONE of the six modals. The drive systems' OTHER gate,
     /// `not(egui_wants_any_keyboard_input)`, covers a dialog that focuses
     /// a text field — but a buttons-only dialog focuses nothing, which is
-    /// the whole reason `note_modal_open` exists. This pins that the ECS
-    /// mirror carries the stamp across, and that it goes back down.
+    /// the whole reason `note_modal_open` exists.
+    ///
+    /// The app has two kinds of modal and the gate needs both: an egui
+    /// stamp in a per-context store, and [`UnsavedGuard`], an ECS resource
+    /// that leaves no stamp at all. The player used to import both and OR
+    /// them; now this mirror ORs them once a frame into a resource the
+    /// player owns.
+    ///
+    /// Asserted against [`crate::player::attention_is_held`] rather than
+    /// by restating its answers, and covering both sources, absence and
+    /// release. **The egui half runs for real**: a `EguiContext` entity is
+    /// spawned and the dialog drawn on a clone of its context (an
+    /// `egui::Context` is a handle to one shared store), so this drives
+    /// the registered system rather than a copy of its body — which is
+    /// what the #1236 test it replaces had to settle for.
     #[test]
-    fn the_ecs_mirror_carries_a_buttons_only_modal_to_the_drive_systems() {
+    fn the_attention_hold_mirrors_the_modal_and_the_guard_including_absence() {
+        use bevy::ecs::system::RunSystemOnce;
         use bevy::prelude::*;
 
-        let ctx = egui::Context::default();
+        use crate::player::{AttentionHeld, attention_is_held};
+        use crate::ui::unsaved_guard::{GuardedAction, UnsavedGuard};
+
+        let mut world = World::new();
+        world.init_resource::<AttentionHeld>();
+        world.init_resource::<bevy_egui::EguiUserTextures>();
+        let context_entity = world
+            .spawn((
+                bevy_egui::EguiContext::default(),
+                bevy_egui::PrimaryEguiContext,
+            ))
+            .id();
+        let ctx = world
+            .get_mut::<bevy_egui::EguiContext>(context_entity)
+            .expect("the context entity just spawned")
+            .get_mut()
+            .clone();
+
+        fn mirrored(world: &mut World) -> bool {
+            world
+                .run_system_once(mirror_attention_held)
+                .expect("the mirror runs");
+            world.resource::<AttentionHeld>().0
+        }
+
+        // Absence: no dialog, no guard. The player must be free to move.
+        // A mirror that defaulted the other way would freeze anyone whose
+        // registration went missing, which is the failure
+        // `ui::tests::the_mirrored_consumers_do_not_import_the_ui_layer`
+        // exists to catch — but only after it had frozen them.
+        assert!(!attention_is_held(false, false));
+        assert!(!mirrored(&mut world), "nothing is holding attention");
+
+        // Source one: a buttons-only confirm, invisible to the other gate.
         let mut state: ConfirmState<&'static str> = ConfirmState::default();
         state.request("Delete item?", "Cannot be undone.", "Delete", "payload");
         let _ = ctx.run_ui(egui::RawInput::default(), |root| {
@@ -674,38 +729,67 @@ mod tests {
             "precondition: the OTHER gate cannot see a buttons-only dialog"
         );
         assert!(modal_is_open(&ctx));
+        assert!(attention_is_held(true, false));
+        assert!(
+            mirrored(&mut world),
+            "a buttons-only dialog must reach the drive systems"
+        );
 
-        // The mirror is the pure half of the copy — `mirror_modal_open`
-        // needs an `EguiContexts`, which no test builds.
-        let mut world = World::new();
-        world.init_resource::<ModalOpen>();
-        world.resource_mut::<ModalOpen>().0 = modal_is_open(&ctx);
-        assert!(world.resource::<ModalOpen>().0);
-
-        // …and once the dialog stops drawing, movement comes back.
+        // …and it RELEASES once the dialog stops drawing.
         for _ in 0..3 {
             let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
         }
-        world.resource_mut::<ModalOpen>().0 = modal_is_open(&ctx);
         assert!(
-            !world.resource::<ModalOpen>().0,
+            !mirrored(&mut world),
             "a stuck mirror would freeze the player for the session"
         );
+
+        // Source two: the unsaved-edits guard. An ECS modal, no egui
+        // stamp — the half the egui mirror alone cannot see, and the half
+        // the player used to reach into `ui` for.
+        world.insert_resource(UnsavedGuard::new(GuardedAction::Logout));
+        assert!(
+            !modal_is_open(&ctx),
+            "precondition: the guard leaves no egui stamp"
+        );
+        assert!(attention_is_held(false, true));
+        assert!(mirrored(&mut world), "the guard is a modal too");
+
+        world.remove_resource::<UnsavedGuard>();
+        assert!(
+            !mirrored(&mut world),
+            "answering the guard gives movement back"
+        );
+
+        // Both at once is still one answer.
+        assert!(attention_is_held(true, true));
     }
 
-    /// #1241 f164, the structural half: nothing may go back to asking
-    /// about the unsaved guard alone. The gate is one run condition wired
-    /// to six systems plus the portal handler, so the question has to be
-    /// right in one place.
+    /// #1241 f164, the structural half, widened by #1297 group 3:
+    /// nothing may go back to asking about ONE modal, and nothing may ask
+    /// `ui` directly. The gate is one run condition wired to six drive
+    /// systems plus the portal handler, so the question has to be right in
+    /// one place — and that place is now a resource `player` owns.
     #[test]
     fn the_movement_gate_asks_about_every_modal() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         for rel in ["src/player/mod.rs", "src/player/portal.rs"] {
             let src = std::fs::read_to_string(root.join(rel)).expect("source is readable");
             assert!(
-                src.contains("ModalOpen"),
-                "{rel} gates movement on the unsaved guard alone again — a gift \
-                 offer blocks the pointer but not the keys"
+                src.contains("AttentionHeld"),
+                "{rel} gates movement on one modal again — a gift offer blocks \
+                 the pointer but not the keys"
+            );
+            let code: String = src
+                .lines()
+                .map(|line| line.split("//").next().unwrap_or(""))
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(
+                !code.contains("UnsavedGuard") && !code.contains("ModalOpen"),
+                "{rel} reaches back into ui for a modal type; the OR of the two \
+                 modal kinds belongs in confirm::mirror_attention_held, so the \
+                 gate cannot know about only one of them again"
             );
         }
     }

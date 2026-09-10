@@ -234,7 +234,7 @@ impl PlacementUnit {
 /// all-green checklist can't hand over to `InGame` while the world is
 /// still an empty heightfield — on wasm the first compile is the
 /// longest single-frame stall of the whole boot, and it belongs behind
-/// the loading screen. Removed by `logout::cleanup_on_logout` so the
+/// the loading screen. Removed by `ui::logout::cleanup_on_logout` so the
 /// next login waits again.
 #[derive(Resource)]
 pub struct WorldCompiled;
@@ -343,7 +343,7 @@ pub struct WorldCompileTruncated {
 /// frame to present its "Building world — may pause" row *before* the
 /// first compile slice can stall the main thread (multi-second on
 /// wasm). Irrelevant once `InGame` (the compile condition ORs the state
-/// in); removed by `logout::cleanup_on_logout` so the next login delays
+/// in); removed by `ui::logout::cleanup_on_logout` so the next login delays
 /// again.
 #[derive(Resource)]
 pub struct WorldCompileArmed;

@@ -2,6 +2,16 @@
 //! when transitioning from [`crate::state::AppState::InGame`] back to
 //! [`crate::state::AppState::Login`].
 //!
+//! It lives under `ui` (#1297 group 2, owner decision 2026-09-10)
+//! because that is what it tears down. Seventeen of the types it
+//! names are `ui`'s own — the two editors, four publish tasks, the
+//! gateway picker pair, the unsaved-edits guard, the reauth door —
+//! and inverting that would have meant seventeen mirrors published
+//! for one reader that only wants to drop them. The direction of the
+//! dependency was right; the file was on the wrong side of it.
+//! Nothing outside calls in but `crate::run` (the plugin) and
+//! [`crate::loading`] (the on-demand run of [`cleanup_on_logout`]).
+//!
 //! Runs on `OnExit(AppState::InGame)`. Removing the
 //! [`bevy_symbios_multiuser::prelude::SymbiosMultiuserConfig`] resource
 //! tears down the existing matchbox socket on the next frame (see
@@ -33,6 +43,23 @@ impl Plugin for LogoutPlugin {
         app.add_systems(
             OnExit(AppState::InGame),
             (cleanup_on_logout, clear_editor_state_on_logout),
+        )
+        // Aborting a stuck loading screen (#849) is a real logout: the
+        // session, socket config and caches were installed on Loading
+        // entry and `OnExit(InGame)` is never reached. `loading` used to
+        // run this teardown by `run_system_cached`, which pointed the
+        // arrow from the domain into `ui` once the file moved here
+        // (#1297 group 2). It watches the flag instead — which is how
+        // `TerrainPlugin`'s own teardown has always reacted to it, and
+        // the flag is deliberately kept alive through the aborting frame
+        // for exactly this. `AbortLoading` is dropped on the
+        // `OnEnter(Login)` edge the abort sets in motion, and the state
+        // condition keeps this to the one frame.
+        .add_systems(
+            Update,
+            cleanup_on_logout
+                .run_if(in_state(AppState::Loading))
+                .run_if(resource_exists::<crate::loading::AbortLoading>),
         );
     }
 }
@@ -95,6 +122,11 @@ session_scoped_resources! {
     // `clear_editor_state_on_logout`.
     crate::state::TravelingTo,
     crate::player::PortalCooldown,
+    // A portal contact raised but not yet turned into the guard
+    // (#1297 group 3). One frame wide in the normal case, but a
+    // logout landing inside that frame would hand the next login a
+    // request to travel to the previous user's neighbour.
+    crate::player::PortalContact,
     // The three records and their stored mirrors: the previous user's
     // world, body and stash.
     LiveRoomRecord,
@@ -115,7 +147,7 @@ session_scoped_resources! {
     crate::ui::unsaved_guard::UnsavedGuard,
     // A held same-owner room record awaiting the keep-or-take answer
     // (#1203) is a claim about this session's world.
-    crate::ui::other_session::OtherSessionRoom,
+    crate::state::OtherSessionRoom,
     // A gift set aside to make room for (#1220 f288) belongs to the session
     // that received it: the sender is gone with the socket, and the next
     // login must not open holding a stranger's lantern.

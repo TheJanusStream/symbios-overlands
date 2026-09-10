@@ -178,23 +178,6 @@ fn badge_count(n: usize) -> String {
     }
 }
 
-/// Pick the singular or plural noun for a count (#1264 f374).
-///
-/// The app already branches on the singular nearly everywhere — the
-/// People window's pending offers, this file's anomaly badge, the
-/// Inventory header, the audio panel's per-noun suffixes — which is
-/// exactly what made "1 entries" in the catalogue, "Downloaded 1 events"
-/// and "· 1 props" read as unfinished rather than as a house style. The
-/// three stragglers now go through here.
-///
-/// English-only, and that is fine: there is no i18n framework in the tree
-/// (no fluent, gettext or rust-i18n dependency), so a helper is not a
-/// translation layer — it is the seam to route through if one is ever
-/// added, which is worth more than three inline `if n == 1` branches.
-pub(crate) fn plural<'a>(n: usize, one: &'a str, many: &'a str) -> &'a str {
-    if n == 1 { one } else { many }
-}
-
 /// Longest `@handle` the account chip prints before it elides (#1261
 /// f235). ATProto handles are domains and a custom one is unbounded —
 /// `@someone.a-very-long-custom-domain.example` is a legal handle, and
@@ -292,12 +275,15 @@ fn anomaly_dot_hover(worst: Option<&str>, n: usize) -> String {
             let rest = n.saturating_sub(1);
             format!(
                 "{what} (and {rest} more {}) — {tail}",
-                plural(rest, "anomaly", "anomalies")
+                crate::text::plural(rest, "anomaly", "anomalies")
             )
         }
         // Unreachable while the dot is painted (it is drawn from the same
         // ledger), but a hover that says nothing is worse than a generic one.
-        (None, n) => format!("{n} active {} — {tail}", plural(n, "anomaly", "anomalies")),
+        (None, n) => format!(
+            "{n} active {} — {tail}",
+            crate::text::plural(n, "anomaly", "anomalies")
+        ),
     }
 }
 
@@ -392,9 +378,13 @@ pub fn toolbar_ui(
     let p = panels.bypass_change_detection();
     let mut panels_dirty = false;
 
-    // An open Chat window means every message is on screen — the badge
-    // only counts what arrives while it's closed. Guarded write so the
-    // resource isn't marked changed every frame the window sits open.
+    // An open Chat window means every message is on screen, so the badge
+    // resets here every frame it is open. This is the WHOLE of the "was
+    // it seen" rule since #1297: `network::inbound` counts every arrival
+    // and knows nothing about windows, because deciding what the viewer
+    // has looked at is this layer's job and it was already doing it here.
+    // Guarded write so the resource isn't marked changed every frame the
+    // window sits open.
     if p.chat && chat.unread != 0 {
         chat.unread = 0;
     }
@@ -511,7 +501,7 @@ pub fn toolbar_ui(
                 if let Some(sess) = chip.session.as_deref() {
                     ui.menu_button(account_chip_label(&sess.handle), |ui| {
                         ui.horizontal(|ui| {
-                            crate::avatar::draw_avatar_icon(
+                            crate::ui::avatar::draw_avatar_icon(
                                 ui,
                                 Some(sess.did.as_str()),
                                 Some(sess.handle.as_str()),
@@ -550,7 +540,7 @@ pub fn toolbar_ui(
                                 // that when the lookup has not landed or
                                 // failed, which is honest: an elided DID that
                                 // says it is elided beats a raw one.
-                                let name = crate::ui::travel::travel_label(
+                                let name = crate::network::presence::travel_label(
                                     &chip.profile_cache,
                                     &room.0,
                                     chip.world_names.get(&room.0),

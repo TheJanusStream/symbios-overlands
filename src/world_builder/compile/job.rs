@@ -54,7 +54,7 @@ pub(super) struct CompiledUnit {
 /// compares fresh fingerprints against this; the executor commits each
 /// unit here as it completes.
 ///
-/// Reset by `logout::cleanup_on_logout` and the attract-scene teardown
+/// Reset by `ui::logout::cleanup_on_logout` and the attract-scene teardown
 /// (both despawn every `RoomEntity` outside the planner, so an identical
 /// record afterwards must compile from scratch). A placements-length
 /// *shrink* resets it wholesale — indices are unit identity, and

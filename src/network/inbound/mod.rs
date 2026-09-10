@@ -122,14 +122,11 @@ pub(super) struct InboundBuffers<'w, 's> {
     stored_room: Option<Res<'w, crate::state::StoredRoomRecord>>,
     /// A held same-owner record already awaiting the owner's answer; a
     /// newer one replaces it without a second toast.
-    held_room: Option<Res<'w, crate::ui::other_session::OtherSessionRoom>>,
+    held_room: Option<Res<'w, crate::state::OtherSessionRoom>>,
     /// When the "updated from another session" toast last fired, so a
     /// session editing continuously does not toast every broadcast.
     other_session_toast_at: Local<'s, Option<f64>>,
     reassembly: ResMut<'w, super::chunk::ChunkReassembly>,
-    /// Read-only peek at which panels are open: a chat message landing
-    /// while the Chat window is closed bumps the unread badge (#835).
-    panels: Res<'w, crate::ui::toolbar::UiPanels>,
     /// Gift-lifecycle feedback (#843): accepted/declined responses toast
     /// to the sender the moment they land.
     toasts: ResMut<'w, crate::notify::Toasts>,

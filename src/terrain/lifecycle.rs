@@ -40,7 +40,7 @@ pub(super) fn cleanup_terrain(
     // All `try_despawn` (#923): these flat sweeps overlap — a mid-swap
     // heightfield is in both `terrain` and `outgoing`, and the water
     // volumes are `RoomEntity`s that `end_attract_scene` (same
-    // `OnExit(Login)` transition) and `logout::cleanup_on_logout` also
+    // `OnExit(Login)` transition) and `ui::logout::cleanup_on_logout` also
     // retire — and a plain `despawn` warns per already-dead entity.
     // Teardown only needs the entities gone, not to be their sole owner.
     for e in &terrain {

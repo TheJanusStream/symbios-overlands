@@ -217,10 +217,16 @@ pub fn clock_hhmm(epoch_secs: i64) -> String {
 #[derive(Resource, Default)]
 pub struct ChatHistory {
     pub messages: Vec<ChatEntry>,
-    /// Messages that arrived while the Chat window was closed — drives
-    /// the toolbar's "Chat (n)" badge (#835), which is the only way an
-    /// incoming message is visible at all with the window shut. Cleared
-    /// by the toolbar whenever the window is open.
+    /// Messages arrived since the Chat window was last open — drives the
+    /// toolbar's "Chat (n)" badge (#835), which is the only way an
+    /// incoming message is visible at all with the window shut.
+    ///
+    /// `network::inbound` counts EVERY arrival; `ui::toolbar` zeroes this
+    /// on every frame the window is open, and that clear is the whole of
+    /// the "was it seen" rule (#1297). The inbound handler used to ask
+    /// `UiPanels` first, which made the network layer read the egui layer
+    /// to answer a question the egui layer answers a few systems later
+    /// anyway.
     pub unread: usize,
     /// The half-typed line sitting in the chat input (#1140). It lived in
     /// a `Local<String>` on `chat_ui`, which no teardown can reach — so a
@@ -507,6 +513,46 @@ pub struct LiveAvatarRecord(pub AvatarRecord);
 /// to restore the sliders to the committed state.
 #[derive(Resource, Clone)]
 pub struct StoredAvatarRecord(pub AvatarRecord);
+
+/// A room record from the owner's other session, held back because this
+/// session has unpublished edits. Present only while the question is open;
+/// session-scoped (torn down at logout, dropped on portal travel).
+///
+/// Lives here rather than in `ui::other_session` for the same reason
+/// [`RoomWriteSignals`] does (#1297): its writers are `network::inbound`
+/// (which parks the record) and `player::portal` (which drops it on the
+/// way out of the room), both domain systems that were importing the
+/// egui layer to name a record. The keep-or-take DIALOG stays in
+/// `ui::other_session`, which is where a modal belongs.
+#[derive(Resource, Debug)]
+pub struct OtherSessionRoom {
+    pub record: RoomRecord,
+}
+
+/// What the inbound arm does with a same-owner `RoomStateUpdate`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SameOwnerUpdate {
+    /// Identical to the local live record — the echo. Touch nothing.
+    Ignore,
+    /// Local is clean: install it, and say so.
+    Apply,
+    /// Local has unpublished edits: park it and ask.
+    Hold,
+}
+
+/// The decision, pure so it can be tested without a socket.
+pub fn classify_same_owner_update(
+    local_dirty: bool,
+    incoming_equals_live: bool,
+) -> SameOwnerUpdate {
+    if incoming_equals_live {
+        SameOwnerUpdate::Ignore
+    } else if local_dirty {
+        SameOwnerUpdate::Hold
+    } else {
+        SameOwnerUpdate::Apply
+    }
+}
 
 /// The local **live** room record — what the World Editor's widgets,
 /// the 3D gizmo commit and the inventory drag-drop mutate in place, and
@@ -963,6 +1009,40 @@ impl PendingOutgoingOffers {
                 // the deadline is this type's own business.
                 sent_at_epoch: now_epoch_secs(),
             },
+        );
+    }
+}
+
+#[cfg(test)]
+mod same_owner_update_tests {
+    use super::*;
+
+    /// #1203. Sequence: edit the world on the laptop for half an hour
+    /// without saving; open the same world in a browser on another
+    /// machine; the browser's broadcast arrives. The laptop must not
+    /// replace its live record — it holds the copy and asks. Two more
+    /// sequences ride on the same decision: the echo of our own record
+    /// coming back must be ignored (or the two sessions ping-pong
+    /// replacements and reset each other's undo rings), and a clean
+    /// session simply takes the update.
+    #[test]
+    fn a_dirty_session_holds_a_clean_one_applies_and_an_echo_is_ignored() {
+        assert_eq!(
+            classify_same_owner_update(true, false),
+            SameOwnerUpdate::Hold
+        );
+        assert_eq!(
+            classify_same_owner_update(false, false),
+            SameOwnerUpdate::Apply
+        );
+        assert_eq!(
+            classify_same_owner_update(true, true),
+            SameOwnerUpdate::Ignore,
+            "an identical record is the echo of our own broadcast"
+        );
+        assert_eq!(
+            classify_same_owner_update(false, true),
+            SameOwnerUpdate::Ignore
         );
     }
 }

@@ -449,7 +449,7 @@ pub fn loading_ui(
                 }
                 (_, Some(room)) => {
                     let name = match profiles.as_deref() {
-                        Some(cache) => crate::ui::travel::travel_label(cache, &room.0, None),
+                        Some(cache) => crate::network::presence::travel_label(cache, &room.0, None),
                         None => crate::network::presence::PeerLabel::new(None, Some(&room.0))
                             .addressed(),
                     };

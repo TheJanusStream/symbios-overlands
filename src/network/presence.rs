@@ -37,6 +37,33 @@ use bevy_symbios_multiuser::prelude::*;
 use crate::config;
 use crate::state::{MutedDids, RemotePeer};
 
+use crate::avatar::BskyProfileCache;
+
+/// Human display name for a DID, through the app's one naming ladder
+/// ([`PeerLabel`]).
+///
+/// It sat in `ui::travel` until #1297 group 3 and had no `ui` in it at
+/// all — [`BskyProfileCache`] is `crate::avatar`'s and [`PeerLabel`] is
+/// this module's, so `player::portal` had to import a panel module to
+/// name the world it was arriving in. The same shape as #1158's
+/// `pds::inventory::is_drop_placeable`: a rule owned by whichever
+/// surface happened to need it first.
+///
+/// `carried` is the name the surface that started this travel already had
+/// (#1231 f27). It matters because [`BskyProfileCache`] is filled only by
+/// peer-driven fetches — `trigger_avatar_fetches` walks `RemotePeer`
+/// entities — so a mutual the viewer has never shared a room with is never
+/// in it. The gateway row rendered "@alice" from the mutuals list and threw
+/// the handle away, and the overlay one click later said
+/// `did:plc:abcdefgh…` for the same person.
+pub fn travel_label(cache: &BskyProfileCache, did: &str, carried: Option<&str>) -> String {
+    if let Some(name) = carried.filter(|n| !n.is_empty()) {
+        return name.to_owned();
+    }
+    let handle = cache.get(did).and_then(|p| p.handle.clone());
+    PeerLabel::new(handle.as_deref(), Some(did)).addressed()
+}
+
 // ---------------------------------------------------------------------------
 // The naming ladder
 // ---------------------------------------------------------------------------
@@ -1058,6 +1085,45 @@ pub(super) fn reset_mute_audio(mut silenced: ResMut<crate::audio_mute::SilencedB
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_label_prefers_a_handle_and_shortens_dids() {
+        let cache = BskyProfileCache::default();
+        // No cache entry → shortened DID with an ellipsis.
+        let long = "did:plc:abcdefghijklmnopqrstuvwx";
+        let shown = travel_label(&cache, long, None);
+        assert!(shown.ends_with('…'));
+        assert!(shown.starts_with("did:plc:"));
+        assert!(shown.chars().count() <= 17);
+        // Short identifiers pass through untouched.
+        assert_eq!(travel_label(&cache, "did:web:x", None), "did:web:x");
+    }
+
+    /// THE SEQUENCE (#1231 f27): the visitor clicks *Go* beside "@alice" in
+    /// the gateway picker and the overlay that follows says "Traveling to
+    /// did:plc:abcdefgh…'s world". The refuter is right that this function
+    /// already walks handle → DID head → raw; what it cannot do is fill the
+    /// cache. `BskyProfileCache` is populated by peer-driven fetches over
+    /// `RemotePeer` entities, so a mutual the viewer has never shared a
+    /// room with is never in it — and the row that just rendered her handle
+    /// threw it away. The fix is to carry the label the row already had.
+    #[test]
+    fn a_carried_label_beats_a_cache_that_was_never_going_to_have_the_name() {
+        let cache = BskyProfileCache::default();
+        let did = "did:plc:abcdefghijklmnopqrstuvwx";
+        assert_eq!(
+            travel_label(&cache, did, Some("@alice.bsky.social")),
+            "@alice.bsky.social",
+            "the gateway row's own name survives the click"
+        );
+        // An empty carried label is not a name; fall through the ladder.
+        assert_eq!(
+            travel_label(&cache, did, Some("")),
+            travel_label(&cache, did, None),
+            "an empty carried label is not a name"
+        );
+        assert!(travel_label(&cache, did, None).ends_with('…'));
+    }
 
     #[test]
     fn the_ladder_climbs_handle_then_did_then_traveler() {

@@ -131,7 +131,7 @@ enum BakedAudioEntry {
 /// wasm, where the "async" bake pool runs on the main thread and every
 /// avoided bake is an avoided frame stall.
 ///
-/// Reset by `logout::cleanup_on_logout`, FIFO-bounded at
+/// Reset by `ui::logout::cleanup_on_logout`, FIFO-bounded at
 /// [`MAX_BAKED_AUDIO_ENTRIES`] otherwise.
 #[derive(Resource, Default)]
 pub struct BakedAudioCache {

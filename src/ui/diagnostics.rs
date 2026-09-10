@@ -1406,7 +1406,7 @@ fn render_log_export_controls(
             Ok(()) => toasts.info(
                 format!(
                     "Saving {count} {} as symbios-session-log.jsonl — check your downloads",
-                    crate::ui::toolbar::plural(count, "event", "events")
+                    crate::text::plural(count, "event", "events")
                 ),
                 now,
             ),

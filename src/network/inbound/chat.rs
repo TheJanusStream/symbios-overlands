@@ -151,10 +151,14 @@ pub(super) fn handle(
         );
         // Capped + wall-clock-stamped (#846).
         chat.push(did, author, clipped);
-        // With the window closed this message would be
-        // invisible — count it for the toolbar badge (#835).
-        if !bufs.panels.chat {
-            chat.unread += 1;
-        }
+        // Count it for the toolbar badge (#835). UNCONDITIONALLY: this
+        // asked `ui::toolbar::UiPanels` whether the Chat window happened
+        // to be open, which is the network layer reading the egui layer
+        // to answer a question the egui layer was already answering
+        // (#1297). `toolbar_ui` zeroes the count every frame the window
+        // is open, so an arrival while it is open still shows no badge —
+        // it just stops being the sender's business whether anyone was
+        // looking.
+        chat.unread += 1;
     }
 }
