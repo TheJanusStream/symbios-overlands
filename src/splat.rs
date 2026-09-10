@@ -37,11 +37,20 @@ pub struct SplatUniforms {
     /// Fraction removed from the albedo at the water line. Zero disables
     /// the effect entirely and restores the pre-#913 terrain exactly.
     pub moisture_strength: f32,
-    /// Pad to 32 bytes. WebGL2 rejects uniform blocks that are not a
-    /// multiple of 16 (`BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED` unsupported),
-    /// and the three fields above take the block from 16 to 28. Mirror
-    /// this in `SplatUniforms` in `splat.wgsl`.
+    /// View distance (m) where the albedo starts cross-fading to each
+    /// layer's mean colour (#1320). The shader fades only while
+    /// `albedo_fade_far > albedo_fade_near`, so the zeroed `Default` renders
+    /// the pre-#1320 terrain.
+    pub albedo_fade_near: f32,
+    /// View distance (m) where the albedo is fully each layer's mean colour.
+    pub albedo_fade_far: f32,
+    /// Pad to 48 bytes (with `_pad1`/`_pad2`). WebGL2 rejects uniform blocks
+    /// that are not a multiple of 16 (`BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED`
+    /// unsupported), and the nine fields above take the block to 36. Mirror
+    /// all three in `SplatUniforms` in `splat.wgsl`.
     pub _pad0: u32,
+    pub _pad1: u32,
+    pub _pad2: u32,
 }
 
 /// GPU uniform block for the avatar-interaction stains overlay

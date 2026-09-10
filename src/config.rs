@@ -522,6 +522,28 @@ pub(crate) mod terrain {
         /// to it — so it must stay modest enough that it reads as wet
         /// ground and never as a different biome.
         pub const MOISTURE_STRENGTH: f32 = 0.28;
+
+        /// View distance (m) where the splat albedo starts cross-fading to
+        /// each layer's mean colour (#1320).
+        ///
+        /// A texture tile covers 11.36 m ([`super::TILE_SCALE`] across the
+        /// 1022 m world), so a few hundred metres out it spans only a few
+        /// tens of pixels (20-30 px in `render --terrain`'s 640-px tiles at
+        /// 300-600 m). By then the mips have correctly filtered away the
+        /// per-texel crumb that masks the repeat, and what is left, the
+        /// tile's own low-frequency residue, recurs exactly once per tile as
+        /// a regular cross-hatch. #1320 bisected it to the albedo; the normal
+        /// maps and the mesh do not carry it. Fading to the mean removes the
+        /// repeat, together with detail nobody can resolve at that range.
+        /// Ground nearer than 100 m is untouched (4 % faded at 125 m, 16 % at
+        /// 150 m).
+        pub const ALBEDO_FADE_NEAR: f32 = 100.0;
+        /// View distance (m) where the albedo is fully each layer's mean
+        /// colour. It must sit inside the fog's
+        /// [`crate::config::camera::fog::VISIBILITY`] (asserted at the foot
+        /// of this file): the fade has to finish while the fog still shows
+        /// the ground, or the far ground left in view keeps the repeat.
+        pub const ALBEDO_FADE_FAR: f32 = 300.0;
     }
 }
 
@@ -1992,6 +2014,15 @@ const _: () =
 // A shadow cascade set whose first split sits beyond its own maximum
 // distance draws no shadows at all.
 const _: () = assert!(lighting::CASCADE_FIRST_FAR < lighting::CASCADE_MAX_DIST);
+
+// The splat albedo fade (#1320) ramps between its two distances, and
+// splat.wgsl switches it off when they are equal or inverted, which quietly
+// brings the far-ground cross-hatch back.
+const _: () = assert!(terrain::splat::ALBEDO_FADE_NEAR < terrain::splat::ALBEDO_FADE_FAR);
+// "The fade has to finish while the fog still shows the ground." A far
+// distance at or past VISIBILITY leaves ground the fog still shows with the
+// fade unfinished, and the hatch stays there where the fog does not hide it.
+const _: () = assert!(terrain::splat::ALBEDO_FADE_FAR < camera::fog::VISIBILITY);
 
 #[cfg(test)]
 mod http_client_tests {

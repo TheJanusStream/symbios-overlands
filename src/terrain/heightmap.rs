@@ -245,7 +245,15 @@ pub(super) fn spawn_terrain_mesh(
                 water_y: 0.0,
                 moisture_depth: tcfg::splat::MOISTURE_DEPTH,
                 moisture_strength: 0.0,
+                // The far-ground fade to the layer means (#1320) is fixed for
+                // the room's life, so it is set once here like the tile scale.
+                // It only acts inside the splat branch, so the placeholder is
+                // unaffected.
+                albedo_fade_near: tcfg::splat::ALBEDO_FADE_NEAR,
+                albedo_fade_far: tcfg::splat::ALBEDO_FADE_FAR,
                 _pad0: 0,
+                _pad1: 0,
+                _pad2: 0,
             },
             ..default() // weight_map defaults to 1x1 D2, which is fine for the weight sampler
         },

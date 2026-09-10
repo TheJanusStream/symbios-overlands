@@ -16,6 +16,9 @@
 //   - The layer textures are sampled at `uv * tile_scale`; the Repeat address
 //     mode handles wrapping and preserves hardware derivatives for correct
 //     mipmap selection (fract() would destroy derivatives at tile boundaries).
+//   - Past `albedo_fade_near` the albedo cross-fades to each layer's mean
+//     colour, fully by `albedo_fade_far`, so the tile repeat does not read as
+//     a regular cross-hatch on far ground (#1320; see the fade block below).
 //
 // When `splat_uniforms.enabled == 0` the splat logic is bypassed and the base
 // StandardMaterial colour is passed through unchanged (useful for the disabled
@@ -34,6 +37,7 @@
         apply_normal_mapping,
     },
     pbr_types::STANDARD_MATERIAL_FLAGS_FLIP_NORMAL_MAP_Y,
+    mesh_view_bindings::view,
 }
 
 #ifdef PREPASS_PIPELINE
@@ -81,9 +85,16 @@ struct SplatUniforms {
     moisture_depth: f32,
     /// Fraction removed from the albedo at the water line; 0 disables.
     moisture_strength: f32,
-    /// Pad to 32 bytes — WebGL2 requires uniform blocks be a multiple of
-    /// 16. Mirrors `_pad0` on the Rust `SplatUniforms`.
+    /// View distance (m) where the albedo starts cross-fading to each
+    /// layer's mean colour (#1320). The fade is off unless far > near.
+    albedo_fade_near: f32,
+    /// View distance (m) where the albedo is fully each layer's mean colour.
+    albedo_fade_far: f32,
+    /// Pad to 48 bytes — WebGL2 requires uniform blocks be a multiple of
+    /// 16. Mirrors `_pad0`/`_pad1`/`_pad2` on the Rust `SplatUniforms`.
     _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> splat_uniforms: SplatUniforms;
@@ -205,6 +216,13 @@ fn triplanar_normal_world(
     return normalize(wn_x * weights.x + wn_y * weights.y + wn_z * weights.z);
 }
 
+/// Explicit mip level that reads a layer's MEAN colour (#1320). It is past the
+/// last level of any `texture_size` up to 64k, and an explicit level beyond
+/// the chain clamps to its 1x1 level, which the mip chain builds as the whole
+/// tile's average. #1320 checked the clamp at 512: level 16 and level 9
+/// render byte-identical, one flat colour.
+const LAYER_MEAN_LOD: f32 = 16.0;
+
 // ---------------------------------------------------------------------------
 // Fragment entry point
 // ---------------------------------------------------------------------------
@@ -265,6 +283,33 @@ fn fragment(
 
         pbr_input.material.base_color =
             a0 * weights.r + a1 * weights.g + a2 * weights.b + a3 * weights.a;
+
+        // --- Far-ground fade to the layer means (#1320) ---------------------
+        // A few hundred metres out a tile spans only a few tens of pixels.
+        // The mips have correctly filtered away the crumb that masked the
+        // repeat, and the tile's own low-frequency residue recurs exactly once
+        // per tile as a regular cross-hatch. Cross-fading to each layer's mean
+        // colour takes the repeat away along with the detail. A ramped
+        // textureSampleBias was measured and rejected: it strips the crumb
+        // before the motif, so inside its own ramp the hatch got STRONGER; a
+        // cross-fade lowers both together. Explicit-level sampling needs no
+        // derivatives, so skipping near ground per fragment is legal.
+        if splat_uniforms.albedo_fade_far > splat_uniforms.albedo_fade_near {
+            let albedo_fade = smoothstep(
+                splat_uniforms.albedo_fade_near,
+                splat_uniforms.albedo_fade_far,
+                distance(view.world_position, world_pos),
+            );
+            if albedo_fade > 0.0 {
+                let layer_means =
+                    textureSampleLevel(albedo_array, albedo_array_sampler, tiled_uv, 0, LAYER_MEAN_LOD) * weights.r
+                    + textureSampleLevel(albedo_array, albedo_array_sampler, tiled_uv, 1, LAYER_MEAN_LOD) * weights.g
+                    + textureSampleLevel(albedo_array, albedo_array_sampler, tiled_uv, 2, LAYER_MEAN_LOD) * weights.b
+                    + textureSampleLevel(albedo_array, albedo_array_sampler, tiled_uv, 3, LAYER_MEAN_LOD) * weights.a;
+                pbr_input.material.base_color =
+                    mix(pbr_input.material.base_color, layer_means, albedo_fade);
+            }
+        }
 
         // --- Normal-map blend -----------------------------------------------
         // All normals are converted to world space per-layer before blending.
