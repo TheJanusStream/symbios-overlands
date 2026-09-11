@@ -1489,7 +1489,7 @@ pub fn avatar_ui(
     // generators — a top-level Window sibling to the Avatar window.
     // Rendered after the Avatar window's borrow of the egui context is
     // released. Slot-agnostic: it stages committed edits in
-    // `audio_editor.committed`, which the construct's bridge in the
+    // `audio_editor`'s pending map, which the construct's bridge in the
     // Visuals tab picks up next frame and writes into the live record.
     crate::ui::room::audio::draw_audio_editor_window(
         contexts.ctx_mut().unwrap(),

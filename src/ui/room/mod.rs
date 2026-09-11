@@ -1614,7 +1614,7 @@ pub fn room_admin_ui(
         // Pop-out audio editor — a top-level Window sibling to the World
         // Editor so its node canvas has room to pan/zoom. Slot-agnostic:
         // it edits a native working copy and stages the committed result
-        // in `audio_editor.committed`, which the matching slot's bridge
+        // in `audio_editor`'s pending map, which the matching slot's bridge
         // (room-ambient here, per-construct in the Generators tab) picks
         // up on its next frame and writes into the live record.
         audio::draw_audio_editor_window(

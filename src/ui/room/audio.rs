@@ -34,6 +34,11 @@ use crate::pds::audio::{SovereignAudioPatch, SovereignSequenceRecipe};
 const AUDITION_SAMPLE_RATE: u32 = 44_100;
 /// Duration baked when auditioning a standalone `Patch`, in seconds.
 const AUDITION_PATCH_SECS: f32 = 4.0;
+/// The Sequence pop-out's left panel, holding the sequence editor: its
+/// opening width, and the narrowest it can be dragged (the instruments'
+/// rows and the event inspector stop fitting below it).
+const SEQUENCE_PANEL_WIDTH: f32 = 420.0;
+const SEQUENCE_PANEL_MIN_WIDTH: f32 = 300.0;
 
 /// Persistent state for the pop-out audio editor window. Lives on
 /// [`super::RoomEditorState`]; default is "closed, no working copy".
@@ -298,8 +303,8 @@ fn draw_sequence_summary(ui: &mut egui::Ui, recipe: &SovereignSequenceRecipe) {
 }
 
 /// Render the pop-out audio editor window, if open. Edits the native
-/// working copy held in `editor`; on a committed change stashes the
-/// converted sovereign value in `editor.committed` for the bound slot's
+/// working copy held in `editor`; on a committed change stages the
+/// converted sovereign value as the bound slot's pending edit, for its
 /// bridge to pick up (see [`AudioEditorState`]).
 ///
 /// Drawn as a top-level [`egui::Window`] sibling to the World Editor so
@@ -316,89 +321,191 @@ pub(crate) fn draw_audio_editor_window(
     if !editor.open {
         return;
     }
-
-    let id = egui::Id::new(&editor.salt).with("audio_editor");
-    let mut keep_open = true;
     // One shared layout slot for every audio slot's pop-out: the window
     // id is salted per slot, but geometry-wise they are the same tool.
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::AudioEditor, ctx);
+    let mut outbox = Vec::new();
+    let shown = show_audio_editor_window(
+        ctx,
+        editor,
+        monitor,
+        egui::Rect::from_min_size(pos, size),
+        chrome.available_rect(ctx),
+        &mut outbox,
+    );
+    if let Some(rect) = shown {
+        chrome.remember(crate::ui::layout::UiWindow::AudioEditor, rect);
+    }
+    requests.write_batch(outbox);
+}
+
+/// The pop-out itself, window and body, and what the Bevy system above and
+/// the layout tests below both call — so a test drives the real window, not
+/// a copy of it. `default_rect` is where the window opens the first time,
+/// `constrain` the rect it must stay in. Monitor requests the body makes
+/// land in `requests`. Returns the window's rect when it was shown.
+fn show_audio_editor_window(
+    ctx: &egui::Context,
+    editor: &mut AudioEditorState,
+    monitor: &AudioMonitor,
+    default_rect: egui::Rect,
+    constrain: egui::Rect,
+    requests: &mut Vec<MonitorRequest>,
+) -> Option<egui::Rect> {
+    let id = editor_id(&editor.salt);
+    let mut keep_open = true;
     // The bridge for the bound slot draws BEFORE this window in the same
     // system, so "seen this frame" means the slot is on screen and every
     // commit lands at once; anything else means the edits are stranded
     // until it is shown again — say so (#1202).
     let slot_on_screen = editor.bound_seen_frame == Some(ctx.cumulative_frame_nr());
-    let stranded = editor.has_pending(&editor.salt);
-    let response = egui::Window::new(format!("Audio Editor — {}", editor.label))
+    let shown = egui::Window::new(format!("Audio Editor — {}", editor.label))
         .id(id.with("window"))
         .open(&mut keep_open)
         .resizable(true)
-        .default_size(size)
-        .default_pos(pos)
-        .constrain_to(chrome.available_rect(ctx))
+        .default_size(default_rect.size())
+        .default_pos(default_rect.min)
+        .constrain_to(constrain)
         .show(ctx, |ui| {
-            if !slot_on_screen {
-                ui.colored_label(
-                    crate::ui::theme::current(ui.ctx()).status.warn,
-                    if stranded {
-                        "Edits are kept but not applied yet — the slot this window edits \
-                         is not on screen. Reselect it in its editor to apply them."
-                    } else {
-                        "The slot this window edits is not on screen. Edits are kept and \
-                         apply when it is shown again."
-                    },
-                );
-                ui.add_space(4.0);
-            }
-            // The crate's editors return EditorResponse { changed,
-            // rebake }; we treat `rebake` (a committed edit — drag ended
-            // or a non-drag widget changed) as the write-back trigger.
-            // The working copy itself is mutated in place every frame, so
-            // mid-drag `changed` needs no extra handling here.
-            if let Some((patch, state)) = editor.patch.as_mut() {
-                let res = audio_patch_canvas(ui, patch, state, id.with("patch"));
-                let committed = res.rebake.then(|| SovereignAudioConfig::from_patch(patch));
-                ui.separator();
-                audition_row(ui, monitor, requests, || MonitorRequest::PlayPatch {
-                    patch: patch.clone(),
-                    sample_rate: AUDITION_SAMPLE_RATE,
-                    duration_secs: AUDITION_PATCH_SECS,
-                });
-                if let Some(committed) = committed {
-                    editor.commit(committed);
-                }
-            } else if let Some((recipe, state)) = editor.sequence.as_mut() {
-                let res = sequence_recipe_editor(ui, recipe, state, id.with("seq"));
-                ui.separator();
-                let canvas = active_instrument_canvas(ui, recipe, state, id.with("seq_canvas"));
-                let committed = (res.rebake || canvas.rebake)
-                    .then(|| SovereignAudioConfig::from_sequence(recipe));
-                if let Some(committed) = committed {
-                    editor.commit(committed);
-                }
-                let Some((recipe, _)) = editor.sequence.as_mut() else {
-                    return;
-                };
-                ui.separator();
-                audition_row(ui, monitor, requests, || MonitorRequest::PlaySequence {
-                    recipe: recipe.clone(),
-                });
-            } else {
-                ui.label("No editable audio in this slot.");
-            }
-        });
-    if let Some(response) = response.as_ref() {
-        chrome.remember(
-            crate::ui::layout::UiWindow::AudioEditor,
-            response.response.rect,
-        );
-    }
+            audio_editor_body(ui, editor, monitor, id, slot_on_screen, requests);
+        })
+        .map(|shown| shown.response.rect);
 
     // Honour the window's [x] close button, and drop the working copy
     // (a fresh "Edit audio…" reseeds from the pending or committed value).
     if !keep_open {
         // Stop any audition that was looping for this slot.
-        requests.write(MonitorRequest::Stop);
+        requests.push(MonitorRequest::Stop);
         editor.close();
+    }
+    shown
+}
+
+/// The id every id inside the pop-out for `salt` derives from.
+fn editor_id(salt: &str) -> egui::Id {
+    egui::Id::new(salt).with("audio_editor")
+}
+
+/// The region holding the audition strip. It has a fixed id so the layout
+/// tests can read back where it was drawn (`Context::read_response`).
+fn strip_id(editor_id: egui::Id) -> egui::Id {
+    editor_id.with("audition_strip")
+}
+
+/// The region holding the node canvas, fixed for the same reason.
+fn canvas_id(editor_id: egui::Id) -> egui::Id {
+    editor_id.with("canvas_region")
+}
+
+/// Lay `add` out in a child `Ui` whose id is exactly `id`.
+fn region<R>(ui: &mut egui::Ui, id: egui::Id, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    ui.scope_builder(egui::UiBuilder::new().id(id), add).inner
+}
+
+/// Everything inside the pop-out's window.
+fn audio_editor_body(
+    ui: &mut egui::Ui,
+    editor: &mut AudioEditorState,
+    monitor: &AudioMonitor,
+    id: egui::Id,
+    slot_on_screen: bool,
+    requests: &mut Vec<MonitorRequest>,
+) {
+    if !slot_on_screen {
+        let stranded = editor.has_pending(&editor.salt);
+        ui.colored_label(
+            crate::ui::theme::current(ui.ctx()).status.warn,
+            if stranded {
+                "Edits are kept but not applied yet — the slot this window edits \
+                 is not on screen. Reselect it in its editor to apply them."
+            } else {
+                "The slot this window edits is not on screen. Edits are kept and \
+                 apply when it is shown again."
+            },
+        );
+        ui.add_space(4.0);
+    }
+    // The audition strip comes FIRST and the canvas LAST (#1327). A canvas
+    // is an `egui::Scene`, which takes all the height left in the `Ui`, so
+    // whatever follows it lands below the window's content. egui's
+    // `Resize` then keeps `desired_size.max(last_content_size)` and never
+    // gives height back: the window grew by the strip's height every frame
+    // until it met the screen edge, and the strip was never drawn. Last,
+    // the canvas absorbs every change above it instead — the banner
+    // appearing, the waveform arriving after the first bake.
+    //
+    // The crate's editors return EditorResponse { changed, rebake }; we
+    // treat `rebake` (a committed edit — drag ended or a non-drag widget
+    // changed) as the write-back trigger. The working copy itself is
+    // mutated in place every frame, so mid-drag `changed` needs no extra
+    // handling here.
+    if let Some((patch, state)) = editor.patch.as_mut() {
+        region(ui, strip_id(id), |ui| {
+            audition_row(ui, monitor, requests, || MonitorRequest::PlayPatch {
+                patch: patch.clone(),
+                sample_rate: AUDITION_SAMPLE_RATE,
+                duration_secs: AUDITION_PATCH_SECS,
+            });
+        });
+        ui.separator();
+        let res = region(ui, canvas_id(id), |ui| {
+            audio_patch_canvas(ui, patch, state, id.with("patch"))
+        });
+        if res.rebake {
+            let committed = SovereignAudioConfig::from_patch(patch);
+            editor.commit(committed);
+        }
+    } else if let Some((recipe, state)) = editor.sequence.as_mut() {
+        region(ui, strip_id(id), |ui| {
+            audition_row(ui, monitor, requests, || MonitorRequest::PlaySequence {
+                recipe: recipe.clone(),
+            });
+        });
+        ui.separator();
+        // The sequence editor beside the canvas rather than above it
+        // (#1327 A7): a seeded recipe is ~700 px of transport, instruments,
+        // timeline and inspector before any canvas, and the sanitiser's caps
+        // allow far more, so it scrolls in a resizable panel and the canvas
+        // keeps the full height. The panel id is global in egui, so it is
+        // salted with the slot: two slots never share one panel's width.
+        // `Frame::NONE` because a panel's own frame paints `panel_fill`,
+        // which inside a window is a differently coloured strip (as
+        // `layout::footer` found).
+        let res = egui::Panel::left(id.with("sequence_panel"))
+            .resizable(true)
+            .default_size(SEQUENCE_PANEL_WIDTH)
+            .min_size(SEQUENCE_PANEL_MIN_WIDTH)
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin {
+                right: 6,
+                ..egui::Margin::ZERO
+            }))
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("sequence_scroll")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        sequence_recipe_editor(ui, recipe, state, id.with("seq"))
+                    })
+                    .inner
+            })
+            .inner;
+        let canvas = egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin {
+                left: 6,
+                ..egui::Margin::ZERO
+            }))
+            .show(ui, |ui| {
+                region(ui, canvas_id(id), |ui| {
+                    active_instrument_canvas(ui, recipe, state, id.with("seq_canvas"))
+                })
+            })
+            .inner;
+        if res.rebake || canvas.rebake {
+            let committed = SovereignAudioConfig::from_sequence(recipe);
+            editor.commit(committed);
+        }
+    } else {
+        ui.label("No editable audio in this slot.");
     }
 }
 
@@ -408,7 +515,7 @@ pub(crate) fn draw_audio_editor_window(
 fn audition_row(
     ui: &mut egui::Ui,
     monitor: &AudioMonitor,
-    requests: &mut MessageWriter<MonitorRequest>,
+    requests: &mut Vec<MonitorRequest>,
     make_request: impl FnOnce() -> MonitorRequest,
 ) {
     ui.horizontal(|ui| {
@@ -419,10 +526,10 @@ fn audition_row(
             .on_disabled_hover_text("Still baking this audio — it will play when the bake finishes")
             .clicked()
         {
-            requests.write(make_request());
+            requests.push(make_request());
         }
         if ui.button("\u{23F9} Stop").clicked() {
-            requests.write(MonitorRequest::Stop);
+            requests.push(MonitorRequest::Stop);
         }
         let status = match &monitor.status {
             MonitorStatus::Idle => "idle".to_string(),
@@ -504,6 +611,228 @@ mod tests {
             "the working copy carries the stranded edit"
         );
         assert_eq!(editor.label, "Room ambient");
+    }
+
+    /// Where the pop-out's parts were drawn on one frame.
+    struct Landed {
+        window: egui::Rect,
+        strip: egui::Rect,
+        canvas: egui::Rect,
+    }
+
+    /// The seeded ambient bed of a calm room: the size the Sequence arm
+    /// has to fit (five instruments on five lanes, 34 beats; #1327).
+    fn seeded_recipe() -> bevy_symbios_audio::SequenceRecipe {
+        let mut scene = crate::seeded_defaults::scene::SceneCharacter::for_seed(3);
+        scene.escalation = 0.0;
+        let recipe =
+            crate::seeded_defaults::room::audio::AmbientRecipe::from_scene(&scene, 3).recipe;
+        assert_eq!(
+            (recipe.instruments.len(), recipe.tracks.len()),
+            (5, 5),
+            "the seeded size this test is about"
+        );
+        recipe
+    }
+
+    /// A monitor that has baked something, so the strip draws its waveform.
+    fn monitor(with_waveform: bool) -> AudioMonitor {
+        let mut monitor = AudioMonitor::default();
+        if with_waveform {
+            monitor.last_samples = (0..4096).map(|i| (i as f32 * 0.05).sin()).collect();
+        }
+        monitor
+    }
+
+    /// Where the first instrument's pencil (the button that opens an
+    /// instrument in the canvas) was drawn, read from egui's AccessKit tree:
+    /// the published 0.4.1 has no public way to open one, so the test
+    /// clicks it the way an owner does.
+    fn first_pencil(output: &egui::FullOutput) -> Option<egui::Pos2> {
+        let update = output.platform_output.accesskit_update.as_ref()?;
+        update
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.label() == Some("\u{270F}"))
+            .filter_map(|(_, node)| node.bounds())
+            .min_by(|a, b| a.y0.total_cmp(&b.y0))
+            .map(|b| egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32))
+    }
+
+    /// Draw the real pop-out, [`show_audio_editor_window`], for `frames`
+    /// frames on a 1920x1080 screen at the layout slot's default size, and
+    /// report every frame. With `open_instrument` the first instrument's
+    /// pencil is clicked (pressed and released) on the two frames after it
+    /// is first drawn visibly, so the instrument opens on frame 4.
+    fn run_pop_out(
+        editor: &mut AudioEditorState,
+        monitor: &AudioMonitor,
+        frames: usize,
+        open_instrument: bool,
+    ) -> Vec<Landed> {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0));
+        let [w, h] = crate::ui::layout::UiWindow::AudioEditor.slot().size;
+        let default_rect = egui::Rect::from_min_size(egui::pos2(40.0, 60.0), egui::vec2(w, h));
+        let id = editor_id(&editor.salt);
+        let mut click = if open_instrument {
+            Click::Looking
+        } else {
+            Click::Done
+        };
+        let mut landed = Vec::with_capacity(frames);
+        for _ in 0..frames {
+            let mut events = Vec::new();
+            let button = |pos, pressed| egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            click = match click {
+                Click::Press(pos) => {
+                    events.extend([egui::Event::PointerMoved(pos), button(pos, true)]);
+                    Click::Release(pos)
+                }
+                Click::Release(pos) => {
+                    events.push(button(pos, false));
+                    Click::Done
+                }
+                other => other,
+            };
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            };
+            let mut this_frame = None;
+            let mut requests = Vec::new();
+            let output = ctx.run_ui(input, |ui| {
+                crate::ui::theme::apply_theme(ui.ctx(), &crate::ui::theme::Theme::dark());
+                let window = show_audio_editor_window(
+                    ui.ctx(),
+                    editor,
+                    monitor,
+                    default_rect,
+                    screen,
+                    &mut requests,
+                );
+                let read = |region| ui.ctx().read_response(region).map(|r| r.rect);
+                if let (Some(window), Some(strip), Some(canvas)) =
+                    (window, read(strip_id(id)), read(canvas_id(id)))
+                {
+                    this_frame = Some(Landed {
+                        window,
+                        strip,
+                        canvas,
+                    });
+                }
+            });
+            landed.push(this_frame.expect("the pop-out and both its regions were drawn"));
+            // Not from the first frame: a new window's first frame is an
+            // invisible sizing pass (egui 0.35 `Area::begin`), and a press
+            // aimed at what it laid out hits nothing.
+            if click == Click::Looking
+                && landed.len() > 1
+                && let Some(pos) = first_pencil(&output)
+            {
+                click = Click::Press(pos);
+            }
+        }
+        assert_eq!(
+            click,
+            Click::Done,
+            "the first instrument's pencil was never found"
+        );
+        landed
+    }
+
+    /// Where a scripted click on the first pencil is: press on the frame
+    /// after the pencil is first seen, release on the one after that.
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    enum Click {
+        Looking,
+        Press(egui::Pos2),
+        Release(egui::Pos2),
+        Done,
+    }
+
+    /// The three things #1327 promises about one run of the pop-out.
+    fn assert_the_pop_out_holds(landed: &[Landed], case: &str) {
+        let settled = landed[2].window;
+        for (frame, l) in landed.iter().enumerate().skip(2) {
+            assert!(
+                (l.window.height() - settled.height()).abs() < 0.5
+                    && (l.window.width() - settled.width()).abs() < 0.5,
+                "{case}: the window is {:.0}x{:.0} at frame {}, {:.0}x{:.0} at frame 3 — \
+                 it grows",
+                l.window.width(),
+                l.window.height(),
+                frame + 1,
+                settled.width(),
+                settled.height()
+            );
+        }
+        let last = landed.last().expect("frames were drawn");
+        assert!(
+            last.window.contains_rect(last.strip),
+            "{case}: the audition strip {:?} is outside the window {:?}, so it is never seen",
+            last.strip,
+            last.window
+        );
+        assert!(
+            last.canvas.height() >= 250.0,
+            "{case}: the canvas got {:.0} px",
+            last.canvas.height()
+        );
+    }
+
+    /// #1327 A1. A Patch slot's pop-out keeps its size and shows its
+    /// audition strip, with and without a waveform. The canvas used to be
+    /// drawn first: it takes all the height there is, so the strip after it
+    /// landed below the window, and egui's `Resize` grew the window by the
+    /// strip's height every frame until it reached the screen edge.
+    #[test]
+    fn a_patch_pop_out_keeps_its_size_and_shows_its_audition_strip() {
+        let patch = seeded_recipe().instruments[3].patch.clone();
+        for with_waveform in [false, true] {
+            let mut editor = AudioEditorState::default();
+            editor.open_for(
+                &SovereignAudioConfig::from_patch(&patch),
+                "environment",
+                "Room ambient",
+            );
+            let landed = run_pop_out(&mut editor, &monitor(with_waveform), 40, false);
+            assert_the_pop_out_holds(&landed, &format!("patch, waveform {with_waveform}"));
+        }
+    }
+
+    /// #1327 A1 + A7. A Sequence slot at seeded size, with an instrument
+    /// open in the canvas, keeps its size and shows its audition strip, with
+    /// and without a waveform. The whole sequence editor used to sit above
+    /// the canvas in one column, and the strip after the canvas, so opening
+    /// an instrument pushed the strip out of the window and the window
+    /// grew to the screen edge.
+    #[test]
+    fn a_sequence_pop_out_at_seeded_size_keeps_its_size_with_an_instrument_open() {
+        let recipe = seeded_recipe();
+        for with_waveform in [false, true] {
+            let mut editor = AudioEditorState::default();
+            editor.open_for(
+                &SovereignAudioConfig::from_sequence(&recipe),
+                "environment",
+                "Room ambient",
+            );
+            let landed = run_pop_out(&mut editor, &monitor(with_waveform), 40, true);
+            let (_, state) = editor.sequence.as_ref().expect("a sequence working copy");
+            assert_eq!(
+                state.active_instrument(),
+                Some(0),
+                "the click on the first pencil opened the first instrument"
+            );
+            assert_the_pop_out_holds(&landed, &format!("sequence, waveform {with_waveform}"));
+        }
     }
 
     /// A variant switch on the slot is the one thing that discards a
