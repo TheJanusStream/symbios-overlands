@@ -990,6 +990,8 @@ pub(crate) mod glyph_coverage_tests {
         '“',  // U+201C, the instrument name in the patch header
         '”',  // U+201D
         '…',  // U+2026, "Reassign all notes of '<id>' to…" (0.4.2)
+        '⏹',  // U+23F9, the audition strip's Stop (0.4.3; the host drew it before)
+        '▶',  // U+25B6, the audition strip's Audition (0.4.3)
         '✏',  // U+270F, the instrument selector — the glyph this list was added for
         '✔',  // U+2714, the valid-graph readout
         '✖',  // U+2716, remove instrument / delete connection

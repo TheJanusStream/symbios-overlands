@@ -9,6 +9,34 @@ use crate::pds::{
     Fp, Fp3, Fp4, GeneratorKind, SovereignAssetReference, SovereignGeneratorKind, TransformData,
 };
 
+/// "Sound is muted for the whole app" and an Unmute button, drawn while
+/// `*muted`; a click sets it `false`.
+///
+/// `AudioMuted` defaults to true, so a brand-new owner's first correct
+/// sound is silent and looks exactly like a broken one: an empty URL, a
+/// dead host, a wrong container (#1252 f303), or an audition whose chip
+/// says it plays (#1330 A3). The banner names the one cause the owner
+/// cannot deduce from the surface in front of them, and offers the switch
+/// the toolbar has rather than sending them to look for it. The Contact
+/// effects tab and the audio pop-out show it. Hand it the flag through
+/// [`crate::audio_mute::lend_mute`], never `&mut` through the `ResMut`.
+pub(crate) fn mute_banner(ui: &mut egui::Ui, muted: &mut bool) {
+    if !*muted {
+        return;
+    }
+    ui.horizontal_wrapped(|ui| {
+        ui.label(
+            egui::RichText::new("Sound is muted for the whole app, so nothing here will be heard.")
+                .small()
+                .color(crate::ui::theme::current(ui.ctx()).status.warn),
+        );
+        if ui.small_button("Unmute").clicked() {
+            *muted = false;
+        }
+    });
+    ui.add_space(2.0);
+}
+
 /// Quaternion → yaw/pitch/roll in degrees (`EulerRot::YXZ`: yaw about Y,
 /// then pitch about X, then roll about Z — the convention the BlobGroup
 /// element editor established). Pure for round-trip tests.

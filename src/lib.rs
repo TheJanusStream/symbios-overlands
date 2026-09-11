@@ -679,6 +679,10 @@ pub fn run() {
             Update,
             ui::gateway::poll_gateway_destination.run_if(in_state(AppState::InGame)),
         )
+        // The editors' Referenced-clip auditions (#1330 A8): started,
+        // replaced and stopped from the marks the last egui pass left. Not
+        // state-gated, so a voice never outlives the editor that started it.
+        .add_systems(Update, ui::room::audio::sync_referenced_auditions)
         .add_systems(
             Update,
             ui::travel::resolve_world_names.run_if(in_state(AppState::InGame)),

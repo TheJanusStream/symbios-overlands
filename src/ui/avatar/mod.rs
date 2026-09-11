@@ -776,8 +776,7 @@ pub fn avatar_ui(
     // Grouped into one tuple param so `session_log` fits under Bevy's 16-param
     // `IntoSystem` ceiling (needed to record an avatar re-seed, #627).
     (
-        audio_monitor,
-        mut audio_requests,
+        mut audio,
         time,
         mut session_log,
         mut blob_ctx,
@@ -792,8 +791,9 @@ pub fn avatar_ui(
         mut asset_caches,
         local_body,
     ): (
-        Res<bevy_symbios_audio::ui::AudioMonitor>,
-        MessageWriter<bevy_symbios_audio::ui::MonitorRequest>,
+        // The audio pop-out's monitor, its channel and the app-wide mute,
+        // as one parameter (#1330).
+        crate::ui::room::audio::AudioEditorIo,
         Res<Time>,
         ResMut<SessionLog>,
         ResMut<crate::editor_gizmo::BlobEditContext>,
@@ -845,6 +845,12 @@ pub fn avatar_ui(
         e.gizmo().visuals_path().is_some() || e.gizmo().worn_prop().is_some()
     };
     let prev_visuals_selected = aims_at_the_avatar(&editor);
+    // For the Referenced rows' "sound is muted" line in this frame's
+    // bridges. A display hint, so it does not stamp the editor state.
+    editor
+        .bypass_change_detection()
+        .audio_editor
+        .set_app_muted(audio.muted());
 
     // One borrowed view of the asset caches for the frame (#1246); see
     // `room::assets::AssetPanel`.
@@ -1494,8 +1500,7 @@ pub fn avatar_ui(
     crate::ui::room::audio::draw_audio_editor_window(
         contexts.ctx_mut().unwrap(),
         &mut editor.audio_editor,
-        &audio_monitor,
-        &mut audio_requests,
+        &mut audio,
         &mut chrome,
     );
 

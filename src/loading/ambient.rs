@@ -178,6 +178,18 @@ impl PlayingAmbient {
     }
 }
 
+/// The sample rate a world ambient `Patch` is baked at. 22.05 kHz halves the
+/// baked and decoded buffers, and ambient content sits under its 11 kHz
+/// Nyquist (#568; a seeded ambient `Sequence` carries the same rate). The
+/// audio pop-out auditions an ambient patch at this rate and
+/// [`AMBIENT_PATCH_SECS`] (#1330), so what the owner hears while editing is
+/// what the world will play.
+pub(crate) const AMBIENT_PATCH_SAMPLE_RATE: u32 = 22_050;
+
+/// The length of a baked world ambient `Patch` loop, in seconds (the audio
+/// crate's example envelope; a `Sequence` carries its own length).
+pub(crate) const AMBIENT_PATCH_SECS: f32 = 4.0;
+
 /// Bake the room's ambient track into WAV bytes off the main thread.
 ///
 /// Returns `Some(job)` for procedural variants (the heavy synth is then run
@@ -194,21 +206,19 @@ impl PlayingAmbient {
 /// * Malformed JSON inside `Patch` / `Sequence`: logged at warn-level
 ///   by the caller, treated as "no audio" so a corrupt record never
 ///   blocks room load.
-fn ambient_bake_job(audio: &crate::pds::SovereignAudioConfig) -> Option<gen_jobs::AudioBakeJob> {
+pub(crate) fn ambient_bake_job(
+    audio: &crate::pds::SovereignAudioConfig,
+) -> Option<gen_jobs::AudioBakeJob> {
     use crate::pds::SovereignAudioConfig;
 
     match audio {
         SovereignAudioConfig::None
         | SovereignAudioConfig::Unknown
         | SovereignAudioConfig::Referenced { .. } => None,
-        // One-shot bake. Default duration of 4.0s matches the audio crate's
-        // example envelope; future iterations can pull it from a Patch wrapper.
         SovereignAudioConfig::Patch { .. } => Some(gen_jobs::AudioBakeJob::Patch {
             patch: audio.parse_patch()?,
-            // 22.05 kHz halves the baked + decoded buffers; ambient content is
-            // within the 11 kHz Nyquist (#568, matches the Sequence default).
-            sample_rate: 22_050,
-            duration_secs: 4.0,
+            sample_rate: AMBIENT_PATCH_SAMPLE_RATE,
+            duration_secs: AMBIENT_PATCH_SECS,
         }),
         SovereignAudioConfig::Sequence { .. } => Some(gen_jobs::AudioBakeJob::Sequence {
             recipe: audio.parse_sequence()?,

@@ -49,6 +49,11 @@ pub(crate) use ambient::{
     tick_ambient_settle,
 };
 pub use ambient::{AmbientHandle, AmbientPlayer, AmbientResolveFailed};
+// The world ambient patch's bake numbers, which the audio pop-out auditions
+// at (#1330), and the real bake-job builder its tests compare them with.
+#[cfg(test)]
+pub(crate) use ambient::ambient_bake_job;
+pub(crate) use ambient::{AMBIENT_PATCH_SAMPLE_RATE, AMBIENT_PATCH_SECS};
 pub(crate) use fetch::{fire_pending_record_retries, poll_record_task};
 pub(crate) use records::{
     start_avatar_record_fetch, start_inventory_record_fetch, start_room_record_fetch,

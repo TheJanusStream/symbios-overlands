@@ -131,6 +131,20 @@ impl AssetPanel<'_> {
         self.audio.status(&key)
     }
 
+    /// The clip a `Referenced` audio source has been fetched as, for the
+    /// bridge's play control (#1330 A8). `None` until it is ready, and for
+    /// a source the viewer's settings refuse.
+    pub(crate) fn audio_reference_clip(
+        &self,
+        reference: &SovereignAssetReference,
+    ) -> Option<bevy::prelude::Handle<bevy::audio::AudioSource>> {
+        let key = AudioReferenceKey::from_reference(reference)?;
+        if self.blocked(key.is_external()) {
+            return None;
+        }
+        self.audio.ready(&key).cloned()
+    }
+
     /// How a contact-cue clip stands.
     pub(crate) fn contact_clip(&self, source: &AudioClipSource) -> Option<AssetStatus> {
         let key = AudioClipKey::from_source(source)?;

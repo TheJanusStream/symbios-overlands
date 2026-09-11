@@ -86,6 +86,28 @@ impl Plugin for AudioMutePlugin {
     }
 }
 
+/// Lend the master mute to a per-frame draw as a plain `bool`, and write it
+/// back through `muted` only when the draw changed it.
+///
+/// The guarded idiom of the paragraph on [`AudioMuted`], as one function for
+/// the draws that take the whole flag rather than hand it to a widget: the
+/// Contact effects tab and the audio pop-out, which each show a "Sound is
+/// muted" banner with an Unmute button (#1252 f303, #1330 A3). A draw that
+/// took `&mut AudioMuted` straight through the `ResMut` stamped the change
+/// tick on every frame it ran, whether or not anyone clicked, and
+/// `save_prefs_when_changed` re-armed on each of them.
+pub(crate) fn lend_mute<R>(
+    muted: &mut ResMut<'_, AudioMuted>,
+    draw: impl FnOnce(&mut bool) -> R,
+) -> R {
+    let mut local = muted.0;
+    let out = draw(&mut local);
+    if local != muted.0 {
+        muted.0 = local;
+    }
+    out
+}
+
 /// Whether a given sink should be silent right now.
 ///
 /// Pure, so the two reasons can be tested apart: the app-wide toggle, and
@@ -160,6 +182,44 @@ mod tests {
         assert!(
             !sink_is_silenced(false, &silenced, theirs),
             "unmuting the person restores their audio"
+        );
+    }
+
+    /// Whether running `system` once changed `AudioMuted`'s tick.
+    fn stamps(system: fn(ResMut<AudioMuted>)) -> bool {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        world.insert_resource(AudioMuted(true));
+        world.clear_trackers();
+        world.run_system_once(system).expect("the system runs");
+        world.is_resource_changed::<AudioMuted>()
+    }
+
+    /// #1330, the hazard `lend_mute` exists for: a draw that shows the mute
+    /// and changes nothing leaves the tick alone, so the prefs save stays
+    /// quiet while a panel showing the banner is open; an Unmute click
+    /// moves it. The control is the shape the Contact effects tab had,
+    /// `&mut AudioMuted` taken through the `ResMut` for a draw that only
+    /// reads it, which stamps every frame.
+    #[test]
+    fn lending_the_mute_to_a_draw_stamps_it_only_when_the_draw_changes_it() {
+        fn looks(mut muted: ResMut<AudioMuted>) {
+            lend_mute(&mut muted, |muted| assert!(*muted));
+        }
+        fn unmutes(mut muted: ResMut<AudioMuted>) {
+            lend_mute(&mut muted, |muted| *muted = false);
+        }
+        fn reads_through_deref_mut(mut muted: ResMut<AudioMuted>) {
+            fn draw(muted: &mut AudioMuted) -> bool {
+                muted.0
+            }
+            assert!(draw(&mut muted));
+        }
+        assert!(!stamps(looks), "a draw that changes nothing stamps nothing");
+        assert!(stamps(unmutes), "an Unmute click is a real change");
+        assert!(
+            stamps(reads_through_deref_mut),
+            "the control: &mut through the ResMut stamps even when it only reads"
         );
     }
 }

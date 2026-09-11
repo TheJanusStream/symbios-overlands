@@ -418,8 +418,12 @@ pub struct PreferredPick {
 /// position & facing" button (#773).
 #[derive(SystemParam)]
 pub struct RoomEditorExtras<'w, 's> {
-    audio_monitor: Res<'w, bevy_symbios_audio::ui::AudioMonitor>,
-    audio_requests: MessageWriter<'w, bevy_symbios_audio::ui::MonitorRequest>,
+    /// The audio pop-out's monitor and its channel, and the app-wide mute
+    /// (#1252 f303, #1330 A3): the Effects tab and the pop-out both say
+    /// when sound is muted, because a launch-fresh session is muted by
+    /// default and an owner's first correct sound is otherwise
+    /// indistinguishable from four kinds of broken.
+    audio: audio::AudioEditorIo<'w>,
     heightmap: Option<Res<'w, crate::terrain::FinishedHeightMap>>,
     blob_ctx: ResMut<'w, crate::editor_gizmo::BlobEditContext>,
     players: Query<'w, 's, &'static Transform, With<LocalPlayer>>,
@@ -453,11 +457,6 @@ pub struct RoomEditorExtras<'w, 's> {
     /// The four asset caches + the retry channel (#1246): every field that
     /// names a fetched image or sound says what happened to it.
     asset_caches: assets::AssetCaches<'w>,
-    /// The app-wide mute (#1252 f303): the Effects tab says so, because a
-    /// launch-fresh session is muted by default and an owner's first
-    /// correct cue is otherwise indistinguishable from four kinds of
-    /// broken.
-    audio_muted: ResMut<'w, crate::audio_mute::AudioMuted>,
     /// Who is in the world right now (#1269 f293). Every slider move is
     /// broadcast to all of them the frame it happens, and the only place
     /// that was ever said was a hover on a warning label that renders at
@@ -767,13 +766,11 @@ pub fn room_admin_ui(
 ) {
     let RoomEditorExtras {
         mut asset_caches,
-        audio_monitor,
-        mut audio_requests,
+        mut audio,
         heightmap,
         mut blob_ctx,
         players,
         gizmo_focus,
-        mut audio_muted,
         terrain_task,
         peers,
         mut player_move,
@@ -844,6 +841,8 @@ pub fn room_admin_ui(
         live_sync_bytes,
         ..
     } = &mut *editor;
+    // For the Referenced rows' "sound is muted" line in this frame's bridges.
+    audio_editor.set_app_muted(audio.muted());
 
     let ctx = contexts.ctx_mut().unwrap();
 
@@ -1512,15 +1511,20 @@ pub fn room_admin_ui(
                     }
                     EditorTab::Effects => {
                         ui.allocate_ui(egui::vec2(ui.available_width(), body_height), |ui| {
-                            contact_effects::draw_contact_effects_tab(
-                                ui,
-                                &mut record_mut.contact_effects,
-                                selected_effect,
-                                &mut widget_change,
-                                &mut asset_panel,
-                                &mut audio_muted,
-                                peers.iter().count(),
-                            );
+                            // Lent, not `&mut` through the ResMut (#1330):
+                            // that stamped the prefs-watched mute on every
+                            // frame the tab was drawn.
+                            audio.lend_mute(|muted| {
+                                contact_effects::draw_contact_effects_tab(
+                                    ui,
+                                    &mut record_mut.contact_effects,
+                                    selected_effect,
+                                    &mut widget_change,
+                                    &mut asset_panel,
+                                    muted,
+                                    peers.iter().count(),
+                                );
+                            });
                         });
                     }
                     EditorTab::Generators => {
@@ -1617,13 +1621,7 @@ pub fn room_admin_ui(
         // in `audio_editor`'s pending map, which the matching slot's bridge
         // (room-ambient here, per-construct in the Generators tab) picks
         // up on its next frame and writes into the live record.
-        audio::draw_audio_editor_window(
-            ctx,
-            audio_editor,
-            &audio_monitor,
-            &mut audio_requests,
-            &mut chrome,
-        );
+        audio::draw_audio_editor_window(ctx, audio_editor, &mut audio, &mut chrome);
 
         if let Some(response) = world_editor_response.as_ref() {
             chrome.remember(

@@ -270,6 +270,9 @@ pub(super) fn draw_detail_panel(
                     &mut node.audio,
                     &salt,
                     &label,
+                    // A node in a world or a part worn on an avatar: both
+                    // are spawned as constructs, and bake as one.
+                    super::super::audio::AudioSlotKind::Construct,
                     dirty,
                     audio_editor,
                     assets,

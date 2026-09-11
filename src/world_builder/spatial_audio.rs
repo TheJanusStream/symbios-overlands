@@ -53,6 +53,20 @@ use crate::pds::SovereignAudioConfig;
 /// SFX keep the default scale (they fire right next to the listener).
 const CONSTRUCT_SPATIAL_SCALE: f32 = 0.25;
 
+/// The sample rate a construct's `Patch` audio is baked at — a worn part's
+/// too, since it is spawned as a construct. 22.05 kHz halves the baked and
+/// cached buffers, and per-construct hums sit under its 11 kHz Nyquist (#568,
+/// the ambient rate too). The audio pop-out auditions a construct's patch at
+/// this rate and [`CONSTRUCT_PATCH_SECS`] (#1330), so what the owner hears
+/// while editing is what the world will play.
+pub(crate) const CONSTRUCT_PATCH_SAMPLE_RATE: u32 = 22_050;
+
+/// The length of a construct's baked `Patch` loop, in seconds: long enough
+/// for transients to read, short enough that the loop seam is imperceptible.
+/// The pop-out auditions at this length too (#1330): a 0.4 Hz sweep swells
+/// over a four-second audition and stutters in this one-second loop.
+pub(crate) const CONSTRUCT_PATCH_SECS: f32 = 1.0;
+
 /// Playback settings for a looping, spatial construct / avatar-voice emitter:
 /// Bevy's `LOOP` shape, spatialised, with the gentler [`CONSTRUCT_SPATIAL_SCALE`]
 /// so the loop carries across a normal viewing distance.
@@ -469,20 +483,18 @@ pub fn poll_spatial_audio_tasks(
 
 /// Build the offloadable bake job for a construct's *procedural* audio config.
 /// `None` for non-procedural variants or malformed JSON (the construct then
-/// simply doesn't hum). Construct patches loop on a 1-second window — long
-/// enough for transients to read, short enough that the loop seam is
-/// imperceptible. The heavy synth runs off-thread via [`crate::offload`].
-fn construct_bake_job(audio: &SovereignAudioConfig) -> Option<gen_jobs::AudioBakeJob> {
+/// simply doesn't hum). Construct patches loop on a
+/// [`CONSTRUCT_PATCH_SECS`] window at [`CONSTRUCT_PATCH_SAMPLE_RATE`]. The
+/// heavy synth runs off-thread via [`crate::offload`].
+pub(crate) fn construct_bake_job(audio: &SovereignAudioConfig) -> Option<gen_jobs::AudioBakeJob> {
     match audio {
         SovereignAudioConfig::None
         | SovereignAudioConfig::Unknown
         | SovereignAudioConfig::Referenced { .. } => None,
         SovereignAudioConfig::Patch { .. } => Some(gen_jobs::AudioBakeJob::Patch {
             patch: audio.parse_patch()?,
-            // 22.05 kHz halves the baked + cached buffers; per-construct hums
-            // are within the 11 kHz Nyquist (#568, matches the ambient rate).
-            sample_rate: 22_050,
-            duration_secs: 1.0,
+            sample_rate: CONSTRUCT_PATCH_SAMPLE_RATE,
+            duration_secs: CONSTRUCT_PATCH_SECS,
         }),
         SovereignAudioConfig::Sequence { .. } => Some(gen_jobs::AudioBakeJob::Sequence {
             recipe: audio.parse_sequence()?,

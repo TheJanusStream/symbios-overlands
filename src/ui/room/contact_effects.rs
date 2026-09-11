@@ -54,31 +54,16 @@ pub(super) fn draw_contact_effects_tab(
     selected: &mut Option<usize>,
     dirty: &mut bool,
     assets: &mut super::assets::AssetPanel<'_>,
-    muted: &mut crate::audio_mute::AudioMuted,
+    // The app-wide mute, lent by the caller through `lend_mute` (#1330).
+    muted: &mut bool,
     // How many other people are in the world right now (#1269 f305).
     peers: usize,
 ) {
     // The worst path in #1252 f303 is the FIRST one: `AudioMuted` defaults
     // to true, so a brand-new owner's very first correct cue is silent and
     // indistinguishable from an empty URL, a dead host and a wrong
-    // container. The banner names the one cause the owner cannot deduce
-    // from anything on this tab, and offers the same toggle the toolbar
-    // has rather than sending them to look for it.
-    if muted.0 {
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new(
-                    "Sound is muted for the whole app, so nothing here will be heard.",
-                )
-                .small()
-                .color(crate::ui::theme::current(ui.ctx()).status.warn),
-            );
-            if ui.small_button("Unmute").clicked() {
-                muted.0 = false;
-            }
-        });
-        ui.add_space(2.0);
-    }
+    // container.
+    super::widgets::mute_banner(ui, muted);
     // Drop a selection whose row vanished (delete, Load-from-PDS shrink).
     if selected.is_some_and(|i| i >= effects.recipes.len()) {
         *selected = None;

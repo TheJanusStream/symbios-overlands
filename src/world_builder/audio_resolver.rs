@@ -207,6 +207,14 @@ impl BlobAudioCache {
         }
     }
 
+    /// The clip this reference resolved to, once it has.
+    pub fn ready(&self, key: &AudioReferenceKey) -> Option<&Handle<AudioSource>> {
+        match self.by_source.get(key)? {
+            AudioReferenceEntry::Ready(clip) => Some(clip),
+            AudioReferenceEntry::Pending(_) | AudioReferenceEntry::Failed(_) => None,
+        }
+    }
+
     /// Drop a failed entry so the next requester starts a fresh attempt.
     pub fn clear_failure(&mut self, key: &AudioReferenceKey) -> bool {
         if matches!(

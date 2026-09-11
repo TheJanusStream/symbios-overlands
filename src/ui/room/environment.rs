@@ -286,6 +286,7 @@ pub(super) fn draw_environment_tab(
                 &mut env.ambient_audio,
                 "environment",
                 "World ambient",
+                super::audio::AudioSlotKind::WorldAmbient,
                 dirty,
                 audio_editor,
                 assets,
