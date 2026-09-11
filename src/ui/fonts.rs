@@ -984,14 +984,17 @@ pub(crate) mod glyph_coverage_tests {
     /// `✓` no; `↔` yes, `←` no). Probe, never assume. **Refresh this on a
     /// `bevy_symbios_audio` bump** — the dependency-bump checklist says how.
     const HOSTED_AUDIO_EDITOR_GLYPHS: &[char] = &[
+        '·',  // U+00B7, the wire-drop tooltip's separator (0.4.2)
         '×',  // U+00D7, the pitch multiplier
         '—',  // U+2014, the valid-graph readout
         '“',  // U+201C, the instrument name in the patch header
         '”',  // U+201D
+        '…',  // U+2026, "Reassign all notes of '<id>' to…" (0.4.2)
         '✏',  // U+270F, the instrument selector — the glyph this list was added for
         '✔',  // U+2714, the valid-graph readout
         '✖',  // U+2716, remove instrument / delete connection
         '➕', // U+2795, add instrument / track / constant
+        '➡',  // U+27A1, the wire-drop tooltip's arrow (0.4.2)
         '⟲',  // U+27F2, reset
         '⬅',  // U+2B05, a node input's source
         '🎲', // U+1F3B2, mutate / reroll
