@@ -1,6 +1,7 @@
 use avian3d::prelude::LinearVelocity;
 use bevy::prelude::*;
-use bevy_symbios_avatar::{Drive, Drove};
+use bevy_symbios_avatar::{AvatarBody, AvatarPose, Drive, Drove};
+use symbios_avatar::Zone;
 use symbios_avatar::anim::driver::Hold;
 
 use crate::player::emote::EmoteRequest;
@@ -9,6 +10,41 @@ use crate::state::LocalPlayer;
 use crate::water::WaterSurfaces;
 
 use super::{RiggedRoot, RiggedTrail};
+
+/// Where the crown of a swimmer afloat at the surface is drawn, in metres
+/// above the waterline (#1324): the eyes about at the water, the head out.
+///
+/// The engine poses a swim "at whatever depth the caller puts it", laying the
+/// crawl prone about the body's standing hip height, and the chassis is a
+/// vertical capsule floating at `humanoid::SWIM_FLOAT`. A treading body drew
+/// its crown 0.08 m out of the water there, and a crawling one 0.5 m under it
+/// with its hips at −0.7 m. So while a swimmer is afloat the drawn body is
+/// raised until its crown sits here — a crawl comes up to the surface, a
+/// tread barely moves — and it only ever rises: a body whose crown is already
+/// higher is left where it is.
+pub(in crate::player) const SURFACE_CROWN: f32 = 0.1;
+
+/// How quickly the drawn body follows that lift, seconds (#1324). The pose it
+/// is read from strokes, rolls and surges; a first-order lag this long keeps
+/// the stroke from bobbing the whole body and still carries a swimmer from a
+/// tread into a crawl, or down on a dive, without a pop.
+const LIFT_RESPONSE: f32 = 0.3;
+
+/// Every rigged body the fill writes: where it hangs, what it is told, its
+/// trail, and — once built and posed — the body and pose the surface lift
+/// reads (#1324).
+type FilledBodies<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static ChildOf,
+        &'static mut Transform,
+        &'static mut Drive,
+        &'static mut RiggedTrail,
+        Option<(&'static AvatarBody, &'static AvatarPose)>,
+    ),
+    With<RiggedRoot>,
+>;
 
 /// Tell every built body what its chassis is doing, for
 /// [`bevy_symbios_avatar::drive_avatar_bodies`] to drive it with (#1171).
@@ -38,7 +74,7 @@ use super::{RiggedRoot, RiggedTrail};
 pub(in crate::player) fn fill_rigged_drive(
     time: Res<Time>,
     water: Option<Res<WaterSurfaces>>,
-    mut bodies: Query<(&ChildOf, &Transform, &mut Drive, &mut RiggedTrail), With<RiggedRoot>>,
+    mut bodies: FilledBodies,
     chassis: Query<(&GlobalTransform, Option<&LinearVelocity>)>,
     locals: Query<(), With<LocalPlayer>>,
     hold: Res<crate::player::RigHold>,
@@ -47,7 +83,7 @@ pub(in crate::player) fn fill_rigged_drive(
     if delta <= 0.0 {
         return;
     }
-    for (child_of, root, mut drive, mut trail) in &mut bodies {
+    for (child_of, mut root, mut drive, mut trail, drawn) in &mut bodies {
         let Ok((transform, velocity)) = chassis.get(child_of.parent()) else {
             continue;
         };
@@ -100,10 +136,20 @@ pub(in crate::player) fn fill_rigged_drive(
         // bottom and is walking, which is what the controller does with it
         // too. Which is a fact about the world's water rather than about the
         // body, and so is this app's to answer rather than the engine's.
-        let half_height = -root.translation.y;
+        //
+        // Swimming has two thresholds (#1324), so the classification needs
+        // to know whether this body was swimming: `Drive::swimming` is what
+        // this fill wrote last frame, which is that memory for a local body
+        // and a remote peer alike — a peer has no controller here, and
+        // classifying it by the same rule from the same positions is what
+        // keeps what its owner sees and what everyone else sees the same.
+        let hung = root.translation.y - trail.lift;
+        let half_height = -hung;
+        let was_swimming = drive.swimming;
         drive.swimming = water.as_ref().is_some_and(|water| {
             matches!(
                 humanoid_water_state(
+                    was_swimming,
                     position.y,
                     Vec2::new(position.x, position.z),
                     half_height * 2.0,
@@ -112,6 +158,40 @@ pub(in crate::player) fn fill_rigged_drive(
                 WaterState::Swimming { .. }
             )
         });
+        // **Afloat, the drawn body rides the surface** (#1324; see
+        // [`SURFACE_CROWN`]). Afloat is the controller's own test: swimming,
+        // with the capsule's top out of the water. The crown is read off LAST
+        // frame's pose, since the driver poses after this; the lift is eased,
+        // so a stroke cannot bob it.
+        let surface = water
+            .as_ref()
+            .and_then(|water| water.surface_at(Vec2::new(position.x, position.z)))
+            .map(|(_, surface_y)| surface_y);
+        let target = match (drive.swimming, surface, drawn) {
+            (true, Some(surface_y), Some((body, pose)))
+                if position.y + half_height >= surface_y =>
+            {
+                let rig = &body.avatar.rig;
+                let posed = pose.0.forward(rig);
+                // A body with no head has nothing to hold out of the water.
+                rig.in_zone(Zone::Head)
+                    .iter()
+                    .map(|&joint| posed.positions[joint].y)
+                    .reduce(f32::max)
+                    .map_or(0.0, |crown| {
+                        (surface_y + SURFACE_CROWN - (position.y + hung + crown))
+                            .clamp(0.0, half_height)
+                    })
+            }
+            _ => 0.0,
+        };
+        trail.lift += (target - trail.lift) * (1.0 - (-delta / LIFT_RESPONSE).exp());
+        if trail.lift.abs() < 1e-4 && target == 0.0 {
+            trail.lift = 0.0;
+        }
+        if root.translation.y != hung + trail.lift {
+            root.translation.y = hung + trail.lift;
+        }
         // **The attachment-editing holds (#1062, #1106).** An attachment
         // offset is stored in its carrying joint's *rest* frame, so while the
         // owner has the in-world gizmo on a **whole worn prop** their own body

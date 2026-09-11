@@ -190,6 +190,13 @@ pub(crate) struct RiggedRoot;
 #[derive(Component, Default)]
 pub(super) struct RiggedTrail {
     last: Option<(Vec3, f32)>,
+    /// How far the drawn body is raised above where its root hangs, metres
+    /// (#1324): nonzero only for a swimmer afloat at the surface, whose
+    /// crawl the engine lays prone about its standing hip height — see
+    /// `motion::fill_rigged_drive`. Kept here so the root's own offset, which
+    /// the water classification reads as the body's half-height, stays
+    /// recoverable under it.
+    lift: f32,
 }
 
 /// The next idle-and-blink seed for a body about to join the room.
@@ -244,5 +251,7 @@ mod tests;
 #[cfg(test)]
 pub(super) use build::install_built_body;
 pub(super) use build::{kick_rigged_builds, land_rigged_builds};
+#[cfg(test)]
+pub(super) use motion::SURFACE_CROWN;
 pub(super) use motion::{count_motion_strain, fill_rigged_drive, start_emotes};
 pub(super) use placeholder::{announce_slow_builds, sync_local_placeholder};

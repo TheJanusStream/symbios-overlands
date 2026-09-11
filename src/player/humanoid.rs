@@ -157,31 +157,87 @@ pub(super) fn clear_jump_queue(mut queued: ResMut<JumpQueued>) {
 
 /// Classification of the humanoid's relationship to the water surface
 /// directly beneath them. Drives the three locomotion modes — walking on
-/// land, slowed wading with feet under water, and free 3D swimming with
-/// gravity overridden once the head is fully submerged.
+/// land, slowed wading with feet under water, and free 3D swimming once the
+/// water is deep enough to swim in (see [`SWIM_FROM`]).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum WaterState {
     #[default]
     Dry,
-    /// Feet are below the water surface, head is above. `depth` is how
-    /// much of the avatar's height (m) is submerged.
+    /// Feet are below the water surface and the body is standing in it.
+    /// `depth` is how much of the avatar's height (m) is submerged.
     Wading { depth: f32 },
-    /// Head is below the water surface. `depth` is how far below the
-    /// surface the avatar's centre is (m).
+    /// Deep enough to swim. `depth` is how far below the surface the
+    /// avatar's centre is (m) — negative once a floating swimmer's centre
+    /// rides above the waterline.
     Swimming { depth: f32 },
 }
 
+/// The share of its height a humanoid must have under water to start
+/// swimming (#1324): the water at its chin, on the capsule the controller
+/// classifies with.
+///
+/// It used to be the whole height — the head had to go under — and that line
+/// was also the only one: a swimmer rising to the surface crossed it the
+/// moment its head came out, dropped into the land controller, fell back
+/// under and swam again, 21 times a second (measured by
+/// `surface::probe_swimming_at_the_surface`), drawn a swim on 109 frames of
+/// 256. So swimming now starts here and stops at [`SWIM_UNTIL`], and a
+/// swimmer at the surface floats at [`SWIM_FLOAT`], between the two.
+const SWIM_FROM: f32 = 0.85;
+
+/// The share of its height under which a swimmer stands up again (#1324):
+/// the water below its chest, where it could wade. Well under
+/// [`SWIM_FLOAT`], so nothing a floating swimmer does at the surface can
+/// reach it; the ground rising under a swimmer coming ashore does.
+const SWIM_UNTIL: f32 = 0.6;
+
+/// Where a swimmer at the surface floats (#1324): the share of its height
+/// under water when its capsule is as high as swimming lets it rise. The
+/// swim controller never carries the body above this line, so surfacing
+/// holds here instead of breaking out of the water and falling back.
+const SWIM_FLOAT: f32 = 0.8;
+
+// The float line must sit inside the swim on both sides, or a swimmer riding
+// it would be classified out of the water it is floating in (#1324).
+const _: () = assert!(SWIM_UNTIL < SWIM_FLOAT && SWIM_FLOAT < SWIM_FROM);
+
+/// How fast a swimmer above its float line settles back onto it, in metres
+/// a second per metre above (#1324). A quarter of a second's time constant:
+/// quick enough that a swimmer surfacing at full vertical speed stops at the
+/// line rather than bobbing past it, slow enough to read as water.
+const FLOAT_SETTLE: f32 = 4.0;
+
+/// How far below the horizon the camera must look before W dives a swimmer
+/// who is afloat at the surface, in radians (#1324): 35°, a deliberate look
+/// down, comfortably past the orbit camera's resting 23° (0.4 rad). Under
+/// water W follows the camera wherever it looks.
+const DIVE_PITCH: f32 = 0.61;
+
+/// The controller's last water classification for this chassis (#1324).
+///
+/// Swimming has two thresholds ([`SWIM_FROM`], [`SWIM_UNTIL`]), so which mode
+/// a depth between them means depends on the mode the body was already in:
+/// this is that memory. Required by [`super::HumanoidPreset`], so every
+/// humanoid chassis carries one. The two other classifiers — the UI's mode
+/// badge and the rigged body's animation fill — keep memories of their own,
+/// because each runs when the controller does not (a focused text field
+/// stands the controller down; a remote peer has no controller here).
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
+pub struct HumanoidWater(pub WaterState);
+
 /// Classify the avatar's relationship to the water column at its XZ
-/// position. The avatar is treated as a vertical line segment of length
-/// `height` centred on `chassis_y` — its feet at `chassis_y - height/2`
-/// and head at `chassis_y + height/2`. The classifier samples
-/// [`WaterSurfaces::surface_at`] at the avatar's XZ to locate the
-/// containing surface, then compares feet / head against that surface Y.
+/// position, given whether it was swimming a moment ago. The avatar is
+/// treated as a vertical line segment of length `height` centred on
+/// `chassis_y` — its feet at `chassis_y - height/2`. The classifier samples
+/// [`WaterSurfaces::surface_at`] at the avatar's XZ to locate the containing
+/// surface, then compares the submerged share of the height against
+/// [`SWIM_FROM`] (to start swimming) or [`SWIM_UNTIL`] (to stop).
 ///
 /// Returns [`WaterState::Dry`] when no water surface contains the
 /// avatar's column — the same fall-through used when the player walks
 /// outside every pond's footprint.
 pub fn humanoid_water_state(
+    was_swimming: bool,
     chassis_y: f32,
     chassis_xz: Vec2,
     height: f32,
@@ -190,19 +246,19 @@ pub fn humanoid_water_state(
     let Some((_, surface_y)) = water_surfaces.surface_at(chassis_xz) else {
         return WaterState::Dry;
     };
-    let half = height * 0.5;
-    let feet_y = chassis_y - half;
-    let head_y = chassis_y + half;
+    let feet_y = chassis_y - height * 0.5;
     if feet_y >= surface_y {
-        WaterState::Dry
-    } else if head_y >= surface_y {
-        WaterState::Wading {
-            depth: surface_y - feet_y,
-        }
-    } else {
+        return WaterState::Dry;
+    }
+    let submerged = surface_y - feet_y;
+    let swims =
+        submerged >= SWIM_FROM * height || (was_swimming && submerged > SWIM_UNTIL * height);
+    if swims {
         WaterState::Swimming {
             depth: surface_y - chassis_y,
         }
+    } else {
+        WaterState::Wading { depth: submerged }
     }
 }
 
@@ -246,7 +302,12 @@ pub(super) fn publish_movement_facts(
         && let LocomotionConfig::Humanoid(p) = &live.0.locomotion
     {
         let pos = global_tf.translation();
+        // Its own memory, the state it published last (#1324): swimming has
+        // two thresholds, and this system runs while the controller stands
+        // down for a focused text field, so it cannot borrow the
+        // controller's. Same inputs, same rule, so the two agree.
         facts.water = humanoid_water_state(
+            matches!(published.water, WaterState::Swimming { .. }),
             pos.y,
             Vec2::new(pos.x, pos.z),
             p.total_height(),
@@ -320,6 +381,7 @@ pub(super) fn apply_humanoid_walk(
             &mut LinearVelocity,
             &mut Transform,
             &GlobalTransform,
+            &mut HumanoidWater,
         ),
         (With<LocalPlayer>, With<HumanoidPreset>),
     >,
@@ -329,6 +391,7 @@ pub(super) fn apply_humanoid_walk(
     jump_queued: Res<JumpQueued>,
     hold: Res<super::RigHold>,
     bodies: Query<(&ChildOf, &bevy_symbios_avatar::AvatarBody), With<super::rigged::RiggedRoot>>,
+    gravity: Option<Res<Gravity>>,
 ) {
     if traveling.is_some() {
         return;
@@ -336,18 +399,22 @@ pub(super) fn apply_humanoid_walk(
     let LocomotionConfig::Humanoid(p) = &live.0.locomotion else {
         return;
     };
-    let Ok((entity, mut lin_vel, mut chassis_tf, global_tf)) = query.single_mut() else {
+    let Ok((entity, mut lin_vel, mut chassis_tf, global_tf, mut water)) = query.single_mut() else {
         return;
     };
 
     let chassis_pos = global_tf.translation();
     let total_height = p.total_height();
     let state = humanoid_water_state(
+        matches!(water.0, WaterState::Swimming { .. }),
         chassis_pos.y,
         Vec2::new(chassis_pos.x, chassis_pos.z),
         total_height,
         &water_surfaces,
     );
+    if water.0 != state {
+        water.0 = state;
+    }
 
     let cam_tf = camera.single().ok();
     let cam_forward = cam_tf.map(|t| t.forward().as_vec3()).unwrap_or(Vec3::NEG_Z);
@@ -460,12 +527,24 @@ pub(super) fn apply_humanoid_walk(
                 }
             }
         }
-        WaterState::Swimming { .. } => {
+        WaterState::Swimming { depth } => {
+            // Afloat: the capsule's top is out of the water (#1324).
+            let submerged = depth + total_height * 0.5;
+            let afloat = submerged <= total_height;
             // 3D forward = full camera direction, so swimming forward while
             // pitched down dives. Right is the camera's right vector with
             // its Y component flattened so strafing stays in a horizontal
             // band relative to the body, not the head's tilt.
-            let forward = cam_forward.normalize_or_zero();
+            //
+            // **Except afloat** (#1324): at the surface W swims level unless
+            // the camera looks down past [`DIVE_PITCH`]. The orbit camera
+            // rests 23° below the horizon, so camera-forward dived every
+            // swimmer who pressed W at the surface — swimming along it took
+            // looking up. Shift/C still dive from anywhere.
+            let mut forward = cam_forward.normalize_or_zero();
+            if afloat && forward.y > -DIVE_PITCH.sin() {
+                forward = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
+            }
             let right = Vec3::new(cam_right_world.x, 0.0, cam_right_world.z).normalize_or_zero();
             let mut desired = Vec3::ZERO;
             if pressed_w {
@@ -507,8 +586,26 @@ pub(super) fn apply_humanoid_walk(
                 desired.y -= p.swim_vertical_speed.0;
             }
 
+            // **Afloat at the surface (#1324)**: while the capsule's top is
+            // out of the water, the body never rises past its float line
+            // ([`SWIM_FLOAT`]) and is drawn back onto it from above, and the
+            // water holds it up — the step's gravity is cancelled — so a
+            // swimmer who surfaces stays there, idle or swimming, until it
+            // swims down. Fully under water nothing changes: the swim keeps
+            // its own feel, including a slow sink with no keys held.
+            if afloat {
+                let above = SWIM_FLOAT * total_height - submerged;
+                desired.y = desired.y.min(-above * FLOAT_SETTLE);
+            }
+
             let alpha = (p.acceleration.0 * dt).clamp(0.0, 1.0);
             lin_vel.0 = lin_vel.0.lerp(desired, alpha);
+            if afloat {
+                let pull = gravity
+                    .as_deref()
+                    .map_or(Gravity::default().0, |gravity| gravity.0);
+                lin_vel.0 -= pull * dt;
+            }
 
             // Face the horizontal projection of swim direction so the
             // avatar's mesh keeps a sensible orientation even on vertical
@@ -591,7 +688,7 @@ mod tests {
     fn dry_when_outside_every_pond() {
         let surfaces = pond(0.0, 5.0);
         // Avatar at (100, 0) is outside the pond's XZ rectangle.
-        let s = humanoid_water_state(0.0, Vec2::new(100.0, 0.0), 1.8, &surfaces);
+        let s = humanoid_water_state(false, 0.0, Vec2::new(100.0, 0.0), 1.8, &surfaces);
         assert_eq!(s, WaterState::Dry);
     }
 
@@ -599,7 +696,7 @@ mod tests {
     fn dry_when_feet_above_surface() {
         let surfaces = pond(0.0, 50.0);
         // Chassis at y = 5, height 1.8 → feet at 4.1, head at 5.9 → both above.
-        let s = humanoid_water_state(5.0, Vec2::ZERO, 1.8, &surfaces);
+        let s = humanoid_water_state(false, 5.0, Vec2::ZERO, 1.8, &surfaces);
         assert_eq!(s, WaterState::Dry);
     }
 
@@ -607,7 +704,7 @@ mod tests {
     fn wading_when_feet_submerged_head_above() {
         let surfaces = pond(0.0, 50.0);
         // Chassis at y = 0.5, height 1.8 → feet at -0.4 (under), head at 1.4 (above).
-        let s = humanoid_water_state(0.5, Vec2::ZERO, 1.8, &surfaces);
+        let s = humanoid_water_state(false, 0.5, Vec2::ZERO, 1.8, &surfaces);
         assert!(matches!(s, WaterState::Wading { depth } if (depth - 0.4).abs() < 1e-5));
     }
 
@@ -615,27 +712,63 @@ mod tests {
     fn swimming_when_head_submerged() {
         let surfaces = pond(0.0, 50.0);
         // Chassis at y = -2, height 1.8 → feet at -2.9, head at -1.1 → both below.
-        let s = humanoid_water_state(-2.0, Vec2::ZERO, 1.8, &surfaces);
+        let s = humanoid_water_state(false, -2.0, Vec2::ZERO, 1.8, &surfaces);
         assert!(matches!(s, WaterState::Swimming { depth } if (depth - 2.0).abs() < 1e-5));
     }
 
+    /// Where the chassis of a 1.8 m body stands with `share` of its height
+    /// under a surface at `y = 0`.
+    fn submerged(share: f32) -> f32 {
+        0.9 - share * 1.8
+    }
+
+    /// A body not yet swimming starts to at [`SWIM_FROM`] of its height under
+    /// water (#1324) — the chin, where it used to wait for the whole head.
     #[test]
-    fn wading_to_swim_at_chin_height() {
+    fn swimming_starts_with_the_water_at_the_chin() {
         let surfaces = pond(0.0, 50.0);
-        // Chassis y = -0.05, height 1.8 → feet -0.95, head 0.85 → still wading.
+        let state =
+            |share| humanoid_water_state(false, submerged(share), Vec2::ZERO, 1.8, &surfaces);
+        assert!(matches!(state(SWIM_FROM - 0.01), WaterState::Wading { .. }));
         assert!(matches!(
-            humanoid_water_state(-0.05, Vec2::ZERO, 1.8, &surfaces),
+            state(SWIM_FROM + 0.01),
+            WaterState::Swimming { .. }
+        ));
+        // Above the float line and even with the head fully out, a wader
+        // is still a wader: it has not reached swimming depth.
+        assert!(matches!(state(SWIM_FLOAT), WaterState::Wading { .. }));
+    }
+
+    /// A body already swimming goes on swimming until less than
+    /// [`SWIM_UNTIL`] of it is under water (#1324) — so the float line, where
+    /// a swimmer at the surface rides, sits inside the swim on both sides.
+    /// Without this second threshold a swimmer rising to the surface crossed
+    /// the only line there was every time its head came out.
+    #[test]
+    fn a_swimmer_keeps_swimming_until_it_could_stand() {
+        let surfaces = pond(0.0, 50.0);
+        let state =
+            |was, share| humanoid_water_state(was, submerged(share), Vec2::ZERO, 1.8, &surfaces);
+        assert!(matches!(
+            state(true, SWIM_FLOAT),
+            WaterState::Swimming { .. }
+        ));
+        assert!(matches!(
+            state(true, SWIM_UNTIL + 0.01),
+            WaterState::Swimming { .. }
+        ));
+        assert!(matches!(
+            state(true, SWIM_UNTIL - 0.01),
             WaterState::Wading { .. }
         ));
-        // Pull just below the surface — head 0 is on the surface, classifier
-        // treats `head_y >= surface_y` as still-Wading at the threshold.
+        // The same depth reads by what the body was doing: the band between
+        // the two thresholds is the hysteresis.
         assert!(matches!(
-            humanoid_water_state(-0.9, Vec2::ZERO, 1.8, &surfaces),
+            state(false, SWIM_UNTIL + 0.1),
             WaterState::Wading { .. }
         ));
-        // One step deeper → head submerges → swimming.
         assert!(matches!(
-            humanoid_water_state(-0.95, Vec2::ZERO, 1.8, &surfaces),
+            state(true, SWIM_UNTIL + 0.1),
             WaterState::Swimming { .. }
         ));
     }
@@ -662,12 +795,12 @@ mod tests {
         // height 1.8 → feet 3.6 (below 5), head 5.4 (above 5) → wading the
         // upper pond. If the lower sea were chosen instead, head 5.4 above
         // the sea at y=0 would yield Dry.
-        let s = humanoid_water_state(4.5, Vec2::new(1.0, 0.0), 1.8, &surfaces);
+        let s = humanoid_water_state(false, 4.5, Vec2::new(1.0, 0.0), 1.8, &surfaces);
         assert!(matches!(s, WaterState::Wading { .. }));
         // Same chassis Y but outside the elevated pond's footprint — the
         // sea (y=0) is the only candidate, and the avatar's feet at 3.6 are
         // far above it, so the result is Dry.
-        let s = humanoid_water_state(4.5, Vec2::new(50.0, 0.0), 1.8, &surfaces);
+        let s = humanoid_water_state(false, 4.5, Vec2::new(50.0, 0.0), 1.8, &surfaces);
         assert_eq!(s, WaterState::Dry);
     }
 }
@@ -1105,7 +1238,7 @@ mod turning {
 
     /// The fixed step the controller runs at — and, in this harness, the
     /// driver too.
-    const HZ: f64 = 64.0;
+    pub(super) const HZ: f64 = 64.0;
     /// How long a body stands before its script's first key, so every script
     /// starts from a settled idle rather than from a body built mid-breath.
     const STAND_SECS: f32 = 1.0;
@@ -1264,7 +1397,7 @@ mod turning {
 
     /// A test app with everything [`apply_humanoid_walk`] reads, the record's
     /// locomotion as given, and no chassis yet.
-    fn walk_app(record: AvatarRecord) -> App {
+    pub(super) fn walk_app(record: AvatarRecord) -> App {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()));
         app.init_asset::<Mesh>();
@@ -1289,7 +1422,7 @@ mod turning {
     /// pinned by hand: `install_built_body` seeds off a process-wide counter,
     /// and `Driver::new` with the default config is `Driver::seeded` to the
     /// field.
-    fn install_instrument_body(
+    pub(super) fn install_instrument_body(
         app: &mut App,
         chassis: Entity,
         offset: f32,
@@ -2152,6 +2285,406 @@ mod turning {
                 run.handed,
                 run.local_froude,
                 run.local_running,
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Swimming at the surface (#1324)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod surface {
+    use std::time::Duration;
+
+    use super::turning::{HZ, install_instrument_body, walk_app};
+    use super::*;
+    use crate::pds::AvatarRecord;
+    use crate::pds::avatar::wardrobe::engine_default_for_did;
+    use crate::player::rigged::drive_frame;
+    use crate::water::{WaterPlane, WaterSurfaces};
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy_symbios_avatar::{AvatarBody as BuiltBody, AvatarDriver, AvatarPose, Drive};
+    use symbios_avatar::Zone;
+    use symbios_avatar::anim::driver::{DriverConfig, Source};
+
+    /// Where the water's surface is, and how long every script runs.
+    const SURFACE: f32 = 0.0;
+    const SCRIPT_SECS: f32 = 6.0;
+    /// Avian's default gravity, which the app keeps.
+    const GRAVITY: f32 = 9.81;
+
+    /// One swimming script: the keys held throughout, the camera's pitch
+    /// below the horizon (the app's orbit camera defaults to 0.4 rad), and
+    /// how far under the surface the top of the capsule starts.
+    struct Script {
+        name: &'static str,
+        keys: &'static [KeyCode],
+        pitch: f32,
+        under: f32,
+    }
+
+    const W: KeyCode = KeyCode::KeyW;
+    const SPACE: KeyCode = KeyCode::Space;
+
+    const SCRIPTS: [Script; 7] = [
+        Script {
+            name: "W, default camera (dives: the control)",
+            keys: &[W],
+            pitch: 0.4,
+            under: 0.5,
+        },
+        Script {
+            name: "W+Space, default camera (along the surface)",
+            keys: &[W, SPACE],
+            pitch: 0.4,
+            under: 0.5,
+        },
+        Script {
+            name: "W+Space, level camera",
+            keys: &[W, SPACE],
+            pitch: 0.0,
+            under: 0.5,
+        },
+        Script {
+            name: "Space alone (treading up)",
+            keys: &[SPACE],
+            pitch: 0.4,
+            under: 0.5,
+        },
+        // From the float line: a capsule top 0.36 m out of the water is where
+        // a swimmer who surfaced rides (`SWIM_FLOAT` on this 1.8 m capsule).
+        Script {
+            name: "W from the surface, default camera",
+            keys: &[W],
+            pitch: 0.4,
+            under: -0.36,
+        },
+        Script {
+            name: "no keys, from the surface",
+            keys: &[],
+            pitch: 0.4,
+            under: -0.36,
+        },
+        Script {
+            name: "W from the surface, camera 0.8 rad down (a dive)",
+            keys: &[W],
+            pitch: 0.8,
+            under: -0.36,
+        },
+    ];
+
+    /// What one fixed step left behind.
+    struct Step {
+        t: f32,
+        /// The controller's own classification this step
+        /// ([`HumanoidWater`]).
+        state: WaterState,
+        /// What the fill told the driver.
+        swimming: bool,
+        source: Source,
+        /// The capsule's top — the classifier's "head" — against the surface.
+        top: f32,
+        /// The drawn crown and pelvis against the surface.
+        crown: f32,
+        pelvis: f32,
+    }
+
+    /// Swims `script` through the real controller and the real rigged body.
+    ///
+    /// Keys against [`apply_humanoid_walk`], a camera the controller reads its
+    /// swim direction off, one flat pond with no floor, and then the fill and
+    /// the upstream driver through [`drive_frame`]. **The re-derived lines are
+    /// avian's integration** — gravity, the record's linear damping, then the
+    /// position — because avian is not in this app: the controller assigns the
+    /// velocity and physics only integrates it, in that order, on open water.
+    fn swum(script: &Script) -> Vec<Step> {
+        let record = AvatarRecord::wearing("3jzfcijpj2z2a");
+        let LocomotionConfig::Humanoid(params) = &record.locomotion else {
+            panic!("the harness record is a humanoid");
+        };
+        let (height, damping) = (params.total_height(), params.linear_damping.0);
+        let mut app = walk_app(record);
+        app.insert_resource(WaterSurfaces {
+            planes: vec![WaterPlane {
+                world_from_local: Transform::from_xyz(0.0, SURFACE, 0.0),
+                local_half_extents: Vec2::splat(1_000.0),
+                flow_strength: 0.0,
+                owner: WaterPlane::NO_OWNER,
+            }],
+        });
+        let camera = Transform::from_rotation(Quat::from_rotation_x(-script.pitch));
+        app.world_mut().spawn((
+            Camera3d::default(),
+            crate::camera::WorldCamera,
+            GlobalTransform::from(camera),
+        ));
+        let start = Transform::from_xyz(0.0, SURFACE - script.under - height * 0.5, 0.0);
+        let chassis = app
+            .world_mut()
+            .spawn((
+                LocalPlayer,
+                HumanoidPreset,
+                LinearVelocity::default(),
+                start,
+                GlobalTransform::from(start),
+            ))
+            .id();
+        let root = install_instrument_body(
+            &mut app,
+            chassis,
+            height * 0.5,
+            &engine_default_for_did("did:plc:stop-test"),
+            DriverConfig::default(),
+        );
+        let rig = app
+            .world()
+            .get::<BuiltBody>(root)
+            .expect("the body landed")
+            .avatar
+            .rig
+            .clone();
+        let pelvis = rig
+            .joints
+            .iter()
+            .position(|joint| joint.parent.is_none())
+            .expect("a root joint");
+        let crown = *rig
+            .in_zone(Zone::Head)
+            .iter()
+            .max_by(|a, b| {
+                rig.joints[**a]
+                    .position
+                    .y
+                    .total_cmp(&rig.joints[**b].position.y)
+            })
+            .expect("a head");
+        let dt = Duration::from_secs_f64(1.0 / HZ);
+        let frames = (SCRIPT_SECS * HZ as f32).round() as usize;
+        {
+            let mut input = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            for &key in script.keys {
+                input.press(key);
+            }
+        }
+        (0..frames)
+            .map(|frame| {
+                app.world_mut().resource_mut::<Time<Fixed>>().advance_by(dt);
+                app.world_mut()
+                    .run_system_once(apply_humanoid_walk)
+                    .expect("the walk controller runs");
+                // Avian's step, the re-derived lines: gravity into the
+                // velocity, the body's linear damping, then the position.
+                let secs = dt.as_secs_f32();
+                let velocity = {
+                    let mut velocity = app
+                        .world_mut()
+                        .get_mut::<LinearVelocity>(chassis)
+                        .expect("the chassis has a velocity");
+                    velocity.0.y -= GRAVITY * secs;
+                    velocity.0 *= 1.0 / (1.0 + damping * secs);
+                    velocity.0
+                };
+                let placed = {
+                    let mut transform = app
+                        .world_mut()
+                        .get_mut::<Transform>(chassis)
+                        .expect("the chassis has a transform");
+                    transform.translation += velocity * secs;
+                    *transform
+                };
+                *app.world_mut()
+                    .get_mut::<GlobalTransform>(chassis)
+                    .expect("the chassis has a global transform") = GlobalTransform::from(placed);
+                app.world_mut().resource_mut::<Time>().advance_by(dt);
+                drive_frame(&mut app);
+
+                let posed = app
+                    .world()
+                    .get::<AvatarPose>(root)
+                    .expect("a pose")
+                    .0
+                    .forward(&rig);
+                // The root as it hangs NOW: the fill raises it for a swimmer
+                // afloat at the surface.
+                let hung = *app.world().get::<Transform>(root).expect("the root hangs");
+                let rendered = GlobalTransform::from(placed) * GlobalTransform::from(hung);
+                let y = placed.translation.y;
+                Step {
+                    t: (frame + 1) as f32 / HZ as f32,
+                    state: app
+                        .world()
+                        .get::<HumanoidWater>(chassis)
+                        .expect("a humanoid chassis carries its water memory")
+                        .0,
+                    swimming: app.world().get::<Drive>(root).expect("a drive").swimming,
+                    source: app
+                        .world()
+                        .get::<AvatarDriver>(root)
+                        .expect("a driver")
+                        .source(),
+                    top: y + height * 0.5 - SURFACE,
+                    crown: rendered.transform_point(posed.positions[crown]).y - SURFACE,
+                    pelvis: rendered.transform_point(posed.positions[pelvis]).y - SURFACE,
+                }
+            })
+            .collect()
+    }
+
+    fn label(state: WaterState) -> &'static str {
+        match state {
+            WaterState::Dry => "dry",
+            WaterState::Wading { .. } => "wade",
+            WaterState::Swimming { .. } => "swim",
+        }
+    }
+
+    /// Swimming at the surface holds, as the owner agreed it by eye (#1324):
+    /// treading up from under water and crawling along the surface both stay
+    /// a swim on every frame with the capsule riding steady at its float line
+    /// and the drawn crown at the waterline (the fill's `SURFACE_CROWN`, the
+    /// crawl lifted to it with its hips at the surface), and a steep look down
+    /// still dives.
+    ///
+    /// Before the fix, over the same window: 84 state flips and 84 drawn flips
+    /// treading up (21 a second), the swim drawn on 109 frames of 256, the
+    /// capsule top jittering about the waterline and the crown 0.3 m under it;
+    /// plain W from the surface under the default camera dived. Agreed: 0
+    /// flips, 256 of 256, top +0.360 m, crown +0.100 treading and +0.08..+0.12
+    /// crawling, the crawl's hips −0.09..−0.12.
+    #[test]
+    fn a_swimmer_rides_the_surface_without_flickering() {
+        let crown = crate::player::rigged::SURFACE_CROWN;
+        for (index, crawls) in [(3, false), (4, true)] {
+            let script = &SCRIPTS[index];
+            let steps = swum(script);
+            let window: Vec<&Step> = steps.iter().filter(|step| step.t > 2.0).collect();
+            let flips = window
+                .windows(2)
+                .filter(|pair| {
+                    matches!(pair[0].state, WaterState::Swimming { .. })
+                        != matches!(pair[1].state, WaterState::Swimming { .. })
+                        || pair[0].source != pair[1].source
+                })
+                .count();
+            let drawn_swimming = window
+                .iter()
+                .filter(|step| step.source == Source::Swim)
+                .count();
+            let (low, high) = window.iter().fold((f32::MAX, f32::MIN), |(lo, hi), step| {
+                (lo.min(step.top), hi.max(step.top))
+            });
+            let worst_crown = window
+                .iter()
+                .map(|step| (step.crown - crown).abs())
+                .fold(0.0f32, f32::max);
+            let hips = window
+                .iter()
+                .map(|step| step.pelvis)
+                .fold(f32::MAX, f32::min);
+            println!(
+                "{}: {flips} flips, swim drawn {drawn_swimming}/{}, top {low:+.3}..{high:+.3} m, \
+                 crown off the waterline mark by up to {worst_crown:.3} m, hips down to {hips:+.3} m",
+                script.name,
+                window.len()
+            );
+            assert_eq!(flips, 0, "{}: the swim flickered", script.name);
+            assert_eq!(
+                drawn_swimming,
+                window.len(),
+                "{}: drawn out of the swim",
+                script.name
+            );
+            assert!(
+                low > 0.0 && high - low < 0.01,
+                "{}: not riding the surface",
+                script.name
+            );
+            assert!(
+                worst_crown < 0.05,
+                "{}: the crown left the waterline",
+                script.name
+            );
+            if crawls {
+                assert!(
+                    hips > -0.3,
+                    "{}: the crawl is drawn under the water",
+                    script.name
+                );
+            }
+        }
+        let dive = swum(&SCRIPTS[6]);
+        let last = dive.last().expect("a dive").top;
+        assert!(
+            last < -2.0,
+            "a steep look down did not dive: capsule top at {last:+.2} m"
+        );
+    }
+
+    /// What swimming at the surface does (#1324): the owner's report is that
+    /// swimming forward near the surface, with the head above water, toggles
+    /// rapidly between the swim and an upright motion, so the swim only reads
+    /// under water. Prints, per script, every change of the controller's
+    /// water state and of the motion the driver drew, then a summary over the
+    /// last four seconds: how many times each flipped, the share of frames
+    /// drawn swimming, and where the capsule top, the drawn crown and the
+    /// drawn pelvis sat against the surface.
+    ///
+    /// Asserts nothing: an instrument, and the owner's eye is the verdict.
+    #[test]
+    #[ignore = "probe for #1324: prints what swimming at the surface does"]
+    fn probe_swimming_at_the_surface() {
+        for script in &SCRIPTS {
+            let steps = swum(script);
+            println!("=== {} ===", script.name);
+            let mut last: Option<(&str, bool, Source)> = None;
+            for step in &steps {
+                let now = (label(step.state), step.swimming, step.source);
+                if last != Some(now) {
+                    println!(
+                        "  {:5.3} s  state {:4}  fill swimming {:5}  drawn {:?}  top {:+.3} crown \
+                         {:+.3} pelvis {:+.3} m",
+                        step.t, now.0, now.1, now.2, step.top, step.crown, step.pelvis
+                    );
+                    last = Some(now);
+                }
+            }
+            let window: Vec<&Step> = steps.iter().filter(|step| step.t > 2.0).collect();
+            let flips = |key: &dyn Fn(&Step) -> bool| {
+                window
+                    .windows(2)
+                    .filter(|pair| key(pair[0]) != key(pair[1]))
+                    .count()
+            };
+            let range = |value: &dyn Fn(&Step) -> f32| {
+                window
+                    .iter()
+                    .map(|step| value(step))
+                    .fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(v), hi.max(v)))
+            };
+            let (top, crown, pelvis) = (
+                range(&|step| step.top),
+                range(&|step| step.crown),
+                range(&|step| step.pelvis),
+            );
+            println!(
+                "SUMMARY {} (t 2..6 s): state flips {}, drawn flips {}, drawn Swim {}/{} frames; \
+                 top {:+.3}..{:+.3}, crown {:+.3}..{:+.3}, pelvis {:+.3}..{:+.3} m",
+                script.name,
+                flips(&|step| matches!(step.state, WaterState::Swimming { .. })),
+                flips(&|step| step.source == Source::Swim),
+                window
+                    .iter()
+                    .filter(|step| step.source == Source::Swim)
+                    .count(),
+                window.len(),
+                top.0,
+                top.1,
+                crown.0,
+                crown.1,
+                pelvis.0,
+                pelvis.1,
             );
         }
     }

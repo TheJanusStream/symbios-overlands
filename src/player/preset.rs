@@ -22,8 +22,11 @@ use crate::pds::{
 #[derive(Component)]
 pub struct HoverBoatPreset;
 
-/// Marks the player as using the Humanoid preset.
+/// Marks the player as using the Humanoid preset. Brings the controller's
+/// water memory with it (#1324), so no humanoid chassis can be classified
+/// without one.
 #[derive(Component)]
+#[require(super::humanoid::HumanoidWater)]
 pub struct HumanoidPreset;
 
 /// Marks the player as using the Airplane preset.
