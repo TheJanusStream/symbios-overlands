@@ -441,6 +441,27 @@ pub(in crate::catalogue::items) fn blob_capsule(
     }
 }
 
+/// A capped-cone element for a [`blob_group`], its axis along local `+Y`:
+/// `base_radius` at `-half_height`, `tip_radius` at `+half_height`. The
+/// element for a mass that flares — a robe from waist to hem, a skirt of
+/// drapery — in one piece where a stack of ellipsoids would read as beads.
+pub(in crate::catalogue::items) fn blob_cone(
+    position: [f32; 3],
+    base_radius: f32,
+    half_height: f32,
+    tip_radius: f32,
+    blend: f32,
+) -> crate::pds::generator::BlobElement {
+    crate::pds::generator::BlobElement {
+        shape: crate::pds::generator::BlobShape::Cone,
+        position: Fp3(position),
+        rotation: id_quat(),
+        radii: Fp3([base_radius, half_height, tip_radius]),
+        subtract: false,
+        blend: Fp(blend),
+    }
+}
+
 /// Flip a [`blob_group`] element to **carve** instead of add — eye sockets,
 /// nostrils, creases, a slot in a mass. Subtraction is smooth like the union
 /// is, so a carved socket has a soft rim rather than a knife edge.

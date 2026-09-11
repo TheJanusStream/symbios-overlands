@@ -432,6 +432,10 @@ pub const ENTRIES: &[&dyn CatalogueEntry] = &[
     &plants::lsys_bush::Bush,
     &plants::lsys_fern::Fern,
     &plants::lsys_flowering_tree::FloweringTree,
+    // Plants — civic planting species (#972), nested by the planter and bed.
+    &plants::lsys_topiary_standard::TopiaryStandard,
+    &plants::lsys_trailing_ivy::TrailingIvy,
+    &plants::lsys_coneflower::Coneflower,
     // Ground-cover tier (#911) — crossed cards and flat decals, placed by
     // the hundred, so each is a handful of entities rather than a grammar.
     &plants::groundcover::GrassTuft,

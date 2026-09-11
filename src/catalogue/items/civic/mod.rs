@@ -53,14 +53,12 @@ pub mod market_stall;
 
 use super::util::{ageing, tile, tiles_per_metre};
 use crate::pds::{
-    Fp, Fp3, Fp64, Generator, SovereignBrickConfig, SovereignCobblestoneConfig,
-    SovereignCorrugatedConfig, SovereignFabricConfig, SovereignMarbleConfig,
-    SovereignMaterialSettings, SovereignMetalConfig, SovereignPlankConfig, SovereignTextureConfig,
+    Fp, Fp3, Fp64, SovereignBrickConfig, SovereignCobblestoneConfig, SovereignCorrugatedConfig,
+    SovereignFabricConfig, SovereignMarbleConfig, SovereignMaterialSettings, SovereignMetalConfig,
+    SovereignPlankConfig, SovereignTextureConfig,
 };
 use crate::seeded_defaults::ThemeArchetype;
 use bevy_symbios_texture::metal::MetalStyle;
-
-use super::util::{cuboid_tapered, cylinder_tapered, id_quat, prim, solid, sphere};
 
 /// Rebase-and-parent helper shared with the other primitive-built kits —
 /// see [`super::util::assemble`]. Re-exported so this module's props keep
@@ -272,60 +270,6 @@ pub(super) fn foliage(color: [f32; 3]) -> SovereignMaterialSettings {
     }
 }
 
-/// A standing commemorative figure — a robed body with a yoke of shoulders,
-/// a head and two arms (one raised in oratory) — built in the prop's world
-/// frame from `base_y` (the top of its plinth) upward in `bronze(color)`.
-/// Returned as a list of pieces for an [`assemble`] caller to append *after*
-/// a flat root, so the figure's tilted arms never become the rotated assemble
-/// root. `fz` is the sign of the forward axis (`-1.0` puts the gaze and the
-/// raised arm toward the render front, `-Z`).
-pub(super) fn figure_parts(base_y: f32, fz: f32, color: [f32; 3]) -> Vec<Generator> {
-    vec![
-        // Flared robe / lower body.
-        prim(
-            solid(cylinder_tapered(0.30, 0.82, 12, 0.22, bronze(color))),
-            [0.0, base_y + 0.41, 0.0],
-            id_quat(),
-        ),
-        // Torso narrowing toward the shoulders.
-        prim(
-            solid(cylinder_tapered(0.23, 0.5, 12, 0.18, bronze(color))),
-            [0.0, base_y + 0.95, 0.0],
-            id_quat(),
-        ),
-        // Shoulder yoke.
-        prim(
-            cuboid_tapered([0.5, 0.17, 0.24], 0.0, bronze(color)),
-            [0.0, base_y + 1.22, 0.0],
-            id_quat(),
-        ),
-        // Neck.
-        prim(
-            cylinder_tapered(0.07, 0.12, 8, 0.0, bronze(color)),
-            [0.0, base_y + 1.33, 0.0],
-            id_quat(),
-        ),
-        // Head, gaze toward the front.
-        prim(
-            sphere(0.15, 3, bronze(color)),
-            [0.0, base_y + 1.5, fz * 0.03],
-            id_quat(),
-        ),
-        // Raised arm (oratory) — reaches up and toward the front.
-        prim(
-            cylinder_tapered(0.06, 0.62, 8, 0.0, bronze(color)),
-            [0.28, base_y + 1.42, fz * 0.12],
-            quat_z(-1.05),
-        ),
-        // Resting arm at the side.
-        prim(
-            cylinder_tapered(0.06, 0.56, 8, 0.0, bronze(color)),
-            [-0.26, base_y + 1.02, fz * 0.05],
-            quat_z(0.22),
-        ),
-    ]
-}
-
 // Shared colours.
 pub(super) const WOOD: [f32; 3] = [0.42, 0.27, 0.14];
 pub(super) const WOOD_GREY: [f32; 3] = [0.39, 0.36, 0.31];
@@ -339,7 +283,6 @@ pub(super) const MARBLE: [f32; 3] = [0.88, 0.87, 0.84];
 pub(super) const STONE: [f32; 3] = [0.6, 0.58, 0.53];
 pub(super) const BRONZE: [f32; 3] = [0.46, 0.32, 0.16];
 pub(super) const GOLD: [f32; 3] = [0.83, 0.66, 0.22];
-pub(super) const FOLIAGE_GREEN: [f32; 3] = [0.18, 0.42, 0.16];
 pub(super) const WATER_BLUE: [f32; 3] = [0.30, 0.62, 0.82];
 /// Deep-saturated firelight — a broad cone at high strength blooms near-white,
 /// so the colour carries the heat and the strength stays moderate.

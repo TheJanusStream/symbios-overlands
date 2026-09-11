@@ -15,21 +15,22 @@ mod material;
 #[cfg(test)]
 pub(super) use build::blob_cell_size;
 pub(super) use build::{
-    BALUSTER_PITCH, aim_y, assemble, attach, blob_box, blob_capsule, blob_ellipsoid, blob_group,
-    carved, cone, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing, footing_disc,
-    foundation_block, foundation_disc, helix, id_quat, nest, pfp_panel, plane, prim, prim_scaled,
-    quat_mul, quat_x, quat_y, quat_z, railing, solid, sphere, strut, superellipsoid, torus, tube,
-    wedge, with_cut, with_face,
+    BALUSTER_PITCH, aim_y, assemble, attach, blob_box, blob_capsule, blob_cone, blob_ellipsoid,
+    blob_group, carved, cone, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing,
+    footing_disc, foundation_block, foundation_disc, helix, id_quat, nest, pfp_panel, plane, prim,
+    prim_scaled, quat_mul, quat_x, quat_y, quat_z, railing, solid, sphere, strut, superellipsoid,
+    torus, tube, wedge, with_cut, with_face,
 };
 #[cfg(test)]
 pub(super) use checks::{
     assert_cards_do_not_overlap, assert_no_coplanar_faces, assert_no_glazing_on_solids,
-    assert_no_tilted_parents, assert_owner_panel, assert_sanitize_stable, blob_components,
-    has_emissive, rotate_by, window_cards,
+    assert_no_tilted_parents, assert_owner_panel, assert_plants_clear_solids,
+    assert_plants_stand_on_their_parent, assert_sanitize_stable, assert_soil_sits_under_its_rim,
+    blob_components, has_emissive, nested_plants, rotate_by, triangle_count, window_cards,
 };
 pub(super) use material::{
     ageing, bonded_boards, bonded_brick, bonded_siding, face_uv_offset, foundation_mat, glow,
-    lit_interior, quarter_turn, tile, tiles_per_metre, tint, upright_boards, uv_for_scale,
+    lit_interior, quarter_turn, soil, tile, tiles_per_metre, tint, upright_boards, uv_for_scale,
     window_card,
 };
 

@@ -69,6 +69,25 @@ but there if a context-sensitive rule needs its own view.
 petal fall, frond shedding, autumn leaf drop). If a species needs organ
 abscission, that is an upstream feature request.
 
+Four more facts that are easy to get wrong, all found the expensive way on
+the civic planter and garden bed (#972):
+
+- **A guard's `and` is a single `&`** — `V(n) : n > 2 & n < 8 -> …`. The
+  same character is the pitch symbol in a successor; in a guard it is the
+  logical operator.
+- **`~(id, sx, sy, sz)` scales a prop per axis.** A `Leaf` card is 0.5 × 0.8
+  and a `Twig` card 0.7 × 1.0 before scaling, so a round sprite (a flower)
+  on a leaf card wants `sx = 1.6 · sy` or it comes out oval.
+- **A card lies in the plane of the turtle's heading and its pitch axis**
+  (local X). A pitch `&` swings the card out of the stem's plane — off an
+  outward-pointing tip it lays the card tangent to a ball, face outward — and
+  a yaw `+` keeps it in the stem's plane, which is how ivy leaves lie flat
+  against a wall. A card left pointing along a tip is edge-on from exactly
+  the direction that tip faces.
+- **A card's base, not its centre, sits at the turtle.** To centre a flower
+  head on its stem tip, step back half the card's height along the pitched
+  heading first: `&(48)f(-h)~(0,…)`.
+
 ### Two traps particular to this engine
 
 - **`age` is per-rewrite, not per-plant.** We now advance the state clock once
@@ -426,3 +445,38 @@ compile outcome under its code editor — the parser's error in red (line-number
 where it knows one), or a quiet "grammar compiled" tick — so a broken grammar
 announces itself without a render round-trip. Use the render tool for *shape*,
 the forge for *syntax*.
+
+---
+
+## 11. Nesting a species in a prop
+
+A catalogue prop can carry a real plant: an `LSystem` node at any depth of
+its tree (the civic planter and garden bed were the first, #972). What that
+buys and what it costs:
+
+- **Scale is one number.** A nested plant's cards are meshes under its node,
+  so a uniform `Transform.scale` instances the whole species.
+- **Age is the other number.** In a developmental grammar the iteration
+  count is the plant's age (§3), so a bed-sized specimen can be *grown*
+  rather than shrunk: a younger bush has fewer leaves (half the triangles),
+  a younger fern shorter fronds. Re-age the copy's `iterations`; never edit
+  the species for one prop.
+- **A second individual is a seed and a variant** — the same grammar with
+  its own `seed` and a named re-skin (`variant::apply_named`).
+- **Cache.** Derivations are cached per `base_ref/path`: every copy of a
+  prop in a room shares one derivation per plant (a seeded room registers
+  one generator per prop slug), but two identical plants at two paths are
+  two derivations.
+- **The socio finish reaches it.** `pds::material_finish` walks L-system
+  materials maps, so a Rich room glosses and whitens every leaf card. The
+  render tool never applies it; check a finished dump through `--generator`.
+- **The grammar cannot see its container.** A shoot that droops a step too
+  soon runs through the rim it was meant to hang over, and the stone hides
+  it in every render. Fix it in the morphogenesis (a shoot's first internode
+  drawn as one stiff segment climbs a rim — the droop knob of §4 read
+  backwards), and guard it from the derived geometry:
+  `util::nested_plants` derives each plant through the spawn path's own
+  skeleton and places it by the built node transform;
+  `assert_plants_clear_solids`, `assert_plants_stand_on_their_parent` and
+  `assert_soil_sits_under_its_rim` state the three relations every planted
+  container has.

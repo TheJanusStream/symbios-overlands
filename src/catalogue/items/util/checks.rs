@@ -777,3 +777,361 @@ pub(in crate::catalogue::items) fn assert_no_coplanar_faces(root: &Generator, sl
         ties.join("\n  ")
     );
 }
+
+/// A nested L-system's derived geometry, placed in the prop's own frame
+/// (#972 — the planter and the garden bed were the first props to nest a
+/// plant). What a plant guard reads instead of the grammar that made it.
+pub(in crate::catalogue::items) struct PlantGeometry {
+    /// The plant node's position in the prop: where its crown stands, and
+    /// the turtle's origin.
+    pub crown: [f32; 3],
+    /// Every drawn stem vertex, in the prop's frame.
+    pub stems: Vec<[f32; 3]>,
+    /// The four corners of every foliage or flower card, in the prop's frame.
+    pub cards: Vec<[f32; 3]>,
+    /// Triangles the plant meshes to — branch tubes plus baked cards.
+    pub triangles: usize,
+}
+
+impl PlantGeometry {
+    /// Every point the plant occupies: stems and card corners.
+    pub fn points(&self) -> impl Iterator<Item = &[f32; 3]> {
+        self.stems.iter().chain(self.cards.iter())
+    }
+}
+
+/// Every L-system nested in `root`, derived and placed by its **built**
+/// node transform (lesson 21: the guard reads the tree, not the constants).
+///
+/// The derivation is the spawn path's own ([`expand_lsystem_skeleton`] and
+/// [`build_lsystem_geometry`]), so a grammar edit moves what the guard sees
+/// exactly as it moves the render. Ancestors contribute translation only —
+/// sound because [`assert_no_tilted_parents`] forbids an offset child under
+/// a turn — but the plant node's own rotation and uniform scale are applied
+/// in full, since a container legitimately turns a plant to aim it.
+///
+/// [`expand_lsystem_skeleton`]: crate::world_builder::lsystem::expand_lsystem_skeleton
+/// [`build_lsystem_geometry`]: crate::world_builder::lsystem::build_lsystem_geometry
+pub(in crate::catalogue::items) fn nested_plants(root: &Generator) -> Vec<PlantGeometry> {
+    fn walk(g: &Generator, at: [f32; 3], out: &mut Vec<PlantGeometry>) {
+        let t = g.transform.translation.0;
+        let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
+        if let Some(plant) = derive_plant(g, here) {
+            out.push(plant);
+        }
+        for c in &g.children {
+            walk(c, here, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, [0.0; 3], &mut out);
+    out
+}
+
+fn derive_plant(g: &Generator, crown: [f32; 3]) -> Option<PlantGeometry> {
+    use crate::pds::PropMeshType;
+    let GeneratorKind::LSystem {
+        source_code,
+        finalization_code,
+        iterations,
+        seed,
+        angle,
+        step,
+        width,
+        elasticity,
+        tropism,
+        prop_mappings,
+        prop_scale,
+        mesh_resolution,
+        ..
+    } = &g.kind
+    else {
+        return None;
+    };
+    let skeleton = crate::world_builder::lsystem::expand_lsystem_skeleton(
+        source_code,
+        finalization_code,
+        *iterations,
+        *seed,
+        *angle,
+        *step,
+        *width,
+        *elasticity,
+        *tropism,
+        "guard",
+    )
+    .expect("a nested plant's grammar derives");
+    let buckets = crate::world_builder::lsystem::build_lsystem_geometry(
+        source_code,
+        finalization_code,
+        *iterations,
+        *seed,
+        *angle,
+        *step,
+        *width,
+        *elasticity,
+        *tropism,
+        *mesh_resolution,
+        prop_mappings,
+        *prop_scale,
+        "guard",
+    )
+    .expect("a nested plant's grammar meshes");
+    let triangles = buckets
+        .iter()
+        .map(|(_, m)| m.indices().map_or(0, |i| i.len() / 3))
+        .sum();
+
+    let q = g.transform.rotation.0;
+    let s = g.transform.scale.0[0];
+    let place = |p: [f32; 3]| {
+        let r = rotate_by(q, [p[0] * s, p[1] * s, p[2] * s]);
+        [crown[0] + r[0], crown[1] + r[1], crown[2] + r[2]]
+    };
+    let stems = skeleton
+        .strands
+        .iter()
+        .flatten()
+        .map(|p| place(p.position.to_array()))
+        .collect();
+    let mut cards = Vec::new();
+    for prop in &skeleton.props {
+        // The two card meshes' [width, height] (world_builder's foliage
+        // cards); anything else is measured at its anchor.
+        let (w, h) = match prop_mappings.get(&prop.prop_id).copied() {
+            Some(PropMeshType::Twig) => (0.7, 1.0),
+            Some(PropMeshType::Leaf | PropMeshType::Unknown) | None => (0.5, 0.8),
+            Some(_) => (0.0, 0.0),
+        };
+        let k = prop.scale * prop_scale.0;
+        for local in [[-w / 2.0, 0.0], [w / 2.0, 0.0], [w / 2.0, h], [-w / 2.0, h]] {
+            let v = prop.rotation * bevy::math::Vec3::new(local[0] * k.x, local[1] * k.y, 0.0)
+                + prop.position;
+            cards.push(place(v.to_array()));
+        }
+    }
+    Some(PlantGeometry {
+        crown,
+        stems,
+        cards,
+        triangles,
+    })
+}
+
+/// Triangles a whole prop meshes to: every primitive through the spawn
+/// path's own mesher, every nested L-system through its own. The number a
+/// scatter prop's cost is argued in (#972).
+pub(in crate::catalogue::items) fn triangle_count(root: &Generator) -> usize {
+    fn own(g: &Generator) -> usize {
+        match &g.kind {
+            GeneratorKind::LSystem { .. } => derive_plant(g, [0.0; 3]).map_or(0, |p| p.triangles),
+            k if k.is_primitive() => crate::world_builder::build_primitive_mesh(k)
+                .mesh
+                .indices()
+                .map_or(0, |i| i.len() / 3),
+            _ => 0,
+        }
+    }
+    own(root) + root.children.iter().map(triangle_count).sum::<usize>()
+}
+
+/// A solid axis-aligned cuboid in the prop's frame, as the plant guards see
+/// it: centre and half-extents.
+fn solid_boxes(root: &Generator) -> Vec<([f32; 3], [f32; 3])> {
+    fn walk(g: &Generator, at: [f32; 3], out: &mut Vec<([f32; 3], [f32; 3])>) {
+        let t = g.transform.translation.0;
+        let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
+        if let GeneratorKind::Cuboid { size, common } = &g.kind {
+            let q = g.transform.rotation.0;
+            let upright = q[0].abs() < 1e-4 && q[1].abs() < 1e-4 && q[2].abs() < 1e-4;
+            let untapered = common.torture.taper.0.iter().all(|t| t.abs() < 1e-4);
+            if common.solid && upright && untapered {
+                out.push((here, size.0.map(|s| s * 0.5)));
+            }
+        }
+        for c in &g.children {
+            walk(c, here, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, [0.0; 3], &mut out);
+    out
+}
+
+/// Assert that every nested plant stands **on the top of the node it is a
+/// child of**, inside that node's plan (#972 lessons 8, 19 and 36: the soil
+/// is the plant's slab).
+///
+/// Two relations in one, read from the built tree: the plant is parented to
+/// the slab it grows from (so one gizmo drag moves the bed and its
+/// planting together), and its crown — the turtle's origin, where every
+/// stem base starts — lies on that slab's top face, not above it and not
+/// buried in it. `inset` is how far inside the slab's edge a crown must
+/// stand. Returns the number of plants checked, so a caller can pin it
+/// (lesson 29: a guard that checks nothing passes).
+pub(in crate::catalogue::items) fn assert_plants_stand_on_their_parent(
+    root: &Generator,
+    slug: &str,
+    inset: f32,
+) -> usize {
+    fn walk(g: &Generator, at: [f32; 3], slug: &str, inset: f32, n: &mut usize) {
+        let t = g.transform.translation.0;
+        let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
+        for c in &g.children {
+            if !matches!(c.kind, GeneratorKind::LSystem { .. }) {
+                continue;
+            }
+            *n += 1;
+            let GeneratorKind::Cuboid { size, .. } = &g.kind else {
+                panic!(
+                    "{slug}: a nested plant hangs off a {} at {here:?} — it must be the \
+                     child of the slab it grows from",
+                    g.kind.kind_tag()
+                );
+            };
+            let o = c.transform.translation.0;
+            let crown = [here[0] + o[0], here[1] + o[1], here[2] + o[2]];
+            let top = here[1] + size.0[1] * 0.5;
+            assert!(
+                (crown[1] - top).abs() < 1e-3,
+                "{slug}: a plant's crown is at y {:.3} and the slab it grows from tops out \
+                 at {top:.3} — it stands {:.3} off the soil",
+                crown[1],
+                crown[1] - top
+            );
+            for (axis, half) in [(0, size.0[0] * 0.5), (2, size.0[2] * 0.5)] {
+                assert!(
+                    (crown[axis] - here[axis]).abs() <= half - inset,
+                    "{slug}: a plant's crown at {crown:?} is not {inset} inside the edge of \
+                     the slab it grows from (centre {here:?}, half-width {half})"
+                );
+            }
+        }
+        for c in &g.children {
+            walk(c, here, slug, inset, n);
+        }
+    }
+    let mut n = 0;
+    walk(root, [0.0; 3], slug, inset, &mut n);
+    n
+}
+
+/// Assert that no nested plant's stems or cards pass through a solid part
+/// of the prop (#972). A plant grammar knows nothing of the container it
+/// is planted in, so a shoot that droops a step too soon runs straight
+/// through the rim it was meant to hang over — invisible in a contact
+/// sheet, where the stone hides the stem. The planter's first ivy did
+/// exactly this: every shoot passed through the front coping stone 11 mm
+/// above the soil.
+///
+/// A stem may not enter a solid at all. A card may sink `card_sink` into
+/// one, because a flat card is how a leaf that bends over a stone is drawn:
+/// a leaf lying on a coping is not a fault, a stem through it is.
+pub(in crate::catalogue::items) fn assert_plants_clear_solids(
+    root: &Generator,
+    slug: &str,
+    card_sink: f32,
+) {
+    let boxes = solid_boxes(root);
+    let mut hits = Vec::new();
+    for (i, plant) in nested_plants(root).iter().enumerate() {
+        for (kind, points, sink) in [
+            ("stem", &plant.stems, 0.0),
+            ("card", &plant.cards, card_sink),
+        ] {
+            for p in points.iter() {
+                if let Some((c, h)) = boxes
+                    .iter()
+                    .find(|(c, h)| (0..3).all(|k| (p[k] - c[k]).abs() < h[k] - sink))
+                {
+                    hits.push(format!(
+                        "plant {i} ({:?}): a {kind} point at [{:.3}, {:.3}, {:.3}] is inside the \
+                         solid at {c:?} (half-extents {h:?})",
+                        plant.crown, p[0], p[1], p[2]
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        hits.is_empty(),
+        "{slug}: {} plant point(s) run through the container:\n  {}",
+        hits.len(),
+        hits.iter()
+            .take(12)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    );
+}
+
+/// Assert that the soil a prop is planted in sits **down inside** its
+/// container and runs in **under** it on every side (#972).
+///
+/// The soil is selected by what defines it — the cuboid wearing the
+/// [`soil`](super::material::soil) mulch — and the container by what it does
+/// to the soil, not by a size or a level (lesson 29): along each of the
+/// slab's four top edges, sampled at `samples` points, the edge must lie
+/// inside some solid (so no side face of the slab is ever seen), and every
+/// solid hiding it must stand at least `drop` above the soil's top (so the
+/// bed is filled below its rim, not heaped over it). The planter shipped
+/// with its soil 20 mm proud of a solid lid, and the bed with its soil
+/// 70 mm proud of its kerb: both pass a render, neither is a planting.
+pub(in crate::catalogue::items) fn assert_soil_sits_under_its_rim(
+    root: &Generator,
+    slug: &str,
+    drop: f32,
+) {
+    let mut soils = Vec::new();
+    fn walk(g: &Generator, at: [f32; 3], out: &mut Vec<([f32; 3], [f32; 3])>) {
+        let t = g.transform.translation.0;
+        let here = [at[0] + t[0], at[1] + t[1], at[2] + t[2]];
+        if let GeneratorKind::Cuboid { size, common } = &g.kind
+            && matches!(
+                common.material.texture,
+                SovereignTextureConfig::ForestFloor(_)
+            )
+        {
+            out.push((here, size.0.map(|s| s * 0.5)));
+        }
+        for c in &g.children {
+            walk(c, here, out);
+        }
+    }
+    walk(root, [0.0; 3], &mut soils);
+    assert_eq!(soils.len(), 1, "{slug}: expected exactly one soil slab");
+    let (c, h) = soils[0];
+    let top = c[1] + h[1];
+    let boxes = solid_boxes(root);
+    let samples = 7;
+    for (axis, other) in [(0usize, 2usize), (2, 0)] {
+        for side in [-1.0_f32, 1.0] {
+            for i in 0..samples {
+                let t = (i as f32 + 0.5) / samples as f32 * 2.0 - 1.0;
+                let mut p = [0.0; 3];
+                p[axis] = c[axis] + side * h[axis];
+                p[other] = c[other] + t * h[other];
+                p[1] = top - 1e-3;
+                // The solids over this stretch of edge, in plan; the rim is
+                // the highest of them.
+                let rim = boxes
+                    .iter()
+                    .filter(|(bc, bh)| {
+                        [0, 2].iter().all(|&k| (p[k] - bc[k]).abs() < bh[k]) && bc[1] - bh[1] < top
+                    })
+                    .map(|(bc, bh)| bc[1] + bh[1])
+                    .fold(f32::MIN, f32::max);
+                assert!(
+                    rim > f32::MIN,
+                    "{slug}: the soil's edge at {p:?} is under no solid — its side face \
+                     shows; lap the slab in under the rim"
+                );
+                assert!(
+                    rim - top >= drop,
+                    "{slug}: the soil tops out at {top:.3} and the rim over its edge at \
+                     {rim:.3} — it stands above the rim, or less than {drop} under it"
+                );
+            }
+        }
+    }
+}

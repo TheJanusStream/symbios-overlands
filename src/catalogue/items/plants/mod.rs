@@ -26,3 +26,8 @@ pub mod lsys_birch;
 pub mod lsys_bush;
 pub mod lsys_fern;
 pub mod lsys_flowering_tree;
+// Civic planting species (#972) — small, gardened plants the civic planter
+// and garden bed nest inside their own containers.
+pub mod lsys_coneflower;
+pub mod lsys_topiary_standard;
+pub mod lsys_trailing_ivy;

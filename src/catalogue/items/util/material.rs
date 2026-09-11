@@ -36,6 +36,27 @@ pub(in crate::catalogue::items) fn foundation_mat() -> SovereignMaterialSettings
     }
 }
 
+/// The top of a planted bed — dark humus under a layer of bark mulch —
+/// for any container a plant is nested in (#972, the civic planter and
+/// garden bed). The `ForestFloor` generator stamps discrete overlapping
+/// chips rather than noise, which is what lets it read as mulch; tuned
+/// brown rather than leaf-litter orange.
+pub(in crate::catalogue::items) fn soil() -> SovereignMaterialSettings {
+    SovereignMaterialSettings {
+        base_color: Fp3([0.20, 0.14, 0.09]),
+        roughness: Fp(0.95),
+        uv_scale: tiles_per_metre(tile::MULCH),
+        texture: SovereignTextureConfig::ForestFloor(crate::pds::SovereignForestFloorConfig {
+            color_humus: Fp3([0.07, 0.05, 0.04]),
+            color_leaf: Fp3([0.34, 0.22, 0.13]),
+            color_leaf_old: Fp3([0.17, 0.11, 0.07]),
+            coverage: Fp64(0.9),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 /// Glazing for a wall opening: the `Window` generator's alpha card, on the
 /// material settings it actually wants.
 ///
@@ -438,6 +459,11 @@ pub(in crate::catalogue::items) mod tile {
     pub(in crate::catalogue::items) const SAND: f32 = GROUND;
     /// Snow / ice. Aliases [`GROUND`], as [`SAND`] does.
     pub(in crate::catalogue::items) const ICE: f32 = GROUND;
+    /// Bark mulch on a planted bed — seven chips across, so a chip is a
+    /// few centimetres. Unlike [`GROUND`] this is a countable feature,
+    /// because the surfaces it lands on (a planter's soil, a garden bed)
+    /// are a metre across and seen from a couple of metres away.
+    pub(in crate::catalogue::items) const MULCH: f32 = 0.25;
     /// Asphalt — coarse aggregate and crack noise, sized large because the
     /// surfaces it lands on (forecourts, lots) are the biggest in the kit
     /// and a tight tile turns them into visible repetition.
