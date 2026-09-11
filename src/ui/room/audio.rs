@@ -1156,14 +1156,14 @@ mod tests {
                 &mut editor,
                 &monitor(with_waveform),
                 40,
-                Some("\u{270F}"),
+                Some("\u{270F} Edit"),
                 &mut false,
             );
             let (_, state) = editor.sequence.as_ref().expect("a sequence working copy");
             assert_eq!(
                 state.active_instrument(),
                 Some(0),
-                "the click on the first pencil opened the first instrument"
+                "the click on the first Edit opened the first instrument"
             );
             assert_the_pop_out_holds(&run.landed, &format!("sequence, waveform {with_waveform}"));
         }

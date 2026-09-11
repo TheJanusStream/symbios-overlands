@@ -983,25 +983,24 @@ pub(crate) mod glyph_coverage_tests {
     /// to carry it — and which ones they carry is not guessable (`✔` yes,
     /// `✓` no; `↔` yes, `←` no). Probe, never assume. **Refresh this on a
     /// `bevy_symbios_audio` bump** — the dependency-bump checklist says how.
+    ///
+    /// 0.4.4 put its buttons in words (#1331), and the plus, the arrow
+    /// circle, the die, the clipboard and the wastebasket left the list with
+    /// them. What stays is what the scan of its `src/ui` finds drawn.
     const HOSTED_AUDIO_EDITOR_GLYPHS: &[char] = &[
-        '·',  // U+00B7, the wire-drop tooltip's separator (0.4.2)
-        '×',  // U+00D7, the pitch multiplier
-        '—',  // U+2014, the valid-graph readout
-        '“',  // U+201C, the instrument name in the patch header
-        '”',  // U+201D
-        '…',  // U+2026, "Reassign all notes of '<id>' to…" (0.4.2)
-        '⏹',  // U+23F9, the audition strip's Stop (0.4.3; the host drew it before)
-        '▶',  // U+25B6, the audition strip's Audition (0.4.3)
-        '✏',  // U+270F, the instrument selector — the glyph this list was added for
-        '✔',  // U+2714, the valid-graph readout
-        '✖',  // U+2716, remove instrument / delete connection
-        '➕', // U+2795, add instrument / track / constant
-        '➡',  // U+27A1, the wire-drop tooltip's arrow (0.4.2)
-        '⟲',  // U+27F2, reset
-        '⬅',  // U+2B05, a node input's source
-        '🎲', // U+1F3B2, mutate / reroll
-        '📋', // U+1F4CB, copy JSON
-        '🗑',  // U+1F5D1, delete event
+        '·', // U+00B7, the wire-drop tooltip's separator (0.4.2)
+        '×', // U+00D7, the pitch multiplier
+        '—', // U+2014, the valid-graph readout, the strip's caption note
+        '“', // U+201C, the instrument name in the patch header
+        '”', // U+201D
+        '…', // U+2026, "Reassign all notes of '<id>' to…" (0.4.2)
+        '⏹', // U+23F9, the audition strip's Stop (0.4.3; the host drew it before)
+        '▶', // U+25B6, the audition strip's Audition (0.4.3)
+        '✏', // U+270F, an instrument's "✏ Edit" — the glyph this list was added for
+        '✔', // U+2714, the valid-graph readout
+        '✖', // U+2716, remove instrument / connection / lane, a broken graph's readout
+        '➡', // U+27A1, the wire-drop tooltip's arrow (0.4.2)
+        '⬅', // U+2B05, a node input's source
     ];
 
     /// The charmaps of every face the proportional family falls back

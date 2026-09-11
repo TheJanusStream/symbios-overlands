@@ -47,6 +47,7 @@
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
+use bevy_symbios_audio::ui::{EditorStyle, set_editor_style};
 
 use crate::diagnostics::event::Severity;
 
@@ -812,6 +813,66 @@ pub fn visuals_for(theme: &Theme) -> egui::Visuals {
     visuals
 }
 
+/// The hosted audio editor's colours in this palette (#1331).
+///
+/// `bevy_symbios_audio` paints its canvas, timeline and waveform itself, and
+/// until 0.4.4 did it in literals picked for egui's dark theme: under Light
+/// and High contrast its node boxes stayed charcoal while this palette drew
+/// dark body text on them, so node titles and port labels vanished. The
+/// crate now reads an [`EditorStyle`] from the egui context, and
+/// [`apply_theme`] sets this one.
+///
+/// It starts from the crate's own derivation over [`visuals_for`], which
+/// covers the roles with no palette counterpart (the alternate lane stripe,
+/// the crossfade band, the release tail), and then names every role the
+/// palette owns, so a palette edit reaches the editor through a field here
+/// rather than through a guess about what `from_visuals` does with it:
+///
+/// * grounds (canvas, timeline, waveform) are the inset [`Theme::field_fill`];
+///   node boxes and lanes are [`Theme::window_fill`], where the palette's
+///   body text is already held to AA;
+/// * a node's title and the output node's edge are [`Theme::text_strong`];
+///   a node's edge is [`Theme::control_border`], the edge the palette gives
+///   every control; the grid and the waveform's zero line are
+///   [`Theme::border`];
+/// * the identity accent marks what is in the hand or selected (the
+///   selected node, the dragged wire, the loop start) and draws the waveform;
+///   status colours stay outcome-only (valid, Muted, errors), per the rule at
+///   the top of [`StatusPalette`];
+/// * notes are the selection band with its own label colour, and a selected
+///   note is outlined in that label colour too: the outline is drawn inside
+///   the block, so it reads against the band, and Dark's band is a bright
+///   teal read with near-black text, on which `text_strong` measured
+///   2.16:1.
+pub fn audio_editor_style(theme: &Theme) -> EditorStyle {
+    let mut style = EditorStyle::from_visuals(&visuals_for(theme));
+    style.canvas_ground = theme.field_fill;
+    style.node_fill = theme.window_fill;
+    style.node_stroke = theme.control_border;
+    style.node_title = theme.text_strong;
+    style.node_selected = theme.accent;
+    style.node_output = theme.text_strong;
+    style.wire = theme.text_weak;
+    style.wire_active = theme.accent;
+    style.port = theme.widget_text.inactive;
+    style.ok = theme.status.ok;
+    style.warn = theme.status.warn;
+    style.error = theme.status.error;
+    style.timeline_ground = theme.field_fill;
+    style.timeline_grid = theme.border;
+    style.ground_text = theme.text_weak;
+    style.lane = theme.window_fill;
+    style.loop_start = theme.accent;
+    style.loop_end = theme.text_strong;
+    style.note_fill = theme.selection_fill;
+    style.note_selected = theme.selection_text;
+    style.note_text = theme.selection_text;
+    style.waveform_ground = theme.field_fill;
+    style.waveform_zero = theme.border;
+    style.waveform_trace = theme.accent;
+    style
+}
+
 /// Width of a resting control's own edge, in points (#1283).
 ///
 /// A whole number on purpose. `button_style` and `TextEdit`'s frame both
@@ -875,6 +936,9 @@ pub fn apply_theme(ctx: &egui::Context, theme: &Theme) {
         };
     });
     ctx.set_visuals(visuals_for(theme));
+    // The hosted audio editor paints with its own roles, read from the
+    // context; set here so it changes with everything else (#1331).
+    set_editor_style(ctx, audio_editor_style(theme));
 }
 
 /// Apply [`CurrentTheme`] to the primary egui context on startup and on
@@ -1713,5 +1777,126 @@ mod tests {
         );
 
         assert!(hc.border_stroke_width > dark.border_stroke_width);
+    }
+
+    // -----------------------------------------------------------------------
+    // The hosted audio editor's colours (#1331)
+    // -----------------------------------------------------------------------
+
+    /// The style the audio editor will paint with once `theme` is applied:
+    /// read back from the context through the crate's own getter, for the
+    /// #1258 reason — measure what the renderer reads, not what the palette
+    /// offers.
+    fn installed_audio_editor_style(theme: &Theme) -> (EditorStyle, egui::Visuals) {
+        let ctx = egui::Context::default();
+        apply_theme(&ctx, theme);
+        let mut seen = None;
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            seen = Some((
+                bevy_symbios_audio::ui::editor_style(ui),
+                ui.visuals().clone(),
+            ));
+        });
+        seen.expect("the pass ran")
+    }
+
+    /// E1 of #1331, as the palettes install it: the text the audio editor
+    /// paints reads on what it paints it on in Dark, Light and High
+    /// contrast, and so does the palette's own body text inside a node box,
+    /// the port labels that vanished under Light.
+    #[test]
+    fn the_audio_editor_holds_its_text_to_aa_in_every_palette() {
+        for (palette, theme) in all_palettes() {
+            let (s, visuals) = installed_audio_editor_style(&theme);
+            let text = [
+                ("node title on its box", s.node_title, s.node_fill),
+                ("port label on its box", visuals.text_color(), s.node_fill),
+                ("note name on its note", s.note_text, s.note_fill),
+                (
+                    "waveform trace on its ground",
+                    s.waveform_trace,
+                    s.waveform_ground,
+                ),
+                (
+                    "ruler numbers on the timeline",
+                    s.ground_text,
+                    s.timeline_ground,
+                ),
+                (
+                    "'no signal' on the waveform",
+                    s.ground_text,
+                    s.waveform_ground,
+                ),
+                ("a lane's remove cross", s.ground_text, s.lane),
+                ("a lane's remove cross, odd lane", s.ground_text, s.lane_alt),
+                ("valid graph", s.ok, theme.window_fill),
+                ("a broken graph's reason", s.error, theme.window_fill),
+            ];
+            for (what, fg, bg) in text {
+                let ratio = contrast_ratio(fg, bg);
+                assert!(
+                    ratio >= AA_TEXT,
+                    "{palette}: {what} is {ratio:.2}:1 ({fg:?} on {bg:?})"
+                );
+            }
+        }
+    }
+
+    /// The lines and edges the editor draws are found at a glance: WCAG
+    /// 1.4.11's 3:1 for the boundary of a component, in every palette.
+    #[test]
+    fn the_audio_editors_lines_and_edges_clear_the_non_text_floor_in_every_palette() {
+        for (palette, theme) in all_palettes() {
+            let (s, _) = installed_audio_editor_style(&theme);
+            let marks = [
+                ("node edge on the canvas", s.node_stroke, s.canvas_ground),
+                ("selected node's edge", s.node_selected, s.canvas_ground),
+                ("output node's edge", s.node_output, s.canvas_ground),
+                ("wire", s.wire, s.canvas_ground),
+                ("dragged wire", s.wire_active, s.canvas_ground),
+                ("port on its box", s.port, s.node_fill),
+                ("loop start marker", s.loop_start, s.lane),
+                ("sequence end marker", s.loop_end, s.lane),
+                ("note on its lane", s.note_fill, s.lane),
+                ("selected note's outline", s.note_selected, s.note_fill),
+            ];
+            for (what, fg, bg) in marks {
+                let ratio = contrast_ratio(fg, bg);
+                assert!(
+                    ratio >= AA_LARGE,
+                    "{palette}: {what} is {ratio:.2}:1 ({fg:?} on {bg:?})"
+                );
+            }
+        }
+    }
+
+    /// Applying a palette is what sets the editor's style, and applying
+    /// another replaces it: the #857 picker reaches the audio editor through
+    /// the same one call as everything else.
+    #[test]
+    fn applying_a_palette_sets_the_audio_editor_style_and_the_next_replaces_it() {
+        let ctx = egui::Context::default();
+        let installed = |ctx: &egui::Context| {
+            let mut seen = None;
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                seen = Some(bevy_symbios_audio::ui::editor_style(ui));
+            });
+            seen.expect("the pass ran")
+        };
+        for (palette, theme) in all_palettes() {
+            apply_theme(&ctx, &theme);
+            assert_eq!(
+                installed(&ctx),
+                audio_editor_style(&theme),
+                "{palette}: the editor paints the palette's style"
+            );
+        }
+        // The crate's own fallback for Light is a different style: the
+        // palette's roles are what made it different, so a style that was
+        // never set could not pass the loop above by coincidence.
+        assert_ne!(
+            audio_editor_style(&Theme::light()),
+            EditorStyle::from_visuals(&visuals_for(&Theme::light()))
+        );
     }
 }
