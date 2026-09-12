@@ -166,6 +166,13 @@ pub struct AudioEditorState {
     /// Whether the app's sound is muted, as the hosting system last read
     /// it, for the bridge's Referenced row.
     app_muted: bool,
+    /// The bound slot's value as the editor last agreed with it: what it
+    /// seeded from, or what the bridge last delivered for it. A record that
+    /// stops matching this changed from somewhere else (#1333 A9).
+    agreed: Option<SovereignAudioConfig>,
+    /// The working copy was re-seeded from the record, so the window says
+    /// so once rather than changing under the owner in silence.
+    reseeded: bool,
 }
 
 impl AudioEditorState {
@@ -195,6 +202,11 @@ impl AudioEditorState {
         self.committed = false;
         self.patch = None;
         self.sequence = None;
+        self.reseeded = false;
+        // What the record holds now is what this window is in step with —
+        // even when it seeds from a stranded commit, because that commit is
+        // this window's own and the bridge will land it.
+        self.agreed = Some(audio.clone());
         let seed = self.pending.get(salt).unwrap_or(audio);
         match seed {
             SovereignAudioConfig::Patch { patch } => {
@@ -237,6 +249,88 @@ impl AudioEditorState {
         self.open = false;
         self.patch = None;
         self.sequence = None;
+        self.agreed = None;
+        self.reseeded = false;
+    }
+
+    /// Bring the working copy back into step with the record when the
+    /// record changed from outside (#1333 A9). Called by the bound slot's
+    /// bridge, which is the only place that holds the live value.
+    ///
+    /// The view state survives — node positions, zoom, which instrument is
+    /// open — because the owner did not ask for the view to change; only
+    /// the value did. The swap is handed to the editor's own history as a
+    /// step, so a Ctrl+Z inside the window goes back to what was there
+    /// before the outside change rather than jumping over it.
+    fn follow_record(&mut self, audio: &SovereignAudioConfig, salt: &str) {
+        if !self.open || self.salt != salt {
+            return;
+        }
+        match reseed_decision(self.agreed.as_ref(), audio, self.has_pending(salt)) {
+            Reseed::Keep | Reseed::KeepPending => {}
+            Reseed::Take => {
+                match audio {
+                    SovereignAudioConfig::Patch { patch } => {
+                        let value = patch.to_native();
+                        match self.patch.as_mut() {
+                            Some((copy, view)) => {
+                                *copy = value;
+                                view.note_external_change(copy);
+                            }
+                            // The slot changed variant under the window: a
+                            // fresh working copy of the kind it is now, and
+                            // the other kind's is dropped.
+                            None => {
+                                self.patch = Some((value, PatchEditorState::default()));
+                                self.sequence = None;
+                            }
+                        }
+                    }
+                    SovereignAudioConfig::Sequence { recipe } => {
+                        let value = recipe.to_native();
+                        match self.sequence.as_mut() {
+                            Some((copy, view)) => {
+                                *copy = value;
+                                view.note_external_change(copy);
+                            }
+                            None => {
+                                self.sequence = Some((value, SequenceEditorState::default()));
+                                self.patch = None;
+                            }
+                        }
+                    }
+                    // None or Referenced: there is no editor for it, so
+                    // there is nothing for this window to be open on.
+                    _ => {
+                        self.patch = None;
+                        self.sequence = None;
+                        self.open = false;
+                    }
+                }
+                self.reseeded = true;
+            }
+        }
+        self.agreed = Some(audio.clone());
+    }
+
+    /// Whether either editor in the open pop-out took this frame's
+    /// keyboard, so the room's own chords stand down (#1333).
+    pub(crate) fn wants_keyboard(&self) -> bool {
+        self.open
+            && (self.patch.as_ref().is_some_and(|(_, v)| v.wants_keyboard())
+                || self
+                    .sequence
+                    .as_ref()
+                    .is_some_and(|(_, v)| v.wants_keyboard()))
+    }
+
+    /// Whether either editor answered this frame's Escape by clearing its
+    /// selection, so the Esc ladder spends the press on that and closes
+    /// nothing (#1236's one-step-per-press contract).
+    pub(crate) fn took_escape(&self) -> bool {
+        self.open
+            && (self.patch.as_ref().is_some_and(|(_, v)| v.took_escape())
+                || self.sequence.as_ref().is_some_and(|(_, v)| v.took_escape()))
     }
 
     /// Record whether the app's sound is muted, for this frame's bridges.
@@ -363,6 +457,48 @@ pub(crate) fn sync_referenced_auditions(
     }
 }
 
+/// What the bridge should do with the pop-out's working copy when the
+/// record's value for the bound slot is not the one the editor last agreed
+/// with (#1333 A9).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Reseed {
+    /// Leave the working copy alone.
+    Keep,
+    /// Leave it alone *because* the editor's own commit has not landed
+    /// yet: the record is behind on purpose and the working copy is the
+    /// newer of the two.
+    KeepPending,
+    /// The record changed from somewhere the editor cannot see — a room
+    /// undo or redo, a revert, "Load from PDS", a re-rolled seed. Take the
+    /// new value.
+    Take,
+}
+
+/// Decide it from what the bridge can see: the value the editor last agreed
+/// with, the value in the record now, and whether a commit is in flight.
+///
+/// Audio commits land in the live record like any other edit, so the room's
+/// undo ring captures them. Nothing re-seeded the pop-out, which edits a
+/// copy taken once at open — so Ctrl+Z reverted the slot in the record
+/// while the window went on showing the newer values, and its next commit
+/// put them back. The undo silently un-happened (#1333 A9).
+pub(crate) fn reseed_decision(
+    agreed: Option<&SovereignAudioConfig>,
+    current: &SovereignAudioConfig,
+    has_pending: bool,
+) -> Reseed {
+    match agreed {
+        // Nothing agreed yet: the window has just opened and the caller is
+        // about to record what it seeded from.
+        None => Reseed::Keep,
+        Some(agreed) if agreed == current => Reseed::Keep,
+        // The owner's own edit is still on its way. Re-seeding here would
+        // throw it away to honour a record that is deliberately behind.
+        Some(_) if has_pending => Reseed::KeepPending,
+        Some(_) => Reseed::Take,
+    }
+}
+
 /// Variant picker + per-variant body for an audio slot.
 ///
 /// `salt` namespaces the inner combo box so multiple bridges on the same
@@ -389,7 +525,15 @@ pub(super) fn draw_audio_bridge(
     if let Some(committed) = editor.take_pending(salt) {
         *audio = committed;
         *dirty = true;
+        // Delivered: the record now holds what the editor last agreed with,
+        // so this is not an outside change (#1333 A9).
+        if editor.salt == salt {
+            editor.agreed = Some(audio.clone());
+        }
     }
+    // Anything else that moved this slot — a room undo or redo, a revert, a
+    // reload, a re-rolled seed — the open window follows.
+    editor.follow_record(audio, salt);
     if editor.salt == salt {
         editor.bound_seen_frame = Some(ui.ctx().cumulative_frame_nr());
     }
@@ -730,6 +874,17 @@ fn audio_editor_body(
                 "The slot this window edits is not on screen. Edits are kept and \
                  apply when it is shown again."
             },
+        );
+        ui.add_space(4.0);
+    }
+    if editor.reseeded {
+        // The record moved under the window and the working copy followed
+        // (#1333 A9). Said once, in the theme's ok colour: nothing is
+        // wrong, but the values on screen are not the ones the owner left.
+        ui.colored_label(
+            crate::ui::theme::current(ui.ctx()).status.ok,
+            "Updated from the world editor. Undo here to go back to what was \
+             showing before.",
         );
         ui.add_space(4.0);
     }
@@ -1494,5 +1649,85 @@ mod tests {
         audition.stop();
         sync(&mut audition, &mut world);
         assert!(voices(&mut world).is_empty());
+    }
+
+    // ---- step 7a (#1333 A9): the working copy follows the record --------
+
+    /// A `Patch` slot holding one sine at `freq`, so two slots can differ
+    /// by a value the owner would recognise.
+    fn sine_slot(freq: f32) -> SovereignAudioConfig {
+        let mut patch = bevy_symbios_audio::AudioPatch::default();
+        patch.graph.nodes.push(bevy_symbios_audio::GraphNode {
+            id: bevy_symbios_audio::NodeId(0),
+            kind: bevy_symbios_audio::NodeKind::Sine(bevy_symbios_audio::SineOsc {
+                freq_hz: freq,
+                ..Default::default()
+            }),
+            inputs: Default::default(),
+        });
+        SovereignAudioConfig::Patch {
+            patch: SovereignAudioPatch::from_native(&patch),
+        }
+    }
+
+    /// A9: the pop-out edits a copy seeded once, at open. A room undo, a
+    /// revert, a "Load from PDS" or a re-rolled seed all change the record
+    /// under it, and before this the window went on showing the newer
+    /// values and re-applied them on its next commit — the undo silently
+    /// un-happened.
+    #[test]
+    fn an_outside_change_to_the_bound_slot_reseeds_the_working_copy() {
+        let seeded = sine_slot(440.0);
+        let reverted = sine_slot(220.0);
+        assert_eq!(
+            reseed_decision(Some(&seeded), &reverted, false),
+            Reseed::Take,
+            "the record moved and the editor did not move it"
+        );
+    }
+
+    /// The editor's own commit is on its way to the record, so the record
+    /// being behind is expected and the working copy is the newer of the
+    /// two. Re-seeding here would undo the owner's own edit.
+    #[test]
+    fn a_pending_commit_keeps_the_working_copy() {
+        let seeded = sine_slot(440.0);
+        let record_behind = sine_slot(220.0);
+        assert_eq!(
+            reseed_decision(Some(&seeded), &record_behind, true),
+            Reseed::KeepPending
+        );
+    }
+
+    /// The bridge has just delivered the editor's own commit, so the record
+    /// now holds exactly what the editor last agreed with. Nothing to do.
+    #[test]
+    fn the_editors_own_delivery_does_not_reseed() {
+        let delivered = sine_slot(440.0);
+        assert_eq!(
+            reseed_decision(Some(&delivered), &delivered, false),
+            Reseed::Keep
+        );
+    }
+
+    /// Nothing has been agreed yet — the window has just opened — so there
+    /// is nothing to compare and nothing to take.
+    #[test]
+    fn with_nothing_agreed_yet_there_is_nothing_to_reseed_from() {
+        assert_eq!(
+            reseed_decision(None, &sine_slot(440.0), false),
+            Reseed::Keep
+        );
+        assert_eq!(reseed_decision(None, &sine_slot(440.0), true), Reseed::Keep);
+    }
+
+    /// A slot that changes variant under the editor is still an outside
+    /// change: the working copy is for a value that is no longer there.
+    #[test]
+    fn a_variant_change_under_the_editor_is_an_outside_change() {
+        assert_eq!(
+            reseed_decision(Some(&sine_slot(440.0)), &SovereignAudioConfig::None, false),
+            Reseed::Take
+        );
     }
 }

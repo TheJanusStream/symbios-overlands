@@ -271,6 +271,9 @@ struct ShortcutGate {
     /// open on the last egui pass (#1236 f37). egui closes those on
     /// Escape itself, so the press is already spoken for.
     popup_open: bool,
+    /// The audio pop-out's editor took the last egui pass's keyboard, so
+    /// its own history owns the undo chord (#1333).
+    audio_editor_keys: bool,
 }
 
 impl ShortcutGate {
@@ -306,9 +309,15 @@ impl ShortcutGate {
     }
 
     /// Ctrl+Z / Ctrl+Y. Gated on text focus because `TextEdit` owns those
-    /// chords for editing the text itself.
+    /// chords for editing the text itself, and on the audio pop-out, whose
+    /// editors keep a history of their own.
+    ///
+    /// This module reads Bevy's `ButtonInput<KeyCode>`, not egui's input,
+    /// so a chord the crate's editor has already consumed still arrives
+    /// here: without the gate the one press both walked the editor's
+    /// history and reverted the room record behind it (#1333).
     fn allows_undo(self) -> bool {
-        !self.modal_open && !self.text_focus
+        !self.modal_open && !self.text_focus && !self.audio_editor_keys
     }
 }
 
@@ -333,6 +342,10 @@ pub enum EscStep {
     DragToPlace,
     /// Clear the ordinary editor selection — room OR avatar.
     Selection,
+    /// The audio pop-out cleared its own selection; the ladder does
+    /// nothing more with this press. One step per press, so the window
+    /// closes on the next one (#1333).
+    AudioEditorSelection,
     /// Close the audio pop-out, exactly like its title-bar close button.
     AudioPopout,
     /// Dismiss the gateway destination picker, exactly like its Close
@@ -360,6 +373,9 @@ pub struct EscFacts {
     pub has_selection: bool,
     /// Either editor's audio pop-out is open.
     pub audio_popout: bool,
+    /// The open audio pop-out answered this Escape by clearing a selection
+    /// inside itself, so this press is spent (#1333).
+    pub audio_editor_selection: bool,
     /// The gateway destination picker is up (#1236 f26).
     pub gateway_picker: bool,
 }
@@ -373,6 +389,10 @@ pub fn esc_step(facts: EscFacts) -> EscStep {
         EscStep::BlobElement
     } else if facts.drag_armed {
         EscStep::DragToPlace
+    } else if facts.audio_editor_selection {
+        // Above the room's own selection: the press was aimed at the
+        // window on top, which is the pop-out.
+        EscStep::AudioEditorSelection
     } else if facts.has_selection {
         EscStep::Selection
     } else if facts.audio_popout {
@@ -407,6 +427,14 @@ impl EscLadder<'_, '_> {
         self.gizmo_targets.iter().any(|t| t.is_active())
     }
 
+    /// Whether the audio pop-out's editor took the last egui pass's
+    /// keyboard, in either editor (#1333). Bypasses change detection: this
+    /// asks what happened, it does not change anything.
+    fn audio_editor_keys(&self) -> bool {
+        self.room_editor.audio_editor.wants_keyboard()
+            || self.avatar_editor.audio_editor.wants_keyboard()
+    }
+
     /// Read the ladder's world state into [`EscFacts`].
     fn facts(&self) -> EscFacts {
         EscFacts {
@@ -417,6 +445,8 @@ impl EscLadder<'_, '_> {
                 || self.avatar_editor.has_gizmo_selection(),
             audio_popout: self.room_editor.audio_editor.open
                 || self.avatar_editor.audio_editor.open,
+            audio_editor_selection: self.room_editor.audio_editor.took_escape()
+                || self.avatar_editor.audio_editor.took_escape(),
             gateway_picker: self.picker.is_some(),
         }
     }
@@ -520,6 +550,9 @@ pub fn global_shortcuts(
         modal_open: crate::ui::confirm::modal_is_open(ctx),
         text_focus: ctx.egui_wants_keyboard_input(),
         popup_open: crate::ui::confirm::popup_is_open(ctx),
+        // Read without touching change detection: this is a question about
+        // the last egui pass, not an edit.
+        audio_editor_keys: esc.audio_editor_keys(),
     };
 
     // ── Esc: the back-out ladder ─────────────────────────────────────
@@ -544,6 +577,12 @@ pub fn global_shortcuts(
                 // Previously the only deselect was clicking empty scenery.
                 esc.room_editor.clear_selection();
                 esc.avatar_editor.clear_gizmo_selections();
+            }
+            EscStep::AudioEditorSelection => {
+                // Nothing to do: the crate's editor consumed the Escape in
+                // egui and cleared its own selection. The rung exists so
+                // this press is spent on that and does not also close the
+                // window behind it (#1333, #1236's one step per press).
             }
             EscStep::AudioPopout => {
                 // Exactly like its [x]: stop any looping audition, drop the
@@ -949,7 +988,67 @@ mod tests {
         modal_open: false,
         text_focus: false,
         popup_open: false,
+        audio_editor_keys: false,
     };
+
+    /// #1333 B12/A9. The audio pop-out's editors read Ctrl+Z from egui, but
+    /// this module reads Bevy's `ButtonInput<KeyCode>`, which egui cannot
+    /// consume from. Without a gate the one press both walked the editor's
+    /// history and reverted the room record behind it.
+    #[test]
+    fn the_room_undo_chord_stands_down_while_the_audio_pop_out_owns_the_keys() {
+        let editing_audio = ShortcutGate {
+            audio_editor_keys: true,
+            ..NOTHING_IN_THE_WAY
+        };
+        assert!(!editing_audio.allows_undo());
+        // Only undo: Ctrl+S from inside the pop-out is still a save, and
+        // the Esc ladder has its own rung rather than a gate.
+        assert!(editing_audio.allows_save());
+        assert!(editing_audio.allows_esc());
+        // And with the pop-out not holding the keys the chord is the
+        // room's again.
+        assert!(NOTHING_IN_THE_WAY.allows_undo());
+    }
+
+    /// #1333: one step per press (#1236's contract). With a node selected
+    /// in the pop-out, Esc clears that; the next press closes the window.
+    #[test]
+    fn escape_clears_the_audio_editors_selection_before_it_closes_the_window() {
+        let popout_with_a_selection = EscFacts {
+            audio_editor_selection: true,
+            audio_popout: true,
+            ..EscFacts::default()
+        };
+        assert_eq!(
+            esc_step(popout_with_a_selection),
+            EscStep::AudioEditorSelection
+        );
+
+        // The crate cleared it, so the next press falls through to closing.
+        let popout_only = EscFacts {
+            audio_popout: true,
+            ..EscFacts::default()
+        };
+        assert_eq!(esc_step(popout_only), EscStep::AudioPopout);
+
+        // The pop-out's selection outranks the room's: the window the press
+        // was aimed at is the one on top.
+        let both = EscFacts {
+            audio_editor_selection: true,
+            audio_popout: true,
+            has_selection: true,
+            ..EscFacts::default()
+        };
+        assert_eq!(esc_step(both), EscStep::AudioEditorSelection);
+
+        // But a gizmo drag in progress still outranks everything.
+        let dragging = EscFacts {
+            gizmo_dragging: true,
+            ..both
+        };
+        assert_eq!(esc_step(dragging), EscStep::GizmoDrag);
+    }
 
     /// #1139, finding 114. Sequence: click into the World Editor's name or
     /// seed field, type, press Ctrl+S. The chord shared one gate with the
@@ -963,6 +1062,7 @@ mod tests {
             modal_open: false,
             text_focus: true,
             popup_open: false,
+            audio_editor_keys: false,
         };
         assert!(typing.allows_save());
         // The plain keys still stand down, or typing "s" would publish and
@@ -987,6 +1087,7 @@ mod tests {
             modal_open: true,
             text_focus: false,
             popup_open: false,
+            audio_editor_keys: false,
         };
         assert!(!modal.allows_esc());
         assert!(!modal.allows_enter());
@@ -1006,6 +1107,7 @@ mod tests {
             modal_open: false,
             text_focus: false,
             popup_open: true,
+            audio_editor_keys: false,
         };
         assert!(!menu.allows_esc());
         assert!(menu.allows_enter());
@@ -1026,6 +1128,7 @@ mod tests {
             drag_armed: true,
             has_selection: true,
             audio_popout: true,
+            audio_editor_selection: true,
             gateway_picker: true,
         };
         let mut facts = everything;
@@ -1035,6 +1138,8 @@ mod tests {
         facts.blob_element = false;
         assert_eq!(esc_step(facts), EscStep::DragToPlace);
         facts.drag_armed = false;
+        assert_eq!(esc_step(facts), EscStep::AudioEditorSelection);
+        facts.audio_editor_selection = false;
         assert_eq!(esc_step(facts), EscStep::Selection);
         facts.has_selection = false;
         assert_eq!(esc_step(facts), EscStep::AudioPopout);
