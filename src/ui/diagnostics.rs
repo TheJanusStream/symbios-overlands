@@ -1299,7 +1299,13 @@ fn render_health_tab(
     tab: DiagTab,
     metrics: &MetricsRegistry,
     invariants: &InvariantRegistry,
-    audio_muted: &mut crate::audio_mute::AudioMuted,
+    // The master mute as a plain `bool`, lent by `audio_mute::lend_mute`
+    // at the call site (#1340). Taking `&mut AudioMuted` here stamped the
+    // change tick through `ResMut::deref_mut` on every frame this tab was
+    // drawn, and `AudioMuted` is prefs-watched, so the prefs file re-saved
+    // on its 5 s maximum latency for as long as the tab stayed open. The
+    // type is what keeps the unguarded shape from being written again.
+    audio_muted: &mut bool,
 ) {
     for (title, rows) in health_cards(tab, metrics) {
         health_card(ui, invariants, metrics, title, &rows);
@@ -1321,13 +1327,13 @@ fn render_health_tab(
             .small()
             .color(crate::ui::theme::current(ui.ctx()).text_weak),
         );
-        let mute_label = if audio_muted.0 {
+        let mute_label = if *audio_muted {
             "Unmute all audio"
         } else {
             "Mute all audio"
         };
         if ui.button(mute_label).clicked() {
-            audio_muted.0 = !audio_muted.0;
+            *audio_muted = !*audio_muted;
         }
         ui.add_space(6.0);
     }
@@ -1872,7 +1878,9 @@ pub fn diagnostics_ui(
                     .id_salt(("diag_scroll_health", active_tab.label()))
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        render_health_tab(ui, *active_tab, &metrics, &invariants, &mut audio_muted);
+                        crate::audio_mute::lend_mute(&mut audio_muted, |muted| {
+                            render_health_tab(ui, *active_tab, &metrics, &invariants, muted)
+                        });
                     });
                 return;
             }
@@ -2074,13 +2082,82 @@ mod tests {
         render_once(&m, &default_registry());
     }
 
+    /// Whether running `system` once moved `AudioMuted`'s change tick.
+    ///
+    /// The sound shape, borrowed from `audio_mute`'s own harness: nothing
+    /// moves the world's tick between the run and the read. Reading
+    /// `is_changed()` after an `App::update()` instead would report false
+    /// either way, because `update` moves the last-change tick past the
+    /// stamp first — a test that passes on the code it exists to refuse.
+    fn stamps(system: fn(ResMut<crate::audio_mute::AudioMuted>)) -> bool {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        world.insert_resource(crate::audio_mute::AudioMuted(true));
+        world.clear_trackers();
+        world.run_system_once(system).expect("the system runs");
+        world.is_resource_changed::<crate::audio_mute::AudioMuted>()
+    }
+
+    /// Draw the real Offload tab — the one health tab carrying the Audio
+    /// card, and so the mute button — into a headless frame.
+    fn draw_offload_tab(muted: &mut bool) {
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |root| {
+            egui::CentralPanel::default().show(root, |ui| {
+                render_health_tab(
+                    ui,
+                    DiagTab::Offload,
+                    &MetricsRegistry::default(),
+                    &default_registry(),
+                    muted,
+                );
+            });
+        });
+    }
+
+    /// #1340: drawing the Health tab must not stamp the prefs-watched
+    /// `AudioMuted`.
+    ///
+    /// `diagnostics_ui` holds it as `ResMut`, and the tab was handed
+    /// `&mut audio_muted`, which coerces through `DerefMut` and stamps the
+    /// change tick on every frame the tab is drawn, click or no click.
+    /// `save_prefs_when_changed` watches that tick (prefs.rs, `audio`), so
+    /// the prefs file re-saved on its 5 s maximum latency for as long as
+    /// the tab stayed open.
+    ///
+    /// The control is the shape that shipped: the same real draw reached
+    /// through the `ResMut` rather than through `lend_mute`. It stamps even
+    /// though nobody clicked, which is the defect stated as a test — and it
+    /// is why `render_health_tab` now takes `&mut bool`, so the unguarded
+    /// shape no longer type-checks at that call site.
+    #[test]
+    fn drawing_the_health_tab_does_not_stamp_the_mute() {
+        fn lent(mut audio_muted: ResMut<crate::audio_mute::AudioMuted>) {
+            crate::audio_mute::lend_mute(&mut audio_muted, draw_offload_tab);
+        }
+        fn through_the_res_mut(mut audio_muted: ResMut<crate::audio_mute::AudioMuted>) {
+            // The pre-#1340 shape, kept runnable as the control: a whole
+            // `&mut` taken from the `ResMut` for a draw that only reads it.
+            let audio_muted: &mut crate::audio_mute::AudioMuted = &mut audio_muted;
+            draw_offload_tab(&mut audio_muted.0);
+        }
+        assert!(
+            !stamps(lent),
+            "drawing the tab without clicking must leave the tick alone"
+        );
+        assert!(
+            stamps(through_the_res_mut),
+            "the control: &mut through the ResMut stamps on a draw that only reads"
+        );
+    }
+
     /// Headless egui frame: every health tab (Runtime / Network / Offload)
     /// renders both empty and populated (incl. an active badge) without panic.
     #[test]
     fn health_tabs_render_without_panicking() {
         fn render_once(tab: DiagTab, m: &MetricsRegistry, reg: &InvariantRegistry) {
             let ctx = egui::Context::default();
-            let mut muted = crate::audio_mute::AudioMuted::default();
+            let mut muted = true;
             let _ = ctx.run_ui(egui::RawInput::default(), |root| {
                 egui::CentralPanel::default().show(root, |ui| {
                     render_health_tab(ui, tab, m, reg, &mut muted);

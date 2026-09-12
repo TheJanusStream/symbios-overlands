@@ -440,36 +440,61 @@ static PDS_CACHE: std::sync::LazyLock<std::sync::Mutex<PdsCache>> =
 
 /// The map plus its insert-order queue, in the same shape `PeerAvatarCache`
 /// and `BskyProfileCache` use.
+///
+/// The policy lives here rather than in the two free functions below so that
+/// a test can own an instance (#1343). Under bare `cargo test` — which is
+/// what CI runs — the whole lib suite threads through one process, so two
+/// tests driving [`PDS_CACHE`] evict each other's keys. Both siblings dodge
+/// that by being Bevy `Resource`s; this one is a `static` because
+/// [`resolve_pds_outcome`] is an async fn with no `World` to hold it, which
+/// is exactly where the offload census stood before #1189.
 #[derive(Default)]
 struct PdsCache {
     by_did: std::collections::HashMap<String, String>,
     order: std::collections::VecDeque<String>,
 }
 
+impl PdsCache {
+    fn get(&self, did: &str) -> Option<String> {
+        self.by_did.get(did).cloned()
+    }
+
+    /// Remember `did`'s endpoint, evicting oldest-first past
+    /// `MAX_PDS_CACHE_ENTRIES`.
+    ///
+    /// Re-remembering a DID overwrites its endpoint and leaves its place in
+    /// the queue alone, so one DID resolved many times holds one slot
+    /// instead of pushing every other entry out.
+    fn remember(&mut self, did: &str, endpoint: &str) {
+        if self
+            .by_did
+            .insert(did.to_string(), endpoint.to_string())
+            .is_none()
+        {
+            self.order.push_back(did.to_string());
+        }
+        while self.order.len() > MAX_PDS_CACHE_ENTRIES {
+            match self.order.pop_front() {
+                Some(oldest) => {
+                    self.by_did.remove(&oldest);
+                }
+                None => break,
+            }
+        }
+    }
+}
+
 fn cached_pds(did: &str) -> Option<String> {
     // A poisoned lock degrades to a cache miss rather than a panic: the
     // worst case is the request we were already making.
-    PDS_CACHE.lock().ok()?.by_did.get(did).cloned()
+    PDS_CACHE.lock().ok()?.get(did)
 }
 
 fn remember_pds(did: &str, endpoint: &str) {
-    let Ok(mut cache) = PDS_CACHE.lock() else {
-        return;
-    };
-    if cache
-        .by_did
-        .insert(did.to_string(), endpoint.to_string())
-        .is_none()
-    {
-        cache.order.push_back(did.to_string());
-    }
-    while cache.order.len() > MAX_PDS_CACHE_ENTRIES {
-        match cache.order.pop_front() {
-            Some(oldest) => {
-                cache.by_did.remove(&oldest);
-            }
-            None => break,
-        }
+    // Same degrade-on-poison: a resolution we fail to remember costs one
+    // repeated request, where a panic costs the session.
+    if let Ok(mut cache) = PDS_CACHE.lock() {
+        cache.remember(did, endpoint);
     }
 }
 
@@ -1141,18 +1166,34 @@ mod tests {
 ///
 /// A unit test rather than a network one: what needs pinning is the
 /// eviction policy and the fact that only successes are stored, neither of
-/// which involves a socket. `nextest` runs each test in its own process, so
-/// the process-wide cache is not shared between them.
+/// which involves a socket.
+///
+/// The policy tests own a [`PdsCache`] each (#1343). They used to drive the
+/// process-global through the free functions, which is safe under `nextest`
+/// — a process per test — and a race under the bare `cargo test` that CI
+/// runs: the eviction test's 266 inserts evicted the re-remembering test's
+/// key between its last insert and its assertion, about one run in six.
+/// Exactly one test below still drives the free functions, on DIDs of its
+/// own, so the wrappers over [`PDS_CACHE`] stay covered.
 #[cfg(test)]
 mod pds_cache_tests {
     use super::*;
 
+    /// The free functions — the two lines [`resolve_pds_outcome`] actually
+    /// calls. Every DID here is unique to this test and every assertion is
+    /// about one of them, so nothing this test claims depends on what else
+    /// shares the process. Adding a second writer to [`PDS_CACHE`] under
+    /// `#[cfg(test)]` would break that, which is what #1343 was.
     #[test]
     fn a_remembered_endpoint_is_returned_without_a_lookup() {
-        assert_eq!(cached_pds("did:plc:absent"), None, "a cold cache misses");
-        remember_pds("did:plc:known", "https://pds.example");
         assert_eq!(
-            cached_pds("did:plc:known").as_deref(),
+            cached_pds("did:plc:wrapper-never-remembered"),
+            None,
+            "a DID nothing has remembered misses"
+        );
+        remember_pds("did:plc:wrapper-known", "https://pds.example");
+        assert_eq!(
+            cached_pds("did:plc:wrapper-known").as_deref(),
             Some("https://pds.example")
         );
     }
@@ -1161,17 +1202,18 @@ mod pds_cache_tests {
     /// the same shape the peer avatar cache is bounded against.
     #[test]
     fn the_cache_evicts_oldest_first_past_its_bound() {
+        let mut cache = PdsCache::default();
         for i in 0..(MAX_PDS_CACHE_ENTRIES + 10) {
-            remember_pds(&format!("did:plc:{i}"), &format!("https://pds{i}.example"));
+            cache.remember(&format!("did:plc:{i}"), &format!("https://pds{i}.example"));
         }
         assert_eq!(
-            cached_pds("did:plc:0"),
+            cache.get("did:plc:0"),
             None,
             "the first inserted is the first evicted"
         );
         let newest = MAX_PDS_CACHE_ENTRIES + 9;
         assert!(
-            cached_pds(&format!("did:plc:{newest}")).is_some(),
+            cache.get(&format!("did:plc:{newest}")).is_some(),
             "the most recent survives"
         );
     }
@@ -1181,13 +1223,44 @@ mod pds_cache_tests {
     /// else while the map itself stayed small.
     #[test]
     fn re_remembering_a_did_does_not_grow_the_eviction_queue() {
+        let mut cache = PdsCache::default();
         for _ in 0..(MAX_PDS_CACHE_ENTRIES * 2) {
-            remember_pds("did:plc:repeat", "https://pds.example");
+            cache.remember("did:plc:repeat", "https://pds.example");
         }
-        remember_pds("did:plc:other", "https://other.example");
+        cache.remember("did:plc:other", "https://other.example");
         assert!(
-            cached_pds("did:plc:repeat").is_some() && cached_pds("did:plc:other").is_some(),
+            cache.get("did:plc:repeat").is_some() && cache.get("did:plc:other").is_some(),
             "one DID resolved many times occupies one slot"
+        );
+    }
+
+    /// #1343's control, kept as the structural statement it turned into.
+    ///
+    /// These are the bodies of the two tests above, run back to back — the
+    /// interleaving their threads could reach under bare `cargo test` about
+    /// one run in six. Against the process-global it failed every single
+    /// run: the 266 inserts evicted `did:plc:repeat`, which the first half
+    /// had just asserted it would keep. Against a cache each it cannot,
+    /// and that is what makes those two tests independent of each other and
+    /// of whatever else shares the process.
+    #[test]
+    fn two_caches_do_not_see_each_other() {
+        let mut repeated = PdsCache::default();
+        for _ in 0..(MAX_PDS_CACHE_ENTRIES * 2) {
+            repeated.remember("did:plc:repeat", "https://pds.example");
+        }
+        let mut overflowing = PdsCache::default();
+        for i in 0..(MAX_PDS_CACHE_ENTRIES + 10) {
+            overflowing.remember(&format!("did:plc:{i}"), &format!("https://pds{i}.example"));
+        }
+        assert!(
+            repeated.get("did:plc:repeat").is_some(),
+            "inserts past the bound in one cache do not evict another's key"
+        );
+        assert_eq!(
+            overflowing.get("did:plc:repeat"),
+            None,
+            "nor does a key reach a cache it was never given to"
         );
     }
 }

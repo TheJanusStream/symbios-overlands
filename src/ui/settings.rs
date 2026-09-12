@@ -339,14 +339,23 @@ pub fn settings_ui(
 
             ui.add_space(8.0);
             ui.separator();
-            muted_people_section(
-                ui,
-                &mut muted_dids,
-                &profile_cache,
-                &clipboard,
-                &mut session_log,
-                time.elapsed_secs_f64(),
-            );
+            if let Some(did) = muted_people_section(ui, &muted_dids, &profile_cache, &clipboard) {
+                // Through the same funnel as every other mute write (#1219)
+                // so the durable list and the session log cannot disagree
+                // about what happened. No live peer to pass: the person whose
+                // row this is may be nowhere near, which is exactly why this
+                // surface exists — but `sync_mute_visibility` picks them up
+                // within a frame if they are.
+                crate::network::presence::set_peer_mute(
+                    None,
+                    Some(did.as_str()),
+                    false,
+                    &mut muted_dids,
+                    &mut session_log,
+                    None,
+                    time.elapsed_secs_f64(),
+                );
+            }
 
             if dirty {
                 settings.set_changed();
@@ -375,25 +384,35 @@ pub fn settings_ui(
 /// effectively permanent — the only way back was to hope they wandered into
 /// a room you happened to be in.
 ///
-/// Split out of [`settings_ui`] so the section can be read on its own; it
-/// takes the pieces rather than the whole `ResMut` set so the guarded-dirty
-/// discipline above is not accidentally inherited (a mute write SHOULD dirty
-/// its resource — that is what persists it).
+/// Split out of [`settings_ui`] so the section can be read on its own. It
+/// takes the mute list read-only and RETURNS the DID whose Unmute was
+/// clicked rather than writing it here. A mute write SHOULD dirty the
+/// resource — that is what persists it — but a draw that merely lists the
+/// names must not, and a `&mut` taken through the `ResMut` cannot tell the
+/// two apart: it stamps on access, so every frame Settings was open looked
+/// like an edit (#1340). The caller does the write, on the frame there is
+/// one.
 fn muted_people_section(
     ui: &mut egui::Ui,
-    muted_dids: &mut crate::state::MutedDids,
+    // Read-only, and returning the click rather than applying it, for the
+    // same reason `lend_mute` exists (#1340). `MutedDids` is prefs-watched
+    // (prefs.rs, `muted_dids`), and a `&mut` taken through the `ResMut`
+    // stamped its change tick through `DerefMut` on every frame this
+    // section was drawn — so the prefs file re-saved on its 5 s maximum
+    // latency for as long as Settings was open, though the list only ever
+    // changes on an Unmute click. `Deref` does not stamp; the caller takes
+    // the `&mut` only when there is something to write.
+    muted_dids: &crate::state::MutedDids,
     profile_cache: &crate::avatar::BskyProfileCache,
     clipboard: &crate::boot_params::ClipboardQueue,
-    session_log: &mut crate::diagnostics::SessionLog,
-    now: f64,
-) {
+) -> Option<String> {
     ui.strong("Muted people");
     if muted_dids.0.is_empty() {
         ui.colored_label(
             crate::ui::theme::current(ui.ctx()).text_weak,
             "You haven't muted anyone.",
         );
-        return;
+        return None;
     }
     ui.small("Hidden and silenced for you, on every visit, until you unmute them.");
     // Sorted: a `HashSet` iterates arbitrarily, and rows that reshuffle
@@ -432,20 +451,5 @@ fn muted_people_section(
                 });
             }
         });
-    if let Some(did) = unmute {
-        // Through the same funnel as every other mute write (#1219) so the
-        // durable list and the session log cannot disagree about what
-        // happened. No live peer to pass: the person whose row this is may
-        // be nowhere near, which is exactly why this surface exists — but
-        // `sync_mute_visibility` picks them up within a frame if they are.
-        crate::network::presence::set_peer_mute(
-            None,
-            Some(did.as_str()),
-            false,
-            muted_dids,
-            session_log,
-            None,
-            now,
-        );
-    }
+    unmute
 }
