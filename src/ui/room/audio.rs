@@ -90,6 +90,11 @@ impl AudioSlotKind {
 pub struct AudioEditorIo<'w> {
     monitor: Res<'w, AudioMonitor>,
     requests: MessageWriter<'w, MonitorRequest>,
+    /// Seeks and level changes for the voice already playing — a click on
+    /// the waveform, the strip's Level slider (#1338 D1, D3). A separate
+    /// channel from `requests` because these steer what plays rather than
+    /// replacing it.
+    controls: MessageWriter<'w, bevy_symbios_audio::ui::MonitorControl>,
     muted: ResMut<'w, crate::audio_mute::AudioMuted>,
 }
 
@@ -165,6 +170,139 @@ fn new_sequence_editor() -> SequenceEditorState {
     state
 }
 
+/// How many slots keep their view and their audition settings between
+/// openings.
+///
+/// Small on purpose. What this holds is a convenience — where the owner
+/// dragged the node boxes, how far they zoomed the timeline, which
+/// instrument was open, whether that slot's Auto was on — and an owner
+/// moves between a handful of slots in a sitting, not a hundred. A world
+/// can hold thousands of audio slots, and a `PatchEditorState` is a couple
+/// of hash maps and an undo ring per slot, so an unbounded map is a leak
+/// that grows with the session rather than with the world.
+const REMEMBERED_SLOTS: usize = 8;
+
+/// What one slot's editor looked like, kept across a close (#1338 A6).
+///
+/// The VIEW, not the value: the working copy is dropped on a close and
+/// re-seeded on the next opening from the record or from a stranded
+/// commit. What comes back is where things were, which is still true.
+///
+/// The undo history is NOT in here — [`SlotView::of_patch`] and
+/// [`SlotView::of_sequence`] drop it on the way in. Keeping the whole
+/// editor state across a close would keep the undo ring too, and that is a
+/// different promise: the working copy is re-seeded on reopening, so the
+/// ring describes a chain of values the copy is no longer the tail of, and
+/// a Ctrl+Z after a close-and-reopen would jump to something that was
+/// never on screen in this session.
+enum SlotView {
+    /// A `Patch` slot's canvas layout.
+    Patch(Box<PatchEditorState>),
+    /// A `Sequence` slot's timeline view, including each instrument
+    /// canvas's own layout.
+    Sequence(Box<SequenceEditorState>),
+}
+
+impl SlotView {
+    /// Keep `state`'s layout, dropping its undo history.
+    fn of_patch(mut state: PatchEditorState) -> Self {
+        state.forget_history();
+        Self::Patch(Box::new(state))
+    }
+
+    /// The same for a sequence editor.
+    fn of_sequence(mut state: SequenceEditorState) -> Self {
+        state.forget_history();
+        Self::Sequence(Box::new(state))
+    }
+}
+
+/// What each recently-opened slot looked like, and what its audition was
+/// set to, oldest first — a small LRU keyed by the bridge salt.
+///
+/// ONE bound serves both, deliberately. These are two per-slot maps kept
+/// for the same reason (what the owner left this slot as), keyed by the
+/// same salt, and a slot leaving the recently-opened set should lose both
+/// together: a world where a slot kept its Auto for ever but forgot its
+/// node positions after eight openings would have no explanation on the
+/// page for the difference. The audition map used to be an unbounded
+/// `HashMap` of its own, which is the leak this replaces.
+#[derive(Default)]
+struct SlotMemory {
+    /// Least-recently-opened first; the last entry is the slot opened most
+    /// recently. At most [`REMEMBERED_SLOTS`] entries.
+    slots: Vec<(String, SlotViewAndAudition)>,
+}
+
+/// One remembered slot's two halves.
+#[derive(Default)]
+struct SlotViewAndAudition {
+    /// The editor's layout, once that slot has been closed. `None` while
+    /// it is open — the live state is in [`AudioEditorState`] then — and
+    /// for a slot whose strip has been drawn but whose editor has not been
+    /// closed yet.
+    view: Option<SlotView>,
+    /// The slot's audition strip state, so a slot's Auto stays as the
+    /// owner left it.
+    audition: AuditionState,
+}
+
+impl SlotMemory {
+    /// The entry for `salt`, made if it is not there yet, and marked as
+    /// the most recently used either way.
+    ///
+    /// Making an entry can evict the oldest, which is the whole point of
+    /// the bound.
+    fn entry(&mut self, salt: &str) -> &mut SlotViewAndAudition {
+        if let Some(at) = self.slots.iter().position(|(key, _)| key == salt) {
+            let entry = self.slots.remove(at);
+            self.slots.push(entry);
+        } else {
+            // Evict before pushing, so the map never exceeds the bound
+            // even for one statement.
+            while self.slots.len() >= REMEMBERED_SLOTS {
+                self.slots.remove(0);
+            }
+            self.slots
+                .push((salt.to_string(), SlotViewAndAudition::default()));
+        }
+        &mut self
+            .slots
+            .last_mut()
+            .expect("just pushed or moved to the end")
+            .1
+    }
+
+    /// Take `salt`'s remembered view, leaving its audition settings alone.
+    ///
+    /// Taken rather than cloned: the view goes back into the live editor,
+    /// and a copy left behind would be a stale one the next opening might
+    /// prefer to what the owner has since done.
+    fn take_view(&mut self, salt: &str) -> Option<SlotView> {
+        self.slots
+            .iter_mut()
+            .find(|(key, _)| key == salt)
+            .and_then(|(_, entry)| entry.view.take())
+    }
+
+    /// Remember `view` for `salt`, as the most recently used slot.
+    fn keep_view(&mut self, salt: &str, view: SlotView) {
+        self.entry(salt).view = Some(view);
+    }
+
+    /// How many slots are remembered, for the tests that hold the bound.
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.slots.len()
+    }
+
+    /// Whether `salt` is still remembered.
+    #[cfg(test)]
+    fn remembers(&self, salt: &str) -> bool {
+        self.slots.iter().any(|(key, _)| key == salt)
+    }
+}
+
 /// Persistent state for the pop-out audio editor window. Lives on
 /// [`super::RoomEditorState`]; default is "closed, no working copy".
 ///
@@ -208,11 +346,12 @@ pub struct AudioEditorState {
     bound_seen_frame: Option<u64>,
     /// What kind of slot the window edits, for the audition's numbers.
     kind: AudioSlotKind,
-    /// Each slot's audition strip state, by salt: a strip shows only its own
-    /// audition, so a slot opened after another must not take the other's
-    /// sound and waveform for its own. Kept across openings, so a slot's
-    /// Auto stays as the owner left it.
-    auditions: std::collections::HashMap<String, AuditionState>,
+    /// What each recently-opened slot looked like and what its audition
+    /// was set to — a strip shows only its own audition, so a slot opened
+    /// after another must not take the other's sound and waveform for its
+    /// own, and a slot reopened must come back the way it was left
+    /// (#1337 A4, #1338 A6). Bounded; see [`SlotMemory`].
+    slots: SlotMemory,
     /// The window was rebound to another slot while open: its next draw
     /// stops the audition the previous slot left playing.
     stop_audition: bool,
@@ -266,12 +405,31 @@ impl AudioEditorState {
         // this window's own and the bridge will land it.
         self.agreed = Some(audio.clone());
         let seed = self.pending.get(salt).unwrap_or(audio);
+        // The view this slot was last closed with, if it is still one of
+        // the remembered few (#1338 A6). A view of the WRONG kind is not
+        // used — the slot changed variant since, so a canvas layout has
+        // nothing to lay out.
+        let remembered = self.slots.take_view(salt);
         match seed {
             SovereignAudioConfig::Patch { patch } => {
-                self.patch = Some((patch.to_native(), PatchEditorState::default()));
+                let view = match remembered {
+                    Some(SlotView::Patch(view)) => *view,
+                    _ => PatchEditorState::default(),
+                };
+                self.patch = Some((patch.to_native(), view));
             }
             SovereignAudioConfig::Sequence { recipe } => {
-                self.sequence = Some((recipe.to_native(), new_sequence_editor()));
+                // Through the factory on BOTH paths. A restored state
+                // carries this host's sample rates because the one it is a
+                // copy of came through `new_sequence_editor`; a fresh one
+                // must come through it too, or a cache miss would silently
+                // put 96 000 back in the picker with nothing on screen
+                // saying which of the two happened (#1337 C7).
+                let view = match remembered {
+                    Some(SlotView::Sequence(view)) => *view,
+                    _ => new_sequence_editor(),
+                };
+                self.sequence = Some((recipe.to_native(), view));
             }
             // Only procedural variants have an editor; others never set
             // open via the bridge button.
@@ -336,6 +494,21 @@ impl AudioEditorState {
     /// Drop the working copy and close the window. Pending commits stay:
     /// closing the window is not a way to un-commit an edit (#1202).
     pub(crate) fn close(&mut self) {
+        // The working copy goes; the VIEW is kept for the next opening of
+        // this slot (#1338 A6). The pair has to come apart for that: the
+        // value is re-seeded from the record or from a stranded commit,
+        // and where the owner put the node boxes is still true either way.
+        //
+        // The undo history does NOT come with it — `SlotView` drops it —
+        // because the re-seeded value is not the tail of the chain the
+        // ring describes. See `SlotView`.
+        let salt = std::mem::take(&mut self.salt);
+        if let Some((_, view)) = self.patch.take() {
+            self.slots.keep_view(&salt, SlotView::of_patch(view));
+        } else if let Some((_, view)) = self.sequence.take() {
+            self.slots.keep_view(&salt, SlotView::of_sequence(view));
+        }
+        self.salt = salt;
         self.open = false;
         self.patch = None;
         self.sequence = None;
@@ -852,6 +1025,21 @@ pub(crate) struct AudioAudience {
     pub(crate) noun: &'static str,
 }
 
+/// What the pop-out needs from the monitor to draw a playhead and to steer
+/// what is playing (#1338 D1, D3).
+///
+/// A small named struct filled from what the host already holds, the way
+/// [`AudioAudience`] is, rather than two more parameters:
+/// `show_audio_editor_window` and `audio_editor_body` were both already at
+/// eight with an allow explaining why, and a ninth and tenth would be the
+/// point at which that explanation stopped being true.
+pub(crate) struct AudioMonitorIo<'a> {
+    /// The monitor itself — status, the last buffer, and where it is in it.
+    pub(crate) monitor: &'a AudioMonitor,
+    /// Where the strip's clicks and the Level slider go.
+    pub(crate) controls: &'a mut Vec<bevy_symbios_audio::ui::MonitorControl>,
+}
+
 /// Render the pop-out audio editor window, if open. Edits the native
 /// working copy held in `editor`; on a committed change stages the
 /// converted sovereign value as the bound slot's pending edit, for its
@@ -875,9 +1063,11 @@ pub(crate) fn draw_audio_editor_window(
     // id is salted per slot, but geometry-wise they are the same tool.
     let (pos, size) = chrome.place(crate::ui::layout::UiWindow::AudioEditor, ctx);
     let mut outbox = Vec::new();
+    let mut control_outbox = Vec::new();
     let AudioEditorIo {
         monitor,
         requests,
+        controls,
         muted,
     } = io;
     // The mute is lent, never borrowed through its `ResMut` for the frame:
@@ -886,7 +1076,10 @@ pub(crate) fn draw_audio_editor_window(
         show_audio_editor_window(
             ctx,
             editor,
-            monitor,
+            AudioMonitorIo {
+                monitor,
+                controls: &mut control_outbox,
+            },
             egui::Rect::from_min_size(pos, size),
             chrome.available_rect(ctx),
             &mut outbox,
@@ -898,6 +1091,7 @@ pub(crate) fn draw_audio_editor_window(
         chrome.remember(crate::ui::layout::UiWindow::AudioEditor, rect);
     }
     requests.write_batch(outbox);
+    controls.write_batch(control_outbox);
 }
 
 /// The pop-out itself, window and body, and what the Bevy system above and
@@ -915,7 +1109,7 @@ pub(crate) fn draw_audio_editor_window(
 fn show_audio_editor_window(
     ctx: &egui::Context,
     editor: &mut AudioEditorState,
-    monitor: &AudioMonitor,
+    io: AudioMonitorIo<'_>,
     default_rect: egui::Rect,
     constrain: egui::Rect,
     requests: &mut Vec<MonitorRequest>,
@@ -943,7 +1137,10 @@ fn show_audio_editor_window(
             audio_editor_body(
                 ui,
                 editor,
-                monitor,
+                AudioMonitorIo {
+                    monitor: io.monitor,
+                    controls: io.controls,
+                },
                 id,
                 slot_on_screen,
                 requests,
@@ -989,7 +1186,7 @@ fn region<R>(ui: &mut egui::Ui, id: egui::Id, add: impl FnOnce(&mut egui::Ui) ->
 fn audio_editor_body(
     ui: &mut egui::Ui,
     editor: &mut AudioEditorState,
-    monitor: &AudioMonitor,
+    io: AudioMonitorIo<'_>,
     id: egui::Id,
     slot_on_screen: bool,
     requests: &mut Vec<MonitorRequest>,
@@ -1044,7 +1241,9 @@ fn audio_editor_body(
     // The strip auditions at the numbers the world bakes this kind of slot
     // at (#1330 A2), and the mute banner sits above it (A3).
     let committed = editor.committed;
-    let audition = editor.auditions.entry(editor.salt.clone()).or_default();
+    let salt = editor.salt.clone();
+    let AudioMonitorIo { monitor, controls } = io;
+    let audition = &mut editor.slots.entry(&salt).audition;
     if let Some((patch, state)) = editor.patch.as_mut() {
         let (sample_rate, secs) = editor.kind.patch_bake();
         let source = AuditionSource::patch(patch, sample_rate, secs).with_note(AUDITION_NOTE);
@@ -1054,23 +1253,59 @@ fn audio_editor_body(
                 ui, monitor, audition, source, committed, *muted,
             ));
         });
+        controls.extend(audition.take_controls());
         ui.separator();
         let res = region(ui, canvas_id(id), |ui| {
             audio_patch_canvas(ui, patch, state, id.with("patch"))
         });
+        // "Hear this node" (#1338 D3): a COPY of the working copy with its
+        // output moved, auditioned at the numbers this kind of slot bakes
+        // at. The working copy is untouched, so nothing is committed and
+        // nothing reaches the record or the people it is broadcast to —
+        // hearing is not editing.
+        //
+        // Before the commit below, not after: `audition` borrows out of
+        // `editor`, and `editor.commit` wants the whole of it.
+        if let Some(node) = state.take_hear_node() {
+            let heard = bevy_symbios_audio::ui::patch_hearing(patch, node);
+            // Claimed by the strip AS THE COPY, not as the whole patch: a
+            // strip recognises its own audition by a fingerprint of the
+            // request, and the copy's differs from the original's. Telling
+            // it the original would leave the monitor playing a sound no
+            // strip admitted to, so the chip would read Idle, Stop would
+            // be disabled and the waveform would not be drawn — while the
+            // node was audibly looping.
+            requests.push(audition.play(&AuditionSource::patch(&heard, sample_rate, secs)));
+        }
         editor.committed = res.rebake;
         if res.rebake {
             let committed = SovereignAudioConfig::from_patch(patch);
             editor.commit(committed);
         }
     } else if let Some((recipe, state)) = editor.sequence.as_mut() {
-        let source = AuditionSource::sequence(recipe).with_note(AUDITION_NOTE);
+        // Solo and mute pick what the audition plays: a copy with the
+        // silenced tracks left out, or the recipe itself when every track
+        // is heard. The recipe is not changed either way (#1338 D3).
+        let heard = state.heard_recipe(recipe);
+        let playing = heard.as_ref().unwrap_or(&*recipe);
+        let source = AuditionSource::sequence(playing).with_note(AUDITION_NOTE);
         region(ui, strip_id(id), |ui| {
             super::widgets::mute_banner(ui, muted);
             requests.extend(audition_strip(
                 ui, monitor, audition, source, committed, *muted,
             ));
         });
+        controls.extend(audition.take_controls());
+        // The timeline's cursor, but only while the monitor is playing
+        // THIS slot's audition: one monitor serves every slot, and a
+        // cursor running over a timeline whose sound is not the one in the
+        // room says this recipe is sounding when it is not.
+        state.set_playhead(
+            audition
+                .is_playing(monitor)
+                .then(|| monitor.position_secs())
+                .flatten(),
+        );
         ui.separator();
         // The sequence editor beside the canvas rather than above it
         // (#1327 A7): a seeded recipe is ~700 px of transport, instruments,
@@ -1190,6 +1425,279 @@ mod tests {
         assert_eq!(editor.label, "Room ambient");
     }
 
+    // -- A6: a layout that survives closing (#1338) ------------------------
+
+    /// A slot's canvas layout comes back when it is reopened.
+    ///
+    /// THE CONTROL is the last block: before this step `close()` dropped
+    /// the editor state with the working copy, and `open_for` built a
+    /// fresh one, so every node the owner had arranged jumped back to the
+    /// auto-layout the moment the window was closed and reopened.
+    #[test]
+    fn a_patch_slots_layout_survives_a_close_and_reopen() {
+        let mut editor = AudioEditorState::default();
+        let slot = AudioSlotKind::Construct;
+        editor.open_for(&patch_slot(), "gen_oak_1", "oak", slot);
+
+        // The owner arranges the canvas: a node moved, the view panned.
+        let moved = bevy_symbios_audio::NodeId(0);
+        let put_at = egui::Pos2::new(321.0, 654.0);
+        {
+            let (_, view) = editor.patch.as_mut().expect("a patch working copy");
+            view.set_node_position(moved, put_at);
+        }
+
+        editor.close();
+        editor.open_for(&patch_slot(), "gen_oak_1", "oak", slot);
+
+        let (_, view) = editor.patch.as_ref().expect("a patch working copy");
+        assert_eq!(
+            view.node_position(moved),
+            Some(put_at),
+            "the node went back to where the auto-layout put it"
+        );
+
+        // THE CONTROL: another slot never had a layout, so it gets a
+        // fresh one — the cache is per slot, not a global.
+        editor.close();
+        editor.open_for(&patch_slot(), "gen_birch_0", "birch", slot);
+        let (_, view) = editor.patch.as_ref().expect("a patch working copy");
+        assert_ne!(
+            view.node_position(moved),
+            Some(put_at),
+            "another slot took this slot's layout"
+        );
+    }
+
+    /// The same for a Sequence slot: which instrument was open, the zoom
+    /// and the selection all come back.
+    #[test]
+    fn a_sequence_slots_view_survives_a_close_and_reopen() {
+        let mut editor = AudioEditorState::default();
+        let slot = AudioSlotKind::WorldAmbient;
+        let value = SovereignAudioConfig::Sequence {
+            recipe: SovereignSequenceRecipe::from_native(&seeded_recipe()),
+        };
+        editor.open_for(&value, "environment", "Room ambient", slot);
+        {
+            let (_, view) = editor.sequence.as_mut().expect("a sequence working copy");
+            view.set_active_instrument(Some(2));
+            view.set_selected_event(Some((1, 0)));
+            view.set_snap(bevy_symbios_audio::ui::Snap::Eighth);
+        }
+
+        editor.close();
+        editor.open_for(&value, "environment", "Room ambient", slot);
+
+        let (_, view) = editor.sequence.as_ref().expect("a sequence working copy");
+        assert_eq!(view.active_instrument(), Some(2), "the open instrument");
+        assert_eq!(view.selected_event(), Some((1, 0)), "the selection");
+
+        // THE CONTROL: a slot nobody has opened before starts fresh.
+        editor.close();
+        editor.open_for(&value, "another_slot", "Another", slot);
+        let (_, view) = editor.sequence.as_ref().expect("a sequence working copy");
+        assert_eq!(
+            view.active_instrument(),
+            None,
+            "a new slot took another slot's view"
+        );
+    }
+
+    /// THE ONE #1338 DOES NOT ASK FOR, and the one that would otherwise
+    /// rot silently: a RESTORED sequence editor still offers only this
+    /// host's sample rates.
+    ///
+    /// `new_sequence_editor` is the only door that calls `set_sample_rates`
+    /// (#1337 C7). If the restore path ever CONSTRUCTS a state rather than
+    /// taking the cached one — a `SequenceEditorState::default()` on a
+    /// cache miss, say — the picker quietly goes back to offering 96 000,
+    /// and nothing else in this file would notice.
+    #[test]
+    fn a_restored_sequence_editor_still_offers_only_this_worlds_rates() {
+        let mut editor = AudioEditorState::default();
+        let slot = AudioSlotKind::WorldAmbient;
+        let value = SovereignAudioConfig::Sequence {
+            recipe: SovereignSequenceRecipe::from_native(&seeded_recipe()),
+        };
+
+        // Freshly opened, through the factory.
+        editor.open_for(&value, "environment", "Room ambient", slot);
+        let fresh: Vec<u32> = {
+            let (_, view) = editor.sequence.as_ref().expect("a working copy");
+            view.sample_rates().to_vec()
+        };
+        assert_eq!(
+            fresh, HOST_SAMPLE_RATES,
+            "a fresh editor offers this host's rates"
+        );
+        assert!(!fresh.contains(&96_000), "96 000 is not one of them");
+
+        // Closed and reopened, through the cache.
+        editor.close();
+        editor.open_for(&value, "environment", "Room ambient", slot);
+        let restored: Vec<u32> = {
+            let (_, view) = editor.sequence.as_ref().expect("a working copy");
+            view.sample_rates().to_vec()
+        };
+        assert_eq!(
+            restored, HOST_SAMPLE_RATES,
+            "a RESTORED editor offers a different list from a fresh one"
+        );
+
+        // And after the slot has been evicted from the cache, which is the
+        // path that would construct rather than restore.
+        for i in 0..REMEMBERED_SLOTS + 2 {
+            editor.close();
+            editor.open_for(&value, &format!("filler_{i}"), "Filler", slot);
+        }
+        editor.close();
+        assert!(
+            !editor.slots.remembers("environment"),
+            "the slot should have been evicted by now"
+        );
+        editor.open_for(&value, "environment", "Room ambient", slot);
+        let after_eviction: Vec<u32> = {
+            let (_, view) = editor.sequence.as_ref().expect("a working copy");
+            view.sample_rates().to_vec()
+        };
+        assert_eq!(
+            after_eviction, HOST_SAMPLE_RATES,
+            "an editor rebuilt after eviction skipped the factory"
+        );
+    }
+
+    /// The cache is bounded, and it is a least-recently-used one: opening
+    /// a ninth slot forgets the slot nobody has touched for longest, not
+    /// the one opened most recently.
+    #[test]
+    fn the_slot_memory_is_bounded_and_forgets_the_oldest_first() {
+        let mut editor = AudioEditorState::default();
+        let slot = AudioSlotKind::Construct;
+        for i in 0..REMEMBERED_SLOTS {
+            editor.open_for(&patch_slot(), &format!("slot_{i}"), "x", slot);
+            editor.close();
+        }
+        assert_eq!(editor.slots.len(), REMEMBERED_SLOTS);
+        assert!(editor.slots.remembers("slot_0"));
+
+        // Touch the oldest, so it is no longer the oldest.
+        editor.open_for(&patch_slot(), "slot_0", "x", slot);
+        editor.close();
+
+        // One more slot than fits: something must go, and it must be
+        // slot_1 — the one nobody has touched for longest — not slot_0.
+        editor.open_for(&patch_slot(), "newcomer", "x", slot);
+        editor.close();
+        assert_eq!(
+            editor.slots.len(),
+            REMEMBERED_SLOTS,
+            "the memory grew past its bound"
+        );
+        assert!(
+            editor.slots.remembers("slot_0"),
+            "the recently used slot was evicted"
+        );
+        assert!(
+            !editor.slots.remembers("slot_1"),
+            "the oldest slot was kept"
+        );
+        assert!(editor.slots.remembers("newcomer"));
+    }
+
+    /// One bound serves the view AND the audition settings: a slot
+    /// evicted loses both together, so there is never a slot remembering
+    /// its Auto but not its layout.
+    #[test]
+    fn a_slots_audition_is_bounded_by_the_same_memory_as_its_view() {
+        let mut editor = AudioEditorState::default();
+        let slot = AudioSlotKind::Construct;
+        // Touching a slot's audition makes an entry, exactly as opening
+        // its editor does.
+        editor.slots.entry("with_audition").audition.set_auto(true);
+        assert_eq!(editor.slots.len(), 1);
+
+        for i in 0..REMEMBERED_SLOTS {
+            editor.open_for(&patch_slot(), &format!("slot_{i}"), "x", slot);
+            editor.close();
+        }
+        assert_eq!(
+            editor.slots.len(),
+            REMEMBERED_SLOTS,
+            "the audition map is not bounded by the same memory"
+        );
+        assert!(
+            !editor.slots.remembers("with_audition"),
+            "an audition entry outlived the bound its view is held to"
+        );
+    }
+
+    /// Closing keeps the LAYOUT but not the UNDO RING — a deliberate
+    /// difference (#1338 A6). The working copy is re-seeded on reopening,
+    /// so a Ctrl+Z on a restored history would jump to a value that was
+    /// never on screen in this session.
+    #[test]
+    fn closing_keeps_the_layout_and_drops_the_undo_history() {
+        let mut editor = AudioEditorState::default();
+        let slot = AudioSlotKind::Construct;
+        editor.open_for(&patch_slot(), "gen_oak_1", "oak", slot);
+        let moved = bevy_symbios_audio::NodeId(0);
+        let put_at = egui::Pos2::new(11.0, 22.0);
+        {
+            let (copy, view) = editor.patch.as_mut().expect("a working copy");
+            view.set_node_position(moved, put_at);
+            // Something to undo: an edit recorded on the canvas's history.
+            copy.seed = 99;
+            view.note_external_change(copy);
+        }
+
+        editor.close();
+        editor.open_for(&patch_slot(), "gen_oak_1", "oak", slot);
+
+        let (copy, view) = editor.patch.as_mut().expect("a working copy");
+        assert_eq!(
+            view.node_position(moved),
+            Some(put_at),
+            "the layout came back"
+        );
+        assert!(
+            !view.can_undo(),
+            "the undo ring survived a close: Ctrl+Z would resurrect an edit              from the previous session"
+        );
+        // And the value really was re-seeded from the record, which is why
+        // the old ring would have been about the wrong chain.
+        assert_eq!(copy.seed, 0, "the working copy is the record's again");
+    }
+
+    /// A slot that changed variant under the cache gets a fresh editor of
+    /// the kind it is now, not the remembered one of the kind it was.
+    #[test]
+    fn a_slot_that_changed_variant_does_not_take_the_old_kinds_view() {
+        let mut editor = AudioEditorState::default();
+        let slot = AudioSlotKind::WorldAmbient;
+        editor.open_for(&patch_slot(), "environment", "Room ambient", slot);
+        {
+            let (_, view) = editor.patch.as_mut().expect("a patch working copy");
+            view.set_node_position(bevy_symbios_audio::NodeId(0), egui::Pos2::new(5.0, 6.0));
+        }
+        editor.close();
+
+        // The slot is a Sequence now.
+        let sequence = SovereignAudioConfig::Sequence {
+            recipe: SovereignSequenceRecipe::from_native(&seeded_recipe()),
+        };
+        editor.open_for(&sequence, "environment", "Room ambient", slot);
+        assert!(editor.patch.is_none(), "the old kind's copy leaked in");
+        let (_, view) = editor.sequence.as_ref().expect("a sequence working copy");
+        assert_eq!(
+            view.active_instrument(),
+            None,
+            "a fresh view for the new kind"
+        );
+        // Through the factory, so the rates are still this host's.
+        assert_eq!(view.sample_rates(), HOST_SAMPLE_RATES);
+    }
+
     /// Where the pop-out's parts were drawn on one frame.
     struct Landed {
         window: egui::Rect,
@@ -1256,6 +1764,8 @@ mod tests {
         landed: Vec<Landed>,
         /// Every request the pop-out made, in order.
         requests: Vec<MonitorRequest>,
+        /// Every seek and level change it asked of the playing voice.
+        controls: Vec<bevy_symbios_audio::ui::MonitorControl>,
         /// The text painted on the last frame.
         text: Vec<String>,
     }
@@ -1310,6 +1820,7 @@ mod tests {
         let mut run = Run {
             landed: Vec::with_capacity(frames),
             requests: Vec::new(),
+            controls: Vec::new(),
             text: Vec::new(),
         };
         for _ in 0..frames {
@@ -1342,7 +1853,10 @@ mod tests {
                 let window = show_audio_editor_window(
                     ui.ctx(),
                     editor,
-                    monitor,
+                    AudioMonitorIo {
+                        monitor,
+                        controls: &mut run.controls,
+                    },
                     default_rect,
                     screen,
                     &mut run.requests,

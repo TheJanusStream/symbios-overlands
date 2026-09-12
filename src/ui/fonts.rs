@@ -988,6 +988,7 @@ pub(crate) mod glyph_coverage_tests {
     /// circle, the die, the clipboard and the wastebasket left the list with
     /// them. What stays is what the scan of its `src/ui` finds drawn.
     const HOSTED_AUDIO_EDITOR_GLYPHS: &[char] = &[
+        '±', // U+00B1, a wire's effective sweep, "about 150 ± 250 Hz" (0.4.9)
         '·', // U+00B7, the wire-drop tooltip's separator (0.4.2)
         '×', // U+00D7, the pitch multiplier
         '—', // U+2014, the valid-graph readout, the strip's caption note
