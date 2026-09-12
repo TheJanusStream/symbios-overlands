@@ -1502,6 +1502,19 @@ pub fn avatar_ui(
         &mut editor.audio_editor,
         &mut audio,
         &mut chrome,
+        crate::ui::room::audio::AudioAudience {
+            // The same rule the Avatar window's own footer states, read
+            // from the same place (#1337 A4): a construction-kit body IS
+            // the broadcast payload, while a rigged body's parts ride a
+            // `serde(skip)` field and reach other people only on a publish.
+            visibility: if live.0.body.rigged_ref().is_some() {
+                crate::ui::editable::EditVisibility::SavedOnly
+            } else {
+                crate::ui::editable::EditVisibility::Live
+            },
+            peers: peers.iter().count(),
+            noun: "avatar",
+        },
     );
 
     // Collapse-deselect + tab-switch clear (#1103): a selection only

@@ -40,6 +40,7 @@
 
 pub(crate) mod assets;
 pub mod audio;
+pub(crate) mod audio_slots;
 pub(crate) mod caps;
 pub(crate) mod construct;
 mod contact_effects;
@@ -1621,7 +1622,20 @@ pub fn room_admin_ui(
         // in `audio_editor`'s pending map, which the matching slot's bridge
         // (room-ambient here, per-construct in the Generators tab) picks
         // up on its next frame and writes into the live record.
-        audio::draw_audio_editor_window(ctx, audio_editor, &mut audio, &mut chrome);
+        audio::draw_audio_editor_window(
+            ctx,
+            audio_editor,
+            &mut audio,
+            &mut chrome,
+            audio::AudioAudience {
+                // A room edit is broadcast on its debounce and re-baked by
+                // every visitor: the same sentence the footer above has
+                // carried since #1269, now where the sliders are (#1337 A4).
+                visibility: crate::ui::editable::EditVisibility::Live,
+                peers: peers.iter().count(),
+                noun: "world",
+            },
+        );
 
         if let Some(response) = world_editor_response.as_ref() {
             chrome.remember(

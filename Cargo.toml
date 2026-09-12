@@ -67,7 +67,7 @@ bevy_symbios_texture = { version = "0.12", features = ["egui"] }
 # re-exports the types, but a `$crate` path inside an exported macro
 # resolves to the crate that declared it.
 symbios-texture = "0.7"
-bevy_symbios_audio = { version = "0.4.7", features = ["egui"] }
+bevy_symbios_audio = { version = "0.4.8", features = ["egui"] }
 transform-gizmo-bevy = "0.11"
 symbios-avatar = "0.8"
 symbios = "1.5"

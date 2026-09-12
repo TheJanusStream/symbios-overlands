@@ -407,20 +407,73 @@ pub(crate) fn reset_ambient_bake_state(
 /// enough not to read as a missing-audio bug.
 const AMBIENT_SETTLE_SECS: f32 = 0.4;
 
+/// How long an **audio-config** edit has to stay quiet before the ambient
+/// bed is re-baked (#1337 A4).
+///
+/// Every committed edit in the audio editor lands in the live record, the
+/// record is broadcast, and **every client** — not just the owner —
+/// re-bakes its bed from the new config. A seeded-size recipe is a
+/// five-instrument, 34-beat bake, on wasm on the main thread, and the
+/// crate's editors commit on every drag end, so a minute of tuning was a
+/// minute of everyone else's world stuttering through half-finished
+/// states.
+///
+/// The owner asked for delivery to stay live rather than move behind an
+/// Apply button (#1202: the pending value is delivery, not a draft), so
+/// what is quieted is the **cost**, not the delivery — and the owner still
+/// hears each edit at once through the editor's own audition.
+///
+/// **Its own window, not a longer [`AMBIENT_SETTLE_SECS`].** The shared
+/// one exists so a sink is never born during a first-render or recompile
+/// stall; it gates the *player swap* and the first bed, where 0.4 s is
+/// tuned to be imperceptible. Raising it wholesale would delay the first
+/// bed of every session and every re-roll's swap by the same amount, none
+/// of which is the expense this is about. The expensive thing is the
+/// **bake**, so only the bake waits longer.
+const AMBIENT_AUDIO_REBAKE_SETTLE_SECS: f32 = 2.0;
+
 /// Countdown gating the ambient (re)start. Armed to [`AMBIENT_SETTLE_SECS`]
 /// on `InGame` entry and re-armed on every `LiveRoomRecord` change (a
 /// recompile/bake burst); [`swap_ambient_player_to_handle`] only acts once
 /// it drains to zero. See [`AMBIENT_SETTLE_SECS`] for the why.
+///
+/// [`Self::audio_remaining`] is a second, longer countdown that only the
+/// re-bake waits on — see [`AMBIENT_AUDIO_REBAKE_SETTLE_SECS`]. Two
+/// windows in one resource rather than two resources, because they are one
+/// mechanism: everything that arms either of them is a record change, and
+/// [`tick_ambient_settle`] is the only thing that drains either.
 #[derive(Resource)]
 pub(crate) struct AmbientSettle {
     remaining: f32,
+    /// Time left on the audio-config window. Zero whenever no audio edit
+    /// is settling, which is every frame of an ordinary session.
+    audio_remaining: f32,
 }
 
 impl Default for AmbientSettle {
     fn default() -> Self {
         Self {
             remaining: AMBIENT_SETTLE_SECS,
+            // Nothing has been edited yet: the first bed waits out the
+            // shared window only. Arming this at startup would hold the
+            // opening bed back by the re-bake's window, which is the one
+            // thing its own window exists to avoid.
+            audio_remaining: 0.0,
         }
+    }
+}
+
+impl AmbientSettle {
+    /// Start the audio-config quiet window over. Called every time a new
+    /// bed config is stashed, so a burst of drag-end commits collapses to
+    /// one bake once the owner pauses.
+    fn arm_audio_rebake(&mut self) {
+        self.audio_remaining = AMBIENT_AUDIO_REBAKE_SETTLE_SECS;
+    }
+
+    /// Whether a re-bake may dispatch now: both windows drained.
+    fn rebake_ready(&self) -> bool {
+        self.remaining <= 0.0 && self.audio_remaining <= 0.0
     }
 }
 
@@ -434,12 +487,17 @@ pub(crate) fn arm_ambient_settle(mut settle: ResMut<AmbientSettle>) {
 /// `LiveRoomRecord` changes — every record edit kicks off a recompile
 /// (and possibly an ambient re-bake), so the timer only reaches zero once
 /// the owner has paused and the heavy work has drained.
+///
+/// The audio-config window drains unconditionally alongside it: it is
+/// armed only by [`rebake_ambient_on_record_change`] stashing a new bed,
+/// so an edit that does not touch the bed must not hold it open (#1337).
 pub(crate) fn tick_ambient_settle(
     time: Res<Time>,
     room_record: Option<Res<LiveRoomRecord>>,
     mut settle: ResMut<AmbientSettle>,
     mut session_log: ResMut<crate::diagnostics::SessionLog>,
 ) {
+    settle.audio_remaining = (settle.audio_remaining - time.delta_secs()).max(0.0);
     if room_record.is_some_and(|r| r.is_changed()) {
         settle.remaining = AMBIENT_SETTLE_SECS;
     } else {
@@ -493,7 +551,7 @@ pub(crate) fn rebake_ambient_on_record_change(
     room_record: Option<Res<LiveRoomRecord>>,
     mut live_cfg: ResMut<LiveAmbientConfig>,
     mut pending: ResMut<AmbientRebakePending>,
-    settle: Res<AmbientSettle>,
+    mut settle: ResMut<AmbientSettle>,
     mut audio_cache: ResMut<crate::world_builder::audio_resolver::BlobAudioCache>,
     in_flight: Query<Entity, With<AmbientRebakeTask>>,
     time: Res<Time>,
@@ -510,12 +568,18 @@ pub(crate) fn rebake_ambient_on_record_change(
         if live_cfg.0.as_ref() != Some(&audio) {
             live_cfg.0 = Some(audio.clone());
             pending.0 = Some(audio);
+            // Restart the audio window on every bed change, so a drag's
+            // worth of drag-end commits is one bake and not one per
+            // release (#1337 A4).
+            settle.arm_audio_rebake();
         }
     }
 
-    // Wait out the same quiet window `swap_ambient_player_to_handle` uses, so a
-    // burst of edits collapses to a single bake once the owner pauses.
-    if settle.remaining > 0.0 {
+    // Wait out the quiet windows: the shared one
+    // `swap_ambient_player_to_handle` uses, and the longer audio-config one
+    // that keeps a minute of tuning from re-baking every visitor's bed a
+    // dozen times (#1337 A4).
+    if !settle.rebake_ready() {
         return;
     }
     let Some(audio) = pending.0.take() else {
@@ -660,14 +724,185 @@ pub(crate) fn poll_ambient_task<T: AmbientTask>(
 
 #[cfg(test)]
 mod tests {
-    //! Pure-function tests for [`bake_ambient_wav_bytes`]. ECS-level
-    //! flow (the system order, the AsyncComputeTaskPool dispatch, the
-    //! loading-gate transition) is exercised by manual smoke-tests
-    //! rather than wired up here — bringing up a full Bevy `App` just
-    //! to drive a one-shot loading transition is heavier than the
-    //! coverage warrants for an isolated bake helper.
+    //! Pure-function tests for [`bake_ambient_wav_bytes`], and — since
+    //! #1337 — `App`-level ones for the re-bake's quiet window, which is
+    //! a thing about *time and change ticks* and cannot be asked of a
+    //! function. The loading-gate transition itself is still a manual
+    //! smoke-test: bringing up a full `App` to drive a one-shot state
+    //! change is heavier than that coverage warrants.
+    //!
+    //! The `App` harness follows `player::humanoid`'s
+    //! `chassis_velocities`: `MinimalPlugins`, the resources the systems
+    //! actually read, and `Time` advanced by hand. It differs in one way
+    //! that matters — the systems are registered and driven with
+    //! `app.update()` rather than `run_system_once`, because every
+    //! question here is about `Res::is_changed`, and a freshly built
+    //! one-shot system has no last-run tick, so every resource would read
+    //! as changed on every call and the window would re-arm forever.
     use super::*;
     use crate::pds::{SovereignAssetReference, SovereignAudioConfig};
+    use bevy::prelude::App;
+    use std::time::Duration;
+
+    /// A bed config that really bakes, so a dispatch spawns a task
+    /// entity: `None` would only insert an `AmbientHandle`.
+    fn bed(bpm: f32) -> SovereignAudioConfig {
+        SovereignAudioConfig::Sequence {
+            recipe: crate::pds::audio::SovereignSequenceRecipe {
+                bpm: crate::pds::Fp(bpm),
+                ..Default::default()
+            },
+        }
+    }
+
+    /// A room whose live record can be edited, with the two systems this
+    /// step changed wired in the order the app runs them.
+    ///
+    /// `TimePlugin` is disabled so `Time` is ours to advance: with it in,
+    /// a frame is however long the machine took and the windows under
+    /// test would drain at the mercy of the scheduler.
+    fn app_with_a_bed(audio: SovereignAudioConfig) -> App {
+        let mut app = App::new();
+        app.add_plugins(
+            bevy::MinimalPlugins
+                .build()
+                .disable::<bevy::time::TimePlugin>(),
+        );
+        app.init_resource::<Time>();
+        let mut record = crate::pds::room::RoomRecord::default();
+        record.environment.ambient_audio = audio;
+        app.insert_resource(LiveRoomRecord(record));
+        app.init_resource::<AmbientSettle>();
+        app.init_resource::<AmbientRebakePending>();
+        app.init_resource::<LiveAmbientConfig>();
+        app.init_resource::<crate::world_builder::audio_resolver::BlobAudioCache>();
+        app.init_resource::<crate::diagnostics::SessionLog>();
+        app.add_systems(
+            Update,
+            (tick_ambient_settle, rebake_ambient_on_record_change).chain(),
+        );
+        app
+    }
+
+    /// One frame `secs` long.
+    fn step(app: &mut App, secs: f32) {
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs_f32(secs));
+        app.update();
+    }
+
+    /// How many re-bakes are in flight.
+    fn in_flight(app: &mut App) -> usize {
+        app.world_mut()
+            .query_filtered::<Entity, With<AmbientRebakeTask>>()
+            .iter(app.world())
+            .count()
+    }
+
+    /// Edit the bed, as a drag end in the audio editor does.
+    fn edit_bed(app: &mut App, bpm: f32) {
+        app.world_mut()
+            .resource_mut::<LiveRoomRecord>()
+            .0
+            .environment
+            .ambient_audio = bed(bpm);
+    }
+
+    /// A4's quiet window: an audio-config edit waits out its own longer
+    /// window, not the 0.4 s one the player start uses.
+    ///
+    /// Every client re-bakes its bed when the record's bed changes, and
+    /// the crate's editors commit on every drag end — so what this buys
+    /// is a minute of tuning costing everyone else one bake instead of
+    /// thirty.
+    #[test]
+    fn an_audio_edit_waits_out_its_own_longer_window() {
+        let mut app = app_with_a_bed(bed(120.0));
+        // The first frame is the record's own insertion: it stashes and
+        // arms, as any other change does.
+        step(&mut app, 0.016);
+        assert_eq!(in_flight(&mut app), 0, "it baked on the frame of the edit");
+
+        // Past the shared window, which is all the old code waited for.
+        step(&mut app, AMBIENT_SETTLE_SECS + 0.05);
+        assert_eq!(
+            in_flight(&mut app),
+            0,
+            "the bed re-baked after the player-start window alone"
+        );
+
+        step(&mut app, AMBIENT_AUDIO_REBAKE_SETTLE_SECS);
+        assert_eq!(
+            in_flight(&mut app),
+            1,
+            "the bed never re-baked once its own window drained"
+        );
+    }
+
+    /// A burst of drag-end commits is one bake, not one per release.
+    #[test]
+    fn a_burst_of_audio_edits_bakes_once() {
+        let mut app = app_with_a_bed(bed(120.0));
+        for bpm in [90.0, 100.0, 110.0, 130.0] {
+            edit_bed(&mut app, bpm);
+            step(&mut app, 0.3);
+        }
+        assert_eq!(in_flight(&mut app), 0, "a mid-burst edit dispatched a bake");
+        step(&mut app, AMBIENT_AUDIO_REBAKE_SETTLE_SECS + 0.05);
+        assert_eq!(in_flight(&mut app), 1, "the burst did not bake once");
+        assert_eq!(
+            app.world().resource::<LiveAmbientConfig>().0,
+            Some(bed(130.0)),
+            "the one bake is not of the last edit"
+        );
+    }
+
+    /// And a re-bake that arrives while one is still running supersedes
+    /// it rather than queueing behind it. This has been true since the
+    /// system was written — the assertion is here so it stays true, since
+    /// it is half of what the quiet window is worth.
+    #[test]
+    fn a_settled_rebake_supersedes_the_one_in_flight() {
+        let mut app = app_with_a_bed(bed(120.0));
+        // The record's own arrival is the first change; the window runs
+        // from there.
+        step(&mut app, 0.016);
+        step(&mut app, AMBIENT_AUDIO_REBAKE_SETTLE_SECS + 0.05);
+        assert_eq!(in_flight(&mut app), 1, "nothing is baking to supersede");
+
+        edit_bed(&mut app, 140.0);
+        step(&mut app, 0.016);
+        step(&mut app, AMBIENT_AUDIO_REBAKE_SETTLE_SECS + 0.05);
+        assert_eq!(
+            in_flight(&mut app),
+            1,
+            "the second bake queued behind the first instead of replacing it"
+        );
+    }
+
+    /// An edit that does not touch the bed neither bakes nor holds the
+    /// audio window open — terrain, colours and scatters are most of what
+    /// the room editor does, and they must not pay for this.
+    #[test]
+    fn an_edit_that_leaves_the_bed_alone_does_not_arm_the_audio_window() {
+        let mut app = app_with_a_bed(SovereignAudioConfig::None);
+        step(&mut app, 0.016);
+        step(&mut app, AMBIENT_AUDIO_REBAKE_SETTLE_SECS + 0.05);
+
+        app.world_mut()
+            .resource_mut::<LiveRoomRecord>()
+            .0
+            .environment
+            .sun_color = crate::pds::Fp3([0.5, 0.5, 0.5]);
+        step(&mut app, 0.016);
+        assert_eq!(in_flight(&mut app), 0);
+        assert_eq!(
+            app.world().resource::<AmbientSettle>().audio_remaining,
+            0.0,
+            "a colour edit started the bed's quiet window"
+        );
+    }
 
     /// #1246 f341's drift risk, as a source walk. `AmbientResolveFailed`
     /// explains one `AmbientHandle`; a stale one would tell the next room

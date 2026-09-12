@@ -110,12 +110,9 @@ impl AmbientRecipe {
 
         let recipe = SequenceRecipe {
             bpm: 60.0,
-            // 22.05 kHz halves the baked WAV and its decoded playback buffer
-            // versus 44.1 kHz; the ambient bed's pad / drone content sits well
-            // within the 11 kHz Nyquist, so the memory win is inaudible. On
-            // wasm this is doubly worth it — freed linear memory never returns
-            // to the OS, so every re-bake's high-water mark is permanent (#568).
-            sample_rate: 22_050,
+            // Why 22.05 kHz, and who else has to agree about it:
+            // `config::interaction::audio::WORLD_BED_SAMPLE_RATE` (#568).
+            sample_rate: crate::config::interaction::audio::WORLD_BED_SAMPLE_RATE,
             duration_beats: WARMUP_BEATS + LOOP_BEATS,
             loop_start_beats: Some(WARMUP_BEATS),
             loop_crossfade_beats: CROSSFADE_BEATS,

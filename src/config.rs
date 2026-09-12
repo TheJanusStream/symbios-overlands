@@ -670,6 +670,31 @@ pub(crate) mod interaction {
         /// evicted (an attacker streaming randomised source URLs can't
         /// grow client memory without bound).
         pub const MAX_CACHE_ENTRIES: usize = 64;
+
+        /// The rate this world bakes and plays a procedural bed at
+        /// (#568, #1337 C7).
+        ///
+        /// 22.05 kHz halves the baked WAV and the decoded playback buffer
+        /// against 44.1, and the pad and drone content a bed is made of
+        /// sits well inside the 11 kHz Nyquist, so the memory win is
+        /// inaudible. On wasm it is worth double: freed linear memory
+        /// never returns to the OS, so every re-bake's high-water mark is
+        /// permanent.
+        ///
+        /// Named here because three places have to agree about it and
+        /// used to do so by coincidence: the seeded ambient bed
+        /// (`seeded_defaults::room::audio`), the recipe a NEW Sequence
+        /// slot is born as (`ui::room::audio::new_sequence_recipe`), and
+        /// the rates that editor's picker offers. The second of the three
+        /// was 44 100, so every hand-authored bed cost twice the generated
+        /// one for no audible gain.
+        ///
+        /// It is deliberately NOT read by
+        /// `pds::audio::SovereignSequenceRecipe::default`: that is a
+        /// mirror of upstream's own default and is held to it field for
+        /// field, so that a value drifting upstream is caught rather than
+        /// quietly re-meaning. A world's taste is not a schema default.
+        pub const WORLD_BED_SAMPLE_RATE: u32 = 22_050;
     }
 }
 

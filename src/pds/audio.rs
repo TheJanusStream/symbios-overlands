@@ -751,6 +751,17 @@ pub struct SovereignSequenceRecipe {
 }
 
 impl Default for SovereignSequenceRecipe {
+    /// **Upstream's default, field for field**, and not this world's
+    /// taste.
+    ///
+    /// `mirror_defaults_match_upstream` holds every mirror's `Default` to
+    /// the one it mirrors, which is how a field that drifts upstream is
+    /// caught rather than silently re-meaning. Putting the world's
+    /// preferred bed rate here (#1337 C7) is therefore the wrong door and
+    /// the guard says so: what a NEW slot starts at is the *editor's*
+    /// question, answered by `ui::room::audio::new_sequence_recipe` — the
+    /// Sequence preset the variant picker makes a slot from — and by
+    /// [`WORLD_BED_SAMPLE_RATE`](crate::config::interaction::audio::WORLD_BED_SAMPLE_RATE).
     fn default() -> Self {
         Self {
             bpm: Fp(120.0),

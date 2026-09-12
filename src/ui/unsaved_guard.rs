@@ -290,34 +290,72 @@ impl DirtyRecords {
     }
 }
 
-/// The six live/stored record resources the dirty computation diffs.
+/// The six live/stored record resources the dirty computation diffs, plus
+/// the two homes of the pop-out audio editor's staged commits.
+///
+/// The live records are held mutably so that
+/// [`Self::land_staged_audio`] can put a staged commit where it belongs
+/// before the publish that is about to serialize them (#1337 A5). Nothing
+/// here dereferences them mutably otherwise, so the read-only users of
+/// this param still move no change tick.
 #[derive(SystemParam)]
 pub struct GuardRecords<'w> {
-    live_room: Option<Res<'w, LiveRoomRecord>>,
+    live_room: Option<ResMut<'w, LiveRoomRecord>>,
     stored_room: Option<Res<'w, StoredRoomRecord>>,
-    live_avatar: Option<Res<'w, LiveAvatarRecord>>,
+    live_avatar: Option<ResMut<'w, LiveAvatarRecord>>,
     stored_avatar: Option<Res<'w, StoredAvatarRecord>>,
     live_inventory: Option<Res<'w, LiveInventoryRecord>>,
     stored_inventory: Option<Res<'w, StoredInventoryRecord>>,
+    /// The two `AudioEditorState`s — the room's and the avatar's. There
+    /// are two because the pop-out serves two windows, and a fix that
+    /// looked at one of them would lose the other's work exactly as
+    /// silently as looking at neither did.
+    room_editor: ResMut<'w, crate::ui::room::RoomEditorState>,
+    avatar_editor: ResMut<'w, crate::ui::avatar::AvatarEditorState>,
 }
 
 impl GuardRecords<'_> {
     /// Diff every live record against its stored mirror. `owns_room`
     /// gates the room diff — see [`DirtyRecords`].
+    ///
+    /// **A staged audio commit counts too** (#1337 A5). The pop-out audio
+    /// editor stages a committed edit under the bound slot's salt and the
+    /// slot's bridge lands it the next time it draws (#1202) — so between
+    /// the commit and the next draw of that panel the edit exists only in
+    /// `AudioEditorState`, where a record diff cannot see it and the
+    /// logout reset destroys it. It is asked here rather than in the
+    /// dialog so that every reader of the dirty set gets the same answer:
+    /// the guard, the native window-close intercept, and the wasm
+    /// `beforeunload` mirror.
     fn compute(&self, owns_room: bool) -> DirtyRecords {
+        let staged_room = owns_room
+            && self.live_room.as_deref().is_some_and(|live| {
+                crate::ui::room::audio_slots::room_pending_would_change(
+                    &self.room_editor.audio_editor,
+                    &live.0,
+                )
+            });
+        let staged_avatar = self.live_avatar.as_deref().is_some_and(|live| {
+            crate::ui::room::audio_slots::avatar_pending_would_change(
+                &self.avatar_editor.audio_editor,
+                &live.0,
+            )
+        });
         let differ_room = owns_room
-            && match (&self.live_room, &self.stored_room) {
-                (Some(live), Some(stored)) => records_differ(&live.0, &stored.0),
-                _ => false,
-            };
+            && (staged_room
+                || match (&self.live_room, &self.stored_room) {
+                    (Some(live), Some(stored)) => records_differ(&live.0, &stored.0),
+                    _ => false,
+                });
         // Avatar-specific (#1059): a rigged body's payload rides on the
         // serde-skipped `resolved`, so a plain wire compare would call a
         // sculpted body clean and let the logout guard drop the work. One
         // shared derivation with the Save row and Ctrl+S (#1138).
-        let differ_avatar = match (&self.live_avatar, &self.stored_avatar) {
-            (Some(live), Some(stored)) => avatar_is_dirty(&live.0, &stored.0),
-            _ => false,
-        };
+        let differ_avatar = staged_avatar
+            || match (&self.live_avatar, &self.stored_avatar) {
+                (Some(live), Some(stored)) => avatar_is_dirty(&live.0, &stored.0),
+                _ => false,
+            };
         let differ_inventory = match (&self.live_inventory, &self.stored_inventory) {
             (Some(live), Some(stored)) => records_differ(&live.0, &stored.0),
             _ => false,
@@ -327,6 +365,51 @@ impl GuardRecords<'_> {
             avatar: differ_avatar,
             inventory: differ_inventory,
         }
+    }
+}
+
+impl GuardRecords<'_> {
+    /// Put every staged audio commit into the record it belongs to, and
+    /// report how many moved a value.
+    ///
+    /// Called on the way into a publish, because the publish serializes
+    /// the live record and a commit that has not reached it is a commit
+    /// the save does not contain — and, a moment later, a commit the
+    /// logout reset throws away. It resolves each salt against the record
+    /// itself rather than waiting for the slot's panel to be on screen;
+    /// see [`crate::ui::room::audio_slots`].
+    ///
+    /// Deliberately *not* run every frame. The staged value is delivery
+    /// and not a draft (#1202), but the bridge is still the door it goes
+    /// through in the ordinary case: it is the one place that also marks
+    /// the room's edit debounce and names the undo step. This is the door
+    /// for the case where there is no next frame.
+    /// **Nothing staged, nothing touched.** `ResMut::deref_mut` stamps the
+    /// change tick unconditionally, and a stamped `LiveRoomRecord` is a
+    /// peer broadcast, a world recompile and a re-armed ambient re-bake
+    /// window — for a publish that had no audio edit in it at all. It is
+    /// the same shape as #1340 (a whole `&mut` taken before anyone knows
+    /// whether there is a change to make), which is why the check is here
+    /// and not inside the walk.
+    fn land_staged_audio(&mut self) -> usize {
+        let mut landed = 0;
+        if !self.room_editor.audio_editor.pending_is_empty()
+            && let Some(live) = self.live_room.as_deref_mut()
+        {
+            landed += crate::ui::room::audio_slots::land_room(
+                &mut self.room_editor.audio_editor,
+                &mut live.0,
+            );
+        }
+        if !self.avatar_editor.audio_editor.pending_is_empty()
+            && let Some(live) = self.live_avatar.as_deref_mut()
+        {
+            landed += crate::ui::room::audio_slots::land_avatar(
+                &mut self.avatar_editor.audio_editor,
+                &mut live.0,
+            );
+        }
+        landed
     }
 }
 
@@ -432,7 +515,7 @@ pub fn unsaved_guard_ui(
     mut contexts: EguiContexts,
     mut commands: Commands,
     mut guard: ResMut<UnsavedGuard>,
-    records: GuardRecords,
+    mut records: GuardRecords,
     mut feedbacks: GuardFeedbacks,
     tasks: GuardPublishTasks,
     recoveries: RecoveryMarkers,
@@ -631,6 +714,11 @@ pub fn unsaved_guard_ui(
             {
                 answered = true;
                 guard.notice = None;
+                // Before anything is serialized: a commit staged in the
+                // pop-out audio editor is part of what the owner asked to
+                // save, and every record below is about to be cloned as
+                // it stands (#1337 A5).
+                records.land_staged_audio();
                 if dirty.room
                     && let Some(live) = records.live_room.as_deref()
                 {
@@ -1096,5 +1184,189 @@ mod tests {
         assert!(dirty(false, true, false).blocks(&GuardedAction::Logout));
         assert!(dirty(false, false, true).blocks(&GuardedAction::Logout));
         assert!(!dirty(false, false, false).blocks(&GuardedAction::Logout));
+    }
+    // -----------------------------------------------------------------
+    // Staged audio commits (#1337 A5)
+    // -----------------------------------------------------------------
+    //
+    // These run against a real `World` rather than calling `compute`'s
+    // arithmetic directly, because the whole defect was about which
+    // resources the question is asked of: the guard read the records and
+    // nothing else, and the edit was in neither of them.
+
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::prelude::{App, World};
+
+    use crate::pds::SovereignAudioConfig;
+    use crate::pds::audio::SovereignAudioPatch;
+    use crate::pds::generator::Generator;
+    use crate::pds::room::RoomRecord;
+    use crate::ui::avatar::AvatarEditorState;
+    use crate::ui::room::RoomEditorState;
+
+    fn audio(seed: u32) -> SovereignAudioConfig {
+        SovereignAudioConfig::Patch {
+            patch: SovereignAudioPatch {
+                seed,
+                ..Default::default()
+            },
+        }
+    }
+
+    /// A room with one generator root called `oak`, live and stored in
+    /// step — so anything the guard calls dirty came from this step's
+    /// work and not from the fixture.
+    fn world_with_a_saved_room() -> App {
+        let mut app = App::new();
+        let mut record = RoomRecord::default();
+        record.generators.insert(
+            "oak".to_string(),
+            Generator {
+                kind: crate::ui::room::construct::make_default_for_kind("Cuboid"),
+                ..Default::default()
+            },
+        );
+        app.insert_resource(LiveRoomRecord(record.clone()));
+        app.insert_resource(StoredRoomRecord(record));
+        app.init_resource::<RoomEditorState>();
+        app.init_resource::<AvatarEditorState>();
+        app
+    }
+
+    fn dirty_set(world: &mut World) -> DirtyRecords {
+        world
+            .run_system_once(|records: GuardRecords| records.compute(true))
+            .expect("the dirty set is computed")
+    }
+
+    /// The control and the defect in one test: a saved room is clean, and
+    /// stays clean under a commit that says what the record already says —
+    /// then a commit the record does not hold is unsaved work, and blocks
+    /// a logout.
+    #[test]
+    fn a_staged_audio_commit_is_unsaved_work() {
+        let mut app = world_with_a_saved_room();
+        assert!(
+            !dirty_set(app.world_mut()).room,
+            "the fixture is dirty before anything is staged"
+        );
+
+        app.world_mut()
+            .resource_mut::<RoomEditorState>()
+            .audio_editor
+            .stage_for_test("gen_oak", audio(1));
+
+        let set = dirty_set(app.world_mut());
+        assert!(
+            set.room,
+            "a commit staged in the pop-out editor is not counted as unsaved work"
+        );
+        assert!(
+            set.blocks(&GuardedAction::Logout),
+            "the logout is not blocked by it"
+        );
+    }
+
+    /// The avatar's own editor is a second home for the same state, and a
+    /// fix that saw only the room's would lose it just as silently.
+    #[test]
+    fn a_staged_avatar_audio_commit_is_unsaved_work() {
+        let mut app = world_with_a_saved_room();
+        let mut record = crate::pds::avatar::AvatarRecord::wearing("3jzfcijpj2z2a");
+        record.body = crate::pds::avatar::AvatarBody::generator(Generator {
+            kind: crate::ui::room::construct::make_default_for_kind("Cuboid"),
+            ..Default::default()
+        });
+        app.insert_resource(LiveAvatarRecord(record.clone()));
+        app.insert_resource(StoredAvatarRecord(record));
+        assert!(
+            !dirty_set(app.world_mut()).avatar,
+            "the avatar fixture is dirty before anything is staged"
+        );
+
+        let salt = crate::ui::room::generators::node_salt(&crate::ui::room::GenNodeId::root(
+            crate::pds::avatar::VISUALS_ROOT_NAME,
+        ));
+        app.world_mut()
+            .resource_mut::<AvatarEditorState>()
+            .audio_editor
+            .stage_for_test(&salt, audio(2));
+
+        let set = dirty_set(app.world_mut());
+        assert!(
+            set.avatar,
+            "a commit staged from the avatar's Visuals tab is not counted"
+        );
+        assert!(set.blocks(&GuardedAction::Logout));
+    }
+
+    /// An ordinary publish — nobody has opened the audio editor — must not
+    /// stamp the record's change tick on its way past. A stamped
+    /// `LiveRoomRecord` is a peer broadcast, a world recompile and a
+    /// re-armed ambient re-bake window, and `ResMut::deref_mut` stamps it
+    /// whether or not anything was written (the #1340 shape).
+    #[test]
+    fn landing_nothing_touches_nothing() {
+        let mut app = world_with_a_saved_room();
+        app.world_mut().clear_trackers();
+        let landed = app
+            .world_mut()
+            .run_system_once(|mut records: GuardRecords| records.land_staged_audio())
+            .expect("the landing runs");
+        assert_eq!(landed, 0);
+        assert!(
+            !app.world().is_resource_changed::<LiveRoomRecord>(),
+            "a publish with no staged audio edit still stamped the room record"
+        );
+    }
+
+    /// A visitor's staged commit is not the visitor's work to save, on the
+    /// same terms as every other room edit they can make live.
+    #[test]
+    fn a_staged_room_commit_is_owner_gated_like_the_record_is() {
+        let mut app = world_with_a_saved_room();
+        app.world_mut()
+            .resource_mut::<RoomEditorState>()
+            .audio_editor
+            .stage_for_test("gen_oak", audio(1));
+        let set = app
+            .world_mut()
+            .run_system_once(|records: GuardRecords| records.compute(false))
+            .expect("the dirty set is computed");
+        assert!(!set.room, "a visitor is asked to save the host's room");
+    }
+
+    /// And it lands where it belongs on the way into the publish, without
+    /// the slot's own panel ever having been drawn.
+    #[test]
+    fn the_publish_path_lands_a_staged_commit_first() {
+        let mut app = world_with_a_saved_room();
+        app.world_mut()
+            .resource_mut::<RoomEditorState>()
+            .audio_editor
+            .stage_for_test("gen_oak", audio(1));
+
+        let landed = app
+            .world_mut()
+            .run_system_once(|mut records: GuardRecords| records.land_staged_audio())
+            .expect("the commit lands");
+        assert_eq!(landed, 1);
+        assert_eq!(
+            app.world().resource::<LiveRoomRecord>().0.generators["oak"].audio,
+            audio(1),
+            "the record the publish is about to serialize does not hold the edit"
+        );
+        assert!(
+            app.world()
+                .resource::<RoomEditorState>()
+                .audio_editor
+                .pending_is_empty(),
+            "the commit is still staged after landing"
+        );
+        assert!(
+            dirty_set(app.world_mut()).room,
+            "the room went clean when the edit landed — the publish about to \
+             run would write the record it was already storing"
+        );
     }
 }

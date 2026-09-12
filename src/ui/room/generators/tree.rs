@@ -714,7 +714,7 @@ pub(super) fn path_string(path: &[usize]) -> String {
 /// Stable per-node salt for egui IDs. Includes the root key + child path
 /// so collapsing one Cuboid never affects a sibling Cuboid drawn with the
 /// same widget set.
-pub(super) fn node_salt(id: &GenNodeId) -> String {
+pub(crate) fn node_salt(id: &GenNodeId) -> String {
     let mut s = format!("gen_{}", id.root);
     for i in &id.path {
         s.push('_');

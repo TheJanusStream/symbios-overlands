@@ -107,6 +107,64 @@ impl AudioEditorIo<'_> {
     }
 }
 
+/// The sample rates a Sequence slot in this world may be baked at
+/// (#1337 C7).
+///
+/// The crate's picker offers 22 050 through 96 000, which is the right
+/// ladder for a host that knows nothing about its content. This one does:
+/// the rate on a recipe is the rate the world bakes at and holds the
+/// decoded buffer at for as long as the bed plays, mono 32-bit float, and
+/// the seeded ambient bed has used 22 050 since #568 because its pad and
+/// drone content sits well inside the 11 kHz Nyquist. 96 000 therefore
+/// only ever bought four times the memory for the same sound — and on
+/// wasm, where freed linear memory never returns to the OS, a re-bake's
+/// high-water mark is permanent.
+///
+/// 44 100 stays, because a slot is not only ever an ambient bed: a
+/// percussive or bright construct effect can have content above 11 kHz,
+/// and the choice is the owner's to make with the cost written next to it.
+/// A recipe already at a rate that is not here still shows it and is never
+/// rewritten — see `SequenceEditorState::offered_sample_rates`.
+const HOST_SAMPLE_RATES: &[u32] = &[
+    crate::config::interaction::audio::WORLD_BED_SAMPLE_RATE,
+    44_100,
+];
+
+/// The recipe a NEW Sequence slot starts as: the schema's default at this
+/// world's bed rate (#1337 C7).
+///
+/// Not `SovereignSequenceRecipe::default` itself. That is a *mirror* of
+/// `bevy_symbios_audio::SequenceRecipe`, held field for field to upstream's
+/// own default by `pds::audio::tests::mirror_defaults_match_upstream` so a
+/// value that drifts upstream is caught instead of quietly re-meaning —
+/// and upstream is right to default to 44 100, which is the sensible
+/// answer for a host that has not said otherwise. This world has: its beds
+/// are baked and held at [`WORLD_BED_SAMPLE_RATE`], and a new slot at
+/// double that cost twice the memory of the generated bed beside it for
+/// content nowhere near the higher Nyquist. Which rate a slot is *born*
+/// at is the editor's question, so it is answered here.
+///
+/// [`WORLD_BED_SAMPLE_RATE`]: crate::config::interaction::audio::WORLD_BED_SAMPLE_RATE
+fn new_sequence_recipe() -> SovereignSequenceRecipe {
+    SovereignSequenceRecipe {
+        sample_rate: crate::config::interaction::audio::WORLD_BED_SAMPLE_RATE,
+        ..Default::default()
+    }
+}
+
+/// A fresh sequence editor for a slot in this world: the crate's, with
+/// this host's rate choices in it.
+///
+/// One door for both places a `Sequence` working copy is seeded — opening
+/// a slot, and a variant switch to `Sequence` — because a second one that
+/// forgot would be an editor offering rates the world does not want, and
+/// nothing on screen would say which of the two it was.
+fn new_sequence_editor() -> SequenceEditorState {
+    let mut state = SequenceEditorState::default();
+    state.set_sample_rates(HOST_SAMPLE_RATES);
+    state
+}
+
 /// Persistent state for the pop-out audio editor window. Lives on
 /// [`super::RoomEditorState`]; default is "closed, no working copy".
 ///
@@ -213,7 +271,7 @@ impl AudioEditorState {
                 self.patch = Some((patch.to_native(), PatchEditorState::default()));
             }
             SovereignAudioConfig::Sequence { recipe } => {
-                self.sequence = Some((recipe.to_native(), SequenceEditorState::default()));
+                self.sequence = Some((recipe.to_native(), new_sequence_editor()));
             }
             // Only procedural variants have an editor; others never set
             // open via the bridge button.
@@ -227,9 +285,41 @@ impl AudioEditorState {
         self.pending.insert(self.salt.clone(), audio);
     }
 
-    /// The bridge for `salt` takes its pending commit, if any.
-    pub(crate) fn take_pending(&mut self, salt: &str) -> Option<SovereignAudioConfig> {
-        self.pending.remove(salt)
+    /// Take `salt`'s pending commit **and record that it has landed**.
+    ///
+    /// The delivery half of [`Self::commit`], and the only way a commit
+    /// should leave this map: the value going into the record is the value
+    /// this window last agreed with, so the record coming back changed is
+    /// not an outside edit to be re-seeded from (#1333 A9). The bridge
+    /// takes this door, and so does
+    /// [`audio_slots::land_pending`](super::audio_slots::land_pending) for
+    /// the slots whose bridge is not on screen to take it (#1337 A5).
+    pub(crate) fn land(&mut self, salt: &str) -> Option<SovereignAudioConfig> {
+        let landed = self.pending.remove(salt)?;
+        if self.salt == salt {
+            self.agreed = Some(landed.clone());
+        }
+        Some(landed)
+    }
+
+    /// Whether anything at all is staged. The cheap first question, so the
+    /// guard's walk over a record's every node is skipped in the ordinary
+    /// case — which is every frame in which the owner has not just
+    /// committed an audio edit.
+    pub(crate) fn pending_is_empty(&self) -> bool {
+        self.pending.is_empty()
+    }
+
+    /// What is staged for `salt`, without taking it.
+    pub(crate) fn peek_pending(&self, salt: &str) -> Option<&SovereignAudioConfig> {
+        self.pending.get(salt)
+    }
+
+    /// Stage a commit for `salt` from a test, standing in for the drag end
+    /// that would have staged it.
+    #[cfg(test)]
+    pub(crate) fn stage_for_test(&mut self, salt: &str, audio: SovereignAudioConfig) {
+        self.pending.insert(salt.to_string(), audio);
     }
 
     /// Forget a pending commit for `salt` — the slot changed variant
@@ -294,7 +384,7 @@ impl AudioEditorState {
                                 view.note_external_change(copy);
                             }
                             None => {
-                                self.sequence = Some((value, SequenceEditorState::default()));
+                                self.sequence = Some((value, new_sequence_editor()));
                                 self.patch = None;
                             }
                         }
@@ -522,14 +612,9 @@ pub(super) fn draw_audio_bridge(
     // salt, so the window itself stays slot-agnostic — see
     // [`AudioEditorState`]). Whether or not the window is still open or
     // still bound here: a commit is delivered, never dropped (#1202).
-    if let Some(committed) = editor.take_pending(salt) {
+    if let Some(committed) = editor.land(salt) {
         *audio = committed;
         *dirty = true;
-        // Delivered: the record now holds what the editor last agreed with,
-        // so this is not an outside change (#1333 A9).
-        if editor.salt == salt {
-            editor.agreed = Some(audio.clone());
-        }
     }
     // Anything else that moved this slot — a room undo or redo, a revert, a
     // reload, a re-rolled seed — the open window follows.
@@ -562,7 +647,7 @@ pub(super) fn draw_audio_bridge(
                 (
                     "Sequence",
                     SovereignAudioConfig::Sequence {
-                        recipe: SovereignSequenceRecipe::default(),
+                        recipe: new_sequence_recipe(),
                     },
                 ),
             ];
@@ -739,6 +824,34 @@ fn trimmed(value: f32) -> String {
     text.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
+/// Who is hearing the edits this window makes, and under what noun.
+///
+/// The pop-out is where the audio edits are actually made and it said
+/// nothing about any of this: a committed edit lands in the live record,
+/// the record is broadcast on its debounce, and every visitor re-bakes
+/// their bed from it — so a slider drag is heard, half-finished, by
+/// everyone in the room (#1337 A4). The World Editor's own footer has
+/// carried that sentence since #1269; the window floating above it did
+/// not, and the window is the one with the sliders in it.
+///
+/// Carried in rather than derived here, because only the host knows: the
+/// room's pop-out is always [`Live`](crate::ui::editable::EditVisibility::Live),
+/// while the avatar's
+/// depends on the body kind — a construction-kit body IS the broadcast
+/// payload, and a rigged one's rides a `serde(skip)` field, so its parts
+/// reach other people only on a publish. That is the same rule the Avatar
+/// window's own footer states, read from the same place.
+#[derive(Clone, Copy)]
+pub(crate) struct AudioAudience {
+    /// Whether these edits go out as they are made.
+    pub(crate) visibility: crate::ui::editable::EditVisibility,
+    /// How many other people are in the world right now.
+    pub(crate) peers: usize,
+    /// What the owner calls the thing being edited, for the saved-only
+    /// wording ("Others see your last saved avatar").
+    pub(crate) noun: &'static str,
+}
+
 /// Render the pop-out audio editor window, if open. Edits the native
 /// working copy held in `editor`; on a committed change stages the
 /// converted sovereign value as the bound slot's pending edit, for its
@@ -753,6 +866,7 @@ pub(crate) fn draw_audio_editor_window(
     editor: &mut AudioEditorState,
     io: &mut AudioEditorIo,
     chrome: &mut crate::ui::layout::WindowChrome,
+    audience: AudioAudience,
 ) {
     if !editor.open {
         return;
@@ -777,6 +891,7 @@ pub(crate) fn draw_audio_editor_window(
             chrome.available_rect(ctx),
             &mut outbox,
             muted,
+            audience,
         )
     });
     if let Some(rect) = shown {
@@ -791,6 +906,12 @@ pub(crate) fn draw_audio_editor_window(
 /// `constrain` the rect it must stay in. Monitor requests the body makes
 /// land in `requests`; `muted` is the app-wide mute, which the banner's
 /// Unmute clears. Returns the window's rect when it was shown.
+// Eight, one past clippy's line, and the same reason `draw_audio_bridge`
+// above carries the allow: every one of them is a distinct thing the host
+// holds and the window does not — the context, the state, the monitor, two
+// rects, the outbox, the mute and who is listening. Bundling any pair would
+// group them by arity rather than by meaning.
+#[allow(clippy::too_many_arguments)]
 fn show_audio_editor_window(
     ctx: &egui::Context,
     editor: &mut AudioEditorState,
@@ -799,6 +920,7 @@ fn show_audio_editor_window(
     constrain: egui::Rect,
     requests: &mut Vec<MonitorRequest>,
     muted: &mut bool,
+    audience: AudioAudience,
 ) -> Option<egui::Rect> {
     let id = editor_id(&editor.salt);
     let mut keep_open = true;
@@ -818,7 +940,16 @@ fn show_audio_editor_window(
         .default_pos(default_rect.min)
         .constrain_to(constrain)
         .show(ctx, |ui| {
-            audio_editor_body(ui, editor, monitor, id, slot_on_screen, requests, muted);
+            audio_editor_body(
+                ui,
+                editor,
+                monitor,
+                id,
+                slot_on_screen,
+                requests,
+                muted,
+                audience,
+            );
         })
         .map(|shown| shown.response.rect);
 
@@ -854,6 +985,7 @@ fn region<R>(ui: &mut egui::Ui, id: egui::Id, add: impl FnOnce(&mut egui::Ui) ->
 }
 
 /// Everything inside the pop-out's window.
+#[allow(clippy::too_many_arguments)]
 fn audio_editor_body(
     ui: &mut egui::Ui,
     editor: &mut AudioEditorState,
@@ -862,7 +994,12 @@ fn audio_editor_body(
     slot_on_screen: bool,
     requests: &mut Vec<MonitorRequest>,
     muted: &mut bool,
+    audience: AudioAudience,
 ) {
+    // First line in the body, under the title: a mode indicator, not a
+    // footnote. Everything below it is a control that goes out live.
+    crate::ui::editable::audience_notice(ui, audience.visibility, audience.peers, audience.noun);
+    ui.add_space(4.0);
     if !slot_on_screen {
         let stranded = editor.has_pending(&editor.salt);
         ui.colored_label(
@@ -1016,7 +1153,7 @@ mod tests {
         editor.commit(SovereignAudioConfig::Patch { patch: edited });
 
         // The selection moves: another slot's bridge draws and takes nothing.
-        assert!(editor.take_pending("gen_birch_0").is_none());
+        assert!(editor.land("gen_birch_0").is_none());
         // The window closes.
         editor.close();
         assert!(!editor.open);
@@ -1025,7 +1162,7 @@ mod tests {
             "closing is not un-committing"
         );
         // The row is reselected: the bridge lands the edit.
-        let landed = editor.take_pending("gen_oak_1").expect("the edit lands");
+        let landed = editor.land("gen_oak_1").expect("the edit lands");
         assert!(matches!(landed, SovereignAudioConfig::Patch { patch } if patch.seed == 77));
         assert!(!editor.has_pending("gen_oak_1"));
     }
@@ -1136,6 +1273,29 @@ mod tests {
         click: Option<&str>,
         muted: &mut bool,
     ) -> Run {
+        run_pop_out_seen_by(
+            editor,
+            monitor,
+            frames,
+            click,
+            muted,
+            AudioAudience {
+                visibility: crate::ui::editable::EditVisibility::Live,
+                peers: 0,
+                noun: "world",
+            },
+        )
+    }
+
+    /// [`run_pop_out`] with the audience the window is told it has.
+    fn run_pop_out_seen_by(
+        editor: &mut AudioEditorState,
+        monitor: &AudioMonitor,
+        frames: usize,
+        click: Option<&str>,
+        muted: &mut bool,
+        audience: AudioAudience,
+    ) -> Run {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0));
@@ -1187,6 +1347,7 @@ mod tests {
                     screen,
                     &mut run.requests,
                     muted,
+                    audience,
                 );
                 let read = |region| ui.ctx().read_response(region).map(|r| r.rect);
                 if let (Some(window), Some(strip), Some(canvas)) =
@@ -1728,6 +1889,153 @@ mod tests {
         assert_eq!(
             reseed_decision(Some(&sine_slot(440.0)), &SovereignAudioConfig::None, false),
             Reseed::Take
+        );
+    }
+    // -----------------------------------------------------------------
+    // Who is hearing this, and the rates this world offers (#1337 A4, C7)
+    // -----------------------------------------------------------------
+
+    /// The one honest sentence about who is hearing the edits, in the
+    /// window where they are made.
+    ///
+    /// The wording itself is `editable::audience_line`'s and is tested
+    /// there; what this asks is that the pop-out says it at all, and says
+    /// the right one — the defect was a window full of live controls with
+    /// nothing on it about the room.
+    #[test]
+    fn the_pop_out_says_who_is_hearing_the_edits() {
+        let live = |peers| AudioAudience {
+            visibility: crate::ui::editable::EditVisibility::Live,
+            peers,
+            noun: "world",
+        };
+        for (audience, expected) in [
+            (
+                live(0),
+                crate::ui::editable::audience_line(
+                    crate::ui::editable::EditVisibility::Live,
+                    0,
+                    "world",
+                ),
+            ),
+            (
+                live(3),
+                crate::ui::editable::audience_line(
+                    crate::ui::editable::EditVisibility::Live,
+                    3,
+                    "world",
+                ),
+            ),
+            (
+                AudioAudience {
+                    visibility: crate::ui::editable::EditVisibility::SavedOnly,
+                    peers: 2,
+                    noun: "avatar",
+                },
+                crate::ui::editable::audience_line(
+                    crate::ui::editable::EditVisibility::SavedOnly,
+                    2,
+                    "avatar",
+                ),
+            ),
+        ] {
+            let mut editor = AudioEditorState::default();
+            editor.open_for(
+                &patch_slot(),
+                "environment",
+                "World ambient",
+                AudioSlotKind::WorldAmbient,
+            );
+            let run =
+                run_pop_out_seen_by(&mut editor, &monitor(false), 3, None, &mut false, audience);
+            assert!(
+                run.text.iter().any(|t| t.contains(&expected)),
+                "the pop-out does not say {expected:?}; it painted {:?}",
+                run.text
+            );
+        }
+    }
+
+    /// The zero-peer line for a live edit says an arrival will see it, not
+    /// that it is private — an empty room is luck, not privacy, because a
+    /// guest is handed the unsaved state on connect. The wording is
+    /// deliberate (#1269) and this pins the pop-out to it rather than to
+    /// a copy of it.
+    #[test]
+    fn an_empty_room_is_not_called_private() {
+        let mut editor = AudioEditorState::default();
+        editor.open_for(
+            &patch_slot(),
+            "environment",
+            "World ambient",
+            AudioSlotKind::WorldAmbient,
+        );
+        let run = run_pop_out_seen_by(
+            &mut editor,
+            &monitor(false),
+            3,
+            None,
+            &mut false,
+            AudioAudience {
+                visibility: crate::ui::editable::EditVisibility::Live,
+                peers: 0,
+                noun: "world",
+            },
+        );
+        let said = run.text.join(" ");
+        assert!(
+            said.contains("Nobody else is here"),
+            "the empty-room line is missing: {:?}",
+            run.text
+        );
+        assert!(
+            !said.to_lowercase().contains("private"),
+            "the pop-out calls an empty room private: {:?}",
+            run.text
+        );
+    }
+
+    /// C7: a sequence editor this host opens offers the rates this world
+    /// bakes at, and not the ladder up to 96 kHz.
+    #[test]
+    fn the_pop_out_offers_only_the_rates_this_world_bakes_at() {
+        let state = new_sequence_editor();
+        assert_eq!(state.sample_rates(), HOST_SAMPLE_RATES);
+        assert!(
+            !state.sample_rates().contains(&96_000),
+            "a bed the world plays at 22 kHz can still be asked for at 96"
+        );
+        assert!(
+            state.offered_sample_rates(96_000).contains(&96_000),
+            "a recipe already at 96 000 is hidden from its own picker"
+        );
+    }
+
+    /// And a NEW Sequence slot starts at the rate the seeded content uses,
+    /// rather than at twice it.
+    ///
+    /// Asked of the preset the variant picker actually makes a slot from,
+    /// not of `SovereignSequenceRecipe::default` — that one is a mirror of
+    /// upstream's default and is held there on purpose
+    /// (`mirror_defaults_match_upstream`), which is exactly what caught
+    /// the first attempt at this.
+    #[test]
+    fn a_new_sequence_slot_starts_at_the_worlds_rate() {
+        let recipe = new_sequence_recipe();
+        assert_ne!(
+            recipe.sample_rate,
+            crate::pds::audio::SovereignSequenceRecipe::default().sample_rate,
+            "the mirror's default has moved; this test is no longer asking anything"
+        );
+        assert_eq!(
+            recipe.sample_rate,
+            crate::config::interaction::audio::WORLD_BED_SAMPLE_RATE,
+            "a hand-authored slot and the seeded bed disagree about the rate \
+             this world plays beds at"
+        );
+        assert!(
+            HOST_SAMPLE_RATES.contains(&recipe.sample_rate),
+            "a new slot opens at a rate its own picker does not offer"
         );
     }
 }

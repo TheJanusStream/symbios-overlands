@@ -45,6 +45,7 @@ mod primitive;
 mod reparent;
 mod sign;
 mod tree;
+pub(crate) use tree::node_salt;
 mod water;
 
 use bevy_egui::egui;

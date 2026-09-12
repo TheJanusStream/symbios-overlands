@@ -284,7 +284,7 @@ pub(super) fn draw_environment_tab(
             super::audio::draw_audio_bridge(
                 ui,
                 &mut env.ambient_audio,
-                "environment",
+                super::audio_slots::ENVIRONMENT_SALT,
                 "World ambient",
                 super::audio::AudioSlotKind::WorldAmbient,
                 dirty,
