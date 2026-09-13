@@ -1343,12 +1343,19 @@ fn audio_editor_body(
         // THIS slot's audition: one monitor serves every slot, and a
         // cursor running over a timeline whose sound is not the one in the
         // room says this recipe is sounding when it is not.
-        state.set_playhead(
-            audition
-                .is_playing(monitor)
-                .then(|| monitor.position_secs())
-                .flatten(),
-        );
+        let playing = audition.is_playing(monitor);
+        state.set_playhead(playing.then(|| monitor.position_secs()).flatten());
+        // A click on the timeline's ruler moves the audition, as a click on
+        // its waveform does (#1345). Taken every frame and passed on under
+        // the cursor's own guard. The crate offers the click only while a
+        // cursor is drawn, and this slot draws one only while its audition
+        // plays, so the guard is belt and braces: a seek let through for a
+        // sound that is not this slot's would move another slot's audition.
+        if let Some(secs) = state.take_seek()
+            && playing
+        {
+            controls.push(bevy_symbios_audio::ui::MonitorControl::Seek(secs));
+        }
         ui.separator();
         // The sequence editor beside the canvas rather than above it
         // (#1327 A7): a seeded recipe is ~700 px of transport, instruments,
@@ -1827,18 +1834,17 @@ mod tests {
         click: Option<&str>,
         muted: &mut bool,
     ) -> Run {
-        run_pop_out_seen_by(
-            editor,
-            monitor,
-            frames,
-            click,
-            muted,
-            AudioAudience {
-                visibility: crate::ui::editable::EditVisibility::Live,
-                peers: 0,
-                noun: "world",
-            },
-        )
+        run_pop_out_seen_by(editor, monitor, frames, click, muted, world_audience())
+    }
+
+    /// The audience [`run_pop_out`] tells the window it has: a live world
+    /// with nobody else in it.
+    fn world_audience() -> AudioAudience {
+        AudioAudience {
+            visibility: crate::ui::editable::EditVisibility::Live,
+            peers: 0,
+            noun: "world",
+        }
     }
 
     /// [`run_pop_out`] with the audience the window is told it has.
@@ -1850,17 +1856,69 @@ mod tests {
         muted: &mut bool,
         audience: AudioAudience,
     ) -> Run {
+        run_pop_out_aimed(
+            editor,
+            monitor,
+            frames,
+            click.map(Aim::Label),
+            muted,
+            audience,
+        )
+    }
+
+    /// [`run_pop_out`], pressing at the point `at` reads off the pop-out's
+    /// own state rather than at a labelled widget: what the timeline paints,
+    /// its ruler among it, has no node in the AccessKit tree to be found by.
+    fn run_pop_out_pressing_at(
+        editor: &mut AudioEditorState,
+        monitor: &AudioMonitor,
+        frames: usize,
+        at: &dyn Fn(&AudioEditorState) -> Option<egui::Pos2>,
+    ) -> Run {
+        run_pop_out_aimed(
+            editor,
+            monitor,
+            frames,
+            Some(Aim::Point(at)),
+            &mut false,
+            world_audience(),
+        )
+    }
+
+    /// What a scripted click presses.
+    #[derive(Clone, Copy)]
+    enum Aim<'a> {
+        /// The topmost widget with this AccessKit label, pressed on the frame
+        /// after it is first seen.
+        Label(&'a str),
+        /// A point read off the pop-out's state after each frame, pressed once
+        /// it has come out the same two frames running: painted geometry
+        /// moves while the window settles.
+        Point(&'a dyn Fn(&AudioEditorState) -> Option<egui::Pos2>),
+    }
+
+    /// The frames behind [`run_pop_out`] and its doors.
+    fn run_pop_out_aimed(
+        editor: &mut AudioEditorState,
+        monitor: &AudioMonitor,
+        frames: usize,
+        aim: Option<Aim<'_>>,
+        muted: &mut bool,
+        audience: AudioAudience,
+    ) -> Run {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0));
         let [w, h] = crate::ui::layout::UiWindow::AudioEditor.slot().size;
         let default_rect = egui::Rect::from_min_size(egui::pos2(40.0, 60.0), egui::vec2(w, h));
         let id = editor_id(&editor.salt);
-        let mut state = if click.is_some() {
+        let mut state = if aim.is_some() {
             Click::Looking
         } else {
             Click::Done
         };
+        // Where an `Aim::Point` was after the frame before.
+        let mut was: Option<egui::Pos2> = None;
         let mut run = Run {
             landed: Vec::with_capacity(frames),
             requests: Vec::new(),
@@ -1928,14 +1986,28 @@ mod tests {
             // Not from the first frame: a new window's first frame is an
             // invisible sizing pass (egui 0.35 `Area::begin`), and a press
             // aimed at what it laid out hits nothing.
-            if state == Click::Looking
-                && run.landed.len() > 1
-                && let Some(pos) = click.and_then(|label| labelled(&output, label))
-            {
-                state = Click::Press(pos);
+            if state == Click::Looking && run.landed.len() > 1 {
+                let found = match aim {
+                    Some(Aim::Label(label)) => labelled(&output, label),
+                    Some(Aim::Point(at)) => {
+                        let now = at(editor);
+                        let held = now.zip(was).is_some_and(|(a, b)| a.distance(b) < 0.5);
+                        was = now;
+                        now.filter(|_| held)
+                    }
+                    None => None,
+                };
+                if let Some(pos) = found {
+                    state = Click::Press(pos);
+                }
             }
         }
-        assert_eq!(state, Click::Done, "{click:?} was never found to click");
+        let aimed = match aim {
+            Some(Aim::Label(label)) => label,
+            Some(Aim::Point(_)) => "a point read off the pop-out's state",
+            None => "nothing",
+        };
+        assert_eq!(state, Click::Done, "{aimed:?} was never found to click");
         run
     }
 
@@ -2208,6 +2280,134 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
         panic!("the monitor never played the request");
+    }
+
+    /// Half the height of the timeline's ruler. bevy_symbios_audio draws the
+    /// ruler as the top 34 points of `SequenceEditorState::timeline_rect`,
+    /// right of a 104-point gutter, and publishes neither number; a press
+    /// half way down it is on it.
+    const RULER_MIDDLE: f32 = 17.0;
+
+    /// On the ruler, where the open sequence editor drew its playhead.
+    fn on_the_ruler_at_the_playhead(editor: &AudioEditorState) -> Option<egui::Pos2> {
+        let (_, state) = editor.sequence.as_ref()?;
+        Some(egui::pos2(
+            state.playhead_x()?,
+            state.timeline_rect().top() + RULER_MIDDLE,
+        ))
+    }
+
+    /// The seconds of every seek the pop-out asked of the playing voice.
+    fn seeks(run: &Run) -> Vec<f32> {
+        run.controls
+            .iter()
+            .filter_map(|control| match control {
+                bevy_symbios_audio::ui::MonitorControl::Seek(secs) => Some(*secs),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A calm room's seeded bed in the world-ambient slot, auditioned from the
+    /// pop-out and played by a real monitor. Its timeline draws a playhead
+    /// from the first frame: at the loop start, where the voice starts and,
+    /// with no audio device pulling its samples, stays.
+    fn a_sequence_slot_playing() -> (AudioEditorState, App) {
+        let sequence = SovereignAudioConfig::Sequence {
+            recipe: SovereignSequenceRecipe::from_native(&seeded_recipe()),
+        };
+        let mut editor = AudioEditorState::default();
+        editor.open_for(
+            &sequence,
+            "environment",
+            "Room ambient",
+            AudioSlotKind::WorldAmbient,
+        );
+        let run = run_pop_out(
+            &mut editor,
+            &AudioMonitor::default(),
+            6,
+            Some("\u{25B6} Audition"),
+            &mut false,
+        );
+        let request = run.requests.into_iter().next().expect("Audition asked");
+        (editor, monitor_playing(request))
+    }
+
+    /// #1345. A click on the timeline's ruler moves the sequence slot's
+    /// playing audition, as a click on its waveform does: the timeline's seek
+    /// goes out as a `MonitorControl::Seek`. Pressed where the playhead is
+    /// drawn, it asks for the second the playhead is at.
+    ///
+    /// The control: at bevy_symbios_audio 0.5.0 the ruler sensed nothing and
+    /// the pop-out had no seek to pass on, so the same click asked for
+    /// nothing.
+    #[test]
+    fn a_click_on_the_ruler_where_the_playhead_is_asks_for_a_seek_there() {
+        let (mut editor, app) = a_sequence_slot_playing();
+        let monitor = app.world().resource::<AudioMonitor>();
+        let at = monitor
+            .position_secs()
+            .expect("a playing voice is somewhere");
+        let run = run_pop_out_pressing_at(&mut editor, monitor, 10, &on_the_ruler_at_the_playhead);
+        let seeks = seeks(&run);
+        assert!(
+            matches!(seeks[..], [secs] if (secs - at).abs() < 0.01),
+            "a click on the ruler at the playhead, {at} s in, asked for {seeks:?}"
+        );
+    }
+
+    /// On the ruler at `beat`, where the open sequence editor says it drew
+    /// that beat.
+    fn on_the_ruler_at(beat: f32) -> impl Fn(&AudioEditorState) -> Option<egui::Pos2> {
+        move |editor| {
+            let (_, state) = editor.sequence.as_ref()?;
+            Some(egui::pos2(
+                state.x_of_beat(beat)?,
+                state.timeline_rect().top() + RULER_MIDDLE,
+            ))
+        }
+    }
+
+    /// #1345. A click on the ruler at a beat asks for that beat in seconds
+    /// at the recipe's BPM, wherever the playhead is: the seeded bed is 60
+    /// BPM, so beat 10 is 10 s, where the voice sits at the loop start's 2.
+    #[test]
+    fn a_click_on_the_ruler_at_beat_ten_asks_for_ten_seconds() {
+        let (mut editor, app) = a_sequence_slot_playing();
+        let monitor = app.world().resource::<AudioMonitor>();
+        let bpm = editor
+            .sequence
+            .as_ref()
+            .map(|(recipe, _)| recipe.bpm)
+            .expect("a sequence slot");
+        let run = run_pop_out_pressing_at(&mut editor, monitor, 10, &on_the_ruler_at(10.0));
+        let seeks = seeks(&run);
+        let want = 10.0 * 60.0 / bpm;
+        assert!(
+            matches!(seeks[..], [secs] if (secs - want).abs() < 0.01),
+            "a click on the ruler at beat 10, at {bpm} BPM, asked for {seeks:?} and not {want} s"
+        );
+    }
+
+    /// #1345. While another slot's audition is what the monitor plays, this
+    /// slot draws no cursor and the same click on its ruler asks for
+    /// nothing: moving the monitor would move a sound that is not this
+    /// slot's.
+    #[test]
+    fn with_another_slots_audition_playing_a_click_on_the_ruler_asks_for_nothing() {
+        let (mut editor, app) = a_sequence_slot_playing();
+        let monitor = app.world().resource::<AudioMonitor>();
+        let sequence = SovereignAudioConfig::Sequence {
+            recipe: SovereignSequenceRecipe::from_native(&seeded_recipe()),
+        };
+        editor.open_for(&sequence, "gen_b", "B", AudioSlotKind::Construct);
+        let run = run_pop_out_pressing_at(&mut editor, monitor, 10, &on_the_ruler_at(10.0));
+        assert!(
+            seeks(&run).is_empty(),
+            "a click on a still ruler asked for {:?}",
+            seeks(&run)
+        );
     }
 
     /// #1330. "Edit audio…" on another slot rebinds the open window. The
