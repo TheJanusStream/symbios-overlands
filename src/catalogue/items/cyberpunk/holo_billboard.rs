@@ -123,11 +123,17 @@ fn build_tree() -> Generator {
     // framed sign rather than a floating slab.
     let (half_w, half_h, bar) = (2.85_f32, 1.95_f32, 0.22_f32);
     for sy in [-1.0_f32, 1.0] {
-        root.children.push(prim(
+        let mut rail = prim(
             cuboid_tapered([5.7, bar, 0.5], 0.0, glow(NEON_MAGENTA, 5.0)),
             [0.0, cy + sy * half_h, 0.45],
             id_quat(),
-        ));
+        );
+        // One buzz for the frame, on the top rail: two identical loops
+        // started together only sound like one louder buzz.
+        if sy > 0.0 {
+            rail.audio = fx::neon_buzz();
+        }
+        root.children.push(rail);
     }
     for sx in [-1.0_f32, 1.0] {
         root.children.push(prim(

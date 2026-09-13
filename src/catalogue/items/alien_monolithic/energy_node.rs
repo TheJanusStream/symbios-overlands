@@ -10,7 +10,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{ENERGY_BLUE, GLYPH_CYAN, OBSIDIAN, obsidian};
+use super::{ENERGY_BLUE, GLYPH_CYAN, OBSIDIAN, fx, obsidian};
 
 pub struct EnergyNode;
 
@@ -67,11 +67,15 @@ fn build_tree() -> Generator {
         ),
         // Suspended glowing orb — emissive, rounder (res 6) than the old
         // blocky res-3 ball.
-        prim(
-            sphere(0.28, 6, glow(ENERGY_BLUE, 3.0)),
-            [0.0, 1.25, 0.0],
-            id_quat(),
-        ),
+        {
+            let mut orb = prim(
+                sphere(0.28, 6, glow(ENERGY_BLUE, 3.0)),
+                [0.0, 1.25, 0.0],
+                id_quat(),
+            );
+            orb.audio = fx::power_shimmer();
+            orb
+        },
     ];
     // A glyph inscribed on the pedestal's −Z hero face — emissive.
     prims.extend(rune_marks([0.0, 0.42, -0.32], 0.45, glow(GLYPH_CYAN, 2.3)));

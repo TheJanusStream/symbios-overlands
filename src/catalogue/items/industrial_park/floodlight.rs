@@ -2,6 +2,7 @@
 //! carrying a bank of four glaring floodlight heads on a crossbar, lighting
 //! the yard. Its emissive lamps are the trim escalation's ruin pass kills.
 
+use crate::catalogue::items::fx::ballast_buzz;
 use crate::catalogue::items::util::{assemble, cuboid_tapered, glow, id_quat, prim, quat_x, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -67,11 +68,14 @@ fn build_tree() -> Generator {
     prims.extend(lattice_mast(base_y, mast_h, 0.5, tank_steel(PIPE_GREY)));
 
     // Crossbar carrying the lamp bank.
-    prims.push(prim(
+    let mut crossbar = prim(
         solid(cuboid_tapered([3.0, 0.2, 0.32], 0.0, tank_steel(PIPE_GREY))),
         [0.0, top + 0.12, 0.0],
         id_quat(),
-    ));
+    );
+    // One ballast buzz for the bank, from the bar all four heads hang on.
+    crossbar.audio = ballast_buzz();
+    prims.push(crossbar);
 
     // Four floodlight heads, aimed down at the -Z yard — glare on the hero
     // front. Each is a rigid subtree (housing root + lens + hood children) so

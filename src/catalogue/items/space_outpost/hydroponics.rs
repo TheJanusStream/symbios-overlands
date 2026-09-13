@@ -17,8 +17,8 @@ use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
-    GLASS_CYAN, GROW_PINK, HULL_PANEL, HULL_WHITE, STEEL_DARK, VIEWPORT_LIT, glass, hull, painted,
-    steel,
+    GLASS_CYAN, GROW_PINK, HULL_PANEL, HULL_WHITE, STEEL_DARK, VIEWPORT_LIT, fx, glass, hull,
+    painted, steel,
 };
 
 /// Crop-row green inside the module.
@@ -150,7 +150,9 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    assemble(prims)
+    let mut root = assemble(prims);
+    root.audio = fx::hydro_pump();
+    root
 }
 
 #[cfg(test)]

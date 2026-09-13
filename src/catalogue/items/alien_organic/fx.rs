@@ -10,9 +10,12 @@
 //! [`SovereignAudioConfig`] to assign to a node's `audio` field; the world
 //! compiler plays it spatially at that node's position.
 
-use bevy_symbios_audio::{Connection, Gain, GraphNode, Lfo, LfoShape, NodeId, NodeKind, SineOsc};
+use bevy_symbios_audio::{
+    BiquadBandpass, Connection, Gain, GraphNode, Lfo, LfoShape, NodeId, NodeKind, PinkNoise,
+    SineOsc,
+};
 
-use crate::catalogue::items::fx::{Emitter, node, patch};
+use crate::catalogue::items::fx::{Emitter, node, patch, wired};
 use crate::pds::{
     EmitterShape, Fp3, Generator, ParticleBlendMode, SovereignAudioConfig, SovereignSoftDiscConfig,
     SovereignTextureConfig,
@@ -145,4 +148,46 @@ pub(super) fn eerie_whine() -> SovereignAudioConfig {
         inputs: vca_in,
     };
     patch(vec![a, b, mix, lfo, vca], NodeId(4))
+}
+
+// ---------------------------------------------------------------------------
+// Spatial audio (#1347)
+// ---------------------------------------------------------------------------
+
+/// A spore vent exhaling: pink noise breathed out of the throat once a
+/// second, never quite falling silent, over the vent's low wet drone.
+pub(super) fn vent_exhale() -> SovereignAudioConfig {
+    let noise = node(0, NodeKind::PinkNoise(PinkNoise { amplitude: 0.7 }));
+    let throat = wired(
+        1,
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 800.0,
+            q: 0.9,
+        }),
+        &[("in", &[0])],
+    );
+    let breath = node(
+        2,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 1.0,
+            shape: LfoShape::Sine,
+            depth: 0.35,
+            offset: 0.4,
+        }),
+    );
+    let exhale = wired(
+        3,
+        NodeKind::Gain(Gain { gain: 0.0 }),
+        &[("in", &[1]), ("gain", &[2])],
+    );
+    let drone = node(
+        4,
+        NodeKind::Sine(SineOsc {
+            freq_hz: 52.0,
+            phase_offset: 0.0,
+            amplitude: 0.12,
+        }),
+    );
+    let mix = wired(5, NodeKind::Gain(Gain { gain: 0.7 }), &[("in", &[3, 4])]);
+    patch(vec![noise, throat, breath, exhale, drone, mix], NodeId(5))
 }

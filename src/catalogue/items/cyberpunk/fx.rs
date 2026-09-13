@@ -17,7 +17,7 @@ use bevy_symbios_audio::{
     SawtoothOsc, SineOsc, TriangleOsc, WhiteNoise,
 };
 
-use crate::catalogue::items::fx::{Emitter, node, patch};
+use crate::catalogue::items::fx::{Emitter, node, patch, wired};
 use crate::pds::{
     EmitterShape, Fp, Fp3, Generator, ParticleBlendMode, SovereignAudioConfig,
     SovereignFlameConfig, SovereignPuffConfig, SovereignSoftDiscConfig, SovereignSparkConfig,
@@ -307,4 +307,72 @@ pub(super) fn drone_whir() -> SovereignAudioConfig {
         inputs: vca_in,
     };
     patch(vec![tri, lfo, bp, vca], NodeId(3))
+}
+
+// ---------------------------------------------------------------------------
+// Spatial audio (#1347)
+// ---------------------------------------------------------------------------
+
+/// A data spire's traffic: a high carrier chirping on and off eight times a
+/// second at a random level, packets and some of them empty, over the server
+/// hum of the needle.
+pub(super) fn data_chirp() -> SovereignAudioConfig {
+    let carrier = node(
+        0,
+        NodeKind::Sine(SineOsc {
+            freq_hz: 2200.0,
+            phase_offset: 0.0,
+            amplitude: 0.06,
+        }),
+    );
+    // A square LFO with offset equal to depth is a clean on/off gate.
+    let packets = node(
+        1,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 8.0,
+            shape: LfoShape::Square,
+            depth: 0.5,
+            offset: 0.5,
+        }),
+    );
+    let keyed = wired(
+        2,
+        NodeKind::Gain(Gain { gain: 0.0 }),
+        &[("in", &[0]), ("gain", &[1])],
+    );
+    let level = node(
+        3,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 8.0,
+            shape: LfoShape::Random,
+            depth: 0.5,
+            offset: 0.5,
+        }),
+    );
+    let chirp = wired(
+        4,
+        NodeKind::Gain(Gain { gain: 0.0 }),
+        &[("in", &[2]), ("gain", &[3])],
+    );
+    let hum = node(
+        5,
+        NodeKind::Sine(SineOsc {
+            freq_hz: 110.0,
+            phase_offset: 0.0,
+            amplitude: 0.05,
+        }),
+    );
+    let harmonic = node(
+        6,
+        NodeKind::Sine(SineOsc {
+            freq_hz: 220.0,
+            phase_offset: 0.0,
+            amplitude: 0.02,
+        }),
+    );
+    let mix = wired(7, NodeKind::Gain(Gain { gain: 0.8 }), &[("in", &[4, 5, 6])]);
+    patch(
+        vec![carrier, packets, keyed, level, chirp, hum, harmonic, mix],
+        NodeId(7),
+    )
 }

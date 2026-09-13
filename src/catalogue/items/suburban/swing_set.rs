@@ -9,7 +9,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::enamel;
+use super::{enamel, fx};
 
 /// Galvanised steel frame.
 const FRAME: [f32; 3] = [0.60, 0.62, 0.64];
@@ -127,7 +127,10 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    assemble(prims)
+    // The creak comes from the top bar, where the chains' shackles rub.
+    let mut root = assemble(prims);
+    root.audio = fx::swing_creak();
+    root
 }
 
 #[cfg(test)]

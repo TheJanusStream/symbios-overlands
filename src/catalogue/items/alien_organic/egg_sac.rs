@@ -10,7 +10,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{BIOLUME_GREEN, FLESH_PINK, FLESH_RED, SAC_GLOW, egg_pod, flesh};
+use super::{BIOLUME_GREEN, FLESH_PINK, FLESH_RED, SAC_GLOW, egg_pod, flesh, fx};
 
 pub struct EggSac;
 
@@ -89,7 +89,10 @@ fn build_tree() -> Generator {
         flesh(FLESH_RED),
     ));
 
-    assemble(prims)
+    // The brood's heartbeat, from the nest it sits in.
+    let mut root = assemble(prims);
+    root.audio = fx::bio_pulse();
+    root
 }
 
 #[cfg(test)]

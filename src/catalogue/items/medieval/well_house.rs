@@ -4,6 +4,7 @@
 //! a hanging bucket, and a second pail resting on the coping. The gathering
 //! point of the square.
 
+use crate::catalogue::items::fx::WaterDrip;
 use crate::catalogue::items::nordic::gable_roof;
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cuboid_tapered_xz, cylinder_tapered, footing_disc, id_quat, prim,
@@ -97,12 +98,22 @@ fn build_tree() -> Generator {
             [0.0, kerb_h * 0.5, 0.0],
             id_quat(),
         ),
-        // Dark water surface, recessed just inside the kerb.
-        prim(
-            cylinder_tapered(0.82, 0.1, 16, 0.0, water()),
-            [0.0, kerb_h - 0.18, 0.0],
-            id_quat(),
-        ),
+        // Dark water surface, recessed just inside the kerb, and the drip
+        // off the hanging pail ringing in the shaft.
+        {
+            let mut surface = prim(
+                cylinder_tapered(0.82, 0.1, 16, 0.0, water()),
+                [0.0, kerb_h - 0.18, 0.0],
+                id_quat(),
+            );
+            surface.audio = WaterDrip {
+                pitch_hz: 1250.0,
+                per_sec: 3,
+                echo: 0.85,
+            }
+            .patch();
+            surface
+        },
         // Dressed coping band around the kerb top.
         prim(
             solid(cylinder_tapered(1.05, 0.18, 16, 0.0, stone(STONE_GREY))),

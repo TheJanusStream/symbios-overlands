@@ -7,7 +7,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{MUSH_GLOW, STONE_MOSS, matte, toadstool};
+use super::{MUSH_GLOW, STONE_MOSS, fx, matte, toadstool};
 
 pub struct GlowMushroom;
 
@@ -53,7 +53,12 @@ fn build_tree() -> Generator {
             [0.0, 0.05, 0.0],
             id_quat(),
         ),
-        toadstool([0.0, 0.08, 0.0], 1.3, glow(MUSH_GLOW, 1.4), false),
+        {
+            // The tallest stool carries the clump's chime.
+            let mut lead = toadstool([0.0, 0.08, 0.0], 1.3, glow(MUSH_GLOW, 1.4), false);
+            lead.audio = fx::fae_chime();
+            lead
+        },
         toadstool([0.52, 0.08, 0.22], 0.85, glow(MUSH_GLOW, 1.4), false),
         toadstool([-0.44, 0.08, 0.3], 0.7, glow(MUSH_GLOW, 1.5), false),
         toadstool([0.22, 0.08, -0.42], 0.6, glow(MUSH_GLOW, 1.5), false),

@@ -154,7 +154,11 @@ fn build_tree() -> Generator {
     // the coals and carry themselves out through the opening, embers shed
     // off the tips, and the smoke column hands off from soot to pale plume
     // as it climbs.
-    prims.push(super::fx::flame_body([0.0, bed_y + 0.14, 0.0], FX_SEED));
+    // The crackle rides the flame body, so it is heard from down inside the
+    // drum where the fire is.
+    let mut body = super::fx::flame_body([0.0, bed_y + 0.14, 0.0], FX_SEED);
+    body.audio = super::fx::fire_crackle();
+    prims.push(body);
     prims.push(super::fx::flame_core(
         [0.0, bed_y + 0.22, 0.0],
         FX_SEED ^ 0x11,

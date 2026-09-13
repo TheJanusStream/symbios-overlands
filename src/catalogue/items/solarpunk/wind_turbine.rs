@@ -15,7 +15,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CONCRETE_PALE, GLASS_CLEAN, STEEL_GREY, STEEL_WHITE, concrete, glass, steel};
+use super::{CONCRETE_PALE, GLASS_CLEAN, STEEL_GREY, STEEL_WHITE, concrete, fx, glass, steel};
 
 pub struct WindTurbine;
 
@@ -90,11 +90,9 @@ fn build_tree() -> Generator {
     ));
     // Hub at the front of the nacelle.
     let hub = [1.0_f32, hub_y, 0.0];
-    prims.push(prim(
-        solid(sphere(0.4, 4, steel(STEEL_GREY))),
-        hub,
-        id_quat(),
-    ));
+    let mut hub_cap = prim(solid(sphere(0.4, 4, steel(STEEL_GREY))), hub, id_quat());
+    hub_cap.audio = fx::rotor_whoosh();
+    prims.push(hub_cap);
     // Spinner nose-cone pointing forward into the wind (+X).
     prims.push(prim(
         solid(cone(0.4, 0.7, 10, steel(STEEL_WHITE))),

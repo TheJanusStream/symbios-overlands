@@ -4,6 +4,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
+use crate::catalogue::items::fx::WaterDrip;
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, footing, id_quat, prim, quat_x, solid, torus,
     with_cut,
@@ -151,11 +152,18 @@ fn build_tree() -> Generator {
         [0.0, 0.2, pool_z],
         id_quat(),
     ));
-    prims.push(prim(
+    let mut pool = prim(
         cuboid_tapered([3.0, 0.12, 1.8], 0.0, pool_water()),
         [0.0, 0.34, pool_z],
         id_quat(),
-    ));
+    );
+    pool.audio = WaterDrip {
+        pitch_hz: 1500.0,
+        per_sec: 2,
+        echo: 0.35,
+    }
+    .patch();
+    prims.push(pool);
 
     // Buried footing under the sandstone base course, so a terrain-snapped
     // bath shows plinth instead of daylight under its downhill edge.

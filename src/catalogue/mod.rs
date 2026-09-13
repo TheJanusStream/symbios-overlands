@@ -420,6 +420,69 @@ mod tests {
         );
     }
 
+    /// The props whose look promises a sound carry one (#1347): a fire, a
+    /// jet of water, a lit machine. A patch set on one node of a list that a
+    /// later refactor rebuilds is easy to lose, and nothing else listens.
+    #[test]
+    fn props_that_look_audible_carry_audio() {
+        use crate::pds::Generator;
+        use crate::pds::audio::SovereignAudioConfig;
+
+        fn voices(generator: &Generator) -> usize {
+            usize::from(!matches!(generator.audio, SovereignAudioConfig::None))
+                + generator.children.iter().map(voices).sum::<usize>()
+        }
+
+        const AUDIBLE: &[&str] = &[
+            "barrel_fire",
+            "fountain",
+            "water_channel",
+            "wind_turbine",
+            "tinkerers_shack",
+            "gas_lamp",
+            "spore_vent",
+            "mana_font",
+            "fae_ring",
+            "glow_mushroom",
+            "spell_circle",
+            "crystal_cluster",
+            "swing_set",
+            "koi_pond",
+            "well_house",
+            "bathhouse",
+            "holo_billboard",
+            "data_spire",
+            "vending_machine",
+            "fuel_pump",
+            "floodlight",
+            "floodlight_mast",
+            "beacon",
+            "airlock",
+            "hydroponics",
+            "tractor",
+            "energy_node",
+            "floating_cube",
+            "levitating_platform",
+            "light_disc",
+            "egg_sac",
+            "biolume_stalk",
+            "pod_cluster",
+        ];
+        let silent: Vec<&str> = AUDIBLE
+            .iter()
+            .copied()
+            .filter(|slug| {
+                let entry =
+                    by_slug(slug).unwrap_or_else(|| panic!("no catalogue entry \"{slug}\""));
+                voices(&entry.build("did:plc:audible")) == 0
+            })
+            .collect();
+        assert!(
+            silent.is_empty(),
+            "these props lost their sound: {silent:?}"
+        );
+    }
+
     #[test]
     fn role_derives_expected_category() {
         use CatalogueCategory::*;

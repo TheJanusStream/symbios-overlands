@@ -9,7 +9,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{ENERGY_BLUE, GLYPH_CYAN, OBSIDIAN, obsidian};
+use super::{ENERGY_BLUE, GLYPH_CYAN, OBSIDIAN, fx, obsidian};
 
 pub struct LightDisc;
 
@@ -70,11 +70,15 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
         // Glowing centre node — the transit focus.
-        prim(
-            sphere(0.16, 6, glow(GLYPH_CYAN, 2.8)),
-            [0.0, 0.27, 0.0],
-            id_quat(),
-        ),
+        {
+            let mut focus = prim(
+                sphere(0.16, 6, glow(GLYPH_CYAN, 2.8)),
+                [0.0, 0.27, 0.0],
+                id_quat(),
+            );
+            focus.audio = fx::power_shimmer();
+            focus
+        },
     ];
     // Radial glyph ticks spoking out between the rings — a transit pad's
     // bearing marks.

@@ -9,8 +9,8 @@ use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
-    HAZARD_YELLOW, HULL_PANEL, HULL_WHITE, STEEL_DARK, VIEWPORT_LIT, hull, painted, pressure_hatch,
-    steel,
+    HAZARD_YELLOW, HULL_PANEL, HULL_WHITE, STEEL_DARK, VIEWPORT_LIT, fx, hull, painted,
+    pressure_hatch, steel,
 };
 
 pub struct Airlock;
@@ -75,11 +75,13 @@ fn build_tree() -> Generator {
         [0.0, 2.3, 0.0],
         id_quat(),
     ));
-    prims.push(prim(
+    let mut vent = prim(
         solid(tube(0.18, 0.1, 0.6, 10, steel(STEEL_DARK))),
         [0.55, 2.6, 0.0],
         id_quat(),
-    ));
+    );
+    vent.audio = fx::seal_hiss();
+    prims.push(vent);
 
     // Round pressure hatch on the −Z hero face.
     for piece in pressure_hatch(

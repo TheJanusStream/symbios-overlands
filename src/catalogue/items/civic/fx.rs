@@ -15,10 +15,15 @@
 //! crown. Layering costs an extra emitter entity or two and buys all of
 //! that for free.
 
-use crate::catalogue::items::fx::Emitter;
+use bevy_symbios_audio::{
+    BiquadBandpass, BiquadLowpass, BrownNoise, Gain, Lfo, LfoShape, NodeId, NodeKind, WhiteNoise,
+};
+
+use crate::catalogue::items::fx::{Emitter, FireCrackle, node, patch, wired};
 use crate::pds::{
-    EmitterShape, Fp, Fp3, Fp64, Generator, ParticleBlendMode, SovereignFlameConfig,
-    SovereignPuffConfig, SovereignSoftDiscConfig, SovereignSparkConfig, SovereignTextureConfig,
+    EmitterShape, Fp, Fp3, Fp64, Generator, ParticleBlendMode, SovereignAudioConfig,
+    SovereignFlameConfig, SovereignPuffConfig, SovereignSoftDiscConfig, SovereignSparkConfig,
+    SovereignTextureConfig,
 };
 
 /// The white-hot inner cone of an open fire: short-lived, fast, narrow, and
@@ -255,4 +260,82 @@ pub(super) fn smoke_plume(pos: [f32; 3], seed: u64) -> Generator {
         }),
     }
     .at(pos, seed)
+}
+
+// ---------------------------------------------------------------------------
+// Spatial audio (#1347)
+// ---------------------------------------------------------------------------
+
+/// The barrel's fire: the shared crackle pitched down with its rumble raised,
+/// because the coals burn deep in a steel drum that swallows the top of the
+/// band and booms the bottom.
+pub(super) fn fire_crackle() -> SovereignAudioConfig {
+    FireCrackle {
+        noise: 0.6,
+        pulse_hz: 7.0,
+        pulse_floor: 0.18,
+        pitch_hz: 1300.0,
+        rumble_hz: 64.0,
+        rumble: 0.2,
+    }
+    .patch()
+}
+
+/// A fountain's jet falling back into its bowl: a bright splash band and a
+/// hollow body band of noise churned to a random level twelve times a
+/// second, over the low brown-noise rush of the stirred pool.
+pub(super) fn fountain_splash() -> SovereignAudioConfig {
+    let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.6 }));
+    let splash = wired(
+        1,
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 2600.0,
+            q: 0.7,
+        }),
+        &[("in", &[0])],
+    );
+    let body = wired(
+        2,
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 900.0,
+            q: 1.0,
+        }),
+        &[("in", &[0])],
+    );
+    let churn = node(
+        3,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 12.0,
+            shape: LfoShape::Random,
+            depth: 0.15,
+            offset: 0.0,
+        }),
+    );
+    let falling = wired(
+        4,
+        NodeKind::Gain(Gain { gain: 0.55 }),
+        &[("in", &[1, 2]), ("gain", &[3])],
+    );
+    let rush = node(5, NodeKind::BrownNoise(BrownNoise { amplitude: 0.5 }));
+    let pool = wired(
+        6,
+        NodeKind::BiquadLowpass(BiquadLowpass {
+            cutoff_hz: 380.0,
+            q: 0.7,
+        }),
+        &[("in", &[5])],
+    );
+    let mix = wired(7, NodeKind::Gain(Gain { gain: 0.9 }), &[("in", &[4, 6])]);
+    let air = wired(
+        8,
+        NodeKind::BiquadLowpass(BiquadLowpass {
+            cutoff_hz: 6000.0,
+            q: 0.7,
+        }),
+        &[("in", &[7])],
+    );
+    patch(
+        vec![noise, splash, body, churn, falling, rush, pool, mix, air],
+        NodeId(8),
+    )
 }

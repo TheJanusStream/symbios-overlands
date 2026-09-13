@@ -75,11 +75,13 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
     // Glowing underside — the levitation field, emissive.
-    prims.push(prim(
+    let mut field = prim(
         cuboid_tapered([4.4, 0.12, 4.4], 0.0, glow(ENERGY_BLUE, 2.2)),
         [0.0, plat_y - 0.32, 0.0],
         id_quat(),
-    ));
+    );
+    field.audio = fx::monolith_hum();
+    prims.push(field);
     // Glowing rim lines framing all four top edges — a fully powered dais.
     for sz in [-1.0_f32, 1.0] {
         prims.push(prim(

@@ -12,7 +12,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{BEACON_RED, PV_BLUE, STEEL_DARK, pv, pv_panel, steel};
+use super::{BEACON_RED, PV_BLUE, STEEL_DARK, fx, pv, pv_panel, steel};
 
 pub struct Beacon;
 
@@ -108,11 +108,13 @@ fn build_tree() -> Generator {
             id_quat(),
         ));
     }
-    prims.push(prim(
+    let mut lamp = prim(
         sphere(0.2, 4, glow(BEACON_RED, 2.5)),
         [0.0, mast_top + 0.27, 0.0],
         id_quat(),
-    ));
+    );
+    lamp.audio = fx::beacon_ping();
+    prims.push(lamp);
     prims.push(prim(
         solid(cylinder_tapered(0.24, 0.1, 10, 0.6, steel(STEEL_DARK))),
         [0.0, mast_top + 0.55, 0.0],

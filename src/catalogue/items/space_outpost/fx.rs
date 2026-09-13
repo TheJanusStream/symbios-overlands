@@ -11,11 +11,11 @@
 //! compiler plays it spatially at that node's position.
 
 use bevy_symbios_audio::{
-    BiquadBandpass, Connection, Gain, GraphNode, Lfo, LfoShape, NodeId, NodeKind, SineOsc,
-    WhiteNoise,
+    BiquadBandpass, Connection, Gain, GraphNode, Lfo, LfoShape, NodeId, NodeKind, Reverb, SineOsc,
+    TriangleOsc, WhiteNoise,
 };
 
-use crate::catalogue::items::fx::{Emitter, node, patch};
+use crate::catalogue::items::fx::{Emitter, node, patch, wired};
 use crate::pds::{
     EmitterShape, Fp3, Generator, ParticleBlendMode, SovereignAudioConfig, SovereignPuffConfig,
     SovereignTextureConfig,
@@ -149,4 +149,141 @@ pub(super) fn comms_static() -> SovereignAudioConfig {
         inputs: mix_in,
     };
     patch(vec![noise, bp, lfo, pulse, mix], NodeId(4))
+}
+
+// ---------------------------------------------------------------------------
+// Spatial audio (#1347)
+// ---------------------------------------------------------------------------
+
+/// A landing beacon's ping: a pure tone and its fifth struck once a second
+/// and decaying to silence, with a short tail off the pad.
+pub(super) fn beacon_ping() -> SovereignAudioConfig {
+    let tone = node(
+        0,
+        NodeKind::Sine(SineOsc {
+            freq_hz: 1760.0,
+            phase_offset: 0.0,
+            amplitude: 0.14,
+        }),
+    );
+    let fifth = node(
+        1,
+        NodeKind::Sine(SineOsc {
+            freq_hz: 2640.0,
+            phase_offset: 0.0,
+            amplitude: 0.05,
+        }),
+    );
+    // Falling sawtooth with offset equal to depth, applied twice: a strike
+    // and a quadratic fall to silence before the next.
+    let decay = node(
+        2,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 1.0,
+            shape: LfoShape::Saw,
+            depth: -0.5,
+            offset: 0.5,
+        }),
+    );
+    let struck = wired(
+        3,
+        NodeKind::Gain(Gain { gain: 0.0 }),
+        &[("in", &[0, 1]), ("gain", &[2])],
+    );
+    let ping = wired(
+        4,
+        NodeKind::Gain(Gain { gain: 0.0 }),
+        &[("in", &[3]), ("gain", &[2])],
+    );
+    let pad = wired(
+        5,
+        NodeKind::Reverb(Reverb {
+            room_size: 0.3,
+            damping: 0.5,
+            mix: 0.2,
+        }),
+        &[("in", &[4])],
+    );
+    patch(vec![tone, fifth, decay, struck, ping, pad], NodeId(5))
+}
+
+/// An airlock holding pressure: the thin hiss of a seal that is never quite
+/// tight, wavering to a random level five times a second, over the low note
+/// of the vent stack.
+pub(super) fn seal_hiss() -> SovereignAudioConfig {
+    let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.35 }));
+    let seal = wired(
+        1,
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 3800.0,
+            q: 1.5,
+        }),
+        &[("in", &[0])],
+    );
+    let waver = node(
+        2,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 5.0,
+            shape: LfoShape::Random,
+            depth: 0.06,
+            offset: 0.0,
+        }),
+    );
+    let hiss = wired(
+        3,
+        NodeKind::Gain(Gain { gain: 0.18 }),
+        &[("in", &[1]), ("gain", &[2])],
+    );
+    let stack = node(
+        4,
+        NodeKind::Sine(SineOsc {
+            freq_hz: 90.0,
+            phase_offset: 0.0,
+            amplitude: 0.03,
+        }),
+    );
+    let mix = wired(5, NodeKind::Gain(Gain { gain: 0.8 }), &[("in", &[3, 4])]);
+    patch(vec![noise, seal, waver, hiss, stack, mix], NodeId(5))
+}
+
+/// A hydroponic bay's circulation: a low pump stroking twice a second and
+/// the nutrient feed trickling through the racks.
+pub(super) fn hydro_pump() -> SovereignAudioConfig {
+    let pump = node(
+        0,
+        NodeKind::Triangle(TriangleOsc {
+            freq_hz: 45.0,
+            amplitude: 0.12,
+            ..Default::default()
+        }),
+    );
+    let stroke = node(
+        1,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 2.0,
+            shape: LfoShape::Sine,
+            depth: 0.5,
+            offset: 0.5,
+        }),
+    );
+    let stroking = wired(
+        2,
+        NodeKind::Gain(Gain { gain: 0.0 }),
+        &[("in", &[0]), ("gain", &[1])],
+    );
+    let noise = node(3, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.3 }));
+    let feed = wired(
+        4,
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 1400.0,
+            q: 1.1,
+        }),
+        &[("in", &[3])],
+    );
+    let trickle = wired(5, NodeKind::Gain(Gain { gain: 0.25 }), &[("in", &[4])]);
+    let mix = wired(6, NodeKind::Gain(Gain { gain: 0.8 }), &[("in", &[2, 5])]);
+    patch(
+        vec![pump, stroke, stroking, noise, feed, trickle, mix],
+        NodeId(6),
+    )
 }

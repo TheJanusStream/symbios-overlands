@@ -38,7 +38,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{TRACTOR_GREEN, TRACTOR_YELLOW, enamel};
+use super::{TRACTOR_GREEN, TRACTOR_YELLOW, enamel, fx};
 
 /// Tyre black, dark fittings, bare steel.
 const TIRE: [f32; 3] = [0.08, 0.08, 0.09];
@@ -179,12 +179,17 @@ fn build_tree() -> Generator {
             [CHASSIS_X + CHASSIS[0] * 0.5 + 0.07, CHASSIS_Y, 0.0],
             id_quat(),
         ),
-        // Exhaust stack and its rain cap, standing in the hood's crown.
-        prim(
-            solid(cylinder_tapered(0.05, 0.9, 10, 0.0, enamel(DARK))),
-            [1.15, HOOD_FLAT + HOOD_R - SINK + 0.45, 0.0],
-            id_quat(),
-        ),
+        // Exhaust stack and its rain cap, standing in the hood's crown. The
+        // engine is heard at the stack, left ticking over.
+        {
+            let mut stack = prim(
+                solid(cylinder_tapered(0.05, 0.9, 10, 0.0, enamel(DARK))),
+                [1.15, HOOD_FLAT + HOOD_R - SINK + 0.45, 0.0],
+                id_quat(),
+            );
+            stack.audio = fx::engine_idle();
+            stack
+        },
         prim(
             cylinder_tapered(0.075, 0.02, 10, 0.0, enamel(DARK)),
             [1.15, HOOD_FLAT + HOOD_R - SINK + 0.9 + 0.01, 0.0],

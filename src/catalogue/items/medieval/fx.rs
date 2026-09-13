@@ -12,12 +12,7 @@
 //! [`SovereignAudioConfig`] to assign to a node's `audio` field; the world
 //! compiler plays it spatially at that node's position.
 
-use bevy_symbios_audio::{
-    BiquadBandpass, Connection, Gain, GraphNode, Lfo, LfoShape, NodeId, NodeKind, SineOsc,
-    WhiteNoise,
-};
-
-use crate::catalogue::items::fx::{Emitter, node, patch};
+use crate::catalogue::items::fx::{Emitter, FireCrackle};
 use crate::pds::{
     EmitterShape, Fp, Fp3, Generator, ParticleBlendMode, SovereignAudioConfig,
     SovereignFlameConfig, SovereignPuffConfig, SovereignSparkConfig, SovereignTextureConfig,
@@ -147,56 +142,13 @@ pub(super) fn hearth_smoke(pos: [f32; 3], seed: u64) -> Generator {
 /// A warm, irregular fire crackle — band-passed noise pulsed by a slow LFO
 /// over a low ember rumble. The voice of the forge hearth.
 pub(super) fn fire_crackle() -> SovereignAudioConfig {
-    let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.6 }));
-    // Slow uneven pulse so the crackle comes in bursts, not a steady hiss.
-    let lfo = node(
-        1,
-        NodeKind::Lfo(Lfo {
-            rate_hz: 6.5,
-            shape: LfoShape::Sine,
-            depth: 0.8,
-            offset: 0.18,
-        }),
-    );
-    let mut bp_in = std::collections::BTreeMap::new();
-    bp_in.insert("in".to_string(), vec![Connection::from_node(NodeId(0))]);
-    let bp = GraphNode {
-        id: NodeId(2),
-        kind: NodeKind::BiquadBandpass(BiquadBandpass {
-            center_hz: 1700.0,
-            q: 2.0,
-        }),
-        inputs: bp_in,
-    };
-    let mut vca_in = std::collections::BTreeMap::new();
-    vca_in.insert("in".to_string(), vec![Connection::from_node(NodeId(2))]);
-    vca_in.insert("gain".to_string(), vec![Connection::from_node(NodeId(1))]);
-    let crackle = GraphNode {
-        id: NodeId(3),
-        kind: NodeKind::Gain(Gain { gain: 0.0 }),
-        inputs: vca_in,
-    };
-    // Low ember rumble under the crackle.
-    let rumble = node(
-        4,
-        NodeKind::Sine(SineOsc {
-            freq_hz: 72.0,
-            phase_offset: 0.0,
-            amplitude: 0.18,
-        }),
-    );
-    let mut mix_in = std::collections::BTreeMap::new();
-    mix_in.insert(
-        "in".to_string(),
-        vec![
-            Connection::from_node(NodeId(3)),
-            Connection::from_node(NodeId(4)),
-        ],
-    );
-    let mix = GraphNode {
-        id: NodeId(5),
-        kind: NodeKind::Gain(Gain { gain: 0.7 }),
-        inputs: mix_in,
-    };
-    patch(vec![noise, lfo, bp, crackle, rumble, mix], NodeId(5))
+    FireCrackle {
+        noise: 0.6,
+        pulse_hz: 6.5,
+        pulse_floor: 0.18,
+        pitch_hz: 1700.0,
+        rumble_hz: 72.0,
+        rumble: 0.18,
+    }
+    .patch()
 }

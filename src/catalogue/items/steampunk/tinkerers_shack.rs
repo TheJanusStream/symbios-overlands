@@ -166,10 +166,10 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: smoke seeping from the stovepipe.
-    attach(
-        &mut root,
-        fx::furnace_smoke([pipe_x, wall_top + 2.3, -1.0], 0x500F_5AC4),
-    );
+    // The stove is heard where its smoke leaves the pipe.
+    let mut smoke = fx::furnace_smoke([pipe_x, wall_top + 2.3, -1.0], 0x500F_5AC4);
+    smoke.audio = fx::stove_roar();
+    attach(&mut root, smoke);
     root
 }
 

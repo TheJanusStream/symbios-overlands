@@ -10,9 +10,12 @@
 //! [`SovereignAudioConfig`] to assign to a node's `audio` field; the world
 //! compiler plays it spatially at that node's position.
 
-use bevy_symbios_audio::{Connection, Gain, GraphNode, Lfo, LfoShape, NodeId, NodeKind, SineOsc};
+use bevy_symbios_audio::{
+    BiquadBandpass, Connection, Gain, GraphNode, Lfo, LfoShape, NodeId, NodeKind, Reverb, SineOsc,
+    WhiteNoise,
+};
 
-use crate::catalogue::items::fx::{Emitter, node, patch};
+use crate::catalogue::items::fx::{Emitter, node, patch, wired};
 use crate::pds::{
     EmitterShape, Fp, Fp3, Fp64, Generator, ParticleBlendMode, SovereignAudioConfig,
     SovereignPuffConfig, SovereignRingConfig, SovereignShardConfig, SovereignSoftDiscConfig,
@@ -260,4 +263,144 @@ pub(super) fn crystal_shimmer() -> SovereignAudioConfig {
         inputs: vca_in,
     };
     patch(vec![tone, lfo, vca], NodeId(2))
+}
+
+// ---------------------------------------------------------------------------
+// Spatial audio (#1347)
+// ---------------------------------------------------------------------------
+
+/// Mana welling up in a font: water burbling round the spout, band-passed
+/// noise at a random level six times a second, under two high partials
+/// shimmering three times a second, the charge held in the pool.
+pub(super) fn mana_burble() -> SovereignAudioConfig {
+    let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.4 }));
+    let water = wired(
+        1,
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 1500.0,
+            q: 1.0,
+        }),
+        &[("in", &[0])],
+    );
+    let welling = node(
+        2,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 6.0,
+            shape: LfoShape::Random,
+            depth: 0.12,
+            offset: 0.0,
+        }),
+    );
+    let burble = wired(
+        3,
+        NodeKind::Gain(Gain { gain: 0.35 }),
+        &[("in", &[1]), ("gain", &[2])],
+    );
+    let low = node(
+        4,
+        NodeKind::Sine(SineOsc {
+            freq_hz: 1320.0,
+            phase_offset: 0.0,
+            amplitude: 0.035,
+        }),
+    );
+    let high = node(
+        5,
+        NodeKind::Sine(SineOsc {
+            freq_hz: 1980.0,
+            phase_offset: 0.0,
+            amplitude: 0.02,
+        }),
+    );
+    let shimmer = node(
+        6,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 3.0,
+            shape: LfoShape::Sine,
+            depth: 0.4,
+            offset: 0.0,
+        }),
+    );
+    let charge = wired(
+        7,
+        NodeKind::Gain(Gain { gain: 0.6 }),
+        &[("in", &[4, 5]), ("gain", &[6])],
+    );
+    let mix = wired(8, NodeKind::Gain(Gain { gain: 0.8 }), &[("in", &[3, 7])]);
+    patch(
+        vec![
+            noise, water, welling, burble, low, high, shimmer, charge, mix,
+        ],
+        NodeId(8),
+    )
+}
+
+/// A fairy chime: two high bell partials struck four times a second, each
+/// strike decaying to silence at a random level so some are all but lost,
+/// with a soft reverb for the glade.
+pub(super) fn fae_chime() -> SovereignAudioConfig {
+    let bell = node(
+        0,
+        NodeKind::Sine(SineOsc {
+            freq_hz: 1568.0,
+            phase_offset: 0.0,
+            amplitude: 0.12,
+        }),
+    );
+    let overtone = node(
+        1,
+        NodeKind::Sine(SineOsc {
+            freq_hz: 2349.0,
+            phase_offset: 0.0,
+            amplitude: 0.07,
+        }),
+    );
+    // Falling sawtooth, offset equal to depth: 1 at the strike, 0 at the
+    // next, never below silence. Applied twice for a bell's quick decay.
+    let decay = node(
+        2,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 4.0,
+            shape: LfoShape::Saw,
+            depth: -0.5,
+            offset: 0.5,
+        }),
+    );
+    let struck = wired(
+        3,
+        NodeKind::Gain(Gain { gain: 0.0 }),
+        &[("in", &[0, 1]), ("gain", &[2])],
+    );
+    let ringing = wired(
+        4,
+        NodeKind::Gain(Gain { gain: 0.0 }),
+        &[("in", &[3]), ("gain", &[2])],
+    );
+    let level = node(
+        5,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 4.0,
+            shape: LfoShape::Random,
+            depth: 0.5,
+            offset: 0.5,
+        }),
+    );
+    let chime = wired(
+        6,
+        NodeKind::Gain(Gain { gain: 0.0 }),
+        &[("in", &[4]), ("gain", &[5])],
+    );
+    let glade = wired(
+        7,
+        NodeKind::Reverb(Reverb {
+            room_size: 0.6,
+            damping: 0.4,
+            mix: 0.45,
+        }),
+        &[("in", &[6])],
+    );
+    patch(
+        vec![bell, overtone, decay, struck, ringing, level, chime, glade],
+        NodeId(7),
+    )
 }

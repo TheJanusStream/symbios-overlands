@@ -10,7 +10,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{ENERGY_BLUE, GLYPH_CYAN, OBSIDIAN, obsidian};
+use super::{ENERGY_BLUE, GLYPH_CYAN, OBSIDIAN, fx, obsidian};
 
 pub struct FloatingCube;
 
@@ -63,11 +63,15 @@ fn build_tree() -> Generator {
             id_quat(),
         ),
         // Glowing core within the cube — emissive ambiance.
-        prim(
-            sphere(0.22, 3, glow(GLYPH_CYAN, 2.8)),
-            [0.0, cy, 0.0],
-            id_quat(),
-        ),
+        {
+            let mut core = prim(
+                sphere(0.22, 3, glow(GLYPH_CYAN, 2.8)),
+                [0.0, cy, 0.0],
+                id_quat(),
+            );
+            core.audio = fx::monolith_hum();
+            core
+        },
     ];
     // Glowing edge seams down the four vertical corners — the cube's powered
     // core leaking through, so "lit from within" actually reads (the bare

@@ -2,6 +2,7 @@
 //! water between low banks, past a little stone weir, fringed with reeds.
 //! Scatter clutter irrigating the gardens.
 
+use crate::catalogue::items::fx::water_trickle;
 use crate::catalogue::items::util::{assemble, cone, cuboid_tapered, id_quat, prim, quat_x, solid};
 use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
@@ -79,11 +80,14 @@ fn build_tree() -> Generator {
         [0.0, 0.25, 0.45],
         id_quat(),
     ));
-    prims.push(prim(
+    let mut spill = prim(
         cuboid_tapered([0.26, 0.16, 0.26], 0.0, water(WATER_BLUE)),
         [0.0, 0.33, 0.45],
         id_quat(),
-    ));
+    );
+    // The rill is heard where it drops over the weir.
+    spill.audio = water_trickle();
+    prims.push(spill);
 
     // Reed clumps fringing both banks.
     for sx in [-1.0_f32, 1.0] {

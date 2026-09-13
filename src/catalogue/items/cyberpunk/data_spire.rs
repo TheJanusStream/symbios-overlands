@@ -153,6 +153,8 @@ fn build_tree() -> Generator {
         NEON_CYAN,
         0xDA7A_5217,
     ));
+    // The needle's hum and packet chirp, heard from the street at its foot.
+    root.audio = fx::data_chirp();
 
     root
 }

@@ -2,6 +2,7 @@
 //! water with a few koi gliding under the surface, lily pads, and a low
 //! stone stepping-bridge across one edge.
 
+use crate::catalogue::items::fx::WaterDrip;
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_mul, quat_x, quat_y, solid,
     sphere, torus, with_cut,
@@ -124,7 +125,15 @@ fn build_tree() -> Generator {
         prims.push(prim(rail, [off * yaw.sin(), 0.5, off * yaw.cos()], stand));
     }
 
-    assemble(prims)
+    // A koi breaking the surface now and then: a low plop, not a trickle.
+    let mut root = assemble(prims);
+    root.audio = WaterDrip {
+        pitch_hz: 520.0,
+        per_sec: 2,
+        echo: 0.15,
+    }
+    .patch();
+    root
 }
 
 #[cfg(test)]

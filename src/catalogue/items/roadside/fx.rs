@@ -11,11 +11,11 @@
 //! compiler plays it spatially at that node's position.
 
 use bevy_symbios_audio::{
-    BiquadBandpass, BiquadLowpass, Connection, Gain, GraphNode, Lfo, LfoShape, NodeId, NodeKind,
-    SineOsc, WhiteNoise,
+    BiquadBandpass, BiquadLowpass, BrownNoise, Connection, Gain, GraphNode, Lfo, LfoShape, NodeId,
+    NodeKind, SineOsc, WhiteNoise,
 };
 
-use crate::catalogue::items::fx::{Emitter, node, patch};
+use crate::catalogue::items::fx::{Emitter, node, patch, wired};
 use crate::pds::{
     EmitterShape, Fp3, Generator, ParticleBlendMode, SovereignAudioConfig, SovereignPuffConfig,
     SovereignTextureConfig,
@@ -150,4 +150,53 @@ pub(super) fn highway_drone() -> SovereignAudioConfig {
         inputs: vca_in,
     };
     patch(vec![noise, lp, lfo, vca], NodeId(3))
+}
+
+// ---------------------------------------------------------------------------
+// Spatial audio (#1347)
+// ---------------------------------------------------------------------------
+
+/// A drinks machine's compressor: the mains hum and its octave over the low
+/// brown-noise rumble of the fan, steady but for a slow sag once a second.
+pub(super) fn compressor_hum() -> SovereignAudioConfig {
+    let mains = node(
+        0,
+        NodeKind::Sine(SineOsc {
+            freq_hz: 60.0,
+            phase_offset: 0.0,
+            amplitude: 0.08,
+        }),
+    );
+    let octave = node(
+        1,
+        NodeKind::Sine(SineOsc {
+            freq_hz: 120.0,
+            phase_offset: 0.0,
+            amplitude: 0.05,
+        }),
+    );
+    let noise = node(2, NodeKind::BrownNoise(BrownNoise { amplitude: 0.3 }));
+    let fan = wired(
+        3,
+        NodeKind::BiquadLowpass(BiquadLowpass {
+            cutoff_hz: 180.0,
+            q: 0.7,
+        }),
+        &[("in", &[2])],
+    );
+    let sag = node(
+        4,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 1.0,
+            shape: LfoShape::Sine,
+            depth: 0.1,
+            offset: 0.0,
+        }),
+    );
+    let hum = wired(
+        5,
+        NodeKind::Gain(Gain { gain: 0.8 }),
+        &[("in", &[0, 1, 3]), ("gain", &[4])],
+    );
+    patch(vec![mains, octave, noise, fan, sag, hum], NodeId(5))
 }

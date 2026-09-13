@@ -7,7 +7,9 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CHROME_BRIGHT, ENAMEL_RED, GLASS_TINT, SIGN_AMBER, chrome, enamel, glass, sign_board};
+use super::{
+    CHROME_BRIGHT, ENAMEL_RED, GLASS_TINT, SIGN_AMBER, chrome, enamel, fx, glass, sign_board,
+};
 
 /// Cool lit blue of the machine's selection panel — deep-saturated so the lit
 /// cells read as a blue selector rather than washing to white.
@@ -114,7 +116,9 @@ fn build_tree() -> Generator {
         id_quat(),
     ));
 
-    assemble(prims)
+    let mut root = assemble(prims);
+    root.audio = fx::compressor_hum();
+    root
 }
 
 #[cfg(test)]

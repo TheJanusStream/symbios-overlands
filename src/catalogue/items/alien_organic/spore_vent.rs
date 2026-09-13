@@ -104,7 +104,9 @@ fn build_tree() -> Generator {
 
     let mut root = assemble(prims);
     // Signature life: spores venting up out of the throat.
-    attach(&mut root, fx::spore_drift([0.0, 1.1, 0.0], 0x0A11_5E12));
+    let mut spores = fx::spore_drift([0.0, 1.1, 0.0], 0x0A11_5E12);
+    spores.audio = fx::vent_exhale();
+    attach(&mut root, spores);
     root
 }
 

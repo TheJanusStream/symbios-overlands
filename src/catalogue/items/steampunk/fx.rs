@@ -11,11 +11,11 @@
 //! compiler plays it spatially at that node's position.
 
 use bevy_symbios_audio::{
-    BiquadBandpass, Connection, Gain, GraphNode, Lfo, LfoShape, NodeId, NodeKind, SineOsc,
-    WhiteNoise,
+    BiquadBandpass, BiquadHighpass, BiquadLowpass, BrownNoise, Connection, Gain, GraphNode, Lfo,
+    LfoShape, NodeId, NodeKind, SineOsc, WhiteNoise,
 };
 
-use crate::catalogue::items::fx::{Emitter, node, patch};
+use crate::catalogue::items::fx::{Emitter, node, patch, wired};
 use crate::pds::{
     EmitterShape, Fp, Fp3, Generator, ParticleBlendMode, SovereignAudioConfig, SovereignPuffConfig,
     SovereignTextureConfig,
@@ -171,4 +171,102 @@ pub(super) fn boiler_hiss() -> SovereignAudioConfig {
         inputs: mix_in,
     };
     patch(vec![noise, bp, hiss, rumble, mix], NodeId(4))
+}
+
+// ---------------------------------------------------------------------------
+// Spatial audio (#1347)
+// ---------------------------------------------------------------------------
+
+/// A stove roaring in a tin shack: the low brown-noise draw of the flue,
+/// breathing twice a second, with wood snapping at a random level nine times
+/// a second over it.
+pub(super) fn stove_roar() -> SovereignAudioConfig {
+    let draw = node(0, NodeKind::BrownNoise(BrownNoise { amplitude: 0.9 }));
+    let flue = wired(
+        1,
+        NodeKind::BiquadLowpass(BiquadLowpass {
+            cutoff_hz: 260.0,
+            q: 0.9,
+        }),
+        &[("in", &[0])],
+    );
+    let breath = node(
+        2,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 2.0,
+            shape: LfoShape::Sine,
+            depth: 0.2,
+            offset: 0.0,
+        }),
+    );
+    let roar = wired(
+        3,
+        NodeKind::Gain(Gain { gain: 0.6 }),
+        &[("in", &[1]), ("gain", &[2])],
+    );
+    let noise = node(4, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.35 }));
+    let wood = wired(
+        5,
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 2200.0,
+            q: 3.0,
+        }),
+        &[("in", &[4])],
+    );
+    let snaps = node(
+        6,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 9.0,
+            shape: LfoShape::Random,
+            depth: 0.5,
+            offset: 0.5,
+        }),
+    );
+    let snapping = wired(
+        7,
+        NodeKind::Gain(Gain { gain: 0.0 }),
+        &[("in", &[5]), ("gain", &[6])],
+    );
+    let mix = wired(8, NodeKind::Gain(Gain { gain: 0.7 }), &[("in", &[3, 7])]);
+    patch(
+        vec![draw, flue, breath, roar, noise, wood, snaps, snapping, mix],
+        NodeId(8),
+    )
+}
+
+/// A gas mantle burning behind glass: the thin high hiss of gas through the
+/// jet, fluttering to a random level sixteen times a second.
+pub(super) fn gas_mantle_hiss() -> SovereignAudioConfig {
+    let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.3 }));
+    let thin = wired(
+        1,
+        NodeKind::BiquadHighpass(BiquadHighpass {
+            cutoff_hz: 2500.0,
+            q: 0.7,
+        }),
+        &[("in", &[0])],
+    );
+    let jet = wired(
+        2,
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 5200.0,
+            q: 0.9,
+        }),
+        &[("in", &[1])],
+    );
+    let flutter = node(
+        3,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 16.0,
+            shape: LfoShape::Random,
+            depth: 0.08,
+            offset: 0.0,
+        }),
+    );
+    let hiss = wired(
+        4,
+        NodeKind::Gain(Gain { gain: 0.5 }),
+        &[("in", &[2]), ("gain", &[3])],
+    );
+    patch(vec![noise, thin, jet, flutter, hiss], NodeId(4))
 }

@@ -4,6 +4,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
+use crate::catalogue::items::fx::ballast_buzz;
 use crate::catalogue::items::util::{
     assemble, cuboid_tapered, cylinder_tapered, id_quat, prim, quat_x, solid, torus,
 };
@@ -82,9 +83,10 @@ fn build_tree() -> Generator {
     ));
     // Gridded lamp bank facing the −Z render front — emissive (the ruin pass
     // can darken it). The grid of cells reads as a lamp array.
-    for g in super::lamp_bank([0.0, 9.6, -0.5], 2.4, 1.1, 4, 2, -1.0) {
-        prims.push(g);
-    }
+    let mut bank = super::lamp_bank([0.0, 9.6, -0.5], 2.4, 1.1, 4, 2, -1.0);
+    // The backing frame carries the bank's one ballast buzz.
+    bank[0].audio = ballast_buzz();
+    prims.extend(bank);
 
     assemble(prims)
 }

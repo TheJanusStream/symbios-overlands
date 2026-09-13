@@ -110,6 +110,8 @@ fn build_tree() -> Generator {
     let mut root = assemble(prims);
     // Signature life: spores drifting off the brood.
     attach(&mut root, fx::spore_drift([0.0, 1.0, 0.0], 0x0A11_9012));
+    // The brood's heartbeat, from the mound it grows out of.
+    root.audio = fx::bio_pulse();
     root
 }
 

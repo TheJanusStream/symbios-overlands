@@ -95,7 +95,12 @@ fn build_tree() -> Generator {
             // read as a blue plastic lollipop from every angle. The mist hangs
             // off the jet, since it is what the jet does at its apex.
             nest(
-                super::fx::water_jet([0.0, 1.62, 0.0], FX_SEED),
+                {
+                    // The splash rides the jet, so it moves with the bowl.
+                    let mut jet = super::fx::water_jet([0.0, 1.62, 0.0], FX_SEED);
+                    jet.audio = super::fx::fountain_splash();
+                    jet
+                },
                 vec![super::fx::water_mist([0.0, 2.35, 0.0], FX_SEED ^ 0x55)],
             ),
         ],

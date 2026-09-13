@@ -14,7 +14,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{BIOLUME_GREEN, FLESH_PINK, FLESH_RED, flesh};
+use super::{BIOLUME_GREEN, FLESH_PINK, FLESH_RED, flesh, fx};
 
 pub struct BiolumeStalk;
 
@@ -70,11 +70,15 @@ fn build_tree() -> Generator {
             quat_x(-0.5),
         ),
         // Glowing bulb at the tip — emissive, deep green.
-        prim(
-            solid(sphere(0.34, 5, glow(BIOLUME_GREEN, 2.1))),
-            [0.0, 2.25, -0.95],
-            id_quat(),
-        ),
+        {
+            let mut bulb = prim(
+                solid(sphere(0.34, 5, glow(BIOLUME_GREEN, 2.1))),
+                [0.0, 2.25, -0.95],
+                id_quat(),
+            );
+            bulb.audio = fx::eerie_whine();
+            bulb
+        },
         // Light-nodes beaded down the stalk.
         prim(
             solid(sphere(0.13, 4, glow(BIOLUME_GREEN, 1.9))),

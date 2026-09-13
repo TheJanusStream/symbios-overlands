@@ -7,10 +7,11 @@
 //! patches return a [`SovereignAudioConfig`] for a node's `audio` field.
 
 use bevy_symbios_audio::{
-    AudioPatch, Connection, Gain, GraphNode, Lfo, LfoShape, NodeGraph, NodeId, NodeKind, SineOsc,
+    AudioPatch, BiquadBandpass, Connection, Gain, GraphNode, Lfo, LfoShape, NodeGraph, NodeId,
+    NodeKind, SineOsc, WhiteNoise,
 };
 
-use crate::catalogue::items::fx::node;
+use crate::catalogue::items::fx::{node, patch, wired};
 use crate::pds::{
     AnimationFrameMode, EmitterShape, Fp, Fp3, Fp4, Generator, GeneratorKind, ParticleBlendMode,
     ParticleParams, SimulationSpace, SovereignAudioConfig, SovereignSoftDiscConfig,
@@ -140,4 +141,45 @@ pub(super) fn birdsong() -> SovereignAudioConfig {
             output: NodeId(6),
         },
     })
+}
+
+// ---------------------------------------------------------------------------
+// Spatial audio (#1347)
+// ---------------------------------------------------------------------------
+
+/// A swing's chains creaking as the empty seats stir: a squeak of iron on
+/// iron at the shackles, swelling once a second and fading to nothing
+/// between.
+pub(super) fn swing_creak() -> SovereignAudioConfig {
+    let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.9 }));
+    let shackle = wired(
+        1,
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 1150.0,
+            q: 7.0,
+        }),
+        &[("in", &[0])],
+    );
+    // Offset equals depth, so the swell touches silence and never inverts;
+    // applied twice it lingers there, a creak with a pause, not a whine.
+    let swell = node(
+        2,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 1.0,
+            shape: LfoShape::Sine,
+            depth: 0.5,
+            offset: 0.5,
+        }),
+    );
+    let stirring = wired(
+        3,
+        NodeKind::Gain(Gain { gain: 0.0 }),
+        &[("in", &[1]), ("gain", &[2])],
+    );
+    let creak = wired(
+        4,
+        NodeKind::Gain(Gain { gain: 0.0 }),
+        &[("in", &[3]), ("gain", &[2])],
+    );
+    patch(vec![noise, shackle, swell, stirring, creak], NodeId(4))
 }

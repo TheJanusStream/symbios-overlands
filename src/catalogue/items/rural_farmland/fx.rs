@@ -9,10 +9,10 @@
 
 use bevy_symbios_audio::{
     AudioPatch, BiquadBandpass, BiquadLowpass, Connection, Gain, GraphNode, Lfo, LfoShape,
-    NodeGraph, NodeId, NodeKind, SineOsc, WhiteNoise,
+    NodeGraph, NodeId, NodeKind, SawtoothOsc, SineOsc, WhiteNoise,
 };
 
-use crate::catalogue::items::fx::{Emitter, node, patch};
+use crate::catalogue::items::fx::{Emitter, node, patch, wired};
 use crate::pds::{
     EmitterShape, Fp, Fp3, Generator, ParticleBlendMode, SovereignAudioConfig, SovereignPuffConfig,
     SovereignSoftDiscConfig, SovereignTextureConfig,
@@ -206,4 +206,63 @@ pub(super) fn crickets() -> SovereignAudioConfig {
             output: NodeId(6),
         },
     })
+}
+
+// ---------------------------------------------------------------------------
+// Spatial audio (#1347)
+// ---------------------------------------------------------------------------
+
+/// A tractor left ticking over: a low sawtooth note under a lowpass, punched
+/// twelve times a second by the firing strokes, with a puff of exhaust on
+/// each.
+pub(super) fn engine_idle() -> SovereignAudioConfig {
+    let block = node(
+        0,
+        NodeKind::Sawtooth(SawtoothOsc {
+            freq_hz: 36.0,
+            amplitude: 0.25,
+            ..Default::default()
+        }),
+    );
+    let muffled = wired(
+        1,
+        NodeKind::BiquadLowpass(BiquadLowpass {
+            cutoff_hz: 200.0,
+            q: 0.8,
+        }),
+        &[("in", &[0])],
+    );
+    let strokes = node(
+        2,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 12.0,
+            shape: LfoShape::Sine,
+            depth: 0.45,
+            offset: 0.55,
+        }),
+    );
+    let firing = wired(
+        3,
+        NodeKind::Gain(Gain { gain: 0.0 }),
+        &[("in", &[1]), ("gain", &[2])],
+    );
+    let noise = node(4, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.3 }));
+    let stack = wired(
+        5,
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 300.0,
+            q: 1.0,
+        }),
+        &[("in", &[4])],
+    );
+    let puffs = wired(
+        6,
+        NodeKind::Gain(Gain { gain: 0.0 }),
+        &[("in", &[5]), ("gain", &[2])],
+    );
+    let mix = wired(7, NodeKind::Gain(Gain { gain: 0.7 }), &[("in", &[3, 6])]);
+    patch(
+        vec![block, muffled, strokes, firing, noise, stack, puffs, mix],
+        NodeId(7),
+    )
 }

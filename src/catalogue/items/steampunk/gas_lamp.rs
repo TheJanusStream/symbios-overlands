@@ -32,7 +32,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::{Fp4, Generator};
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{BRASS, IRON_DARK, LAMP_GAS, brass, iron, pane_grid};
+use super::{BRASS, IRON_DARK, LAMP_GAS, brass, fx, iron, pane_grid};
 
 // --- Dimensions. Everything below derives from these. ----------------------
 
@@ -420,11 +420,13 @@ fn lantern() -> Generator {
         [0.0, CAGE_BOT + 0.17, 0.0],
         id_quat(),
     ));
-    parts.push(prim(
+    let mut mantle = prim(
         sphere(0.115, 4, glow(LAMP_GAS, 3.0)),
         [0.0, CAGE_BOT + 0.46, 0.0],
         id_quat(),
-    ));
+    );
+    mantle.audio = fx::gas_mantle_hiss();
+    parts.push(mantle);
     parts.push(prim(
         cuboid_tapered(
             [0.34, 0.03, 0.34],

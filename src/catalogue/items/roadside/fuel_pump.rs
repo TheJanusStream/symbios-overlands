@@ -11,7 +11,7 @@ use crate::seeded_defaults::ThemeArchetype;
 
 use super::{
     CHROME_BRIGHT, CONCRETE_GREY, ENAMEL_CREAM, ENAMEL_RED, SIGN_AMBER, chrome, concrete, enamel,
-    sign_board,
+    fx, sign_board,
 };
 
 pub struct FuelPump;
@@ -75,16 +75,17 @@ fn build_tree() -> Generator {
 
     // Segmented amber price/display face on the −Z front (two stacked digit
     // cells split by a dark gap — a flat lit slab washes white).
-    for g in sign_board(
+    let mut face = sign_board(
         [0.0, 1.28, -0.28],
         [0.52, 0.5],
         (1, 2),
         SIGN_AMBER,
         2.0,
         -1.0,
-    ) {
-        prims.push(g);
-    }
+    );
+    // The lit face buzzes the way the forecourt's price sign does.
+    face[0].audio = fx::neon_buzz();
+    prims.extend(face);
     // Chrome keypad / card-reader panel below the display.
     prims.push(prim(
         solid(cuboid_tapered(

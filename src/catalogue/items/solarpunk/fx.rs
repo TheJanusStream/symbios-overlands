@@ -12,10 +12,10 @@
 
 use bevy_symbios_audio::{
     BiquadBandpass, BiquadLowpass, Connection, Gain, GraphNode, Lfo, LfoShape, NodeId, NodeKind,
-    WhiteNoise,
+    SineOsc, WhiteNoise,
 };
 
-use crate::catalogue::items::fx::{Emitter, node, patch};
+use crate::catalogue::items::fx::{Emitter, node, patch, wired};
 use crate::pds::{
     EmitterShape, Fp3, Generator, ParticleBlendMode, SovereignAudioConfig, SovereignPuffConfig,
     SovereignTextureConfig,
@@ -135,4 +135,46 @@ pub(super) fn breeze_calm() -> SovereignAudioConfig {
         inputs: vca_in,
     };
     patch(vec![noise, lp, lfo, vca], NodeId(3))
+}
+
+// ---------------------------------------------------------------------------
+// Spatial audio (#1347)
+// ---------------------------------------------------------------------------
+
+/// A wind turbine turning: a low whoosh as a blade sweeps past the tower,
+/// once a second, over the faint hum of the generator in the nacelle.
+pub(super) fn rotor_whoosh() -> SovereignAudioConfig {
+    let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));
+    let air = wired(
+        1,
+        NodeKind::BiquadBandpass(BiquadBandpass {
+            center_hz: 420.0,
+            q: 0.8,
+        }),
+        &[("in", &[0])],
+    );
+    let sweep = node(
+        2,
+        NodeKind::Lfo(Lfo {
+            rate_hz: 1.0,
+            shape: LfoShape::Sine,
+            depth: 0.3,
+            offset: 0.35,
+        }),
+    );
+    let whoosh = wired(
+        3,
+        NodeKind::Gain(Gain { gain: 0.0 }),
+        &[("in", &[1]), ("gain", &[2])],
+    );
+    let generator = node(
+        4,
+        NodeKind::Sine(SineOsc {
+            freq_hz: 118.0,
+            phase_offset: 0.0,
+            amplitude: 0.04,
+        }),
+    );
+    let mix = wired(5, NodeKind::Gain(Gain { gain: 0.7 }), &[("in", &[3, 4])]);
+    patch(vec![noise, air, sweep, whoosh, generator, mix], NodeId(5))
 }

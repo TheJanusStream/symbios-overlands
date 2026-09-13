@@ -11,7 +11,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CRYSTAL_CYAN, STONE_GREY, crystal, stone};
+use super::{CRYSTAL_CYAN, STONE_GREY, crystal, fx, stone};
 
 pub struct CrystalCluster;
 
@@ -65,13 +65,15 @@ fn build_tree() -> Generator {
     }
 
     // A tall faceted central shard.
-    prims.push(crystal(
+    let mut heart = crystal(
         [0.0, 0.36, 0.0],
         0.24,
         1.9,
         id_quat(),
         glow(CRYSTAL_CYAN, 1.8),
-    ));
+    );
+    heart.audio = fx::crystal_shimmer();
+    prims.push(heart);
     // Leaning faceted side shards splaying out at wild angles.
     for (cx, cz, h, tilt, axis_z) in [
         (0.36_f32, 0.1_f32, 1.15_f32, 0.42_f32, false),

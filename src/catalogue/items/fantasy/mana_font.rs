@@ -9,7 +9,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{CRYSTAL_CYAN, MANA_TEAL, RUNE_GOLD, STONE_GREY, crystal, rune_marks, stone};
+use super::{CRYSTAL_CYAN, MANA_TEAL, RUNE_GOLD, STONE_GREY, crystal, fx, rune_marks, stone};
 
 pub struct ManaFont;
 
@@ -64,12 +64,16 @@ fn build_tree() -> Generator {
             [0.0, 0.88, 0.0],
             id_quat(),
         ),
-        // Glowing mana pool — emissive.
-        prim(
-            cylinder_tapered(0.9, 0.1, 16, 0.0, glow(MANA_TEAL, 1.8)),
-            [0.0, 0.86, 0.0],
-            id_quat(),
-        ),
+        // Glowing mana pool — emissive, and the voice of the font.
+        {
+            let mut pool = prim(
+                cylinder_tapered(0.9, 0.1, 16, 0.0, glow(MANA_TEAL, 1.8)),
+                [0.0, 0.86, 0.0],
+                id_quat(),
+            );
+            pool.audio = fx::mana_burble();
+            pool
+        },
         // Central spout column.
         prim(
             solid(cylinder_tapered(0.17, 0.6, 8, 0.12, stone(STONE_GREY))),

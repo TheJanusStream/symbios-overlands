@@ -9,7 +9,7 @@ use crate::catalogue::{CatalogueEntry, Footprint, StructureRole};
 use crate::pds::Generator;
 use crate::seeded_defaults::ThemeArchetype;
 
-use super::{ARCANE_PURPLE, RUNE_GOLD};
+use super::{ARCANE_PURPLE, RUNE_GOLD, fx};
 
 pub struct SpellCircle;
 
@@ -90,7 +90,9 @@ fn build_tree() -> Generator {
         ));
     }
 
-    assemble(prims)
+    let mut root = assemble(prims);
+    root.audio = fx::arcane_hum();
+    root
 }
 
 #[cfg(test)]

@@ -1016,9 +1016,16 @@ mod split_wire_tests {
             .into_iter()
             .collect();
 
-        let batches = plan_room_writes(&record, &existing, true).unwrap();
-        assert_eq!(batches.len(), 1, "default room fits one atomic batch");
-        let writes = &batches[0];
+        // The order asserted below is a property of the whole plan, not of
+        // one batch. A default room can sit a few hundred bytes under the
+        // request cap and chunk into two (#1347: this DID's room had 245 B of
+        // headroom), and chunking must keep children before the manifest
+        // before the deletes across the batch boundary too.
+        let writes: Vec<RepoWrite> = plan_room_writes(&record, &existing, true)
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
 
         // Creates for every generator EXCEPT the unchanged one.
         let creates: Vec<_> = writes
@@ -1057,7 +1064,7 @@ mod split_wire_tests {
 
         // Fresh repo → the manifest write is a create instead.
         let batches = plan_room_writes(&record, &HashSet::new(), false).unwrap();
-        assert!(batches[0].iter().any(|w| matches!(
+        assert!(batches.iter().flatten().any(|w| matches!(
             w,
             RepoWrite::Create { collection, rkey, .. } if collection == COLLECTION && rkey == "self"
         )));
