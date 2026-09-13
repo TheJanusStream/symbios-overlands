@@ -29,6 +29,35 @@
 //! the editor and stuttered on the construct. A `Sequence` carries its own
 //! rate everywhere. A `Referenced` clip is played host-side, flat and
 //! looped, once it has been fetched ([`ReferencedAudition`]).
+//!
+//! # Who is listening, and when (#1337 A4/A5)
+//!
+//! The pop-out opens with a line saying who these edits reach. It is not
+//! worked out here: [`AudioAudience`] is carried in, because only the host
+//! knows — the room's edits are live to everyone present as they are made,
+//! while the avatar's depend on the body kind. Everything the monitor needs
+//! from the app, and the audience with it, arrives as one
+//! [`AudioMonitorIo`] rather than as a handful of parameters that every
+//! caller would have to keep in step.
+//!
+//! # What survives a close, and what does not (#1338 A6, #1333 A9)
+//!
+//! Closing the pop-out drops the working copy and keeps the VIEW: where the
+//! owner dragged the node boxes, how far they zoomed the timeline, which
+//! instrument was open, whether that slot's Auto was on. A world can hold
+//! thousands of audio slots and each editor state is a couple of hash maps
+//! and an undo ring, so that memory is bounded — [`REMEMBERED_SLOTS`] of
+//! them, least-recently-opened dropped first — and the view and the
+//! audition setting are dropped together, so a slot cannot keep one and
+//! forget the other. The undo ring is NOT kept: it describes a chain of
+//! values the re-seeded copy is no longer the tail of.
+//!
+//! While the window is open, a room undo, a revert or a re-roll changes the
+//! slot under it, and `follow_record` brings the working copy back into
+//! step. Without it the next commit silently re-applied what the undo had
+//! removed. The swap goes through the editor's own history as a step, so a
+//! Ctrl+Z inside the window goes back to what was there before the outside
+//! change rather than jumping over it.
 
 use bevy::audio::AudioSource;
 use bevy::ecs::system::SystemParam;
@@ -1176,6 +1205,13 @@ fn canvas_id(editor_id: egui::Id) -> egui::Id {
     editor_id.with("canvas_region")
 }
 
+/// The region holding the audience notice, fixed for the same reason: it is
+/// the first line of the stack the window is, and #1339's E3 holds the
+/// three of them to an order and to no overlap.
+fn notice_id(editor_id: egui::Id) -> egui::Id {
+    editor_id.with("audience_notice")
+}
+
 /// Lay `add` out in a child `Ui` whose id is exactly `id`.
 fn region<R>(ui: &mut egui::Ui, id: egui::Id, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     ui.scope_builder(egui::UiBuilder::new().id(id), add).inner
@@ -1195,7 +1231,14 @@ fn audio_editor_body(
 ) {
     // First line in the body, under the title: a mode indicator, not a
     // footnote. Everything below it is a control that goes out live.
-    crate::ui::editable::audience_notice(ui, audience.visibility, audience.peers, audience.noun);
+    region(ui, notice_id(id), |ui| {
+        crate::ui::editable::audience_notice(
+            ui,
+            audience.visibility,
+            audience.peers,
+            audience.noun,
+        );
+    });
     ui.add_space(4.0);
     if !slot_on_screen {
         let stranded = editor.has_pending(&editor.salt);
@@ -1701,6 +1744,7 @@ mod tests {
     /// Where the pop-out's parts were drawn on one frame.
     struct Landed {
         window: egui::Rect,
+        notice: egui::Rect,
         strip: egui::Rect,
         canvas: egui::Rect,
     }
@@ -1864,11 +1908,15 @@ mod tests {
                     audience,
                 );
                 let read = |region| ui.ctx().read_response(region).map(|r| r.rect);
-                if let (Some(window), Some(strip), Some(canvas)) =
-                    (window, read(strip_id(id)), read(canvas_id(id)))
-                {
+                if let (Some(window), Some(notice), Some(strip), Some(canvas)) = (
+                    window,
+                    read(notice_id(id)),
+                    read(strip_id(id)),
+                    read(canvas_id(id)),
+                ) {
                     this_frame = Some(Landed {
                         window,
+                        notice,
                         strip,
                         canvas,
                     });
@@ -1929,6 +1977,44 @@ mod tests {
             "{case}: the canvas got {:.0} px",
             last.canvas.height()
         );
+        // #1339 E3: the three are a STACK — the audience notice, then the
+        // audition strip, then the canvas — each inside the window, in
+        // that order, and none on top of another.
+        //
+        // What this adds, honestly: only the notice and the canvas being
+        // inside the window at all. A REORDER cannot reach these
+        // assertions, because the growth check above fires first — moving
+        // the notice below the canvas was run and gave "the window is
+        // 900x692 at frame 4, 900x679 at frame 3", and reordering the
+        // strip and the canvas does not even compile (the audition source
+        // borrows the patch the canvas edits). Nor can a shift inside the
+        // vertical layout produce an overlap: the parent's cursor follows
+        // the child's rect, so a region moved 60 points down takes
+        // everything after it along (measured). What is left for these to
+        // catch is a piece of the stack moved to an ABSOLUTE position — an
+        // `egui::Area` like the crate's own picked-wire panel — which
+        // nothing above would see.
+        let stack = [
+            ("the audience notice", last.notice),
+            ("the audition strip", last.strip),
+            ("the canvas", last.canvas),
+        ];
+        for (what, rect) in stack {
+            assert!(
+                last.window.contains_rect(rect),
+                "{case}: {what} {rect:?} is outside the window {:?}",
+                last.window
+            );
+        }
+        for pair in stack.windows(2) {
+            let [(above, a), (below, b)] = pair else {
+                unreachable!("windows(2)")
+            };
+            assert!(
+                a.bottom() <= b.top() + 0.5,
+                "{case}: {above} {a:?} and {below} {b:?} overlap"
+            );
+        }
     }
 
     /// #1327 A1. A Patch slot's pop-out keeps its size and shows its

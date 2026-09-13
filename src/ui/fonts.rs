@@ -986,7 +986,14 @@ pub(crate) mod glyph_coverage_tests {
     ///
     /// 0.4.4 put its buttons in words (#1331), and the plus, the arrow
     /// circle, the die, the clipboard and the wastebasket left the list with
-    /// them. What stays is what the scan of its `src/ui` finds drawn.
+    /// them. 0.4.10 dropped the left arrow: B3 renamed a node input's rows
+    /// "from #1 LFO" releases ago and nothing in the crate has drawn U+2B05
+    /// since (#1339). What stays is what the scan of its `src/ui` finds
+    /// drawn — thirteen code points, read out of the packaged 0.4.10 by
+    /// the crate's own `print_editor_glyph_inventory`, which lexes string
+    /// literals. Three code points in that source are test FIXTURES and
+    /// must never reach this list: é U+00E9, the die U+1F3B2, and U+270E,
+    /// which the crate's own font tests assert is NOT drawable.
     const HOSTED_AUDIO_EDITOR_GLYPHS: &[char] = &[
         '±', // U+00B1, a wire's effective sweep, "about 150 ± 250 Hz" (0.4.9)
         '·', // U+00B7, the wire-drop tooltip's separator (0.4.2)
@@ -1001,7 +1008,6 @@ pub(crate) mod glyph_coverage_tests {
         '✔', // U+2714, the valid-graph readout
         '✖', // U+2716, remove instrument / connection / lane, a broken graph's readout
         '➡', // U+27A1, the wire-drop tooltip's arrow (0.4.2)
-        '⬅', // U+2B05, a node input's source
     ];
 
     /// The charmaps of every face the proportional family falls back

@@ -832,9 +832,12 @@ pub fn visuals_for(theme: &Theme) -> egui::Visuals {
 ///   node boxes and lanes are [`Theme::window_fill`], where the palette's
 ///   body text is already held to AA;
 /// * a node's title and the output node's edge are [`Theme::text_strong`];
-///   a node's edge is [`Theme::control_border`], the edge the palette gives
-///   every control; the grid and the waveform's zero line are
-///   [`Theme::border`];
+///   a node's edge and the canvas's own border are [`Theme::control_border`],
+///   the edge the palette gives every control — both are a component's
+///   boundary and are held to 3:1 by
+///   `the_audio_editors_lines_and_edges_clear_the_non_text_floor_in_every_palette`;
+///   the grid and the waveform's zero line are [`Theme::border`], fainter on
+///   purpose, because a grid is a ground and not a mark;
 /// * the identity accent marks what is in the hand or selected (the
 ///   selected node, the dragged wire, the loop start) and draws the waveform;
 ///   status colours stay outcome-only (valid, Muted, errors), per the rule at
@@ -847,6 +850,7 @@ pub fn visuals_for(theme: &Theme) -> egui::Visuals {
 pub fn audio_editor_style(theme: &Theme) -> EditorStyle {
     let mut style = EditorStyle::from_visuals(&visuals_for(theme));
     style.canvas_ground = theme.field_fill;
+    style.canvas_edge = theme.control_border;
     style.node_fill = theme.window_fill;
     style.node_stroke = theme.control_border;
     style.node_title = theme.text_strong;
@@ -1839,6 +1843,31 @@ mod tests {
                     "{palette}: {what} is {ratio:.2}:1 ({fg:?} on {bg:?})"
                 );
             }
+            // #1342: a note whose instrument is gone is labelled ON a block
+            // the error colour tints, so the pair that has to read is the
+            // label over that composite. The two strengths are the crate's
+            // `sequence::MISSING_TINT` and `MISSING_TINT_SELECTED`, which
+            // are `pub(crate)` there; its own
+            // `from_visuals_holds_the_editors_text_to_aa_in_dark_and_light`
+            // reads them directly and is what holds the crate's defaults.
+            // If they move, these follow.
+            for (which, lane) in [("lane", s.lane), ("odd lane", s.lane_alt)] {
+                for (state, strength) in [("unselected", 0.2_f32), ("selected", 0.35_f32)] {
+                    let tint = lane.blend(s.error.gamma_multiply(strength));
+                    // The label is `node_title` from 0.4.10 on. In the
+                    // error colour, which is what 0.4.9 painted, this
+                    // measures 3.61:1 unselected and 2.90:1 selected in
+                    // Dark, 4.21 and 3.22 in Light, 5.07 and 3.80 in High
+                    // contrast — under AA in five of the six.
+                    let ratio = contrast_ratio(s.node_title, tint);
+                    assert!(
+                        ratio >= AA_TEXT,
+                        "{palette}: a {state} missing note's label on the {which} \
+                         is {ratio:.2}:1 ({:?} on {tint:?})",
+                        s.node_title
+                    );
+                }
+            }
         }
     }
 
@@ -1850,6 +1879,11 @@ mod tests {
             let (s, _) = installed_audio_editor_style(&theme);
             let marks = [
                 ("node edge on the canvas", s.node_stroke, s.canvas_ground),
+                (
+                    "canvas border on its ground",
+                    s.canvas_edge,
+                    s.canvas_ground,
+                ),
                 ("selected node's edge", s.node_selected, s.canvas_ground),
                 ("output node's edge", s.node_output, s.canvas_ground),
                 ("wire", s.wire, s.canvas_ground),

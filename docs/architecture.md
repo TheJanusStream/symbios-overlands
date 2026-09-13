@@ -395,8 +395,8 @@ generation cores shared with the wasm Web Worker.
   listed on contact with the gate), and the owner-only
   [world editor](../src/ui/room/) (Environment / Region Assets /
   Placements / Effects / Raw JSON tabs, plus a pop-out
-  [audio editor](../src/ui/room/audio.rs) hosting the node-graph + sequence
-  canvas). Around them sits the shell: the [toolbar](../src/ui/toolbar.rs) that
+  [audio editor](../src/ui/room/audio.rs) hosting the crate's audition strip
+  above its node-graph and sequence canvases). Around them sits the shell: the [toolbar](../src/ui/toolbar.rs) that
   owns every panel's open flag, [computed non-overlapping window
   geometry](../src/ui/layout.rs), [global shortcuts](../src/ui/shortcuts.rs)
   (the Esc back-out ladder, Enter-to-chat, Ctrl+S publish), the

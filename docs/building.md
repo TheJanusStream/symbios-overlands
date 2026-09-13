@@ -293,16 +293,39 @@ The same law, for the Audio Editor pop-out the room editor hosts from
 `bevy_symbios_audio::ui` (#1318: its instrument-selector pencil shipped as an
 empty box, and four more of its symbols turned out to be tofu on inspection).
 `HOSTED_AUDIO_EDITOR_GLYPHS`, beside `HOSTED_EDITOR_GLYPHS`, is the floor that
-IS checked. After a bump, re-scan the dependency's `src/ui/*.rs` for non-ASCII
-characters in string literals — **counting `\u{…}` escapes**, which is how that
-editor writes most of its symbols and how the pencil hid from a raw-glyph grep
-(the crate's own scan now decodes them, so a bump cannot smuggle one in again):
+IS checked.
+
+**Ask the crate, not a regex.** Since 0.4.9 the dependency ships the report
+itself — `print_editor_glyph_inventory`, an `#[ignore]`d test that lexes the
+string literals of its own `src/ui`, decoding `\u{…}` escapes (which is how
+that editor writes most of its symbols, and how the pencil hid from a
+raw-glyph grep). Run it against the **packaged** bytes of the version being
+adopted, so what is scanned is what publishes:
 
 ```bash
-grep -ohP '"(?:[^"\\]|\\.)*"' \
-    ~/.cargo/registry/src/*/bevy_symbios_audio-*/src/ui/*.rs \
-    | grep -oP '\\u\{[0-9A-Fa-f]+\}|[^\x00-\x7F]' | sort | uniq -c
+cd /path/to/bevy_symbios_audio && cargo package
+cd target/package/bevy_symbios_audio-<version>
+cargo test --jobs 6 --features egui --lib print_editor_glyph_inventory \
+    -- --nocapture --ignored
 ```
+
+It prints one `GLYPH <c> U+XXXX <files>` line per code point. **A regex gets
+both directions wrong**, which is why this recipe used to be one and is not
+any more. Measured on 0.4.10's packaged `src/ui`:
+
+* a raw-glyph scan reads comments as well as literals, so it adds `–`, `→`
+  and `✓` — code points that only ever appear in prose *about* glyphs. Two
+  of those three do not even draw in the bundled faces (see below), so the
+  list would have gained the tofu it exists to prevent;
+* it also *misses* every `\u{…}` escape, which is how most of that editor's
+  symbols are written — the die `🎲` does not appear in a raw scan at all;
+* and a regex that does decode escapes then picks up `⬅` and `✎` from
+  test assertions and doc comments, neither of which anything draws.
+
+Three of the code points the lexer itself finds are test FIXTURES and must
+NOT be copied into the hosted list: `é` U+00E9, the die `🎲` U+1F3B2, and
+U+270E, which the crate's own font tests assert is *not* drawable.
+Everything else it prints belongs on the list; 0.4.10 draws thirteen.
 
 Do not guess coverage from the glyph's looks: the bundled Noto Sans is a
 Latin/Greek/Cyrillic face and egui's tail is emoji plus a few icons, so `✔`
