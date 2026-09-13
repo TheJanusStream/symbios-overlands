@@ -67,7 +67,7 @@ bevy_symbios_texture = { version = "0.12", features = ["egui"] }
 # re-exports the types, but a `$crate` path inside an exported macro
 # resolves to the crate that declared it.
 symbios-texture = "0.7"
-bevy_symbios_audio = { version = "0.4.10", features = ["egui"] }
+bevy_symbios_audio = { version = "0.5.0", features = ["egui"] }
 transform-gizmo-bevy = "0.11"
 symbios-avatar = "0.8"
 symbios = "1.5"
@@ -134,6 +134,11 @@ url = "2"
 
 [dev-dependencies]
 glam = "0.32"
+# The audio backend under Bevy's (already in the graph, at the minor
+# bevy_audio 0.19 uses): the master-mute test builds real `AudioSink`s, and
+# `AudioSink::new` takes a rodio `Player`, which Bevy does not re-export
+# (#1341).
+rodio = { version = "0.22", default-features = false }
 # The font parser epaint 0.35 reads faces with (already in the graph): the
 # UI glyph-coverage guard asks each bundled face's charmap directly, because
 # epaint's `has_glyph` compares faces, not glyphs (#1105).

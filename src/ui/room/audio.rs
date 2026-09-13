@@ -2192,7 +2192,11 @@ mod tests {
             bevy::app::TaskPoolPlugin::default(),
             bevy_symbios_audio::ui::AudioEditorPlugin,
         ));
-        app.init_resource::<Assets<AudioSource>>();
+        // The monitor's voice is a `LoopedSamples` since the crate's 0.4.11
+        // (#1341). Its plugin registers that source only alongside Bevy's
+        // audio plugin, which a bare app has not got, so the assets the voice
+        // is made in are set up here.
+        app.init_resource::<Assets<bevy_symbios_audio::LoopedSamples>>();
         app.world_mut().write_message(request);
         for _ in 0..500 {
             app.update();

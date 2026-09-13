@@ -222,4 +222,48 @@ mod tests {
             "the control: &mut through the ResMut stamps even when it only reads"
         );
     }
+
+    /// #1341: the audio editor's audition voice is an
+    /// `AudioPlayer<LoopedSamples>` now, not an `AudioSource`, and plays
+    /// under `PlaybackMode::Once`. The reconciler finds sinks by the SINK's
+    /// type, whatever source feeds them, so the audition and a world player
+    /// both go quiet and both come back — asked of the real system over real
+    /// rodio players rather than read off the query's shape.
+    #[test]
+    fn the_master_mute_reaches_a_voice_whatever_source_it_plays() {
+        use bevy::audio::{AudioPlayer, AudioSource};
+        use bevy_symbios_audio::LoopedSamples;
+
+        let mut app = App::new();
+        app.add_plugins(AudioMutePlugin);
+        let world_bed = app
+            .world_mut()
+            .spawn((
+                AudioPlayer::<AudioSource>(Handle::default()),
+                AudioSink::new(rodio::Player::new().0),
+            ))
+            .id();
+        let audition = app
+            .world_mut()
+            .spawn((
+                AudioPlayer::<LoopedSamples>(Handle::default()),
+                AudioSink::new(rodio::Player::new().0),
+            ))
+            .id();
+        let voices = [("the world's bed", world_bed), ("the audition", audition)];
+
+        app.world_mut().resource_mut::<AudioMuted>().0 = true;
+        app.update();
+        for (what, voice) in voices {
+            let sink = app.world().get::<AudioSink>(voice).expect("a sink");
+            assert!(sink.is_muted(), "{what} is not muted");
+        }
+
+        app.world_mut().resource_mut::<AudioMuted>().0 = false;
+        app.update();
+        for (what, voice) in voices {
+            let sink = app.world().get::<AudioSink>(voice).expect("a sink");
+            assert!(!sink.is_muted(), "{what} stayed muted");
+        }
+    }
 }

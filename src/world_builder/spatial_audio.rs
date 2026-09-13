@@ -69,20 +69,53 @@ pub(crate) const CONSTRUCT_PATCH_SECS: f32 = 1.0;
 
 /// Playback settings for a looping, spatial construct / avatar-voice emitter:
 /// Bevy's `LOOP` shape, spatialised, with the gentler [`CONSTRUCT_SPATIAL_SCALE`]
-/// so the loop carries across a normal viewing distance.
-fn looping_construct_playback() -> PlaybackSettings {
+/// so the loop carries across a normal viewing distance, starting every pass
+/// at `loop_start` — from [`baked_loop_start`], `None` to loop from the first
+/// sample.
+fn looping_construct_playback(loop_start: Option<std::time::Duration>) -> PlaybackSettings {
     PlaybackSettings {
         spatial: true,
         spatial_scale: Some(SpatialScale::new(CONSTRUCT_SPATIAL_SCALE)),
+        start_position: loop_start,
         ..PlaybackSettings::LOOP
     }
+}
+
+/// Where the buffer `audio` bakes to loops from, as a looping player's
+/// `start_position`, or `None` when it loops from its first sample (#1341).
+///
+/// A `Sequence` bake folds its crossfade tail into the loop region from
+/// `loop_start_beats` on and cuts the buffer at its end, so the seam it
+/// smooths runs from the last sample back to the loop start. bevy_audio
+/// loops `skip_duration(start).repeat_infinite()` for a `start_position`: a
+/// loop of the buffer from the loop start to the end, whose run-up is never
+/// replayed. A `Patch` has no run-up and loops whole, and a `Referenced` clip
+/// is not baked here at all.
+///
+/// Asked of the recipe exactly as `gen-jobs` bakes it — clamped to the default
+/// `Envelope` first — so the start is the sample the mixdown folded its tail
+/// into, never one a clamp moved. Shared by both looping world players: this
+/// file's construct emitters and the ambient bed's player.
+pub(crate) fn baked_loop_start(audio: &SovereignAudioConfig) -> Option<std::time::Duration> {
+    use bevy_symbios_audio::ClampToEnvelope as _;
+    let SovereignAudioConfig::Sequence { .. } = audio else {
+        return None;
+    };
+    let mut recipe = audio.parse_sequence()?;
+    recipe.clamp_to_envelope(&bevy_symbios_audio::Envelope::default());
+    bevy_symbios_audio::sequence_loop_start(&recipe)
 }
 
 /// How the spatial-audio bake should be attached once it completes.
 #[derive(Clone, Copy, Debug)]
 pub enum BakeAttachmentMode {
-    /// Construct emitter — looping, sticky on the target entity.
-    LoopingConstruct,
+    /// Construct emitter — looping, sticky on the target entity, every pass
+    /// from `loop_start` ([`baked_loop_start`]). Carried here rather than
+    /// looked up when the bake lands, because a waiter holds only its entity
+    /// and this mode: the config is in hand where the mode is made.
+    LoopingConstruct {
+        loop_start: Option<std::time::Duration>,
+    },
     /// One-shot impact / footstep — `PlaybackMode::Despawn` so the
     /// carrier entity GCs itself when the sound ends. `volume` is the
     /// linear gain in `[0, 1]`.
@@ -212,7 +245,9 @@ fn attach_baked_audio(
     handle: Handle<AudioSource>,
 ) {
     let settings = match mode {
-        BakeAttachmentMode::LoopingConstruct => looping_construct_playback(),
+        BakeAttachmentMode::LoopingConstruct { loop_start } => {
+            looping_construct_playback(loop_start)
+        }
         BakeAttachmentMode::OneShot { volume } => PlaybackSettings {
             mode: PlaybackMode::Despawn,
             spatial: true,
@@ -311,21 +346,27 @@ pub fn dispatch_construct_audio(
                 source,
                 super::audio_resolver::AudioReferenceTarget::AttachToEntity {
                     entity: target,
-                    settings: looping_construct_playback(),
+                    // A fetched clip is no bake of ours: nothing says where a
+                    // loop in it starts, so it loops whole.
+                    settings: looping_construct_playback(None),
                 },
             );
         }
         // Procedural — resolve through the content-keyed bake cache:
         // identical configs (the same construct re-spawned by a room
         // recompile, or N copies of one catalogue item) share a single
-        // bake and a single buffer.
+        // bake and a single buffer. The loop start is worked out here, where
+        // the config is in hand, and rides in the mode: a waiter holds only
+        // its entity and its mode until the bake lands.
         SovereignAudioConfig::Patch { .. } | SovereignAudioConfig::Sequence { .. } => {
             request_baked_audio(
                 commands,
                 bake_cache,
                 audio,
                 target,
-                BakeAttachmentMode::LoopingConstruct,
+                BakeAttachmentMode::LoopingConstruct {
+                    loop_start: baked_loop_start(audio),
+                },
             );
         }
     }
@@ -632,7 +673,7 @@ mod tests {
             "pending-0".into(),
             BakedAudioEntry::Pending(vec![(
                 Entity::PLACEHOLDER,
-                BakeAttachmentMode::LoopingConstruct,
+                BakeAttachmentMode::LoopingConstruct { loop_start: None },
             )]),
         );
         cache.order.push_back("pending-0".into());
@@ -665,7 +706,7 @@ mod tests {
             "pending".into(),
             BakedAudioEntry::Pending(vec![(
                 Entity::PLACEHOLDER,
-                BakeAttachmentMode::LoopingConstruct,
+                BakeAttachmentMode::LoopingConstruct { loop_start: None },
             )]),
         );
 
@@ -732,6 +773,95 @@ mod tests {
             bytes.len() > 40_000,
             "hum WAV should be at least 40 KB; got {}",
             bytes.len()
+        );
+    }
+
+    /// Seed 3's ambient recipe, as a construct can carry it.
+    fn seeded_recipe() -> bevy_symbios_audio::SequenceRecipe {
+        let scene = crate::seeded_defaults::SceneCharacter::for_did("did:plc:loop_start");
+        crate::seeded_defaults::AmbientRecipe::from_scene(&scene, 3).recipe
+    }
+
+    /// #1341: a construct's looping player of a baked sequence starts every
+    /// pass at the loop start its bake has — the seeded bed's beat 2, two
+    /// seconds in — and everything with no loop point loops from its first
+    /// sample. The control, run at HEAD before the fix:
+    /// `looping_construct_playback().start_position` was `None` for all of
+    /// them.
+    #[test]
+    fn a_looping_construct_plays_from_the_loop_start_its_bake_has() {
+        let bed = SovereignAudioConfig::from_sequence(&seeded_recipe());
+        assert_eq!(
+            looping_construct_playback(baked_loop_start(&bed)).start_position,
+            Some(std::time::Duration::from_secs(2)),
+            "the seeded bed loops from beat 2 at 60 BPM"
+        );
+        let unlooped = SovereignAudioConfig::from_sequence(&bevy_symbios_audio::SequenceRecipe {
+            loop_start_beats: None,
+            ..seeded_recipe()
+        });
+        for (what, audio) in [
+            ("a sequence with no loop point", unlooped),
+            (
+                "a patch",
+                SovereignAudioConfig::from_patch(&teleporter_hum_patch()),
+            ),
+            (
+                "a referenced clip",
+                SovereignAudioConfig::Referenced {
+                    source: SovereignAssetReference::default(),
+                },
+            ),
+            ("no audio", SovereignAudioConfig::None),
+        ] {
+            assert_eq!(
+                looping_construct_playback(baked_loop_start(&audio)).start_position,
+                None,
+                "{what}"
+            );
+        }
+    }
+
+    /// The start is asked of the recipe as gen-jobs BAKES it — clamped to the
+    /// default `Envelope` first — not as the record holds it. A tempo past the
+    /// envelope's ceiling is where the two part: 2 000 BPM is baked at 1 000,
+    /// so a loop start three beats in is 180 ms, not 90. The bake's own length
+    /// says gen-jobs clamped it the same way: two clamps that must agree.
+    #[test]
+    fn the_loop_start_is_asked_of_the_recipe_as_it_is_baked() {
+        let recipe = bevy_symbios_audio::SequenceRecipe {
+            bpm: 2_000.0,
+            sample_rate: 22_050,
+            duration_beats: 4.0,
+            loop_start_beats: Some(3.0),
+            ..Default::default()
+        };
+        let config = SovereignAudioConfig::from_sequence(&recipe);
+        assert_eq!(
+            config.parse_sequence().expect("a recipe").bpm,
+            2_000.0,
+            "the record holds the tempo unclamped"
+        );
+        let as_baked = std::time::Duration::from_millis(180);
+        assert_ne!(
+            bevy_symbios_audio::sequence_loop_start(&recipe),
+            Some(as_baked),
+            "unclamped, the loop start is somewhere else"
+        );
+        assert_eq!(baked_loop_start(&config), Some(as_baked));
+
+        let (bytes, rate) = bake_construct_wav_bytes(&config).expect("a sequence bakes");
+        assert_eq!(rate, 22_050);
+        let data = bytes
+            .windows(4)
+            .position(|chunk| chunk == b"data")
+            .expect("a data chunk");
+        let data_bytes = u32::from_le_bytes(bytes[data + 4..data + 8].try_into().expect("a size"));
+        assert_eq!(
+            data_bytes / 2,
+            5_292,
+            "four beats at 1 000 BPM and 22.05 kHz, in 16-bit samples: gen-jobs \
+             clamped the tempo too"
         );
     }
 }

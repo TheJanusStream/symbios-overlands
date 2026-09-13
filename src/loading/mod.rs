@@ -180,6 +180,7 @@ pub(crate) fn abort_loading_to_login(
     }
     commands.remove_resource::<AmbientHandle>();
     commands.remove_resource::<AmbientResolveFailed>();
+    commands.remove_resource::<ambient::AmbientLoopStart>();
     commands.remove_resource::<ambient::AmbientBakeStarted>();
     next_state.set(AppState::Login);
 }

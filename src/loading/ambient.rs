@@ -44,6 +44,34 @@ pub struct AmbientResolveFailed {
     pub failure: crate::world_builder::asset_failure::AssetFailure,
 }
 
+/// Where the baked bed in [`AmbientHandle`] loops from (#1341): its player's
+/// `start_position`, so every pass starts at the loop start the mixdown folded
+/// its crossfade tail into, and the run-up before it is never replayed.
+///
+/// It names the handle it belongs to, and is inserted with that handle by the
+/// poll that baked it — carried on the bake task from where the config was in
+/// hand — rather than read off [`LiveAmbientConfig`] when the player spawns.
+/// The live config moves the moment an edit lands, while the bake of the
+/// config before it can still be in flight, and a player spawned from that
+/// bake would loop from the newer bed's start. A handle this does not name —
+/// a referenced clip, a patch, a sequence with no loop point — loops from its
+/// first sample.
+///
+/// A sibling rather than a second field on [`AmbientHandle`], for the reason
+/// [`AmbientResolveFailed`] is one.
+#[derive(Resource, Debug, Clone, Copy)]
+pub(crate) struct AmbientLoopStart {
+    handle: bevy::asset::AssetId<bevy::audio::AudioSource>,
+    start: std::time::Duration,
+}
+
+impl AmbientLoopStart {
+    /// Where `handle` loops from, when this is its loop start.
+    fn of(&self, handle: &Handle<bevy::audio::AudioSource>) -> Option<std::time::Duration> {
+        (self.handle == handle.id()).then_some(self.start)
+    }
+}
+
 /// In-flight ambient-bake task. Carries WAV bytes (mono 16-bit PCM)
 /// produced by the audio crate's [`bake_sequence`](bevy_symbios_audio::bake_sequence)
 /// / [`bake`](bevy_symbios_audio::bake()) +
@@ -55,6 +83,8 @@ pub(crate) struct AmbientBakeTask(
     bevy::tasks::Task<crate::offload::GenResult>,
     /// Session-relative seconds at dispatch, for the E-4 completion latency.
     f64,
+    /// Where the bed this task bakes loops from ([`AmbientLoopStart`]).
+    Option<std::time::Duration>,
 );
 
 /// In-flight *in-game* ambient re-bake task — the editor counterpart of
@@ -66,6 +96,8 @@ pub(crate) struct AmbientRebakeTask(
     bevy::tasks::Task<crate::offload::GenResult>,
     /// Session-relative seconds at dispatch, for the E-4 completion latency.
     f64,
+    /// Where the bed this task bakes loops from ([`AmbientLoopStart`]).
+    Option<std::time::Duration>,
 );
 
 /// Which half of the ambient pipeline a task belongs to. Drives the small
@@ -90,37 +122,58 @@ pub(crate) trait AmbientTask:
     /// Which pipeline half this task type serves.
     const SIDE: AmbientBakeSide;
 
-    fn new(task: bevy::tasks::Task<crate::offload::GenResult>, dispatched_at: f64) -> Self;
+    fn new(
+        task: bevy::tasks::Task<crate::offload::GenResult>,
+        dispatched_at: f64,
+        loop_start: Option<std::time::Duration>,
+    ) -> Self;
     fn task_mut(&mut self) -> &mut bevy::tasks::Task<crate::offload::GenResult>;
     /// Session-relative seconds at dispatch, for the E-4 completion latency.
     fn dispatched_at(&self) -> f64;
+    /// Where the bed this task bakes loops from, worked out where its config
+    /// was in hand ([`crate::world_builder::spatial_audio::baked_loop_start`]).
+    fn loop_start(&self) -> Option<std::time::Duration>;
 }
 
 impl AmbientTask for AmbientBakeTask {
     const SIDE: AmbientBakeSide = AmbientBakeSide::LoadingGate;
 
-    fn new(task: bevy::tasks::Task<crate::offload::GenResult>, dispatched_at: f64) -> Self {
-        Self(task, dispatched_at)
+    fn new(
+        task: bevy::tasks::Task<crate::offload::GenResult>,
+        dispatched_at: f64,
+        loop_start: Option<std::time::Duration>,
+    ) -> Self {
+        Self(task, dispatched_at, loop_start)
     }
     fn task_mut(&mut self) -> &mut bevy::tasks::Task<crate::offload::GenResult> {
         &mut self.0
     }
     fn dispatched_at(&self) -> f64 {
         self.1
+    }
+    fn loop_start(&self) -> Option<std::time::Duration> {
+        self.2
     }
 }
 
 impl AmbientTask for AmbientRebakeTask {
     const SIDE: AmbientBakeSide = AmbientBakeSide::Rebake;
 
-    fn new(task: bevy::tasks::Task<crate::offload::GenResult>, dispatched_at: f64) -> Self {
-        Self(task, dispatched_at)
+    fn new(
+        task: bevy::tasks::Task<crate::offload::GenResult>,
+        dispatched_at: f64,
+        loop_start: Option<std::time::Duration>,
+    ) -> Self {
+        Self(task, dispatched_at, loop_start)
     }
     fn task_mut(&mut self) -> &mut bevy::tasks::Task<crate::offload::GenResult> {
         &mut self.0
     }
     fn dispatched_at(&self) -> f64 {
         self.1
+    }
+    fn loop_start(&self) -> Option<std::time::Duration> {
+        self.2
     }
 }
 
@@ -297,6 +350,7 @@ fn dispatch_ambient_config<T: AmbientTask>(
                 commands.spawn(T::new(
                     crate::offload::offload(crate::offload::GenJob::AudioBake(job)),
                     time.elapsed_secs_f64(),
+                    crate::world_builder::spatial_audio::baked_loop_start(audio),
                 ));
             }
             // Malformed Patch/Sequence JSON → treat as "no audio".
@@ -360,12 +414,18 @@ pub(crate) fn start_ambient_bake(
 pub struct AmbientPlayer;
 
 /// Looping playback settings for the ambient bed, born muted when the
-/// master mute is engaged. Spawning pre-muted (rather than relying solely
-/// on the per-frame reconcile in [`crate::audio_mute`]) means launching
-/// muted never leaks even a one-frame blip of the loop's attack.
-fn ambient_playback_settings(muted: bool) -> bevy::audio::PlaybackSettings {
+/// master mute is engaged, and starting every pass at `loop_start` — the
+/// bed's [`AmbientLoopStart`], `None` to loop from the first sample.
+/// Spawning pre-muted (rather than relying solely on the per-frame reconcile
+/// in [`crate::audio_mute`]) means launching muted never leaks even a
+/// one-frame blip of the loop's attack.
+fn ambient_playback_settings(
+    muted: bool,
+    loop_start: Option<std::time::Duration>,
+) -> bevy::audio::PlaybackSettings {
     bevy::audio::PlaybackSettings {
         muted,
+        start_position: loop_start,
         ..bevy::audio::PlaybackSettings::LOOP
     }
 }
@@ -384,6 +444,7 @@ pub(crate) fn reset_ambient_bake_state(
     // The failure marker is scoped to the handle it explains (#1246 f341):
     // a stale one would tell the next room its soundtrack is broken.
     commands.remove_resource::<AmbientResolveFailed>();
+    commands.remove_resource::<AmbientLoopStart>();
     commands.remove_resource::<AmbientBakeStarted>();
     // Forget the previous room's ambient bed and player handle so the next
     // room bakes fresh and the player respawns from its new handle. Also drop
@@ -617,9 +678,14 @@ pub(crate) fn rebake_ambient_on_record_change(
 /// pipeline stall or a recompile/bake burst (see [`AMBIENT_SETTLE_SECS`]).
 /// The old loop keeps playing in the meantime, so a re-roll is heard as
 /// "old bed continues, then clean swap" rather than a choppy onset.
+///
+/// **Loop start.** The new player starts every pass at the
+/// [`AmbientLoopStart`] that came in with its handle, or at the first sample
+/// when none names it (#1341).
 pub(crate) fn swap_ambient_player_to_handle(
     mut commands: Commands,
     ambient: Option<Res<AmbientHandle>>,
+    loop_start: Option<Res<AmbientLoopStart>>,
     mut playing: ResMut<PlayingAmbient>,
     players: Query<Entity, With<AmbientPlayer>>,
     audio_muted: Res<crate::audio_mute::AudioMuted>,
@@ -642,9 +708,10 @@ pub(crate) fn swap_ambient_player_to_handle(
     }
     match ambient.0.clone() {
         Some(handle) => {
+            let loop_start = loop_start.and_then(|at| at.of(&handle));
             commands.spawn((
                 bevy::audio::AudioPlayer::new(handle.clone()),
-                ambient_playback_settings(audio_muted.0),
+                ambient_playback_settings(audio_muted.0, loop_start),
                 AmbientPlayer,
             ));
             playing.0 = Some(handle);
@@ -717,6 +784,13 @@ pub(crate) fn poll_ambient_task<T: AmbientTask>(
         if handle.is_some() && T::SIDE == AmbientBakeSide::LoadingGate {
             // The re-bake side stays quiet here; the player swap logs instead.
             info!("Ambient audio baked");
+        }
+        // The loop start goes in with the handle it belongs to (#1341).
+        if let (Some(handle), Some(start)) = (&handle, task.loop_start()) {
+            commands.insert_resource(AmbientLoopStart {
+                handle: handle.id(),
+                start,
+            });
         }
         commands.insert_resource(AmbientHandle(handle));
     }
@@ -995,6 +1069,129 @@ mod tests {
             bytes.len() > 1_000_000,
             "wav bytes should be at least 1 MB for the seeded loop at 60 BPM, got {}",
             bytes.len()
+        );
+    }
+
+    /// Seed 3's ambient recipe, as the world derives it.
+    fn seeded_recipe() -> bevy_symbios_audio::SequenceRecipe {
+        let scene = crate::seeded_defaults::SceneCharacter::for_did("did:plc:loop_start");
+        crate::seeded_defaults::AmbientRecipe::from_scene(&scene, 3).recipe
+    }
+
+    /// #1341: the seeded bed's player starts every pass at its loop start —
+    /// beat 2 at 60 BPM, two seconds in — and a bed with no loop point loops
+    /// from its first sample. The control, run at HEAD before the fix:
+    /// `ambient_playback_settings(false).start_position` was `None`.
+    #[test]
+    fn the_seeded_bed_plays_from_its_loop_start() {
+        use crate::world_builder::spatial_audio::baked_loop_start;
+        let bed = SovereignAudioConfig::from_sequence(&seeded_recipe());
+        assert_eq!(
+            ambient_playback_settings(false, baked_loop_start(&bed)).start_position,
+            Some(Duration::from_secs(2)),
+            "the seeded bed loops from beat 2 at 60 BPM"
+        );
+        let unlooped = SovereignAudioConfig::from_sequence(&bevy_symbios_audio::SequenceRecipe {
+            loop_start_beats: None,
+            ..seeded_recipe()
+        });
+        assert_eq!(
+            ambient_playback_settings(false, baked_loop_start(&unlooped)).start_position,
+            None,
+            "a bed with no loop point loops whole"
+        );
+    }
+
+    /// #1341: a bed's player loops from the loop start of the bake that made
+    /// its handle — carried with that bake — and not from whatever the live
+    /// config says by the time the player spawns: an edit moves the live
+    /// config while the bake of the one before it is still in flight. A
+    /// handle that loop start does not name, like a referenced clip landing
+    /// next, loops from its first sample.
+    #[test]
+    fn a_bed_loops_from_the_loop_start_of_its_own_bake() {
+        use crate::world_builder::spatial_audio::baked_loop_start;
+        let mut app = App::new();
+        app.add_plugins(
+            bevy::MinimalPlugins
+                .build()
+                .disable::<bevy::time::TimePlugin>(),
+        );
+        app.init_resource::<Time>();
+        app.init_resource::<Assets<bevy::audio::AudioSource>>();
+        app.init_resource::<crate::diagnostics::MetricsRegistry>();
+        app.init_resource::<crate::diagnostics::SessionLog>();
+        app.init_resource::<PlayingAmbient>();
+        app.insert_resource(crate::audio_mute::AudioMuted(false));
+        app.insert_resource(AmbientSettle {
+            remaining: 0.0,
+            audio_remaining: 0.0,
+        });
+        app.add_systems(
+            Update,
+            (
+                poll_ambient_task::<AmbientRebakeTask>,
+                swap_ambient_player_to_handle,
+            )
+                .chain(),
+        );
+
+        // A small bed baking: four beats at 60 BPM, looping from beat 2 …
+        let baking = SovereignAudioConfig::from_sequence(&bevy_symbios_audio::SequenceRecipe {
+            bpm: 60.0,
+            sample_rate: 22_050,
+            duration_beats: 4.0,
+            loop_start_beats: Some(2.0),
+            ..Default::default()
+        });
+        let job = ambient_bake_job(&baking).expect("a sequence bakes");
+        app.world_mut().spawn(AmbientRebakeTask::new(
+            crate::offload::offload(crate::offload::GenJob::AudioBake(job)),
+            0.0,
+            baked_loop_start(&baking),
+        ));
+        // … while an edit has already moved the live config to a bed with no
+        // loop point.
+        app.insert_resource(LiveAmbientConfig(Some(
+            SovereignAudioConfig::from_sequence(&bevy_symbios_audio::SequenceRecipe::default()),
+        )));
+
+        let players = |app: &mut App| -> Vec<Option<Duration>> {
+            app.world_mut()
+                .query_filtered::<&bevy::audio::PlaybackSettings, With<AmbientPlayer>>()
+                .iter(app.world())
+                .map(|settings| settings.start_position)
+                .collect()
+        };
+        let landed = (0..2_000).find_map(|_| {
+            app.update();
+            let spawned = players(&mut app);
+            if spawned.is_empty() {
+                std::thread::sleep(Duration::from_millis(5));
+                None
+            } else {
+                Some(spawned)
+            }
+        });
+        assert_eq!(
+            landed,
+            Some(vec![Some(Duration::from_secs(2))]),
+            "the bed plays from its own bake's loop start"
+        );
+
+        // A referenced clip landing next is not that bake: it loops whole.
+        let clip = app
+            .world_mut()
+            .resource_mut::<Assets<bevy::audio::AudioSource>>()
+            .add(bevy::audio::AudioSource {
+                bytes: vec![0u8; 64].into(),
+            });
+        app.insert_resource(AmbientHandle(Some(clip)));
+        app.update();
+        assert_eq!(
+            players(&mut app),
+            vec![None],
+            "a clip the loop start does not name loops from its first sample"
         );
     }
 }
