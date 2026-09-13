@@ -2254,11 +2254,21 @@ mod tests {
         }
     }
 
+    /// How long [`monitor_playing`] waits for a bake. The bake runs on
+    /// Bevy's `AsyncComputeTaskPool`, which is process-global: under bare
+    /// `cargo test` every test in the binary shares it, so on a small CI
+    /// runner a 34 s sequence bake queues behind the other tests' bakes and
+    /// their threads (#1346). Locally the three ruler tests finish in 0.2 s
+    /// between them; the budget is for the pool under a whole suite, not for
+    /// the bake.
+    const BAKE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
+
     /// A monitor that has really played `request`: the crate's plugin on a
     /// bare app, driven until the bake lands. The strip tells its own
     /// audition from another slot's by what the monitor was asked for, which
     /// only the monitor itself can record.
     fn monitor_playing(request: MonitorRequest) -> App {
+        use bevy_symbios_audio::ui::MonitorStatus;
         let mut app = App::new();
         app.add_plugins((
             bevy::app::TaskPoolPlugin::default(),
@@ -2270,16 +2280,25 @@ mod tests {
         // is made in are set up here.
         app.init_resource::<Assets<bevy_symbios_audio::LoopedSamples>>();
         app.world_mut().write_message(request);
-        for _ in 0..500 {
+        // Bounded by the clock, not a tick count: a tick is as long as the
+        // pool lets it be, so 500 of them was about a second on an idle
+        // machine and no more under load (#1346).
+        let started = std::time::Instant::now();
+        while started.elapsed() < BAKE_DEADLINE {
             app.update();
-            if app.world().resource::<AudioMonitor>().status
-                == bevy_symbios_audio::ui::MonitorStatus::Playing
-            {
-                return app;
+            match &app.world().resource::<AudioMonitor>().status {
+                MonitorStatus::Playing => return app,
+                MonitorStatus::Error(message) => {
+                    panic!("the monitor refused the request: {message}")
+                }
+                MonitorStatus::Idle | MonitorStatus::Baking => {}
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        panic!("the monitor never played the request");
+        panic!(
+            "the monitor never played the request in {:?}",
+            started.elapsed()
+        );
     }
 
     /// Half the height of the timeline's ruler. bevy_symbios_audio draws the
