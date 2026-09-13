@@ -147,8 +147,8 @@ pub(super) fn hearth_smoke(pos: [f32; 3], seed: u64) -> Generator {
 pub(super) fn fire_crackle() -> SovereignAudioConfig {
     FireCrackle {
         noise: 0.6,
-        pulse_hz: 7.0,
-        pulse_floor: 0.18,
+        pulse_hz: 14.0,
+        pulse: 0.485,
         pitch_hz: 1700.0,
         rumble_hz: 72.0,
         rumble: 0.16,
@@ -156,7 +156,7 @@ pub(super) fn fire_crackle() -> SovereignAudioConfig {
     .patch()
 }
 
-/// A slow, deep ritual drum — a low sine struck by a steady LFO pulse,
+/// A deep ritual drum — a low sine struck by a steady LFO pulse,
 /// darkened by a lowpass: the heartbeat of the temple.
 pub(super) fn ritual_drum() -> SovereignAudioConfig {
     let body = node(
@@ -167,14 +167,15 @@ pub(super) fn ritual_drum() -> SovereignAudioConfig {
             amplitude: 0.5,
         }),
     );
-    // Steady ~80 bpm pulse: short duty so each beat reads as a strike.
+    // A steady 156 bpm pulse, falling to silence between beats so each one
+    // reads as a strike.
     let pulse = node(
         1,
         NodeKind::Lfo(Lfo {
-            rate_hz: 1.3,
+            rate_hz: 2.6,
             shape: LfoShape::Sine,
-            depth: 0.9,
-            offset: 0.05,
+            depth: 0.506,
+            offset: 0.506,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();

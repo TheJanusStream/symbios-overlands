@@ -421,8 +421,8 @@ fn boat_hum(g: &mut GraphBuilder, detune: f32) -> NodeId {
     let swell = g.src(NodeKind::Lfo(Lfo {
         rate_hz: 0.4 * detune,
         shape: LfoShape::Sine,
-        depth: 0.6,
-        offset: 0.35,
+        depth: 0.459,
+        offset: 0.459,
     }));
     let wash = g.vca(&[band], swell);
     let mix = g.sink(NodeKind::Gain(Gain { gain: 0.7 }), &[rumble, wash]);
@@ -444,8 +444,8 @@ fn airship_rotor(g: &mut GraphBuilder, detune: f32) -> NodeId {
     let thump = g.src(NodeKind::Lfo(Lfo {
         rate_hz: 5.0 * detune,
         shape: LfoShape::Sine,
-        depth: 0.7,
-        offset: 0.35,
+        depth: 0.495,
+        offset: 0.495,
     }));
     let pumped = g.vca(&[body], thump);
     g.sink(
@@ -616,6 +616,40 @@ mod audio_tests {
         assert!(
             samples.iter().any(|s| s.abs() > 1e-3),
             "{label}: baked to silence"
+        );
+    }
+
+    /// No avatar voice drives a `Gain` below zero (#1348): the VCA has no
+    /// floor, so a trough below zero flips the voice's phase and it keeps
+    /// sounding where the swell or the thump means to fall away. Every voice
+    /// on every chassis, over several detune buckets, since the engine a
+    /// luminous vehicle carries is built into the same graph.
+    #[test]
+    fn no_avatar_voice_inverts_through_a_gain_trough() {
+        use crate::catalogue::items::fx::gain_troughs;
+        let mut checked = 0;
+        for voice in [
+            AvatarVoice::EngineHum,
+            AvatarVoice::NeonBuzz,
+            AvatarVoice::ArcaneShimmer,
+        ] {
+            for family in ChassisFamily::ALL {
+                for seed in [0, 3, 7, 11] {
+                    let Some(patch) = voice_patch(voice, family, seed) else {
+                        continue;
+                    };
+                    checked += 1;
+                    let troughs = gain_troughs(&patch);
+                    assert!(
+                        troughs.is_empty(),
+                        "{voice:?} on {family:?} (seed {seed}) flips phase: {troughs:?}"
+                    );
+                }
+            }
+        }
+        assert!(
+            checked > 0,
+            "no voice built a patch — the walk proved nothing"
         );
     }
 

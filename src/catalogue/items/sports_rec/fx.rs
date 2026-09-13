@@ -79,8 +79,8 @@ pub(super) fn crowd_murmur() -> SovereignAudioConfig {
         NodeKind::Lfo(Lfo {
             rate_hz: 0.45,
             shape: LfoShape::Sine,
-            depth: 0.6,
-            offset: 0.4,
+            depth: 0.485,
+            offset: 0.485,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();

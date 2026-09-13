@@ -32,7 +32,8 @@
 //! floor: an LFO whose trough dips below zero flips the signal's phase rather
 //! than silencing it. A sound that must fall quiet between events keeps its
 //! LFO's `offset` at or above its `depth`, or decays on a sawtooth as
-//! [`WaterDrip`] does.
+//! [`WaterDrip`] does. `gain_troughs` measures it, and a catalogue test
+//! holds every shipped patch to it (#1348).
 
 use bevy_symbios_audio::{
     AudioPatch, BiquadBandpass, BiquadLowpass, Connection, Gain, GraphNode, Lfo, LfoShape,
@@ -165,10 +166,9 @@ pub(crate) struct FireCrackle {
     pub noise: f32,
     /// Rate of the pulse that breaks the noise into bursts, in hertz.
     pub pulse_hz: f32,
-    /// Offset of that pulse. It sits below the pulse's 0.8 depth, so each
-    /// trough flips phase instead of falling silent: every cycle is one loud
-    /// burst and one softer one.
-    pub pulse_floor: f32,
+    /// Depth and offset of that pulse, held equal so each trough falls to
+    /// silence and never inverts (#1348).
+    pub pulse: f32,
     /// Centre of the band the crackle is heard in, in hertz.
     pub pitch_hz: f32,
     /// Frequency of the ember rumble under it, in hertz.
@@ -191,8 +191,8 @@ impl FireCrackle {
             NodeKind::Lfo(Lfo {
                 rate_hz: self.pulse_hz,
                 shape: LfoShape::Sine,
-                depth: 0.8,
-                offset: self.pulse_floor,
+                depth: self.pulse,
+                offset: self.pulse,
             }),
         );
         let band = wired(
@@ -401,9 +401,122 @@ pub(crate) fn ballast_buzz() -> SovereignAudioConfig {
     )
 }
 
+/// Every `Gain` whose `"gain"` input can pull its multiplier below zero,
+/// with the lowest value it reaches (#1348).
+///
+/// `Gain` multiplies by `gain + input("gain")` and has no floor, so a trough
+/// below zero flips the signal's phase instead of silencing it. The bound is
+/// exact for every shape an LFO can take, since each spans `[-1, 1]`, and is
+/// summed over the connections on the port. A port fed by anything but a
+/// constant or an LFO has no static bound and is not reported.
+#[cfg(test)]
+pub(crate) fn gain_troughs(patch: &AudioPatch) -> Vec<(NodeId, f32)> {
+    let kinds: std::collections::BTreeMap<NodeId, &NodeKind> = patch
+        .graph
+        .nodes
+        .iter()
+        .map(|node| (node.id, &node.kind))
+        .collect();
+    let mut troughs = Vec::new();
+    for node in &patch.graph.nodes {
+        let NodeKind::Gain(gain) = &node.kind else {
+            continue;
+        };
+        let Some(sources) = node.inputs.get("gain") else {
+            continue;
+        };
+        let mut low = gain.gain;
+        let mut bounded = true;
+        for source in sources {
+            match source {
+                Connection::Constant { value } => low += value,
+                Connection::Node { id, amount } => match kinds.get(id) {
+                    Some(NodeKind::Lfo(lfo)) => {
+                        low += amount * lfo.offset - (amount * lfo.depth).abs()
+                    }
+                    _ => bounded = false,
+                },
+            }
+        }
+        // Fixed-point quantisation on the wire is 1e-4; below that a trough
+        // that touches zero is a trough that touches zero.
+        if bounded && low < -1e-3 {
+            troughs.push((node.id, low));
+        }
+    }
+    troughs
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The control for `gain_troughs`: it must name a graph that inverts,
+    /// and pass the three ways a graph stays at or above zero. A guard that
+    /// never fires would pass the whole catalogue forever.
+    #[test]
+    fn gain_troughs_names_an_inverting_vca_and_passes_floored_ones() {
+        fn vca(base: f32, amount: f32, depth: f32, offset: f32) -> AudioPatch {
+            let lfo = node(
+                0,
+                NodeKind::Lfo(Lfo {
+                    rate_hz: 2.0,
+                    shape: LfoShape::Sine,
+                    depth,
+                    offset,
+                }),
+            );
+            let tone = node(
+                1,
+                NodeKind::Sine(SineOsc {
+                    freq_hz: 440.0,
+                    phase_offset: 0.0,
+                    amplitude: 0.5,
+                }),
+            );
+            let mut inputs = std::collections::BTreeMap::new();
+            inputs.insert("in".to_string(), vec![Connection::from_node(NodeId(1))]);
+            inputs.insert(
+                "gain".to_string(),
+                vec![Connection::Node {
+                    id: NodeId(0),
+                    amount,
+                }],
+            );
+            let out = GraphNode {
+                id: NodeId(2),
+                kind: NodeKind::Gain(Gain { gain: base }),
+                inputs,
+            };
+            AudioPatch {
+                seed: 0,
+                graph: NodeGraph {
+                    nodes: vec![lfo, tone, out],
+                    output: NodeId(2),
+                },
+            }
+        }
+        let inverting = gain_troughs(&vca(0.0, 1.0, 0.8, 0.18));
+        assert_eq!(
+            inverting.len(),
+            1,
+            "an 0.18 offset under an 0.8 depth inverts"
+        );
+        assert!((inverting[0].1 + 0.62).abs() < 1e-4, "{inverting:?}");
+        assert!(
+            gain_troughs(&vca(0.0, 1.0, 0.5, 0.5)).is_empty(),
+            "offset = depth touches zero"
+        );
+        assert!(
+            gain_troughs(&vca(0.6, 1.0, 0.2, 0.0)).is_empty(),
+            "a base gain carries the swing"
+        );
+        assert_eq!(
+            gain_troughs(&vca(0.0, -1.0, 0.5, 0.5)).len(),
+            1,
+            "a negative amount turns a floored LFO upside down"
+        );
+    }
 
     /// A drip has to fall silent before the next one lands, or it is a hiss
     /// with a pulse in it. `Gain` has no floor, so this is the property a

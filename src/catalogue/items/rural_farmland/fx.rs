@@ -100,14 +100,14 @@ pub(super) fn windmill_creak() -> SovereignAudioConfig {
             inputs: bp_in,
         }
     };
-    // Slow uneven turn so the creak comes and goes.
+    // Slow turn so the creak comes and goes.
     let lfo = node(
         2,
         NodeKind::Lfo(Lfo {
             rate_hz: 0.5,
             shape: LfoShape::Sine,
-            depth: 0.85,
-            offset: 0.1,
+            depth: 0.416,
+            offset: 0.416,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();
@@ -169,8 +169,8 @@ pub(super) fn crickets() -> SovereignAudioConfig {
             NodeKind::Lfo(Lfo {
                 rate_hz: rate,
                 shape: LfoShape::Sine,
-                depth: 0.97,
-                offset: 0.02,
+                depth: 0.56,
+                offset: 0.56,
             }),
         );
         let mut vca_in = std::collections::BTreeMap::new();
@@ -186,8 +186,8 @@ pub(super) fn crickets() -> SovereignAudioConfig {
         };
         (vec![osc, lfo, vca], NodeId(base + 2))
     };
-    let (mut a, a_out) = voice(0, 4300.0, 14.0);
-    let (b, b_out) = voice(3, 4650.0, 11.0);
+    let (mut a, a_out) = voice(0, 4300.0, 28.0);
+    let (b, b_out) = voice(3, 4650.0, 22.0);
     a.extend(b);
     let mut mix_in = std::collections::BTreeMap::new();
     mix_in.insert(

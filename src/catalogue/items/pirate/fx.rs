@@ -124,8 +124,8 @@ pub(super) fn harbour_swell() -> SovereignAudioConfig {
         NodeKind::Lfo(Lfo {
             rate_hz: 0.18,
             shape: LfoShape::Sine,
-            depth: 0.75,
-            offset: 0.25,
+            depth: 0.432,
+            offset: 0.432,
         }),
     );
     let mut bp_in = std::collections::BTreeMap::new();
@@ -190,15 +190,15 @@ pub(super) fn rigging_creak() -> SovereignAudioConfig {
         }),
         inputs: bp_in,
     };
-    // A slow saw ramp: the load comes on gradually and lets go at the turn,
+    // A slow falling saw ramp: the load takes hold at the turn and eases off,
     // which is what makes it read as a rope rendering rather than a tone.
     let ramp = node(
         2,
         NodeKind::Lfo(Lfo {
             rate_hz: 0.13,
             shape: LfoShape::Saw,
-            depth: 0.85,
-            offset: 0.1,
+            depth: -0.343,
+            offset: 0.343,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();
@@ -257,8 +257,8 @@ pub(super) fn witchfire_hiss() -> SovereignAudioConfig {
         NodeKind::Lfo(Lfo {
             rate_hz: 0.7,
             shape: LfoShape::Sine,
-            depth: 0.5,
-            offset: 0.45,
+            depth: 0.469,
+            offset: 0.469,
         }),
     );
     // Wide `q` and high centre: air, not a resonating body. The creak's narrow

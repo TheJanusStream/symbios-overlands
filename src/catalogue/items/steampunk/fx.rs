@@ -104,10 +104,10 @@ pub(super) fn engine_chug() -> SovereignAudioConfig {
     let lfo = node(
         1,
         NodeKind::Lfo(Lfo {
-            rate_hz: 2.4,
+            rate_hz: 4.8,
             shape: LfoShape::Sine,
-            depth: 0.85,
-            offset: 0.15,
+            depth: 0.524,
+            offset: 0.524,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();

@@ -59,7 +59,7 @@ pub(super) fn road_dust(pos: [f32; 3], seed: u64) -> Generator {
 // ---------------------------------------------------------------------------
 
 /// A buzzing neon hum — a mains tone with a band-passed noise crackle pulsed
-/// by a fast uneven LFO, the electrical fizz of a lit sign.
+/// by a fast LFO, the electrical fizz of a lit sign.
 pub(super) fn neon_buzz() -> SovereignAudioConfig {
     // Mains hum under the buzz.
     let hum = node(
@@ -71,14 +71,14 @@ pub(super) fn neon_buzz() -> SovereignAudioConfig {
         }),
     );
     let noise = node(1, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.4 }));
-    // Fast, uneven flicker so the buzz comes in bursts.
+    // Fast flicker so the buzz comes in bursts.
     let lfo = node(
         2,
         NodeKind::Lfo(Lfo {
-            rate_hz: 14.0,
+            rate_hz: 28.0,
             shape: LfoShape::Sine,
-            depth: 0.8,
-            offset: 0.2,
+            depth: 0.49,
+            offset: 0.49,
         }),
     );
     let mut bp_in = std::collections::BTreeMap::new();
@@ -137,8 +137,8 @@ pub(super) fn highway_drone() -> SovereignAudioConfig {
         NodeKind::Lfo(Lfo {
             rate_hz: 0.35,
             shape: LfoShape::Sine,
-            depth: 0.5,
-            offset: 0.4,
+            depth: 0.444,
+            offset: 0.444,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();

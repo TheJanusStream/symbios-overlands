@@ -79,8 +79,8 @@ pub(super) fn cold_wind() -> SovereignAudioConfig {
         NodeKind::Lfo(Lfo {
             rate_hz: 0.22,
             shape: LfoShape::Sine,
-            depth: 0.5,
-            offset: 0.4,
+            depth: 0.439,
+            offset: 0.439,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();

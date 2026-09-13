@@ -196,14 +196,14 @@ pub(super) fn water_basin() -> SovereignAudioConfig {
             inputs: bp_in,
         }
     };
-    // Uneven gentle pulse so the water laps rather than hisses.
+    // Gentle pulse so the water laps rather than hisses.
     let lfo = node(
         2,
         NodeKind::Lfo(Lfo {
             rate_hz: 2.5,
             shape: LfoShape::Sine,
-            depth: 0.5,
-            offset: 0.3,
+            depth: 0.38,
+            offset: 0.38,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();

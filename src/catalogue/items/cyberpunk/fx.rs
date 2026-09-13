@@ -237,15 +237,14 @@ pub(super) fn transformer_hum() -> SovereignAudioConfig {
 /// shorting terminals.
 pub(super) fn electric_crackle() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.7 }));
-    // Fast sine mostly below the gain floor, peaking into brief crackle
-    // bursts.
+    // A fast sine falling to silence between crackle bursts, ten a second.
     let lfo = node(
         1,
         NodeKind::Lfo(Lfo {
-            rate_hz: 5.0,
+            rate_hz: 10.0,
             shape: LfoShape::Sine,
-            depth: 0.85,
-            offset: 0.12,
+            depth: 0.5,
+            offset: 0.5,
         }),
     );
     let mut bp_in = std::collections::BTreeMap::new();

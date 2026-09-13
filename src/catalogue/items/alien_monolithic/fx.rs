@@ -123,8 +123,8 @@ pub(super) fn power_shimmer() -> SovereignAudioConfig {
         NodeKind::Lfo(Lfo {
             rate_hz: 6.0,
             shape: LfoShape::Sine,
-            depth: 0.7,
-            offset: 0.3,
+            depth: 0.473,
+            offset: 0.473,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();

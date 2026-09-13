@@ -83,8 +83,10 @@ pub(super) fn sprinkler_mist(pos: [f32; 3], seed: u64) -> Generator {
 
 /// One chirp voice: a high sine pulsed on and off by an LFO, so it sounds as
 /// intermittent calls rather than a steady tone. `base` is the first node id;
-/// returns the three nodes and the id of the voice's output gain.
-fn chirp(base: u32, freq: f32, rate: f32, offset: f32) -> (Vec<GraphNode>, NodeId) {
+/// returns the three nodes and the id of the voice's output gain. `swing` is
+/// the LFO's depth and offset at once, so each call falls to silence between
+/// bursts and never inverts (#1348).
+fn chirp(base: u32, freq: f32, rate: f32, swing: f32) -> (Vec<GraphNode>, NodeId) {
     let osc = node(
         base,
         NodeKind::Sine(SineOsc {
@@ -98,9 +100,8 @@ fn chirp(base: u32, freq: f32, rate: f32, offset: f32) -> (Vec<GraphNode>, NodeI
         NodeKind::Lfo(Lfo {
             rate_hz: rate,
             shape: LfoShape::Sine,
-            // Low offset + high depth → short bright bursts (chirps).
-            depth: 0.95,
-            offset,
+            depth: swing,
+            offset: swing,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();
@@ -120,8 +121,8 @@ fn chirp(base: u32, freq: f32, rate: f32, offset: f32) -> (Vec<GraphNode>, NodeI
 /// Two warbling high chirp voices at different rates — the birdsong of a
 /// quiet suburban street, mixed down low.
 pub(super) fn birdsong() -> SovereignAudioConfig {
-    let (mut a, a_out) = chirp(0, 3100.0, 5.5, 0.06);
-    let (b, b_out) = chirp(3, 2550.0, 3.5, 0.04);
+    let (mut a, a_out) = chirp(0, 3100.0, 11.0, 0.555);
+    let (b, b_out) = chirp(3, 2550.0, 7.0, 0.554);
     a.extend(b);
     let mut mix_in = std::collections::BTreeMap::new();
     mix_in.insert(

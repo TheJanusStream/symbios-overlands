@@ -483,6 +483,58 @@ mod tests {
         );
     }
 
+    /// No catalogue sound drives a `Gain` below zero (#1348). `Gain` has no
+    /// floor, so a modulation trough below zero flips the signal's phase and
+    /// keeps sounding where the patch means to fall quiet. By ear that is a
+    /// pulse at twice its rate, never a gap, and nothing in a diff shows it.
+    #[test]
+    fn no_catalogue_sound_inverts_through_a_gain_trough() {
+        use crate::catalogue::items::fx::gain_troughs;
+        use crate::pds::Generator;
+        use crate::pds::audio::SovereignAudioConfig;
+
+        fn walk(generator: &Generator, slug: &str, checked: &mut usize, found: &mut Vec<String>) {
+            let patches = match &generator.audio {
+                SovereignAudioConfig::Patch { patch } => vec![patch.to_native()],
+                SovereignAudioConfig::Sequence { recipe } => recipe
+                    .to_native()
+                    .instruments
+                    .into_iter()
+                    .map(|instrument| instrument.patch)
+                    .collect(),
+                _ => Vec::new(),
+            };
+            for patch in patches {
+                *checked += 1;
+                for (node, low) in gain_troughs(&patch) {
+                    found.push(format!("{slug}: Gain node {} reaches {low:.3}", node.0));
+                }
+            }
+            for child in &generator.children {
+                walk(child, slug, checked, found);
+            }
+        }
+
+        let mut checked = 0;
+        let mut found = Vec::new();
+        for entry in ENTRIES {
+            walk(
+                &entry.build("did:plc:trough"),
+                entry.slug(),
+                &mut checked,
+                &mut found,
+            );
+        }
+        assert!(
+            checked > 0,
+            "no catalogue entry carries audio — the walk proved nothing"
+        );
+        assert!(
+            found.is_empty(),
+            "these sounds flip phase where they mean to fall quiet: {found:#?}"
+        );
+    }
+
     #[test]
     fn role_derives_expected_category() {
         use CatalogueCategory::*;

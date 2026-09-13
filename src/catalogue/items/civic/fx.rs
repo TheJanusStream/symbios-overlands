@@ -272,8 +272,8 @@ pub(super) fn smoke_plume(pos: [f32; 3], seed: u64) -> Generator {
 pub(super) fn fire_crackle() -> SovereignAudioConfig {
     FireCrackle {
         noise: 0.6,
-        pulse_hz: 7.0,
-        pulse_floor: 0.18,
+        pulse_hz: 14.0,
+        pulse: 0.485,
         pitch_hz: 1300.0,
         rumble_hz: 64.0,
         rumble: 0.2,

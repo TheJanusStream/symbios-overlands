@@ -70,8 +70,8 @@ pub(super) fn surf_wash() -> SovereignAudioConfig {
         NodeKind::Lfo(Lfo {
             rate_hz: 0.3,
             shape: LfoShape::Sine,
-            depth: 0.7,
-            offset: 0.3,
+            depth: 0.473,
+            offset: 0.473,
         }),
     );
     let mut bp_in = std::collections::BTreeMap::new();
@@ -139,8 +139,8 @@ pub(super) fn sea_breeze() -> SovereignAudioConfig {
         NodeKind::Lfo(Lfo {
             rate_hz: 0.2,
             shape: LfoShape::Sine,
-            depth: 0.5,
-            offset: 0.45,
+            depth: 0.469,
+            offset: 0.469,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();

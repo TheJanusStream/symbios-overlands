@@ -132,8 +132,8 @@ pub(super) fn campus_calm() -> SovereignAudioConfig {
         NodeKind::Lfo(Lfo {
             rate_hz: 0.18,
             shape: LfoShape::Sine,
-            depth: 0.5,
-            offset: 0.45,
+            depth: 0.468,
+            offset: 0.468,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();

@@ -121,8 +121,8 @@ pub(super) fn rising_embers(pos: [f32; 3], seed: u64) -> Generator {
 pub(super) fn fire_crackle() -> SovereignAudioConfig {
     FireCrackle {
         noise: 0.6,
-        pulse_hz: 6.5,
-        pulse_floor: 0.18,
+        pulse_hz: 13.0,
+        pulse: 0.494,
         pitch_hz: 1600.0,
         rumble_hz: 70.0,
         rumble: 0.18,
@@ -152,8 +152,8 @@ pub(super) fn wind_moan() -> SovereignAudioConfig {
         NodeKind::Lfo(Lfo {
             rate_hz: 0.25,
             shape: LfoShape::Sine,
-            depth: 0.45,
-            offset: 0.4,
+            depth: 0.42,
+            offset: 0.42,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();

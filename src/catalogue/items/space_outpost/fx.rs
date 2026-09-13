@@ -110,7 +110,7 @@ pub(super) fn reactor_hum() -> SovereignAudioConfig {
     patch(vec![low, harm, mix, lfo, vca], NodeId(4))
 }
 
-/// A pulsing radio static — mid band-passed noise gated by a slow uneven LFO,
+/// A pulsing radio static — mid band-passed noise gated by a slow LFO,
 /// the comms dish listening to the void.
 pub(super) fn comms_static() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.4 }));
@@ -129,8 +129,8 @@ pub(super) fn comms_static() -> SovereignAudioConfig {
         NodeKind::Lfo(Lfo {
             rate_hz: 3.0,
             shape: LfoShape::Sine,
-            depth: 0.7,
-            offset: 0.25,
+            depth: 0.453,
+            offset: 0.453,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();

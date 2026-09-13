@@ -58,8 +58,8 @@ pub(super) fn pollen_drift(pos: [f32; 3], seed: u64) -> Generator {
 // Spatial audio patches
 // ---------------------------------------------------------------------------
 
-/// A bright birdsong — high band-passed noise chittering on a quick uneven
-/// LFO, the dawn chorus over the gardens.
+/// A bright birdsong — high band-passed noise chittering on a quick LFO,
+/// the dawn chorus over the gardens.
 pub(super) fn birdsong() -> SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));
     // High band so the noise reads as chirps, not hiss.
@@ -73,14 +73,14 @@ pub(super) fn birdsong() -> SovereignAudioConfig {
         }),
         inputs: bp_in,
     };
-    // Quick uneven chirp gate.
+    // Quick chirp gate.
     let lfo = node(
         2,
         NodeKind::Lfo(Lfo {
-            rate_hz: 7.0,
+            rate_hz: 14.0,
             shape: LfoShape::Sine,
-            depth: 0.9,
-            offset: 0.1,
+            depth: 0.526,
+            offset: 0.526,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();
@@ -122,8 +122,8 @@ pub(super) fn breeze_calm() -> SovereignAudioConfig {
         NodeKind::Lfo(Lfo {
             rate_hz: 0.2,
             shape: LfoShape::Sine,
-            depth: 0.5,
-            offset: 0.45,
+            depth: 0.469,
+            offset: 0.469,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();

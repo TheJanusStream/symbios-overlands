@@ -144,8 +144,8 @@ pub(super) fn hearth_smoke(pos: [f32; 3], seed: u64) -> Generator {
 pub(super) fn fire_crackle() -> SovereignAudioConfig {
     FireCrackle {
         noise: 0.6,
-        pulse_hz: 6.5,
-        pulse_floor: 0.18,
+        pulse_hz: 13.0,
+        pulse: 0.494,
         pitch_hz: 1700.0,
         rumble_hz: 72.0,
         rumble: 0.18,

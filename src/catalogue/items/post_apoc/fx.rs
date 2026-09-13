@@ -105,8 +105,8 @@ pub(super) fn desolate_wind() -> SovereignAudioConfig {
         NodeKind::Lfo(Lfo {
             rate_hz: 0.18,
             shape: LfoShape::Sine,
-            depth: 0.55,
-            offset: 0.35,
+            depth: 0.422,
+            offset: 0.422,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();
@@ -125,8 +125,8 @@ pub(super) fn desolate_wind() -> SovereignAudioConfig {
 pub(super) fn fire_crackle() -> SovereignAudioConfig {
     FireCrackle {
         noise: 0.6,
-        pulse_hz: 7.0,
-        pulse_floor: 0.2,
+        pulse_hz: 14.0,
+        pulse: 0.49,
         pitch_hz: 1500.0,
         rumble_hz: 68.0,
         rumble: 0.16,

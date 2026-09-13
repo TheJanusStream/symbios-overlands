@@ -75,8 +75,8 @@ pub(super) fn bio_pulse() -> SovereignAudioConfig {
         NodeKind::Lfo(Lfo {
             rate_hz: 0.7,
             shape: LfoShape::Sine,
-            depth: 0.8,
-            offset: 0.2,
+            depth: -0.706,
+            offset: 0.706,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();
@@ -135,8 +135,8 @@ pub(super) fn eerie_whine() -> SovereignAudioConfig {
         NodeKind::Lfo(Lfo {
             rate_hz: 0.4,
             shape: LfoShape::Sine,
-            depth: 0.5,
-            offset: 0.45,
+            depth: 0.472,
+            offset: 0.472,
         }),
     );
     let mut vca_in = std::collections::BTreeMap::new();

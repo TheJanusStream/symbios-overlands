@@ -244,19 +244,18 @@ fn build_tree() -> Generator {
 }
 
 /// A slow iron creak, spatial at the ring: filtered noise squeaking
-/// through a high-Q bandpass, gated by a slow LFO so it is quiet most of
-/// each swing and speaks briefly at the turn — the cadence of a carried
-/// lamp rather than a machine hum. Patterned on the cyberpunk kit's
-/// gated patches (`electric_crackle`).
+/// through a high-Q bandpass, swelling from silence twice a second, once for
+/// each turn of the swing: the cadence of a carried lamp rather than a
+/// machine hum.
 fn lantern_creak() -> crate::pds::SovereignAudioConfig {
     let noise = node(0, NodeKind::WhiteNoise(WhiteNoise { amplitude: 0.5 }));
     let lfo = node(
         1,
         NodeKind::Lfo(Lfo {
-            rate_hz: 1.1,
+            rate_hz: 2.2,
             shape: LfoShape::Sine,
-            depth: 0.8,
-            offset: 0.12,
+            depth: 0.447,
+            offset: 0.447,
         }),
     );
     let mut bp_in = std::collections::BTreeMap::new();
