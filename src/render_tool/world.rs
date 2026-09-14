@@ -41,8 +41,8 @@ use crate::pds::avatar::wardrobe::engine_default_for_seed;
 use crate::pds::avatar::{AttachmentRecord, ResolvedAttachment};
 use crate::state::{CurrentRoomDid, LiveRoomRecord, LocalSettings};
 use crate::terrain::{FinishedHeightMap, RoadPanelStats, SplatApplied};
+use crate::world_builder::WorldCompiled;
 use crate::world_builder::compile::CompileJob;
-use crate::world_builder::{PendingSurfaceBakes, WorldCompiled};
 
 use super::headless::{ClipTiming, Clock, PendingWear, TileCam};
 use super::rig::Focus;
@@ -130,28 +130,26 @@ impl Walker {
     }
 }
 
-/// Procedural texture bakes still airborne, on either dispatch path (#1351).
+/// Procedural texture bakes still airborne (#1351).
 ///
 /// A material is spawned wearing a flat fallback colour and gets its maps
-/// patched in whenever its bake lands: on native that is the upstream
-/// `PendingTexture` task entity, consumed by
-/// `patch_procedural_material_textures`; on wasm (and nowhere else) it is a
-/// job in [`PendingSurfaceBakes`]. Neither is a frame count - the native
-/// bake runs on the texture crate's own rayon pool and lands when it lands -
-/// so a shutter that waits a fixed number of frames catches the fallback
-/// whenever the bake outlasts them, and the picture looks finished. The
-/// resource is optional because a bare sheet mode never inserts it; absent
-/// reads as nothing in flight, which is the truthful answer there.
+/// patched in whenever its bake lands: the upstream `PendingTexture` task
+/// entity, consumed by `patch_procedural_material_textures`. That is not a
+/// frame count - the bake runs on the texture crate's own rayon pool and
+/// lands when it lands - so a shutter that waits a fixed number of frames
+/// catches the fallback whenever the bake outlasts them, and the picture
+/// looks finished. Only the native task is counted: this tool is compiled
+/// for native targets alone, and the wasm offload path
+/// (`world_builder::surface_bake`) dispatches nothing here.
 #[derive(SystemParam)]
 pub(super) struct BakesInFlight<'w, 's> {
     native: Query<'w, 's, (), With<bevy_symbios_texture::async_gen::PendingTexture>>,
-    offloaded: Option<Res<'w, PendingSurfaceBakes>>,
 }
 
 impl BakesInFlight<'_, '_> {
     /// Bakes dispatched and not yet patched into their materials.
     pub(super) fn count(&self) -> usize {
-        self.native.iter().count() + self.offloaded.as_ref().map_or(0, |p| p.in_flight())
+        self.native.iter().count()
     }
 }
 
@@ -573,10 +571,9 @@ mod tests {
         );
     }
 
-    /// The shutter's bake gate (#1351) sees the native task entity for as
-    /// long as it exists - which is exactly as long as the upstream patch
-    /// system has not consumed it - and an absent or empty offload set adds
-    /// nothing.
+    /// The shutter's bake gate (#1351) sees the task entity for as long as
+    /// it exists - which is exactly as long as the upstream patch system
+    /// has not consumed it.
     #[test]
     fn bakes_in_flight_counts_the_native_task_until_it_is_consumed() {
         use bevy::ecs::system::RunSystemOnce;
@@ -597,8 +594,6 @@ mod tests {
         // What `patch_procedural_material_textures` does once the map lands.
         world.despawn(task);
         assert_eq!(count(&mut world), 0);
-        world.init_resource::<PendingSurfaceBakes>();
-        assert_eq!(count(&mut world), 0, "an empty offload set adds nothing");
     }
 
     #[test]

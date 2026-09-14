@@ -71,7 +71,7 @@ impl Quantizer {
         let stride = (total / FIT_SAMPLE_PIXELS).max(1);
         let mut sample = Vec::with_capacity((total / stride + 1) * 4);
         for frame in frames {
-            for px in frame.chunks_exact(4).step_by(stride) {
+            for px in frame.as_chunks::<4>().0.iter().step_by(stride) {
                 sample.extend_from_slice(&[px[0], px[1], px[2], 255]);
             }
         }
@@ -104,7 +104,7 @@ impl Quantizer {
     /// Map one RGBA frame to palette indices, dithered.
     fn quantize(&mut self, rgba: &[u8], width: usize) -> Vec<u8> {
         let mut out = Vec::with_capacity(rgba.len() / 4);
-        for (i, px) in rgba.chunks_exact(4).enumerate() {
+        for (i, px) in rgba.as_chunks::<4>().0.iter().enumerate() {
             let (x, y) = (i % width, i / width);
             let offset = ((BAYER[y & 7][x & 7] as f32 + 0.5) / 64.0 - 0.5) * self.dither;
             let d = |c: u8| (c as f32 + offset).round().clamp(0.0, 255.0) as u8;
@@ -339,7 +339,7 @@ mod tests {
         // The repeat frame is entirely the transparent slot: alpha 0 in RGBA
         // output, because nothing changed.
         assert_eq!(decoded[1].0, Some(TRANSPARENT));
-        assert!(decoded[1].1.chunks_exact(4).all(|px| px[3] == 0));
+        assert!(decoded[1].1.as_chunks::<4>().0.iter().all(|px| px[3] == 0));
         assert!(
             near(&decoded[2].1[..4], [30, 30, 200]),
             "{:?}",
@@ -395,9 +395,14 @@ mod tests {
         let mut canvas = vec![0u8; (w * h * 4) as usize];
         let mut reds = Vec::new();
         while let Some(f) = dec.read_next_frame().unwrap() {
-            for (px, src) in canvas.chunks_exact_mut(4).zip(f.buffer.chunks_exact(4)) {
+            for (px, src) in canvas
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .zip(f.buffer.as_chunks::<4>().0)
+            {
                 if src[3] != 0 {
-                    px.copy_from_slice(src);
+                    *px = *src;
                 }
             }
             reds.push(canvas[0]);

@@ -41,15 +41,6 @@ pub struct PendingSurfaceBakes {
     jobs: HashMap<TextureCacheKey, PendingBake>,
 }
 
-impl PendingSurfaceBakes {
-    /// Bakes dispatched and not yet landed. The render tool's shutter waits
-    /// on this (#1351): a material whose bake is airborne wears its flat
-    /// fallback colour, and a picture of that looks finished.
-    pub fn in_flight(&self) -> usize {
-        self.jobs.len()
-    }
-}
-
 /// One airborne bake and every material waiting on it.
 struct PendingBake {
     task: Task<GenResult>,
